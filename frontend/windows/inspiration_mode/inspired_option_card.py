@@ -36,6 +36,7 @@ class InspiredOptionCard(ThemeAwareWidget):
         super().__init__(parent)
         self.option_data = option_data
         self.is_selected = False
+        self.is_disabled = False  # 禁用状态
         self.setupUI()
 
         # 设置鼠标光标为手型
@@ -97,26 +98,46 @@ class InspiredOptionCard(ThemeAwareWidget):
         is_dark = theme_manager.is_dark_mode()
 
         # 卡片基础样式
-        border_color = theme_manager.ACCENT_PRIMARY if self.is_selected else theme_manager.BORDER_LIGHT
-        border_width = "2px" if self.is_selected else "1px"
+        if self.is_disabled:
+            # 禁用状态 - 降低透明度，移除交互效果
+            border_color = theme_manager.BORDER_LIGHT
+            border_width = "1px"
+            bg_color = theme_manager.BG_TERTIARY if is_dark else "#F3F4F6"
+            opacity = "0.6"
 
-        bg_color = theme_manager.BG_SECONDARY if is_dark else "#FFFFFF"
-        hover_bg = theme_manager.BG_PRIMARY if is_dark else "#F9FAFB"
+            self.setStyleSheet(f"""
+                InspiredOptionCard {{
+                    background: {bg_color};
+                    border: {border_width} solid {border_color};
+                    border-radius: {theme_manager.RADIUS_MD};
+                    padding: 0;
+                }}
+            """)
+            # 禁用时移除手型光标
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        else:
+            border_color = theme_manager.ACCENT_PRIMARY if self.is_selected else theme_manager.BORDER_LIGHT
+            border_width = "2px" if self.is_selected else "1px"
 
-        self.setStyleSheet(f"""
-            InspiredOptionCard {{
-                background: {bg_color};
-                border: {border_width} solid {border_color};
-                border-radius: {theme_manager.RADIUS_MD};
-                padding: 0;
-            }}
+            bg_color = theme_manager.BG_SECONDARY if is_dark else "#FFFFFF"
+            hover_bg = theme_manager.BG_PRIMARY if is_dark else "#F9FAFB"
 
-            InspiredOptionCard:hover {{
-                background: {hover_bg};
-                border-color: {theme_manager.ACCENT_PRIMARY};
-                border-width: 2px;
-            }}
-        """)
+            self.setStyleSheet(f"""
+                InspiredOptionCard {{
+                    background: {bg_color};
+                    border: {border_width} solid {border_color};
+                    border-radius: {theme_manager.RADIUS_MD};
+                    padding: 0;
+                }}
+
+                InspiredOptionCard:hover {{
+                    background: {hover_bg};
+                    border-color: {theme_manager.ACCENT_PRIMARY};
+                    border-width: 2px;
+                }}
+            """)
+            # 启用时恢复手型光标
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         # 编号标签样式
         self.number_label.setStyleSheet(f"""
@@ -164,6 +185,10 @@ class InspiredOptionCard(ThemeAwareWidget):
 
     def mousePressEvent(self, event):
         """鼠标点击事件"""
+        # 禁用状态时忽略点击
+        if self.is_disabled:
+            return
+
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_selected = True
             self.refresh_theme()
@@ -176,6 +201,11 @@ class InspiredOptionCard(ThemeAwareWidget):
     def set_selected(self, selected: bool):
         """设置选中状态"""
         self.is_selected = selected
+        self.refresh_theme()
+
+    def set_disabled(self, disabled: bool):
+        """设置禁用状态"""
+        self.is_disabled = disabled
         self.refresh_theme()
 
 
@@ -200,6 +230,7 @@ class InspiredOptionsContainer(ThemeAwareWidget):
         self.options_data = options_data
         self.cards = []
         self.selected_card = None
+        self.is_locked = False  # 锁定状态
         self.setupUI()
 
     def _create_ui_structure(self):
@@ -217,6 +248,10 @@ class InspiredOptionsContainer(ThemeAwareWidget):
 
     def on_card_clicked(self, option_id: str, label: str):
         """处理卡片点击事件"""
+        # 如果已锁定，忽略点击
+        if self.is_locked:
+            return
+
         # 取消其他卡片的选中状态
         for card in self.cards:
             if card.option_data.get('id') != option_id:
@@ -224,6 +259,13 @@ class InspiredOptionsContainer(ThemeAwareWidget):
 
         # 发射选择信号
         self.option_selected.emit(option_id, label)
+
+    def lock(self):
+        """锁定选项容器，禁止再次选择"""
+        self.is_locked = True
+        # 禁用所有卡片
+        for card in self.cards:
+            card.set_disabled(True)
 
     def _apply_theme(self):
         """更新主题样式"""

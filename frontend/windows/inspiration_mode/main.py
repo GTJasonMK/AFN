@@ -37,6 +37,7 @@ class InspirationMode(BasePage):
         self.blueprint_worker = None  # 蓝图生成工作线程
         self.current_ai_bubble = None  # 当前正在接收流式内容的AI气泡
         self.is_conversation_complete = False  # 对话是否完成
+        self._current_options_container = None  # 当前选项容器（用于选择后锁定）
 
         self.setupUI()
 
@@ -406,8 +407,28 @@ class InspirationMode(BasePage):
                 self.initConversation()
                 return
 
+            # 预处理：找出所有用户选择消息的索引，用于判断哪些选项需要锁定
+            user_selection_indices = set()
+            for i, record in enumerate(history):
+                role = record.get('role')
+                content = record.get('content')
+                if role == 'user' and content:
+                    try:
+                        import json
+                        data = json.loads(content)
+                        user_msg = None
+                        if isinstance(data, dict):
+                            user_msg = data.get('message') or data.get('value')
+                        elif isinstance(data, str):
+                            user_msg = data
+                        # 检查是否是选择消息
+                        if user_msg and user_msg.startswith('选择：'):
+                            user_selection_indices.add(i)
+                    except:
+                        pass
+
             # 逐条恢复对话气泡
-            for record in history:
+            for i, record in enumerate(history):
                 role = record.get('role')
                 content = record.get('content')
 
@@ -447,7 +468,9 @@ class InspirationMode(BasePage):
                         if ui_control.get('type') == 'inspired_options':
                             options_data = ui_control.get('options', [])
                             if options_data:
-                                self._add_inspired_options(options_data)
+                                # 检查下一条消息是否是用户选择，如果是则锁定选项
+                                should_lock = (i + 1) in user_selection_indices
+                                self._add_inspired_options(options_data, locked=should_lock)
 
                         # 更新对话完成状态
                         if data.get('is_complete'):
@@ -568,6 +591,11 @@ class InspirationMode(BasePage):
         self.current_worker = None
         self.current_ai_bubble = None
 
+        # 流成功完成，锁定之前的选项容器（如果有）
+        if self._current_options_container:
+            self._current_options_container.lock()
+            self._current_options_container = None
+
         # 检查是否有UI控件（灵感选项）
         ui_control = metadata.get('ui_control', {})
         control_type = ui_control.get('type')
@@ -597,6 +625,9 @@ class InspirationMode(BasePage):
         # 清理worker引用
         self.current_worker = None
 
+        # 注意：不锁定选项容器，允许用户重新选择
+        # _current_options_container 保持不变
+
         # 显示错误消息
         MessageService.show_error(self, f"对话失败：{error_msg}", "错误")
 
@@ -609,14 +640,26 @@ class InspirationMode(BasePage):
         # 启用输入
         self.input_widget.setEnabled(True)
 
-    def _add_inspired_options(self, options_data):
-        """添加灵感选项卡片"""
+    def _add_inspired_options(self, options_data, locked=False):
+        """添加灵感选项卡片
+
+        Args:
+            options_data: 选项数据列表
+            locked: 是否锁定（用于恢复历史记录时已选择的选项）
+        """
         # 创建选项容器
         options_container = InspiredOptionsContainer(options_data)
         options_container.option_selected.connect(self._on_option_selected)
 
+        # 如果是锁定状态（恢复历史），直接锁定
+        if locked:
+            options_container.lock()
+
         # 添加到对话历史（在stretch之前）
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, options_container)
+
+        # 保存当前选项容器引用（用于选择后锁定）
+        self._current_options_container = options_container
 
         # 滚动到底部
         QTimer.singleShot(200, lambda: self.chat_scroll.verticalScrollBar().setValue(
@@ -625,6 +668,10 @@ class InspirationMode(BasePage):
 
     def _on_option_selected(self, option_id, option_label):
         """用户选择了某个灵感选项"""
+        # 注意：不立即锁定，等待SSE流成功完成后再锁定
+        # 保存当前选项容器引用，用于成功后锁定
+        # （_current_options_container 在 _add_inspired_options 中已设置）
+
         # 自动发送选择的选项作为用户消息
         message = f"选择：{option_label}"
         self.onMessageSent(message)
