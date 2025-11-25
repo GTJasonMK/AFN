@@ -1,0 +1,183 @@
+"""
+样式工具函数 - 提供可复用的样式定义
+
+用法：
+    from utils.style_utils import primary_button_style, card_container_style
+
+    button.setStyleSheet(primary_button_style())
+    card.setStyleSheet(card_container_style())
+"""
+
+from themes.theme_manager import theme_manager
+
+
+def primary_button_style() -> str:
+    """主按钮样式"""
+    return f"""
+        QPushButton {{
+            background-color: {theme_manager.ACCENT_PRIMARY};
+            color: white;
+            border: none;
+            border-radius: {theme_manager.RADIUS_SM};
+            padding: 10px 20px;
+            font-size: {theme_manager.FONT_SIZE_SM};
+            font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
+            min-height: 32px;
+        }}
+        QPushButton:hover {{
+            background-color: {theme_manager.ACCENT_TERTIARY};
+        }}
+        QPushButton:pressed {{
+            background-color: {theme_manager.ACCENT_SECONDARY};
+        }}
+        QPushButton:focus {{
+            border: 2px solid {theme_manager.ACCENT_SECONDARY};
+            outline: none;
+        }}
+        QPushButton:disabled {{
+            background-color: {theme_manager.BG_TERTIARY};
+            color: {theme_manager.TEXT_DISABLED};
+        }}
+    """
+
+
+def secondary_button_style() -> str:
+    """次要按钮样式"""
+    return f"""
+        QPushButton {{
+            background-color: {theme_manager.BG_SECONDARY};
+            color: {theme_manager.TEXT_PRIMARY};
+            border: 1px solid {theme_manager.BORDER_DEFAULT};
+            border-radius: {theme_manager.RADIUS_SM};
+            padding: 10px 20px;
+            font-size: {theme_manager.FONT_SIZE_SM};
+            font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
+            min-height: 32px;
+        }}
+        QPushButton:hover {{
+            background-color: {theme_manager.ACCENT_PALE};
+            border-color: {theme_manager.ACCENT_PRIMARY};
+        }}
+        QPushButton:focus {{
+            border: 2px solid {theme_manager.ACCENT_PRIMARY};
+            background-color: {theme_manager.ACCENT_PALE};
+            outline: none;
+        }}
+        QPushButton:disabled {{
+            background-color: {theme_manager.BG_TERTIARY};
+            color: {theme_manager.TEXT_DISABLED};
+            border-color: {theme_manager.BORDER_LIGHT};
+        }}
+    """
+
+
+def text_button_style() -> str:
+    """文本按钮样式"""
+    return f"""
+        QPushButton {{
+            background-color: transparent;
+            color: {theme_manager.TEXT_SECONDARY};
+            border: none;
+            border-radius: {theme_manager.RADIUS_SM};
+            padding: 8px 12px;
+            font-size: {theme_manager.FONT_SIZE_SM};
+            min-height: 32px;
+        }}
+        QPushButton:hover {{
+            background-color: {theme_manager.ACCENT_PALE};
+            color: {theme_manager.TEXT_PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background-color: {theme_manager.BG_TERTIARY};
+        }}
+    """
+
+
+def card_container_style() -> str:
+    """卡片容器样式"""
+    return f"""
+        QFrame {{
+            background-color: {theme_manager.BG_CARD};
+            border: 1px solid {theme_manager.BORDER_LIGHT};
+            border-radius: {theme_manager.RADIUS_MD};
+            padding: 24px;
+        }}
+    """
+
+
+def input_field_style() -> str:
+    """输入框样式"""
+    return f"""
+        QLineEdit, QTextEdit {{
+            background-color: {theme_manager.BG_CARD};
+            color: {theme_manager.TEXT_PRIMARY};
+            border: 1px solid {theme_manager.BORDER_DEFAULT};
+            border-radius: {theme_manager.RADIUS_SM};
+            padding: 8px 12px;
+            font-size: {theme_manager.FONT_SIZE_BASE};
+            selection-background-color: {theme_manager.ACCENT_PALE};
+        }}
+        QLineEdit:focus, QTextEdit:focus {{
+            border: 2px solid {theme_manager.ACCENT_PRIMARY};
+            outline: none;
+        }}
+        QLineEdit:disabled, QTextEdit:disabled {{
+            background-color: {theme_manager.BG_TERTIARY};
+            color: {theme_manager.TEXT_DISABLED};
+        }}
+    """
+
+
+def scrollbar_style() -> str:
+    """滚动条样式 - 使用 theme_manager 的实现"""
+    return theme_manager.scrollbar()
+
+
+def clear_layout(layout):
+    """清空布局中的所有组件
+
+    Args:
+        layout: 要清空的布局对象
+
+    用法：
+        from utils.style_utils import clear_layout
+        clear_layout(self.layout())
+    """
+    if layout is None:
+        return
+
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+        elif item.layout():
+            clear_layout(item.layout())
+
+
+def apply_hover_effect(widget, hover_style: str, normal_style: str):
+    """为widget添加hover效果
+
+    Args:
+        widget: 要添加效果的widget
+        hover_style: hover时的样式
+        normal_style: 正常状态的样式
+
+    注意：这是一个简化的实现，复杂的hover效果建议使用enterEvent/leaveEvent
+    """
+    widget.setStyleSheet(normal_style)
+
+    original_enter = widget.enterEvent if hasattr(widget, 'enterEvent') else None
+    original_leave = widget.leaveEvent if hasattr(widget, 'leaveEvent') else None
+
+    def enter_event(event):
+        widget.setStyleSheet(hover_style)
+        if original_enter:
+            original_enter(event)
+
+    def leave_event(event):
+        widget.setStyleSheet(normal_style)
+        if original_leave:
+            original_leave(event)
+
+    widget.enterEvent = enter_event
+    widget.leaveEvent = leave_event

@@ -1,0 +1,214 @@
+"""
+统一异常体系
+
+提供业务逻辑层的异常定义，避免直接使用HTTPException。
+所有异常都会被全局异常处理器捕获并转换为HTTP响应。
+"""
+
+from typing import Optional
+
+
+class ArborisException(Exception):
+    """
+    Arboris基础异常类
+
+    所有业务异常的基类，会被全局异常处理器捕获。
+
+    Attributes:
+        message: 错误消息（面向用户）
+        status_code: HTTP状态码
+        detail: 详细错误信息（可选，用于日志）
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+        detail: Optional[str] = None
+    ):
+        self.message = message
+        self.status_code = status_code
+        self.detail = detail or message
+        super().__init__(self.message)
+
+
+# ==================== 4xx 客户端错误 ====================
+
+
+class ResourceNotFoundError(ArborisException):
+    """资源不存在（404）"""
+
+    def __init__(self, resource: str, identifier: str):
+        super().__init__(
+            message=f"{resource}不存在",
+            status_code=404,
+            detail=f"{resource}不存在: {identifier}"
+        )
+
+
+class PermissionDeniedError(ArborisException):
+    """权限不足（403）"""
+
+    def __init__(self, message: str = "无权访问该资源"):
+        super().__init__(message=message, status_code=403)
+
+
+class InvalidParameterError(ArborisException):
+    """参数错误（400）"""
+
+    def __init__(self, message: str, parameter: Optional[str] = None):
+        detail = f"参数错误: {parameter} - {message}" if parameter else message
+        super().__init__(
+            message=message,
+            status_code=400,
+            detail=detail
+        )
+
+
+class InvalidStateTransitionError(ArborisException):
+    """非法状态转换（400）"""
+
+    def __init__(self, current_status: str, target_status: str, allowed: str):
+        message = f"非法的状态转换: {current_status} → {target_status}"
+        detail = f"{message}. 当前状态只能转换到: {allowed}"
+        super().__init__(
+            message=message,
+            status_code=400,
+            detail=detail
+        )
+
+
+class ConflictError(ArborisException):
+    """资源冲突（409）"""
+
+    def __init__(self, message: str):
+        super().__init__(message=message, status_code=409)
+
+
+# ==================== 5xx 服务端错误 ====================
+
+
+class LLMServiceError(ArborisException):
+    """LLM服务错误（503）"""
+
+    def __init__(self, message: str, provider: Optional[str] = None):
+        detail = f"LLM服务错误 [{provider}]: {message}" if provider else f"LLM服务错误: {message}"
+        super().__init__(
+            message="AI服务暂时不可用，请稍后重试",
+            status_code=503,
+            detail=detail
+        )
+
+
+class LLMConfigurationError(ArborisException):
+    """LLM配置错误（500）"""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message="LLM配置错误",
+            status_code=500,
+            detail=message
+        )
+
+
+class VectorStoreError(ArborisException):
+    """向量库错误（503）"""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message="向量检索服务暂时不可用",
+            status_code=503,
+            detail=f"向量库错误: {message}"
+        )
+
+
+class DatabaseError(ArborisException):
+    """数据库错误（500）"""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message="数据库操作失败",
+            status_code=500,
+            detail=message
+        )
+
+
+class JSONParseError(ArborisException):
+    """JSON解析错误（500）"""
+
+    def __init__(self, context: str):
+        super().__init__(
+            message=f"{context}: 格式错误",
+            status_code=500,
+            detail=f"JSON解析失败: {context}"
+        )
+
+
+# ==================== 业务逻辑异常 ====================
+
+
+class GenerationCancelledError(ArborisException):
+    """生成任务被取消（400）"""
+
+    def __init__(self, task_name: str, task_id: Optional[str] = None):
+        detail = f"{task_name}（{task_id}）已被取消" if task_id else f"{task_name}已被取消"
+        super().__init__(
+            message=f"{task_name}已取消",
+            status_code=400,
+            detail=detail
+        )
+
+
+class DailyLimitExceededError(ArborisException):
+    """超出每日限额（429）"""
+
+    def __init__(self, limit: int, used: int):
+        super().__init__(
+            message=f"已达到每日LLM调用限额（{used}/{limit}）",
+            status_code=429,
+            detail=f"每日限额: {limit}, 已使用: {used}"
+        )
+
+
+class BlueprintNotReadyError(ArborisException):
+    """蓝图未生成（400）"""
+
+    def __init__(self, project_id: str):
+        super().__init__(
+            message="项目蓝图尚未生成，请先完成灵感对话",
+            status_code=400,
+            detail=f"项目 {project_id} 蓝图未生成"
+        )
+
+
+class ChapterNotGeneratedError(ArborisException):
+    """章节未生成（400）"""
+
+    def __init__(self, project_id: str, chapter_number: int):
+        super().__init__(
+            message=f"第{chapter_number}章尚未生成",
+            status_code=400,
+            detail=f"项目 {project_id} 第 {chapter_number} 章未生成"
+        )
+
+
+class PromptTemplateNotFoundError(ArborisException):
+    """提示词模板不存在（500）"""
+
+    def __init__(self, prompt_type: str):
+        super().__init__(
+            message=f"缺少{prompt_type}提示词模板",
+            status_code=500,
+            detail=f"提示词模板不存在: {prompt_type}"
+        )
+
+
+class ConversationExtractionError(ArborisException):
+    """对话历史提取失败（400）"""
+
+    def __init__(self, project_id: str, reason: str = "无法从历史对话中提取有效内容"):
+        super().__init__(
+            message="对话历史格式错误，请重新开始对话",
+            status_code=400,
+            detail=f"项目 {project_id}: {reason}"
+        )

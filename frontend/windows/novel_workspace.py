@@ -1,0 +1,822 @@
+"""
+项目列表窗口 - 现代美学设计
+
+设计原则：
+- 玻璃态卡片效果
+- 渐变色彩系统
+- SVG图标系统
+- 流畅动画和过渡效果
+"""
+
+import logging
+from collections import deque
+from PyQt6.QtWidgets import (
+    QWidget, QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QScrollArea, QGraphicsOpacityEffect,
+    QGraphicsDropShadowEffect
+)
+from PyQt6.QtCore import pyqtSignal, Qt, QRect, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtGui import QFont, QColor
+from api.client import ArborisAPIClient
+from pages.base_page import BasePage
+from components.base import ThemeAwareFrame
+from themes.theme_manager import theme_manager
+from themes.modern_effects import ModernEffects
+from themes.svg_icons import SVGIcons
+from themes import ButtonStyles
+from utils.dpi_utils import dpi_helper, dp, sp
+from utils.formatters import get_project_status_text
+from utils.message_service import MessageService, confirm
+
+logger = logging.getLogger(__name__)
+
+
+class ProjectCard(ThemeAwareFrame):
+    """现代项目卡片 - 玻璃态设计
+
+    特点：
+    - 玻璃态卡片效果
+    - 渐变图标背景
+    - 流畅hover动画
+    - 优雅阴影效果
+
+    使用 ThemeAwareFrame 基类避免信号重复连接
+    """
+
+    viewDetailsClicked = pyqtSignal(str)
+    continueWritingClicked = pyqtSignal(str)
+    deleteClicked = pyqtSignal(str)
+
+    def __init__(self, project_data, parent=None):
+        self.project_data = project_data
+        self.is_hovering = False
+        self.original_y = None  # 记录原始y坐标用于动画
+
+        # 初始化动画对象
+        self.opacity_animation = None
+        self.move_animation = None
+
+        # 预计算的StyleSheet缓存（在update_theme中生成）
+        self._stylesheet_normal = ""
+        self._stylesheet_hover = ""
+
+        # 保存组件引用（在 _create_ui_structure 中创建）
+        self.icon_container = None
+        self.icon_label = None
+        self.title_label = None
+        self.meta_label = None
+        self.time_label = None
+        self.progress_label = None
+        self.percent_label = None
+        self.progress_bar_bg = None
+        self.progress_bar_fill = None
+        self.genre_tag = None
+        self.chapter_tag = None
+        self.buttons_container = None
+        self.buttons_opacity = None
+        self.view_btn = None
+        self.delete_btn = None
+        self.continue_btn = None
+
+        super().__init__(parent)
+        self.setupUI()
+
+    def _create_ui_structure(self):
+        """创建UI结构（只调用一次）"""
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setMinimumHeight(dp(240))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+        layout.setSpacing(dp(16))
+
+        # 顶部：图标 + 标题区域
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(dp(16))
+
+        # 渐变图标容器
+        self.icon_container = QFrame()
+        self.icon_container.setFixedSize(dp(48), dp(48))
+        icon_layout = QVBoxLayout(self.icon_container)
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+        icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # 使用SVG图标
+        self.icon_label = QLabel()
+        icon_svg = SVGIcons.book(dp(28), "white")
+        self.icon_label.setText(icon_svg)
+        self.icon_label.setTextFormat(Qt.TextFormat.RichText)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_layout.addWidget(self.icon_label)
+
+        header_layout.addWidget(self.icon_container)
+
+        # 标题 + 元数据
+        title_container = QWidget()
+        title_layout = QVBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(6)
+
+        # 标题
+        self.title_label = QLabel(self.project_data.get('title', '未命名项目'))
+        self.title_label.setWordWrap(True)
+        self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        title_layout.addWidget(self.title_label)
+
+        # 类型 + 状态
+        genre = self.project_data.get('blueprint', {}).get('genre', '未知类型')
+        status = self.project_data.get('status', 'draft')
+        meta_text = f"{genre}  ·  {get_project_status_text(status)}"
+        self.meta_label = QLabel(meta_text)
+        title_layout.addWidget(self.meta_label)
+
+        # 最后编辑时间
+        updated_at = self.project_data.get('updated_at', '')[:10] if self.project_data.get('updated_at') else '未知'
+        self.time_label = QLabel(f"最后编辑: {updated_at}")
+        title_layout.addWidget(self.time_label)
+
+        header_layout.addWidget(title_container, stretch=1)
+        layout.addLayout(header_layout)
+
+        # 进度条
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(6)
+
+        # 进度文本
+        total_chapters = self.project_data.get('total_chapters', 0)
+        completed_chapters = self.project_data.get('completed_chapters', 0)
+        self.progress_percent = int((completed_chapters / total_chapters * 100) if total_chapters > 0 else 0)
+
+        progress_text_layout = QHBoxLayout()
+        progress_text_layout.setContentsMargins(0, 0, 0, 0)
+        self.progress_label = QLabel("完成进度")
+        progress_text_layout.addWidget(self.progress_label)
+        progress_text_layout.addStretch()
+        self.percent_label = QLabel(f"{self.progress_percent}%")
+        progress_text_layout.addWidget(self.percent_label)
+        progress_layout.addLayout(progress_text_layout)
+
+        # 进度条
+        self.progress_bar_bg = QFrame()
+        self.progress_bar_bg.setFixedHeight(8)
+
+        self.progress_bar_fill = QFrame(self.progress_bar_bg)
+        self.progress_bar_fill.setFixedHeight(8)
+        # 进度条宽度在显示时计算
+        self.progress_bar_fill.setFixedWidth(0)
+
+        progress_layout.addWidget(self.progress_bar_bg)
+        layout.addWidget(progress_container)
+
+        # 标签（类型、章节数）
+        tags_layout = QHBoxLayout()
+        tags_layout.setSpacing(10)
+
+        if genre != '未知类型':
+            self.genre_tag = QLabel(genre)
+            tags_layout.addWidget(self.genre_tag)
+
+        if total_chapters > 0:
+            self.chapter_tag = QLabel(f"{completed_chapters}/{total_chapters} 章")
+            tags_layout.addWidget(self.chapter_tag)
+
+        tags_layout.addStretch()
+        layout.addLayout(tags_layout)
+
+        layout.addStretch()
+
+        # 底部按钮区域（hover时显示）
+        self.buttons_container = QWidget()
+        buttons_layout = QHBoxLayout(self.buttons_container)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(10)
+
+        # 查看详情按钮
+        self.view_btn = QPushButton("查看详情")
+        self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
+        buttons_layout.addWidget(self.view_btn, stretch=1)
+
+        # 删除按钮
+        self.delete_btn = QPushButton("删除")
+        self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.delete_btn.clicked.connect(lambda: self.deleteClicked.emit(self.project_data['id']))
+        # 移除固定宽度限制，让按钮根据内容自动调整
+        buttons_layout.addWidget(self.delete_btn)
+
+        # 继续按钮 - 根据项目状态显示不同文本和行为
+        # 只有已生成蓝图的项目才显示"继续创作"，否则显示"继续灵感模式"
+        project_status = self.project_data.get('status', '')
+        # 蓝图后的状态列表（这些状态表示项目已有蓝图）
+        blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
+
+        if project_status in blueprint_ready_states:
+            # 已有蓝图，显示"继续创作"
+            self.continue_btn = QPushButton("继续创作")
+            self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.continue_btn.clicked.connect(lambda: self.continueWritingClicked.emit(self.project_data['id']))
+        else:
+            # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
+            self.continue_btn = QPushButton("继续灵感模式")
+            self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.continue_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
+        buttons_layout.addWidget(self.continue_btn, stretch=1)
+
+        layout.addWidget(self.buttons_container)
+
+        # 设置按钮初始隐藏
+        self.buttons_opacity = QGraphicsOpacityEffect(self.buttons_container)
+        self.buttons_opacity.setOpacity(0)
+        self.buttons_container.setGraphicsEffect(self.buttons_opacity)
+
+    def _apply_theme(self):
+        """应用主题样式（可多次调用）"""
+        # 图标容器 - 渐变背景
+        if self.icon_container:
+            # 简化的图标容器样式
+            self.icon_container.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {theme_manager.BG_SECONDARY};
+                    border: 1px solid {theme_manager.BORDER_DEFAULT};
+                    border-radius: {dp(24)}px;
+                }}
+            """)
+
+        # 标题 - 增强字重和间距
+        if self.title_label:
+            self.title_label.setStyleSheet(f"""
+                font-size: {sp(18)}px;
+                font-weight: 700;
+                color: {theme_manager.TEXT_PRIMARY};
+                letter-spacing: 0.02em;
+            """)
+
+        # 元数据
+        if self.meta_label:
+            self.meta_label.setStyleSheet(f"""
+                font-size: {sp(14)}px;
+                color: {theme_manager.TEXT_SECONDARY};
+                opacity: 0.9;
+            """)
+
+        # 时间
+        if self.time_label:
+            self.time_label.setStyleSheet(f"""
+                font-size: {sp(13)}px;
+                color: {theme_manager.TEXT_TERTIARY};
+                opacity: 0.8;
+            """)
+
+        # 进度标签
+        if self.progress_label:
+            self.progress_label.setStyleSheet(f"""
+                font-size: {sp(14)}px;
+                color: {theme_manager.TEXT_SECONDARY};
+                font-weight: 500;
+            """)
+
+        if self.percent_label:
+            # 渐变文字色（如果百分比高）
+            percent_color = theme_manager.SUCCESS if self.progress_percent > 70 else theme_manager.PRIMARY
+            self.percent_label.setStyleSheet(f"""
+                font-size: {sp(14)}px;
+                color: {percent_color};
+                font-weight: 600;
+            """)
+
+        # 进度条背景 - 玻璃态
+        if self.progress_bar_bg:
+            self.progress_bar_bg.setStyleSheet(f"""
+                background-color: {theme_manager.BG_TERTIARY};
+                border-radius: {dp(4)}px;
+                opacity: 0.6;
+            """)
+
+        # 进度条填充 - 简化样式
+        if self.progress_bar_fill:
+            self.progress_bar_fill.setStyleSheet(f"""
+                background-color: {theme_manager.PRIMARY if self.progress_percent < 70 else theme_manager.SUCCESS};
+                border-radius: {dp(4)}px;
+            """)
+
+        # 标签 - 简化样式
+        if self.genre_tag:
+            self.genre_tag.setStyleSheet(f"""
+                background-color: {theme_manager.ACCENT};
+                color: {theme_manager.BUTTON_TEXT};
+                padding: {dp(4)}px {dp(12)}px;
+                border-radius: {dp(4)}px;
+                font-size: {sp(12)}px;
+                font-weight: 600;
+            """)
+
+        if self.chapter_tag:
+            self.chapter_tag.setStyleSheet(f"""
+                background-color: {theme_manager.SUCCESS};
+                color: {theme_manager.BUTTON_TEXT};
+                padding: {dp(4)}px {dp(12)}px;
+                border-radius: {dp(4)}px;
+                font-size: {sp(12)}px;
+                font-weight: 600;
+            """)
+
+        # 按钮样式 - 现代化设计（统一使用小号样式）
+        if self.view_btn:
+            self.view_btn.setStyleSheet(ButtonStyles.glass('SM'))
+
+        if self.delete_btn:
+            self.delete_btn.setStyleSheet(ButtonStyles.danger('SM'))
+
+        if self.continue_btn:
+            self.continue_btn.setStyleSheet(ButtonStyles.primary('SM'))
+
+        # 预计算卡片样式 - 避免hover时重复构建
+        # 注意：Qt StyleSheet 不支持 box-shadow、transform 等 CSS3 属性
+        # hover效果通过 QPropertyAnimation 实现（见 enterEvent/leaveEvent）
+        self._stylesheet_normal = f"""
+            ProjectCard {{
+                {ModernEffects.glassmorphism_card(theme_manager.is_dark_mode())}
+                border: 1px solid {theme_manager.BORDER_LIGHT};
+                border-radius: {theme_manager.RADIUS_MD};
+            }}
+        """
+        self._stylesheet_hover = f"""
+            ProjectCard {{
+                {ModernEffects.glassmorphism_card(theme_manager.is_dark_mode())}
+                border: 2px solid {theme_manager.PRIMARY};
+                border-radius: {theme_manager.RADIUS_LG};
+            }}
+        """
+
+        # 应用当前状态的样式
+        if self.is_hovering:
+            self.setStyleSheet(self._stylesheet_hover)
+        else:
+            self.setStyleSheet(self._stylesheet_normal)
+
+    def enterEvent(self, event):
+        """鼠标进入 - 优雅动画"""
+        self.is_hovering = True
+
+        # 记录原始位置（首次记录）
+        if self.original_y is None:
+            self.original_y = self.geometry().y()
+
+        # 按钮渐显 - 先停止旧动画
+        if self.buttons_opacity:
+            if self.opacity_animation and self.opacity_animation.state() == QPropertyAnimation.State.Running:
+                self.opacity_animation.stop()
+
+            self.opacity_animation = QPropertyAnimation(self.buttons_opacity, b"opacity")
+            self.opacity_animation.setDuration(200)
+            self.opacity_animation.setStartValue(0)
+            self.opacity_animation.setEndValue(1)
+            self.opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.opacity_animation.start()
+
+        # 卡片上移 - 先停止旧动画
+        if self.move_animation and self.move_animation.state() == QPropertyAnimation.State.Running:
+            self.move_animation.stop()
+
+        self.move_animation = QPropertyAnimation(self, b"geometry")
+        self.move_animation.setDuration(200)
+        current_geo = self.geometry()
+        target_geo = QRect(
+            current_geo.x(),
+            self.original_y - dp(4),  # 基于原始位置上移4像素
+            current_geo.width(),
+            current_geo.height()
+        )
+        self.move_animation.setEndValue(target_geo)
+        self.move_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.move_animation.start()
+
+        # 更新样式 - 使用预计算的样式
+        self.setStyleSheet(self._stylesheet_hover)
+
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """鼠标离开 - 恢复原位"""
+        self.is_hovering = False
+
+        # 如果没有记录原始位置，直接返回
+        if self.original_y is None:
+            super().leaveEvent(event)
+            return
+
+        # 按钮渐隐 - 先停止旧动画
+        if self.buttons_opacity:
+            if self.opacity_animation and self.opacity_animation.state() == QPropertyAnimation.State.Running:
+                self.opacity_animation.stop()
+
+            self.opacity_animation = QPropertyAnimation(self.buttons_opacity, b"opacity")
+            self.opacity_animation.setDuration(200)
+            self.opacity_animation.setStartValue(1)
+            self.opacity_animation.setEndValue(0)
+            self.opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.opacity_animation.start()
+
+        # 卡片恢复到原始位置 - 先停止旧动画
+        if self.move_animation and self.move_animation.state() == QPropertyAnimation.State.Running:
+            self.move_animation.stop()
+
+        self.move_animation = QPropertyAnimation(self, b"geometry")
+        self.move_animation.setDuration(200)
+        current_geo = self.geometry()
+        target_geo = QRect(
+            current_geo.x(),
+            self.original_y,  # 恢复到原始y坐标
+            current_geo.width(),
+            current_geo.height()
+        )
+        self.move_animation.setEndValue(target_geo)
+        self.move_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.move_animation.start()
+
+        # 恢复样式 - 使用预计算的样式
+        self.setStyleSheet(self._stylesheet_normal)
+
+        super().leaveEvent(event)
+
+    def closeEvent(self, event):
+        """卡片关闭时清理动画资源"""
+        self._cleanup_animations()
+        super().closeEvent(event)
+
+    def _cleanup_animations(self):
+        """清理动画对象"""
+        # 停止并清理透明度动画
+        if self.opacity_animation:
+            if self.opacity_animation.state() == QPropertyAnimation.State.Running:
+                self.opacity_animation.stop()
+            self.opacity_animation.deleteLater()
+            self.opacity_animation = None
+
+        # 停止并清理移动动画
+        if self.move_animation:
+            if self.move_animation.state() == QPropertyAnimation.State.Running:
+                self.move_animation.stop()
+            self.move_animation.deleteLater()
+            self.move_animation = None
+
+    def showEvent(self, event):
+        """组件显示时计算进度条宽度"""
+        super().showEvent(event)
+        # 等待布局完成后再计算宽度
+        QTimer.singleShot(0, self._update_progress_bar_width)
+
+    def resizeEvent(self, event):
+        """窗口大小改变时重新计算进度条宽度"""
+        super().resizeEvent(event)
+        self._update_progress_bar_width()
+
+    def _update_progress_bar_width(self):
+        """更新进度条宽度"""
+        if self.progress_bar_bg and self.progress_bar_fill:
+            # 确保组件可见且有有效宽度
+            if self.progress_bar_bg.isVisible() and self.progress_bar_bg.width() > 0:
+                bg_width = self.progress_bar_bg.width()
+                fill_width = int(bg_width * self.progress_percent / 100)
+                self.progress_bar_fill.setFixedWidth(fill_width)
+
+    def updateData(self, new_project_data):
+        """更新卡片数据（避免重建卡片）"""
+        self.project_data = new_project_data
+
+        # 更新标题
+        if self.title_label:
+            self.title_label.setText(new_project_data.get('title', '未命名项目'))
+
+        # 更新元数据（类型 + 状态）
+        if self.meta_label:
+            genre = new_project_data.get('blueprint', {}).get('genre', '未知类型')
+            status = new_project_data.get('status', 'draft')
+            meta_text = f"{genre}  ·  {get_project_status_text(status)}"
+            self.meta_label.setText(meta_text)
+
+        # 更新时间
+        if self.time_label:
+            updated_at = new_project_data.get('updated_at', '')[:10] if new_project_data.get('updated_at') else '未知'
+            self.time_label.setText(f"最后编辑: {updated_at}")
+
+        # 更新进度
+        total_chapters = new_project_data.get('total_chapters', 0)
+        completed_chapters = new_project_data.get('completed_chapters', 0)
+        self.progress_percent = int((completed_chapters / total_chapters * 100) if total_chapters > 0 else 0)
+
+        if self.percent_label:
+            self.percent_label.setText(f"{self.progress_percent}%")
+
+        self._update_progress_bar_width()
+
+        # 更新标签
+        genre = new_project_data.get('blueprint', {}).get('genre', '未知类型')
+        if self.genre_tag:
+            self.genre_tag.setText(genre)
+            self.genre_tag.setVisible(genre != '未知类型')
+
+        if self.chapter_tag:
+            self.chapter_tag.setText(f"{completed_chapters}/{total_chapters} 章")
+            self.chapter_tag.setVisible(total_chapters > 0)
+
+        # 更新继续按钮 - 根据项目状态更新文本和行为
+        if self.continue_btn:
+            project_status = new_project_data.get('status', '')
+            # 蓝图后的状态列表（这些状态表示项目已有蓝图）
+            blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
+
+            if project_status in blueprint_ready_states:
+                # 已有蓝图，显示"继续创作"
+                self.continue_btn.setText("继续创作")
+                # 断开旧连接并连接新信号（导航到写作台）
+                try:
+                    self.continue_btn.clicked.disconnect()
+                except:
+                    pass
+                self.continue_btn.clicked.connect(lambda: self.continueWritingClicked.emit(self.project_data['id']))
+            else:
+                # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
+                self.continue_btn.setText("继续灵感模式")
+                # 断开旧连接并连接新信号（导航到灵感模式）
+                try:
+                    self.continue_btn.clicked.disconnect()
+                except:
+                    pass
+                self.continue_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
+
+
+
+class CreateProjectCard(ThemeAwareFrame):
+    """创建新项目卡片 - 禅意风格
+
+    使用 ThemeAwareFrame 基类避免信号重复连接
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        # 保存组件引用
+        self.plus_label = None
+        self.text_label = None
+
+        super().__init__(parent)
+        self.setupUI()
+
+    def _create_ui_structure(self):
+        """创建UI结构（只调用一次）"""
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(300)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        # 加号图标
+        self.plus_label = QLabel("+")
+        self.plus_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.plus_label)
+
+        # 文字
+        self.text_label = QLabel("创建新项目")
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.text_label)
+
+    def _apply_theme(self):
+        """应用主题样式（可多次调用）"""
+        # 加号样式
+        if self.plus_label:
+            self.plus_label.setStyleSheet(f"""
+                font-size: 64px;
+                color: {theme_manager.ACCENT_PRIMARY};
+                font-weight: 300;
+            """)
+
+        # 文字样式
+        if self.text_label:
+            self.text_label.setStyleSheet(f"""
+                font-size: 16px;
+                color: {theme_manager.TEXT_SECONDARY};
+                font-weight: 500;
+            """)
+
+        # 虚线框样式
+        self.setStyleSheet(f"""
+            CreateProjectCard {{
+                background-color: transparent;
+                border: 2px dashed {theme_manager.BORDER_DEFAULT};
+                border-radius: {theme_manager.RADIUS_MD};
+            }}
+            CreateProjectCard:hover {{
+                background-color: {theme_manager.ACCENT_PALE};
+                border-color: {theme_manager.ACCENT_PRIMARY};
+            }}
+        """)
+
+    def mousePressEvent(self, event):
+        """鼠标点击"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class NovelWorkspace(BasePage):
+    """项目列表页面 - 禅意风格"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.api_client = ArborisAPIClient()
+        self.projects = []
+        self.card_pool = []  # 所有卡片的引用（防止被垃圾回收）
+        self.available_cards = deque()  # 可用卡片队列（O(1)获取）
+
+        # 创建新项目卡片（只创建一次）
+        self.create_card = CreateProjectCard()
+        self.create_card.clicked.connect(self.onCreateProject)
+
+        self.setupUI()
+        self.loadProjects()
+
+    def setupUI(self):
+        """初始化UI"""
+        # 如果布局不存在，创建UI结构
+        if not self.layout():
+            self._create_ui_structure()
+        # 总是应用主题样式
+        self._apply_theme()
+
+    def _create_ui_structure(self):
+        """创建UI结构（只调用一次）"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # 顶部标题栏
+        header_layout = QHBoxLayout()
+
+        self.title_label = QLabel("我的小说项目")
+        header_layout.addWidget(self.title_label)
+
+        header_layout.addStretch()
+
+        # 返回按钮
+        self.back_btn = QPushButton("← 返回首页")
+        self.back_btn.clicked.connect(self.goBack)
+        header_layout.addWidget(self.back_btn)
+
+        layout.addLayout(header_layout)
+
+        # 分隔线
+        self.separator = QFrame()
+        self.separator.setFixedHeight(1)
+        layout.addWidget(self.separator)
+
+        # 项目网格（滚动区域）
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.grid_container = QWidget()
+        self.grid_layout = QGridLayout(self.grid_container)
+        self.grid_layout.setSpacing(20)
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.scroll_area.setWidget(self.grid_container)
+        layout.addWidget(self.scroll_area, stretch=1)
+
+    def _apply_theme(self):
+        """应用主题样式（可多次调用）"""
+        if hasattr(self, 'title_label'):
+            self.title_label.setStyleSheet(f"""
+                font-size: 32px;
+                font-weight: 300;
+                color: {theme_manager.TEXT_PRIMARY};
+            """)
+
+        if hasattr(self, 'back_btn'):
+            self.back_btn.setStyleSheet(ButtonStyles.secondary())
+
+        if hasattr(self, 'separator'):
+            self.separator.setStyleSheet(f"background-color: {theme_manager.BORDER_LIGHT}; border: none;")
+
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.setStyleSheet(f"""
+                QScrollArea {{
+                    border: none;
+                    background-color: transparent;
+                }}
+                {theme_manager.scrollbar()}
+            """)
+
+        # 网格容器透明背景
+        if hasattr(self, 'grid_container'):
+            self.grid_container.setStyleSheet("background-color: transparent;")
+
+        # 背景样式
+        self.setStyleSheet(f"""
+            NovelWorkspace {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+        """)
+
+    def loadProjects(self):
+        """加载项目列表"""
+        try:
+            response = self.api_client.get_all_novels()
+            self.projects = response
+
+            self.renderProjects()
+
+        except Exception as e:
+            MessageService.show_error(self, f"加载项目失败：{str(e)}", "错误")
+
+    def renderProjects(self):
+        """渲染项目卡片（使用deque优化为O(n)）"""
+        # 清空布局
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            # 不删除widget，只是从布局移除
+            # 卡片会保留在card_pool中复用
+
+        # 重置可用卡片队列：将所有卡片隐藏并加入队列
+        self.available_cards.clear()
+        for card in self.card_pool:
+            card.hide()
+            self.available_cards.append(card)
+
+        # 添加新项目卡片到第一个位置（复用已创建的）
+        self.grid_layout.addWidget(self.create_card, 0, 0)
+        self.create_card.show()
+
+        # 渲染项目卡片（3列网格，从队列获取卡片 O(1)）
+        for idx, project in enumerate(self.projects):
+            row = (idx + 1) // 3
+            col = (idx + 1) % 3
+
+            # 从队列获取卡片（O(1)）或创建新卡片
+            if self.available_cards:
+                card = self.available_cards.popleft()
+                card.updateData(project)
+            else:
+                # 队列空，创建新卡片
+                card = ProjectCard(project)
+                card.viewDetailsClicked.connect(self.onViewDetails)
+                card.continueWritingClicked.connect(self.onContinueWriting)
+                card.deleteClicked.connect(self.onDeleteProject)
+                self.card_pool.append(card)
+
+            # 显示卡片并添加到布局
+            card.show()
+            self.grid_layout.addWidget(card, row, col)
+
+    def onCreateProject(self):
+        """创建新项目"""
+        self.navigateTo('INSPIRATION')
+
+    def onViewDetails(self, project_id):
+        """查看项目详情"""
+        # 获取项目数据，判断状态
+        try:
+            project = self.api_client.get_novel(project_id)
+            status = project.get('status', '')
+
+            # 蓝图后的状态列表（这些状态表示项目已有蓝图）
+            blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
+
+            if status in blueprint_ready_states:
+                # 已有蓝图，正常导航到详情页
+                self.navigateTo('DETAIL', project_id=project_id)
+            else:
+                # 未完成蓝图（draft或其他状态），导航回INSPIRATION模式
+                self.navigateTo('INSPIRATION', project_id=project_id)
+
+        except Exception as e:
+            logger.error(f"获取项目状态失败: {str(e)}")
+            # 出错时仍导航到详情页
+            self.navigateTo('DETAIL', project_id=project_id)
+
+    def onContinueWriting(self, project_id):
+        """继续创作"""
+        self.navigateTo('WRITING_DESK', project_id=project_id)
+
+    def onDeleteProject(self, project_id):
+        """删除项目"""
+        if not confirm(
+            self,
+            "确定要删除此项目吗？此操作不可恢复！",
+            "确认删除"
+        ):
+            return
+
+        try:
+            self.api_client.delete_novels([project_id])
+            MessageService.show_success(self, "项目已删除")
+            self.loadProjects()
+
+        except Exception as e:
+            MessageService.show_error(self, f"删除失败：{str(e)}", "错误")

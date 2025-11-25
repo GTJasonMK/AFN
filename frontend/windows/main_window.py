@@ -1,0 +1,503 @@
+"""
+主窗口 - 页面导航容器
+
+功能：
+- 使用QStackedWidget管理所有页面
+- 统一的页面导航系统
+- 导航历史栈支持返回按钮
+- LRU页面缓存淘汰机制避免内存泄漏
+- DPI感知和响应式布局
+"""
+
+import logging
+from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout, QVBoxLayout
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QAction, QKeySequence
+from typing import Dict, List, Tuple
+from collections import OrderedDict
+from themes.theme_manager import theme_manager, ThemeMode
+from themes.modern_effects import ModernEffects, gradient, shadow
+from themes.svg_icons import SVGIcons
+from utils.dpi_utils import dpi_helper, dp, sp
+
+logger = logging.getLogger(__name__)
+
+
+class MainWindow(QMainWindow):
+    """主窗口 - 页面导航容器
+
+    使用QStackedWidget实现单页面应用风格的页面切换
+
+    特性：
+    - LRU缓存：最多缓存10个页面，超出时淘汰最久未使用的页面
+    - 重要页面（HOME, SETTINGS）永不淘汰
+    - 页面淘汰前调用onHide()钩子，允许保存状态
+    """
+
+    # 缓存配置
+    MAX_CACHED_PAGES = 10  # 最多缓存10个页面
+    IMPORTANT_PAGES = {'HOME', 'SETTINGS'}  # 重要页面永不淘汰
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Arboris Novel - AI 长篇小说创作助手")
+
+        # 使用DPI感知的最小窗口尺寸
+        min_width, min_height = dpi_helper.min_window_size()
+        self.setMinimumSize(min_width, min_height)
+
+        # 初始窗口大小（比最小尺寸略大）
+        self.resize(int(min_width * 1.2), int(min_height * 1.2))
+
+        # 创建中心容器
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+
+        # 主布局
+        main_layout = QVBoxLayout(self.central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # 页面容器
+        self.page_stack = QStackedWidget()
+        main_layout.addWidget(self.page_stack)
+
+        # 创建浮动工具栏（包含主题切换按钮）
+        self.create_floating_toolbar()
+
+        # 页面缓存：使用OrderedDict实现LRU
+        # {cache_key: page_widget}
+        self.pages = OrderedDict()
+
+        # 导航历史栈：[(page_type, params)]
+        self.navigation_history: List[Tuple[str, dict]] = []
+
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self.on_theme_changed)
+
+        # 应用主题样式到窗口
+        self.apply_window_theme()
+
+        # 设置键盘快捷键
+        self.setup_shortcuts()
+
+        # 初始化首页
+        self.navigateTo('HOME')
+
+    def create_floating_toolbar(self):
+        """创建浮动工具栏（改进的主题按钮定位）"""
+        # 创建浮动容器
+        self.floating_widget = QWidget(self)
+        self.floating_widget.setObjectName("floatingToolbar")
+
+        # 设置浮动样式（半透明背景）
+        self.floating_widget.setStyleSheet("""
+            #floatingToolbar {
+                background-color: transparent;
+            }
+        """)
+
+        # 工具栏布局
+        toolbar_layout = QHBoxLayout(self.floating_widget)
+        toolbar_layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        toolbar_layout.setSpacing(dp(8))
+
+        # 添加弹簧，将按钮推到右侧
+        toolbar_layout.addStretch()
+
+        # 主题切换按钮
+        self.theme_button = QPushButton()
+        self.theme_button.setFixedSize(QSize(dp(48), dp(48)))
+        self.theme_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_button.setToolTip("切换主题 (Ctrl+T)")
+
+        # 更新按钮样式
+        self.update_theme_button()
+
+        toolbar_layout.addWidget(self.theme_button)
+
+        # 设置浮动widget的初始位置（右下角）
+        self.position_floating_toolbar()
+
+    def position_floating_toolbar(self):
+        """定位浮动工具栏到右下角（响应式）"""
+        if hasattr(self, 'floating_widget'):
+            # 获取窗口大小
+            window_rect = self.rect()
+
+            # 工具栏大小（响应式）
+            toolbar_width = dp(80)
+            toolbar_height = dp(80)
+
+            # 计算位置（右下角，留出边距）
+            x = window_rect.width() - toolbar_width
+            y = window_rect.height() - toolbar_height
+
+            self.floating_widget.setGeometry(x, y, toolbar_width, toolbar_height)
+            self.floating_widget.raise_()  # 确保在最上层
+
+    def setup_shortcuts(self):
+        """设置键盘快捷键（改善无障碍性）"""
+        # 主题切换快捷键
+        theme_action = QAction("切换主题", self)
+        theme_action.setShortcut(QKeySequence("Ctrl+T"))
+        theme_action.triggered.connect(self.toggle_theme)
+        self.addAction(theme_action)
+
+        # 返回快捷键
+        back_action = QAction("返回", self)
+        back_action.setShortcut(QKeySequence.StandardKey.Back)
+        back_action.triggered.connect(self.goBack)
+        self.addAction(back_action)
+
+        # 刷新快捷键
+        refresh_action = QAction("刷新", self)
+        refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)
+        refresh_action.triggered.connect(self.refresh_current_page)
+        self.addAction(refresh_action)
+
+    def refresh_current_page(self):
+        """刷新当前页面"""
+        current_widget = self.page_stack.currentWidget()
+        if current_widget and hasattr(current_widget, 'refresh'):
+            current_widget.refresh()
+
+    def update_theme_button(self):
+        """更新主题切换按钮的样式和图标"""
+        is_dark = theme_manager.is_dark_mode()
+
+        # 简化的文字标签
+        button_text = "深" if is_dark else "浅"
+        self.theme_button.setText(button_text)
+        self.theme_button.setToolTip("切换主题 (Ctrl+T)")
+
+        # 简化的按钮样式
+        self.theme_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(24)}px;
+                font-size: {sp(14)}px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {theme_manager.PRIMARY_PALE};
+                border-color: {theme_manager.PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme_manager.BG_TERTIARY};
+            }}
+        """)
+
+    def toggle_theme(self):
+        """切换主题"""
+        theme_manager.switch_theme()
+
+    def apply_window_theme(self):
+        """应用主题样式到窗口和容器"""
+        # 设置主窗口和中心容器的背景色
+        window_style = f"""
+            QMainWindow {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+            QWidget#centralWidget {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+            QStackedWidget {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+        """
+        self.setStyleSheet(window_style)
+
+        # 设置central_widget的对象名称以便样式选择器使用
+        self.central_widget.setObjectName("centralWidget")
+
+    def on_theme_changed(self, mode: str):
+        """主题改变时的处理"""
+        # 应用窗口主题
+        self.apply_window_theme()
+
+        # 更新按钮样式
+        self.update_theme_button()
+
+        # 注意：不要在这里调用page.refresh()
+        # 因为refresh()是用于刷新页面数据的（如导航时）
+        # 主题切换已通过各页面自己的on_theme_changed()信号处理
+
+    def showEvent(self, event):
+        """窗口显示时，确保浮动工具栏位置正确"""
+        super().showEvent(event)
+        self.position_floating_toolbar()
+
+        # 更新DPI信息
+        dpi_helper.update_screen_info(self)
+
+    def resizeEvent(self, event):
+        """窗口大小改变时，重新定位浮动工具栏"""
+        super().resizeEvent(event)
+        self.position_floating_toolbar()
+
+        # 更新响应式断点
+        dpi_helper.update_screen_info(self)
+
+    def navigateTo(self, page_type: str, params: dict = None):
+        """导航到指定页面
+
+        Args:
+            page_type: 页面类型（HOME, INSPIRATION, WORKSPACE, DETAIL, WRITING_DESK, SETTINGS）
+            params: 页面参数（如project_id等）
+        """
+        if params is None:
+            params = {}
+
+        # 获取或创建页面
+        page = self.getOrCreatePage(page_type, params)
+
+        if page is None:
+            logger.error(f"无法创建页面 {page_type}")
+            return
+
+        # 调用页面刷新方法
+        if hasattr(page, 'refresh'):
+            page.refresh(**params)
+
+        # 切换到页面
+        self.page_stack.setCurrentWidget(page)
+
+        # 调用页面显示钩子
+        if hasattr(page, 'onShow'):
+            page.onShow()
+
+        # 添加到导航历史（如果不是返回操作）
+        self.navigation_history.append((page_type, params))
+
+    def goBack(self):
+        """返回上一页"""
+        if len(self.navigation_history) <= 1:
+            # 已经是第一页，无法返回
+            return
+
+        # 移除当前页
+        current_page_info = self.navigation_history.pop()
+
+        # 调用当前页面隐藏钩子
+        current_widget = self.page_stack.currentWidget()
+        if hasattr(current_widget, 'onHide'):
+            current_widget.onHide()
+
+        # 获取上一页信息
+        prev_page_type, prev_params = self.navigation_history[-1]
+
+        # 获取页面实例
+        prev_page = self.getOrCreatePage(prev_page_type, prev_params)
+
+        if prev_page is None:
+            return
+
+        # 刷新上一页
+        if hasattr(prev_page, 'refresh'):
+            prev_page.refresh(**prev_params)
+
+        # 切换到上一页
+        self.page_stack.setCurrentWidget(prev_page)
+
+        # 调用显示钩子
+        if hasattr(prev_page, 'onShow'):
+            prev_page.onShow()
+
+    def getOrCreatePage(self, page_type: str, params: dict):
+        """获取或创建页面实例（支持LRU淘汰）
+
+        Args:
+            page_type: 页面类型
+            params: 页面参数
+
+        Returns:
+            页面widget实例
+        """
+        # 对于需要多实例的页面（如DETAIL, WRITING_DESK），使用参数作为缓存键
+        cache_key = page_type
+        if page_type in ['DETAIL', 'WRITING_DESK']:
+            project_id = params.get('project_id', '')
+            cache_key = f"{page_type}_{project_id}"
+
+        # 检查缓存
+        if cache_key in self.pages:
+            # LRU: 移到最后（标记为最近使用）
+            self.pages.move_to_end(cache_key)
+            return self.pages[cache_key]
+
+        # 创建新页面
+        page = self.createPage(page_type, params)
+
+        if page is None:
+            return None
+
+        # 连接导航信号
+        if hasattr(page, 'navigateRequested'):
+            page.navigateRequested.connect(self.onNavigateRequested)
+
+        if hasattr(page, 'goBackRequested'):
+            page.goBackRequested.connect(self.goBack)
+
+        # 添加到容器和缓存
+        self.page_stack.addWidget(page)
+        self.pages[cache_key] = page
+
+        # LRU淘汰：检查是否超出缓存限制
+        self._evict_if_needed(cache_key)
+
+        return page
+
+    def _evict_if_needed(self, current_key: str):
+        """如果超出缓存限制，淘汰最久��使用的页面
+
+        Args:
+            current_key: 当前新添加的页面缓存键（不应被淘汰）
+        """
+        while len(self.pages) > self.MAX_CACHED_PAGES:
+            # 获取最老的（最久未使用的）页面
+            oldest_key = next(iter(self.pages))
+
+            # 不能淘汰刚创建的页面
+            if oldest_key == current_key:
+                # 将当前页移到最后，尝试淘汰下一个
+                self.pages.move_to_end(current_key)
+                oldest_key = next(iter(self.pages))
+                if oldest_key == current_key:
+                    # 只有一个页面，无法淘汰
+                    break
+
+            # 检查是否是重要页面
+            page_type = oldest_key.split('_')[0]
+            if page_type in self.IMPORTANT_PAGES:
+                # 重要页面移到最后（保留），继续检查下一个
+                self.pages.move_to_end(oldest_key)
+                # 如果所有剩余页面都是重要页面，停止淘汰
+                if all(key.split('_')[0] in self.IMPORTANT_PAGES or key == current_key
+                       for key in self.pages.keys()):
+                    logger.warning("LRU缓存已满但都是重要页面，无法继续淘汰")
+                    break
+                continue
+
+            # 检查是否是当前正在显示的页面
+            oldest_page = self.pages[oldest_key]
+            if oldest_page == self.page_stack.currentWidget():
+                # 不能淘汰当前页面，移到最后
+                self.pages.move_to_end(oldest_key)
+                continue
+
+            # 执行淘汰
+            oldest_page = self.pages.pop(oldest_key)
+
+            # 调用页面的清理钩子
+            if hasattr(oldest_page, 'onHide'):
+                oldest_page.onHide()
+
+            # 从堆栈中移除
+            self.page_stack.removeWidget(oldest_page)
+
+            # 延迟删除widget
+            oldest_page.deleteLater()
+
+            logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
+            break
+
+    def clearCache(self, exclude_current=True):
+        """手动清空页面缓存
+
+        Args:
+            exclude_current: 是否保留当前页面
+        """
+        current_widget = self.page_stack.currentWidget()
+        keys_to_remove = []
+
+        for key, page in list(self.pages.items()):
+            # 保留当前页面
+            if exclude_current and page == current_widget:
+                continue
+
+            # 保留重要页面
+            page_type = key.split('_')[0]
+            if page_type in self.IMPORTANT_PAGES:
+                continue
+
+            keys_to_remove.append(key)
+
+        # 执行删除
+        for key in keys_to_remove:
+            page = self.pages.pop(key)
+
+            # 调用清理钩子
+            if hasattr(page, 'onHide'):
+                page.onHide()
+
+            # 从堆栈移除
+            self.page_stack.removeWidget(page)
+
+            # 删除widget
+            page.deleteLater()
+
+        logger.info(f"清理了 {len(keys_to_remove)} 个页面，剩余 {len(self.pages)} 个")
+
+    def createPage(self, page_type: str, params: dict):
+        """创建页面实例
+
+        Args:
+            page_type: 页面类型
+            params: 页面参数
+
+        Returns:
+            新创建的页面widget
+        """
+        try:
+            if page_type == 'HOME':
+                from pages.home_page import HomePage
+                return HomePage(self)
+
+            elif page_type == 'INSPIRATION':
+                from windows.inspiration_mode import InspirationMode
+                return InspirationMode(self)
+
+            elif page_type == 'WORKSPACE':
+                from windows.novel_workspace import NovelWorkspace
+                return NovelWorkspace(self)
+
+            elif page_type == 'DETAIL':
+                from windows.novel_detail import NovelDetail
+                project_id = params.get('project_id')
+                if not project_id:
+                    logger.error("DETAIL页面缺少project_id参数")
+                    return None
+                return NovelDetail(project_id, self)
+
+            elif page_type == 'WRITING_DESK':
+                from windows.writing_desk import WritingDesk
+                project_id = params.get('project_id')
+                if not project_id:
+                    logger.error("WRITING_DESK页面缺少project_id参数")
+                    return None
+                return WritingDesk(project_id, self)
+
+            elif page_type == 'SETTINGS':
+                from windows.settings import SettingsView
+                return SettingsView(self)
+
+            else:
+                logger.error(f"未知页面类型 {page_type}")
+                return None
+
+        except Exception as e:
+            logger.exception(f"创建页面 {page_type} 失败: {e}")
+            return None
+
+    def onNavigateRequested(self, page_type: str, params: dict):
+        """处理页面导航请求信号
+
+        Args:
+            page_type: 目标页面类型
+            params: 页面参数
+        """
+        self.navigateTo(page_type, params)

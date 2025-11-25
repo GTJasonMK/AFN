@@ -1,0 +1,998 @@
+"""
+主题管理器 - 支持亮色和深色主题切换
+
+提供统一的主题切换接口，让用户可以在不同主题间自由切换
+集成现代美学效果（渐变、玻璃态、新拟态）
+"""
+
+from PyQt6.QtCore import QObject, pyqtSignal
+from enum import Enum
+from typing import TYPE_CHECKING
+from .modern_effects import ModernEffects
+
+if TYPE_CHECKING:
+    from utils.config_manager import ConfigManager
+
+
+class ThemeMode(Enum):
+    """主题模式枚举"""
+    LIGHT = "light"  # 亮色主题
+    DARK = "dark"    # 深色主题
+
+
+class LightTheme:
+    """亮色主题 - 柔和渐变风格 (2025 Modern Design)
+
+    设计理念：
+    - 柔和护眼的配色（适合长时间创作）
+    - 紫蓝渐变主色调（灵感与智慧）
+    - 高对比度文字（易读性优先）
+    - 细腻的阴影和过渡
+    """
+
+    # ==================== 设计系统常量 ====================
+    # 圆角规范 - 2025趋势：更大更圆润
+    RADIUS_XS = "6px"    # 超小元素（增大）
+    RADIUS_SM = "10px"   # 小元素：按钮、标签、小卡片（增大）
+    RADIUS_MD = "14px"   # 中等元素：卡片、输入框（增大）
+    RADIUS_LG = "20px"   # 大元素：大型容器（增大）
+    RADIUS_XL = "28px"   # 超大元素：模态框（新增）
+    RADIUS_ROUND = "50%" # 圆形：头像、图标按钮
+
+    # 间距规范 - 8px网格系统
+    SPACING_XS = "8px"
+    SPACING_SM = "16px"
+    SPACING_MD = "24px"
+    SPACING_LG = "32px"
+    SPACING_XL = "40px"
+    SPACING_XXL = "48px"
+
+    # 字体大小规范
+    FONT_SIZE_XS = "12px"
+    FONT_SIZE_SM = "13px"
+    FONT_SIZE_BASE = "14px"
+    FONT_SIZE_MD = "16px"
+    FONT_SIZE_LG = "18px"
+    FONT_SIZE_XL = "20px"
+    FONT_SIZE_2XL = "24px"
+    FONT_SIZE_3XL = "32px"
+
+    # 字体粗细规范
+    FONT_WEIGHT_NORMAL = "400"
+    FONT_WEIGHT_MEDIUM = "500"
+    FONT_WEIGHT_SEMIBOLD = "600"
+    FONT_WEIGHT_BOLD = "700"
+
+    # 行高规范
+    LINE_HEIGHT_TIGHT = "1.2"
+    LINE_HEIGHT_NORMAL = "1.5"
+    LINE_HEIGHT_RELAXED = "1.6"
+    LINE_HEIGHT_LOOSE = "1.8"
+
+    # 字母间距规范
+    LETTER_SPACING_TIGHT = "-0.02em"
+    LETTER_SPACING_NORMAL = "0"
+    LETTER_SPACING_WIDE = "0.05em"
+    LETTER_SPACING_WIDER = "0.1em"
+
+    # ==================== 色彩系统 ====================
+    # 主色调 - 紫蓝渐变（灵感与创造力）
+    PRIMARY = "#6366f1"  # 靛蓝色（专注）
+    PRIMARY_LIGHT = "#818cf8"
+    PRIMARY_DARK = "#4f46e5"
+    PRIMARY_PALE = "#eef2ff"
+    PRIMARY_GRADIENT = ["#818cf8", "#6366f1", "#4f46e5"]  # 靛蓝渐变
+
+    # 强调色 - 紫色渐变（想象力）
+    ACCENT = "#a855f7"  # 紫罗兰
+    ACCENT_LIGHT = "#c084fc"
+    ACCENT_DARK = "#9333ea"
+    ACCENT_PALE = "#faf5ff"
+    ACCENT_GRADIENT = ["#c084fc", "#a855f7", "#9333ea"]  # 紫罗兰渐变
+
+    # 成功色 - 翠绿色（自然舒适）
+    SUCCESS = "#10b981"
+    SUCCESS_LIGHT = "#34d399"
+    SUCCESS_DARK = "#059669"
+    SUCCESS_BG = "#ecfdf5"
+    SUCCESS_GRADIENT = ["#6ee7b7", "#34d399", "#10b981"]  # 翠绿渐变
+
+    # 错误色 - 玫瑰红（温和警示）
+    ERROR = "#f43f5e"
+    ERROR_LIGHT = "#fb7185"
+    ERROR_DARK = "#e11d48"
+    ERROR_BG = "#fff1f2"
+    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]  # 玫瑰渐变
+
+    # 警告色 - 琥珀色（温暖提醒）
+    WARNING = "#f59e0b"
+    WARNING_LIGHT = "#fbbf24"
+    WARNING_DARK = "#d97706"
+    WARNING_BG = "#fffbeb"
+    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]  # 琥珀渐变
+
+    # 信息色 - 青色（清新资讯）
+    INFO = "#06b6d4"
+    INFO_LIGHT = "#22d3ee"
+    INFO_DARK = "#0891b2"
+    INFO_BG = "#ecfeff"
+    INFO_GRADIENT = ["#67e8f9", "#22d3ee", "#06b6d4"]  # 青色渐变
+
+    # 文字颜色 - 高对比度（护眼优先）
+    TEXT_PRIMARY = "#1e293b"     # 深灰蓝（比纯黑柔和）
+    TEXT_SECONDARY = "#475569"    # 中灰
+    TEXT_TERTIARY = "#64748b"     # 浅灰
+    TEXT_PLACEHOLDER = "#94a3b8"  # 占位符
+    TEXT_DISABLED = "#cbd5e1"     # 禁用
+
+    # 背景颜色 - 高亮度纯白（白天最佳可见度）
+    BG_PRIMARY = "#ffffff"       # 纯白（白天强光下清晰可读）
+    BG_SECONDARY = "#f8f9fb"     # 极浅蓝白
+    BG_TERTIARY = "#f1f3f7"      # 浅蓝灰
+    BG_CARD = "#ffffff"          # 卡片纯白
+    BG_CARD_HOVER = "#f8fafc"    # 悬浮微蓝
+    BG_GRADIENT = ["#ffffff", "#f8f9fb", "#f1f3f7"]  # 高亮度渐变背景
+
+    # 边框颜色 - 清晰可见（纯白背景下的最佳对比）
+    BORDER_DEFAULT = "#e0e4e8"   # 适中边框
+    BORDER_LIGHT = "#e8ecf0"     # 浅边框
+    BORDER_DARK = "#cbd2d9"      # 深边框
+
+    # 特殊效果色
+    GLASS_BG = "rgba(255, 255, 255, 0.75)"  # 玻璃态背景
+    SHADOW_COLOR = "rgba(100, 116, 139, 0.12)"    # 阴影颜色（带蓝调）
+    OVERLAY_COLOR = "rgba(0, 0, 0, 0.25)"  # 遮罩层颜色（亮色主题较淡）
+
+    # 按钮文字颜色（在有色按钮上）
+    BUTTON_TEXT = "#ffffff"      # 白色文字（在PRIMARY/ACCENT等深色按钮上）
+    BUTTON_TEXT_SECONDARY = "#1e293b"  # 深色文字（在浅色按钮上）
+
+
+class DarkTheme:
+    """深色主题 - 深邃紫夜风格 (2025 Modern Design)
+
+    设计理念：
+    - 深邃柔和的背景（护眼舒适）
+    - 紫蓝极光渐变（神秘优雅）
+    - 高亮度文字（清晰可读）
+    - 发光效果强调（科技感）
+    """
+
+    # ==================== 设计系统常量 ====================
+    # 圆角规范 - 与亮色主题保持一致
+    RADIUS_XS = "6px"
+    RADIUS_SM = "10px"
+    RADIUS_MD = "14px"
+    RADIUS_LG = "20px"
+    RADIUS_XL = "28px"
+    RADIUS_ROUND = "50%"
+
+    # 间距规范 - 与亮色主题保持一致
+    SPACING_XS = "8px"
+    SPACING_SM = "16px"
+    SPACING_MD = "24px"
+    SPACING_LG = "32px"
+    SPACING_XL = "40px"
+    SPACING_XXL = "48px"
+
+    # 字体大小规范 - 与亮色主题保持一致
+    FONT_SIZE_XS = "12px"
+    FONT_SIZE_SM = "13px"
+    FONT_SIZE_BASE = "14px"
+    FONT_SIZE_MD = "16px"
+    FONT_SIZE_LG = "18px"
+    FONT_SIZE_XL = "20px"
+    FONT_SIZE_2XL = "24px"
+    FONT_SIZE_3XL = "32px"
+
+    # 字体粗细规范 - 与亮色主题保持一致
+    FONT_WEIGHT_NORMAL = "400"
+    FONT_WEIGHT_MEDIUM = "500"
+    FONT_WEIGHT_SEMIBOLD = "600"
+    FONT_WEIGHT_BOLD = "700"
+
+    # 行高规范 - 与亮色主题保持一致
+    LINE_HEIGHT_TIGHT = "1.2"
+    LINE_HEIGHT_NORMAL = "1.5"
+    LINE_HEIGHT_RELAXED = "1.6"
+    LINE_HEIGHT_LOOSE = "1.8"
+
+    # 字母间距规范 - 与亮色主题保持一致
+    LETTER_SPACING_TIGHT = "-0.02em"
+    LETTER_SPACING_NORMAL = "0"
+    LETTER_SPACING_WIDE = "0.05em"
+    LETTER_SPACING_WIDER = "0.1em"
+
+    # ==================== 色彩系统 ====================
+    # 主色调 - 紫蓝极光渐变（神秘智慧）- 降低饱和度避免视觉疲劳
+    PRIMARY = "#9d7bf5"  # 紫罗兰（饱和度降低20%）
+    PRIMARY_LIGHT = "#b39dfc"
+    PRIMARY_DARK = "#8b5df0"
+    PRIMARY_PALE = "#581c87"
+    PRIMARY_GRADIENT = ["#b39dfc", "#9d7bf5", "#8b5df0"]  # 紫蓝极光渐变
+
+    # 强调色 - 青色渐变（现代科技）- 降低饱和度
+    ACCENT = "#3aa8c2"  # 青色（饱和度降低20%）
+    ACCENT_LIGHT = "#5dc4d6"
+    ACCENT_DARK = "#2e9bb5"
+    ACCENT_PALE = "#164e63"
+    ACCENT_GRADIENT = ["#78d4e3", "#5dc4d6", "#3aa8c2"]  # 青色渐变
+
+    # 成功色 - 翠绿（舒适自然）
+    SUCCESS = "#22c55e"
+    SUCCESS_LIGHT = "#4ade80"
+    SUCCESS_DARK = "#16a34a"
+    SUCCESS_BG = "#14532d"
+    SUCCESS_GRADIENT = ["#86efac", "#4ade80", "#22c55e"]  # 翠绿渐变
+
+    # 错误色 - 玫瑰红（温和警示）
+    ERROR = "#f43f5e"
+    ERROR_LIGHT = "#fb7185"
+    ERROR_DARK = "#e11d48"
+    ERROR_BG = "#881337"
+    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]  # 玫瑰渐变
+
+    # 警告色 - 琥珀色（温暖提醒）
+    WARNING = "#f59e0b"
+    WARNING_LIGHT = "#fbbf24"
+    WARNING_DARK = "#d97706"
+    WARNING_BG = "#78350f"
+    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]  # 琥珀渐变
+
+    # 信息色 - 天空蓝（清新资讯）
+    INFO = "#0ea5e9"
+    INFO_LIGHT = "#38bdf8"
+    INFO_DARK = "#0284c7"
+    INFO_BG = "#0c4a6e"
+    INFO_GRADIENT = ["#7dd3fc", "#38bdf8", "#0ea5e9"]  # 天空蓝渐变
+
+    # 文字颜色 - 高亮度（护眼清晰）
+    TEXT_PRIMARY = "#f1f5f9"     # 极浅灰（柔和）
+    TEXT_SECONDARY = "#cbd5e1"    # 浅灰
+    TEXT_TERTIARY = "#94a3b8"     # 中灰
+    TEXT_PLACEHOLDER = "#64748b"  # 暗灰
+    TEXT_DISABLED = "#475569"     # 深灰
+
+    # 背景颜色 - 深邃柔和（2025最佳实践优化）
+    BG_PRIMARY = "#0a0e17"       # 深蓝黑（Material Design推荐）
+    BG_SECONDARY = "#12161f"     # 暗蓝灰
+    BG_TERTIARY = "#1a1f2e"      # 中蓝灰
+    BG_CARD = "#171d29"          # 卡片深蓝（增强与背景对比）
+    BG_CARD_HOVER = "#1f2638"    # 悬浮亮蓝
+    BG_GRADIENT = ["#0a0e17", "#12161f", "#1a1f2e"]  # 深邃渐变背景
+
+    # 边框颜色 - 微光边界（增强可见度）
+    BORDER_DEFAULT = "#3f4a5c"   # 更明显的边框
+    BORDER_LIGHT = "#2a3441"
+    BORDER_DARK = "#4f5a6e"
+
+    # 特殊效果色
+    GLASS_BG = "rgba(23, 29, 41, 0.75)"  # 深色玻璃态（与BG_CARD协调）
+    SHADOW_COLOR = "rgba(0, 0, 0, 0.6)"  # 深色阴影（增强对比）
+    OVERLAY_COLOR = "rgba(0, 0, 0, 0.5)"  # 遮罩层颜色（深色主题较浓）
+
+    # 按钮文字颜色（在有色按钮上）
+    BUTTON_TEXT = "#ffffff"      # 白色文字（在PRIMARY/ACCENT等深色按钮上）
+    BUTTON_TEXT_SECONDARY = "#f1f5f9"  # 浅色文字（在浅色按钮上）
+
+
+class ThemeManager(QObject):
+    """主题管理器 - 单例模式"""
+    
+    theme_changed = pyqtSignal(str)  # 主题切换信号
+    
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            # 必须在__new__中调用QObject的__init__
+            QObject.__init__(cls._instance)
+            cls._instance._current_mode = ThemeMode.LIGHT
+            cls._instance._current_theme = LightTheme
+            cls._instance._config_manager = None
+            cls._initialized = True
+        return cls._instance
+    
+    def __init__(self):
+        # 由于在__new__中已经初始化，这里不需要再做任何事
+        pass
+    
+    @property
+    def current_mode(self):
+        """获取当前主题模式"""
+        return self._current_mode
+    
+    @property
+    def current_theme(self):
+        """获取当前主题类"""
+        return self._current_theme
+    
+    def set_config_manager(self, config_manager: 'ConfigManager'):
+        """设置配置管理器
+
+        Args:
+            config_manager: ConfigManager实例
+        """
+        self._config_manager = config_manager
+
+    def load_theme_from_config(self):
+        """从配置文件加载主题"""
+        if self._config_manager is None:
+            return
+
+        theme_mode = self._config_manager.get_theme_mode()
+        if theme_mode == "dark":
+            self.switch_theme(ThemeMode.DARK, save_config=False)
+        else:
+            self.switch_theme(ThemeMode.LIGHT, save_config=False)
+
+    def save_theme_to_config(self):
+        """保存主题到配置文件"""
+        if self._config_manager is None:
+            return
+
+        mode_str = self._current_mode.value
+        self._config_manager.set_theme_mode(mode_str)
+
+    def switch_theme(self, mode: ThemeMode = None, save_config: bool = True):
+        """切换主题
+        
+        Args:
+            mode: 目标主题模式，如果为None则切换到另一个主题
+            save_config: 是否保存到配置文件
+        """
+        if mode is None:
+            # 如果没有指定模式，则切换到另一个主题
+            mode = ThemeMode.DARK if self._current_mode == ThemeMode.LIGHT else ThemeMode.LIGHT
+        
+        self._current_mode = mode
+        self._current_theme = DarkTheme if mode == ThemeMode.DARK else LightTheme
+        
+        # 保存到配置
+        if save_config:
+            self.save_theme_to_config()
+        
+        # 发射主题切换信号
+        self.theme_changed.emit(mode.value)
+    
+    def is_dark_mode(self):
+        """判断是否为深色模式"""
+        return self._current_mode == ThemeMode.DARK
+    
+    def is_light_mode(self):
+        """判断是否为亮色模式"""
+        return self._current_mode == ThemeMode.LIGHT
+    
+    # ==================== 便捷访问属性 ====================
+    @property
+    def PRIMARY(self):
+        return self._current_theme.PRIMARY
+
+    @property
+    def PRIMARY_LIGHT(self):
+        return self._current_theme.PRIMARY_LIGHT
+
+    @property
+    def PRIMARY_DARK(self):
+        return self._current_theme.PRIMARY_DARK
+
+    @property
+    def PRIMARY_PALE(self):
+        return self._current_theme.PRIMARY_PALE
+
+    @property
+    def PRIMARY_GRADIENT(self):
+        return getattr(self._current_theme, 'PRIMARY_GRADIENT', [self.PRIMARY, self.PRIMARY_DARK])
+
+    @property
+    def ACCENT(self):
+        return getattr(self._current_theme, 'ACCENT', self.PRIMARY)
+
+    @property
+    def ACCENT_LIGHT(self):
+        return getattr(self._current_theme, 'ACCENT_LIGHT', self.PRIMARY_LIGHT)
+
+    @property
+    def ACCENT_DARK(self):
+        return getattr(self._current_theme, 'ACCENT_DARK', self.PRIMARY_DARK)
+
+    @property
+    def ACCENT_PALE(self):
+        return getattr(self._current_theme, 'ACCENT_PALE', self.PRIMARY_PALE)
+
+    @property
+    def ACCENT_GRADIENT(self):
+        return getattr(self._current_theme, 'ACCENT_GRADIENT', [self.ACCENT, self.ACCENT_DARK])
+
+    # 保留旧的强调色属性以兼容
+    @property
+    def ACCENT_PRIMARY(self):
+        return self.SUCCESS
+
+    @property
+    def ACCENT_SECONDARY(self):
+        return self.INFO
+
+    @property
+    def ACCENT_TERTIARY(self):
+        return self.WARNING
+    
+    @property
+    def TEXT_PRIMARY(self):
+        return self._current_theme.TEXT_PRIMARY
+    
+    @property
+    def TEXT_SECONDARY(self):
+        return self._current_theme.TEXT_SECONDARY
+    
+    @property
+    def TEXT_TERTIARY(self):
+        return self._current_theme.TEXT_TERTIARY
+    
+    @property
+    def TEXT_PLACEHOLDER(self):
+        return self._current_theme.TEXT_PLACEHOLDER
+    
+    @property
+    def TEXT_DISABLED(self):
+        return self._current_theme.TEXT_DISABLED
+    
+    @property
+    def BG_PRIMARY(self):
+        return self._current_theme.BG_PRIMARY
+    
+    @property
+    def BG_SECONDARY(self):
+        return self._current_theme.BG_SECONDARY
+    
+    @property
+    def BG_TERTIARY(self):
+        return self._current_theme.BG_TERTIARY
+    
+    @property
+    def BG_CARD(self):
+        return self._current_theme.BG_CARD
+    
+    @property
+    def BG_CARD_HOVER(self):
+        return self._current_theme.BG_CARD_HOVER
+    
+    @property
+    def BORDER_DEFAULT(self):
+        return self._current_theme.BORDER_DEFAULT
+    
+    @property
+    def BORDER_LIGHT(self):
+        return self._current_theme.BORDER_LIGHT
+    
+    @property
+    def BORDER_DARK(self):
+        return self._current_theme.BORDER_DARK
+
+    @property
+    def BUTTON_TEXT(self):
+        """按钮文字颜色"""
+        return self._current_theme.BUTTON_TEXT
+
+    @property
+    def BUTTON_TEXT_SECONDARY(self):
+        """次要按钮文字颜色"""
+        return self._current_theme.BUTTON_TEXT_SECONDARY
+
+    @property
+    def OVERLAY_COLOR(self):
+        """遮罩层颜色"""
+        return self._current_theme.OVERLAY_COLOR
+
+    @property
+    def SHADOW_COLOR(self):
+        """阴影颜色"""
+        return self._current_theme.SHADOW_COLOR
+
+    @property
+    def SUCCESS(self):
+        return self._current_theme.SUCCESS
+
+    @property
+    def SUCCESS_LIGHT(self):
+        return self._current_theme.SUCCESS_LIGHT
+
+    @property
+    def SUCCESS_DARK(self):
+        return self._current_theme.SUCCESS_DARK
+
+    @property
+    def SUCCESS_BG(self):
+        return self._current_theme.SUCCESS_BG
+    
+    @property
+    def ERROR(self):
+        return self._current_theme.ERROR
+
+    @property
+    def ERROR_LIGHT(self):
+        return self._current_theme.ERROR_LIGHT
+
+    @property
+    def ERROR_DARK(self):
+        return self._current_theme.ERROR_DARK
+
+    @property
+    def ERROR_BG(self):
+        return self._current_theme.ERROR_BG
+    
+    @property
+    def WARNING(self):
+        return self._current_theme.WARNING
+
+    @property
+    def WARNING_LIGHT(self):
+        return self._current_theme.WARNING_LIGHT
+
+    @property
+    def WARNING_DARK(self):
+        return self._current_theme.WARNING_DARK
+
+    @property
+    def WARNING_BG(self):
+        return self._current_theme.WARNING_BG
+    
+    @property
+    def INFO(self):
+        return self._current_theme.INFO
+
+    @property
+    def INFO_LIGHT(self):
+        return self._current_theme.INFO_LIGHT
+
+    @property
+    def INFO_DARK(self):
+        return self._current_theme.INFO_DARK
+
+    @property
+    def INFO_BG(self):
+        return self._current_theme.INFO_BG
+    
+    @property
+    def ACCENT_PALE(self):
+        return self.SUCCESS_BG
+
+    # ==================== 渐变属性 ====================
+    @property
+    def SUCCESS_GRADIENT(self):
+        return self._current_theme.SUCCESS_GRADIENT
+
+    @property
+    def ERROR_GRADIENT(self):
+        return self._current_theme.ERROR_GRADIENT
+
+    @property
+    def WARNING_GRADIENT(self):
+        return self._current_theme.WARNING_GRADIENT
+
+    @property
+    def INFO_GRADIENT(self):
+        return self._current_theme.INFO_GRADIENT
+    
+    # ==================== 设计系统常量 ====================
+    @property
+    def RADIUS_XS(self):
+        return self._current_theme.RADIUS_XS
+    
+    @property
+    def RADIUS_SM(self):
+        return self._current_theme.RADIUS_SM
+    
+    @property
+    def RADIUS_MD(self):
+        return self._current_theme.RADIUS_MD
+    
+    @property
+    def RADIUS_LG(self):
+        return self._current_theme.RADIUS_LG
+    
+    @property
+    def RADIUS_ROUND(self):
+        return self._current_theme.RADIUS_ROUND
+    
+    @property
+    def SPACING_XS(self):
+        return self._current_theme.SPACING_XS
+    
+    @property
+    def SPACING_SM(self):
+        return self._current_theme.SPACING_SM
+    
+    @property
+    def SPACING_MD(self):
+        return self._current_theme.SPACING_MD
+    
+    @property
+    def SPACING_LG(self):
+        return self._current_theme.SPACING_LG
+    
+    @property
+    def SPACING_XL(self):
+        return self._current_theme.SPACING_XL
+    
+    @property
+    def SPACING_XXL(self):
+        return self._current_theme.SPACING_XXL
+    
+    # ==================== 字体系统常量 ====================
+    @property
+    def FONT_SIZE_XS(self):
+        return self._current_theme.FONT_SIZE_XS
+    
+    @property
+    def FONT_SIZE_SM(self):
+        return self._current_theme.FONT_SIZE_SM
+    
+    @property
+    def FONT_SIZE_BASE(self):
+        return self._current_theme.FONT_SIZE_BASE
+    
+    @property
+    def FONT_SIZE_MD(self):
+        return self._current_theme.FONT_SIZE_MD
+    
+    @property
+    def FONT_SIZE_LG(self):
+        return self._current_theme.FONT_SIZE_LG
+    
+    @property
+    def FONT_SIZE_XL(self):
+        return self._current_theme.FONT_SIZE_XL
+    
+    @property
+    def FONT_SIZE_2XL(self):
+        return self._current_theme.FONT_SIZE_2XL
+    
+    @property
+    def FONT_SIZE_3XL(self):
+        return self._current_theme.FONT_SIZE_3XL
+    
+    @property
+    def FONT_WEIGHT_NORMAL(self):
+        return self._current_theme.FONT_WEIGHT_NORMAL
+    
+    @property
+    def FONT_WEIGHT_MEDIUM(self):
+        return self._current_theme.FONT_WEIGHT_MEDIUM
+    
+    @property
+    def FONT_WEIGHT_SEMIBOLD(self):
+        return self._current_theme.FONT_WEIGHT_SEMIBOLD
+    
+    @property
+    def FONT_WEIGHT_BOLD(self):
+        return self._current_theme.FONT_WEIGHT_BOLD
+    
+    @property
+    def LINE_HEIGHT_TIGHT(self):
+        return self._current_theme.LINE_HEIGHT_TIGHT
+    
+    @property
+    def LINE_HEIGHT_NORMAL(self):
+        return self._current_theme.LINE_HEIGHT_NORMAL
+    
+    @property
+    def LINE_HEIGHT_RELAXED(self):
+        return self._current_theme.LINE_HEIGHT_RELAXED
+    
+    @property
+    def LINE_HEIGHT_LOOSE(self):
+        return self._current_theme.LINE_HEIGHT_LOOSE
+
+    @property
+    def LETTER_SPACING_TIGHT(self):
+        return self._current_theme.LETTER_SPACING_TIGHT
+
+    @property
+    def LETTER_SPACING_NORMAL(self):
+        return self._current_theme.LETTER_SPACING_NORMAL
+
+    @property
+    def LETTER_SPACING_WIDE(self):
+        return self._current_theme.LETTER_SPACING_WIDE
+
+    @property
+    def LETTER_SPACING_WIDER(self):
+        return self._current_theme.LETTER_SPACING_WIDER
+
+
+    def button_primary(self):
+        """主要按钮样式 - 渐变背景"""
+        gradient_colors = self.PRIMARY_GRADIENT
+        gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+
+        # 注意：Qt StyleSheet 不支持 box-shadow、transform 等 CSS3 属性
+        return f"""
+            QPushButton {{
+                background: {gradient_style};
+                color: {self.BUTTON_TEXT};
+                border: none;
+                border-radius: {self.RADIUS_SM};
+                padding: 10px 24px;
+                font-size: {self.FONT_SIZE_SM};
+                font-weight: {self.FONT_WEIGHT_SEMIBOLD};
+                min-height: 36px;
+            }}
+            QPushButton:hover {{
+                background: {ModernEffects.linear_gradient([self.PRIMARY_LIGHT, self.PRIMARY], 135)};
+            }}
+            QPushButton:pressed {{
+                background: {self.PRIMARY_DARK};
+            }}
+            QPushButton:disabled {{
+                background: {self.BG_TERTIARY};
+                color: {self.TEXT_DISABLED};
+            }}
+        """
+
+    def button_secondary(self):
+        """次要按钮样式 - 玻璃态效果"""
+        glass_style = ModernEffects.glassmorphism_card(self.is_dark_mode())
+
+        return f"""
+            QPushButton {{
+                {glass_style}
+                color: {self.TEXT_PRIMARY};
+                border: 1px solid {self.BORDER_DEFAULT};
+                border-radius: {self.RADIUS_SM};
+                padding: 10px 24px;
+                font-size: {self.FONT_SIZE_SM};
+                font-weight: {self.FONT_WEIGHT_SEMIBOLD};
+                min-height: 36px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.PRIMARY_PALE};
+                border-color: {self.PRIMARY};
+                color: {self.PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.BG_SECONDARY};
+            }}
+            QPushButton:disabled {{
+                color: {self.TEXT_DISABLED};
+                border-color: {self.BORDER_LIGHT};
+                background: transparent;
+            }}
+        """
+
+    def button_accent(self):
+        """强调按钮样式 - 活力渐变"""
+        gradient_colors = self.ACCENT_GRADIENT
+        gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+
+        return f"""
+            QPushButton {{
+                background: {gradient_style};
+                color: {self.BUTTON_TEXT};
+                border: none;
+                border-radius: {self.RADIUS_SM};
+                padding: 10px 24px;
+                font-size: {self.FONT_SIZE_SM};
+                font-weight: {self.FONT_WEIGHT_SEMIBOLD};
+                min-height: 36px;
+            }}
+            QPushButton:hover {{
+                background: {ModernEffects.linear_gradient([self.ACCENT_LIGHT, self.ACCENT], 135)};
+            }}
+            QPushButton:pressed {{
+                background: {self.ACCENT_DARK if hasattr(self, 'ACCENT_DARK') else self.ACCENT};
+            }}
+        """
+    
+    def button_text(self):
+        """文本按钮样式 - 纯文本无边框"""
+        return f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {self.TEXT_SECONDARY};
+                border: none;
+                border-radius: {self.RADIUS_SM};
+                padding: 8px 16px;
+                font-size: {self.FONT_SIZE_SM};
+                font-weight: {self.FONT_WEIGHT_MEDIUM};
+                min-height: 32px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.BG_TERTIARY};
+                color: {self.PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.BG_SECONDARY};
+            }}
+            QPushButton:disabled {{
+                color: {self.TEXT_DISABLED};
+            }}
+        """
+    # ==================== 现代化样式方法 ====================
+
+    def card_style(self, elevated: bool = False) -> str:
+        """卡片样式 - 支持普通和浮起效果
+
+        注意：Qt StyleSheet 不支持 box-shadow。
+        阴影效果应通过 QGraphicsDropShadowEffect 实现。
+        """
+        if elevated:
+            # 浮起卡片 - 新拟态效果（移除不支持的shadow transition）
+            return f"""
+                background-color: {self.BG_CARD};
+                border-radius: {self.RADIUS_LG};
+                border: 1px solid {self.BORDER_LIGHT};
+            """
+        else:
+            # 普通卡片
+            return f"""
+                background-color: {self.BG_CARD};
+                border: 1px solid {self.BORDER_LIGHT};
+                border-radius: {self.RADIUS_MD};
+            """
+
+    def glass_card_style(self) -> str:
+        """玻璃卡片样式
+
+        注意：Qt StyleSheet 不支持 box-shadow。
+        阴影效果应通过 QGraphicsDropShadowEffect 实现。
+        """
+        return f"""
+            {ModernEffects.glassmorphism_card(self.is_dark_mode())}
+            border-radius: {self.RADIUS_LG};
+        """
+
+    def input_style(self) -> str:
+        """输入框样式 - 现代化设计
+
+        注意：Qt StyleSheet 不支持 box-shadow（glow_effect）。
+        发光效果应通过 QGraphicsDropShadowEffect 实现。
+        """
+        return f"""
+            QLineEdit, QTextEdit {{
+                background-color: {self.BG_CARD};
+                border: 2px solid {self.BORDER_DEFAULT};
+                border-radius: {self.RADIUS_SM};
+                padding: 10px 12px;
+                font-size: {self.FONT_SIZE_BASE};
+                color: {self.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus, QTextEdit:focus {{
+                border-color: {self.PRIMARY};
+                background-color: {self.BG_CARD};
+            }}
+            QLineEdit:hover, QTextEdit:hover {{
+                border-color: {self.PRIMARY_LIGHT};
+            }}
+            QLineEdit:disabled, QTextEdit:disabled {{
+                background-color: {self.BG_TERTIARY};
+                color: {self.TEXT_DISABLED};
+                border-color: {self.BORDER_LIGHT};
+            }}
+        """
+
+    def gradient_background(self, colors: list = None) -> str:
+        """渐变背景样式"""
+        if colors is None:
+            colors = getattr(self._current_theme, 'BG_GRADIENT', [self.BG_PRIMARY, self.BG_SECONDARY])
+        return ModernEffects.linear_gradient(colors, 180)
+
+    def aurora_background(self) -> str:
+        """极光背景效果"""
+        return ModernEffects.aurora_bg(self.is_dark_mode())
+
+    def loading_style(self) -> str:
+        """加载动画样式"""
+        # 注意：Qt StyleSheet 对 CSS animations 支持有限
+        return """
+            QLabel {
+                color: palette(text);
+            }
+        """
+
+    def hover_lift_effect(self) -> str:
+        """悬停上浮效果
+
+        注意：Qt StyleSheet 不支持 transform 和 box-shadow。
+        实际的悬停效果应通过 QPropertyAnimation 实现。
+        这里返回空字符串，仅作为占位。
+        """
+        return ""
+
+    def theme_transition(self, duration: str = "0.3s") -> str:
+        """主题切换过渡动画
+
+        注意：Qt StyleSheet 对 transition 的支持有限，
+        仅支持部分属性。box-shadow 不被支持。
+
+        Args:
+            duration: 过渡时长，默认0.3秒
+
+        Returns:
+            CSS过渡样式字符串（仅包含Qt支持的属性）
+        """
+        return f"""
+            transition: background-color {duration} ease,
+                        color {duration} ease,
+                        border-color {duration} ease;
+        """
+
+    def tabs(self):
+        """标签页样式 - 支持主题切换"""
+        return f"""
+            QTabWidget::pane {{
+                border: 1px solid {self.BORDER_LIGHT};
+                border-radius: {self.RADIUS_SM};
+                background-color: {self.BG_CARD};
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                padding: 10px 20px;
+                font-size: {self.FONT_SIZE_BASE};
+                font-weight: {self.FONT_WEIGHT_NORMAL};
+                color: {self.TEXT_SECONDARY};
+                background-color: transparent;
+                border: none;
+                border-bottom: 2px solid transparent;
+                margin-right: 4px;
+            }}
+            QTabBar::tab:selected {{
+                color: {self.PRIMARY};
+                border-bottom: 2px solid {self.PRIMARY};
+                font-weight: {self.FONT_WEIGHT_MEDIUM};
+            }}
+            QTabBar::tab:hover:!selected {{
+                color: {self.TEXT_PRIMARY};
+                background-color: {self.BG_SECONDARY};
+            }}
+        """
+
+    def scrollbar(self):
+        """返回滚动条样式 - 极简设计，符合中国风美学"""
+        return f"""
+            QScrollBar:vertical {{
+                background-color: transparent;
+                width: 8px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {self.BORDER_DEFAULT};
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {self.TEXT_TERTIARY};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: none;
+            }}
+            
+            QScrollBar:horizontal {{
+                background-color: transparent;
+                height: 8px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background-color: {self.BORDER_DEFAULT};
+                border-radius: 4px;
+                min-width: 30px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background-color: {self.TEXT_TERTIARY};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: none;
+            }}
+        """
+
+
+# 全局主题管理器实例
+theme_manager = ThemeManager()
