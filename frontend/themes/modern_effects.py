@@ -107,9 +107,9 @@ class ModernEffects:
                 include_border=False  # 不包含边框，由调用方设置
             )
         else:
-            # 亮色主题 - 晨雾玻璃效果
+            # 亮色主题 - 暖调晨曦玻璃效果（Claude Morning Theme）
             return ModernEffects.glassmorphism(
-                bg_color="rgba(255, 255, 255, 0.72)",  # 晨雾白底色
+                bg_color="rgba(247, 243, 238, 0.82)",  # 暖米色玻璃底色
                 blur_radius=20,
                 include_border=False  # 不包含边框，由调用方设置
             )
@@ -460,8 +460,9 @@ class ModernEffects:
             # 深色主题 - 北极光效果（紫、青、蓝的绚丽组合）
             colors = ["#A78BFA", "#14F195", "#00B4D8", "#8B5CF6"]
         else:
-            # 亮色主题 - 晨曦极光（天空蓝、晨霞粉、薰衣草紫）
-            colors = ["#60A5FA", "#FDA4AF", "#C084FC", "#3B82F6"]
+            # 亮色主题 - 暖调晨曦极光（Claude Morning Theme）
+            # 使用赭红、暖橙、鼠尾草绿、暖棕的温暖组合
+            colors = ["#c6613f", "#d4923a", "#7c9a76", "#d4826a"]
 
         return f"""
             background: linear-gradient(-45deg, {', '.join(colors)});

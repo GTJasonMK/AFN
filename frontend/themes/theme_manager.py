@@ -21,13 +21,15 @@ class ThemeMode(Enum):
 
 
 class LightTheme:
-    """亮色主题 - 柔和渐变风格 (2025 Modern Design)
+    """亮色主题 - Claude晨曦风格 (Morning Theme)
 
     设计理念：
-    - 柔和护眼的配色（适合长时间创作）
-    - 紫蓝渐变主色调（灵感与智慧）
-    - 高对比度文字（易读性优先）
-    - 细腻的阴影和过渡
+    - 温暖舒适的暖色调（适合长时间创作）
+    - 赭红色主色调（Claude品牌色，温暖亲切）
+    - 米色背景（护眼柔和，减少蓝光）
+    - 棕色系文字（自然阅读体验）
+
+    灵感来源：Claude AI品牌色彩体系
     """
 
     # ==================== 设计系统常量 ====================
@@ -75,77 +77,77 @@ class LightTheme:
     LETTER_SPACING_WIDE = "0.05em"
     LETTER_SPACING_WIDER = "0.1em"
 
-    # ==================== 色彩系统 ====================
-    # 主色调 - 紫蓝渐变（灵感与创造力）
-    PRIMARY = "#6366f1"  # 靛蓝色（专注）
-    PRIMARY_LIGHT = "#818cf8"
-    PRIMARY_DARK = "#4f46e5"
-    PRIMARY_PALE = "#eef2ff"
-    PRIMARY_GRADIENT = ["#818cf8", "#6366f1", "#4f46e5"]  # 靛蓝渐变
+    # ==================== 色彩系统 - Claude晨曦风格 ====================
+    # 主色调 - 温暖赭红色（Claude品牌色）
+    PRIMARY = "#c6613f"  # 赭红色（温暖亲切）
+    PRIMARY_LIGHT = "#d4826a"  # 浅赭红
+    PRIMARY_DARK = "#a8502f"   # 深赭红
+    PRIMARY_PALE = "#faf5f0"   # 极浅暖色（hover/focus状态）
+    PRIMARY_GRADIENT = ["#d4826a", "#c6613f", "#a8502f"]  # 赭红渐变
 
-    # 强调色 - 紫色渐变（想象力）
-    ACCENT = "#a855f7"  # 紫罗兰
-    ACCENT_LIGHT = "#c084fc"
-    ACCENT_DARK = "#9333ea"
-    ACCENT_PALE = "#faf5ff"
-    ACCENT_GRADIENT = ["#c084fc", "#a855f7", "#9333ea"]  # 紫罗兰渐变
+    # 强调色 - 暖调鼠尾草绿（自然舒适）
+    ACCENT = "#7c9a76"    # 鼠尾草绿
+    ACCENT_LIGHT = "#9db897"
+    ACCENT_DARK = "#5f7d59"
+    ACCENT_PALE = "#f0f5ee"
+    ACCENT_GRADIENT = ["#9db897", "#7c9a76", "#5f7d59"]  # 鼠尾草渐变
 
-    # 成功色 - 翠绿色（自然舒适）
-    SUCCESS = "#10b981"
-    SUCCESS_LIGHT = "#34d399"
-    SUCCESS_DARK = "#059669"
-    SUCCESS_BG = "#ecfdf5"
-    SUCCESS_GRADIENT = ["#6ee7b7", "#34d399", "#10b981"]  # 翠绿渐变
+    # 成功色 - 暖调翠绿（自然舒适）
+    SUCCESS = "#4a9f6e"
+    SUCCESS_LIGHT = "#6db88a"
+    SUCCESS_DARK = "#3a8558"
+    SUCCESS_BG = "#f0f9f4"
+    SUCCESS_GRADIENT = ["#8fcca6", "#6db88a", "#4a9f6e"]  # 暖翠绿渐变
 
-    # 错误色 - 玫瑰红（温和警示）
-    ERROR = "#f43f5e"
-    ERROR_LIGHT = "#fb7185"
-    ERROR_DARK = "#e11d48"
-    ERROR_BG = "#fff1f2"
-    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]  # 玫瑰渐变
+    # 错误色 - 暖调砖红（柔和警示）
+    ERROR = "#d4564e"
+    ERROR_LIGHT = "#e07a74"
+    ERROR_DARK = "#b8433c"
+    ERROR_BG = "#fdf3f2"
+    ERROR_GRADIENT = ["#eba09b", "#e07a74", "#d4564e"]  # 砖红渐变
 
-    # 警告色 - 琥珀色（温暖提醒）
-    WARNING = "#f59e0b"
-    WARNING_LIGHT = "#fbbf24"
-    WARNING_DARK = "#d97706"
-    WARNING_BG = "#fffbeb"
-    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]  # 琥珀渐变
+    # 警告色 - 暖调琥珀（温暖提醒）
+    WARNING = "#d4923a"
+    WARNING_LIGHT = "#e5ad5c"
+    WARNING_DARK = "#b87a2a"
+    WARNING_BG = "#fdf8f0"
+    WARNING_GRADIENT = ["#f0c67d", "#e5ad5c", "#d4923a"]  # 琥珀渐变
 
-    # 信息色 - 青色（清新资讯）
-    INFO = "#06b6d4"
-    INFO_LIGHT = "#22d3ee"
-    INFO_DARK = "#0891b2"
-    INFO_BG = "#ecfeff"
-    INFO_GRADIENT = ["#67e8f9", "#22d3ee", "#06b6d4"]  # 青色渐变
+    # 信息色 - 暖调青石蓝（沉稳资讯）
+    INFO = "#4a8db3"
+    INFO_LIGHT = "#6da8c9"
+    INFO_DARK = "#3a7499"
+    INFO_BG = "#f0f6fa"
+    INFO_GRADIENT = ["#90c5dd", "#6da8c9", "#4a8db3"]  # 青石蓝渐变
 
-    # 文字颜色 - 高对比度（护眼优先）
-    TEXT_PRIMARY = "#1e293b"     # 深灰蓝（比纯黑柔和）
-    TEXT_SECONDARY = "#475569"    # 中灰
-    TEXT_TERTIARY = "#64748b"     # 浅灰
-    TEXT_PLACEHOLDER = "#94a3b8"  # 占位符
-    TEXT_DISABLED = "#cbd5e1"     # 禁用
+    # 文字颜色 - 暖棕色调（自然阅读）
+    TEXT_PRIMARY = "#2c2621"     # 深棕色（主文本）
+    TEXT_SECONDARY = "#615e5a"    # 中棕灰
+    TEXT_TERTIARY = "#8a8580"     # 浅棕灰
+    TEXT_PLACEHOLDER = "#a39e99"  # 占位符
+    TEXT_DISABLED = "#c4c0bc"     # 禁用
 
-    # 背景颜色 - 高亮度纯白（白天最佳可见度）
-    BG_PRIMARY = "#ffffff"       # 纯白（白天强光下清晰可读）
-    BG_SECONDARY = "#f8f9fb"     # 极浅蓝白
-    BG_TERTIARY = "#f1f3f7"      # 浅蓝灰
-    BG_CARD = "#ffffff"          # 卡片纯白
-    BG_CARD_HOVER = "#f8fafc"    # 悬浮微蓝
-    BG_GRADIENT = ["#ffffff", "#f8f9fb", "#f1f3f7"]  # 高亮度渐变背景
+    # 背景颜色 - 温暖米色（护眼舒适）
+    BG_PRIMARY = "#f1ede6"       # 温暖米色（主背景）
+    BG_SECONDARY = "#f7f3ee"     # 浅米白（次级背景）
+    BG_TERTIARY = "#ebe4db"      # 浅棕色（输入框/代码块）
+    BG_CARD = "#f7f3ee"          # 卡片背景（与次级背景统一）
+    BG_CARD_HOVER = "#e8e4df"    # 悬浮状态
+    BG_GRADIENT = ["#f7f3ee", "#f1ede6", "#ebe4db"]  # 温暖渐变背景
 
-    # 边框颜色 - 清晰可见（纯白背景下的最佳对比）
-    BORDER_DEFAULT = "#e0e4e8"   # 适中边框
-    BORDER_LIGHT = "#e8ecf0"     # 浅边框
-    BORDER_DARK = "#cbd2d9"      # 深边框
+    # 边框颜色 - 暖灰色调（柔和分隔）
+    BORDER_DEFAULT = "#ddd9d3"   # 适中边框
+    BORDER_LIGHT = "#e8e4df"     # 浅边框
+    BORDER_DARK = "#c4c0bc"      # 深边框
 
     # 特殊效果色
-    GLASS_BG = "rgba(255, 255, 255, 0.75)"  # 玻璃态背景
-    SHADOW_COLOR = "rgba(100, 116, 139, 0.12)"    # 阴影颜色（带蓝调）
-    OVERLAY_COLOR = "rgba(0, 0, 0, 0.25)"  # 遮罩层颜色（亮色主题较淡）
+    GLASS_BG = "rgba(247, 243, 238, 0.85)"  # 暖色玻璃态背景
+    SHADOW_COLOR = "rgba(44, 38, 33, 0.08)"  # 暖色阴影
+    OVERLAY_COLOR = "rgba(44, 38, 33, 0.25)"  # 暖色遮罩层
 
     # 按钮文字颜色（在有色按钮上）
     BUTTON_TEXT = "#ffffff"      # 白色文字（在PRIMARY/ACCENT等深色按钮上）
-    BUTTON_TEXT_SECONDARY = "#1e293b"  # 深色文字（在浅色按钮上）
+    BUTTON_TEXT_SECONDARY = "#2c2621"  # 深棕文字（在浅色按钮上）
 
 
 class DarkTheme:
