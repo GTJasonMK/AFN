@@ -12,11 +12,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
 from api.client import ArborisAPIClient
-from utils.task_monitor import TaskMonitorManager
 from utils.async_worker import AsyncAPIWorker
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
-from components.task_progress_dialog import TaskProgressDialog
 from themes.theme_manager import theme_manager
 
 from .header import WDHeader
@@ -42,7 +40,6 @@ class WritingDesk(BasePage):
         self.current_worker = None  # 用于评审和重试等长时间操作
         self.select_version_worker = None  # 用于版本选择
         self.edit_content_worker = None  # 用于内容编辑
-        self.task_monitor_manager = TaskMonitorManager(self.api_client, parent=self)
 
         self.setupUI()
         self.loadProject()
@@ -149,6 +146,15 @@ class WritingDesk(BasePage):
 
     def onGenerateChapter(self, chapter_number):
         """生成章节 - 使用同步模式"""
+        # 防止快速点击导致多个生成任务同时运行
+        if self.generating_chapter is not None:
+            MessageService.show_warning(
+                self,
+                f"正在生成第{self.generating_chapter}章，请等待完成后再生成其他章节",
+                "提示"
+            )
+            return
+
         if not confirm(
             self,
             f"确定要生成第{chapter_number}章吗？这可能需要几分钟时间。",
@@ -469,8 +475,59 @@ class WritingDesk(BasePage):
 
         _export()
 
+    def onHide(self):
+        """页面隐藏时清理资源"""
+        # 停止所有正在运行的workers，防止信号发射到已删除的页面
+        self._cleanup_workers()
+
+    def _cleanup_workers(self):
+        """清理所有异步工作线程"""
+        workers = [
+            ('current_worker', self.current_worker),
+            ('select_version_worker', self.select_version_worker),
+            ('edit_content_worker', self.edit_content_worker),
+        ]
+
+        for name, worker in workers:
+            if worker is not None:
+                try:
+                    # 断开所有信号连接，防止回调到已删除的对象
+                    worker.blockSignals(True)
+                    # 如果线程正在运行，等待它完成（设置超时避免永久阻塞）
+                    if worker.isRunning():
+                        worker.quit()
+                        worker.wait(1000)  # 最多等待1秒
+                        if worker.isRunning():
+                            worker.terminate()  # 强制终止
+                            worker.wait(500)
+                    logger.debug(f"清理worker: {name}")
+                except Exception as e:
+                    logger.warning(f"清理worker {name} 时发生错误: {e}")
+
+        # 清空引用
+        self.current_worker = None
+        self.select_version_worker = None
+        self.edit_content_worker = None
+
+        # 隐藏加载动画（如果有）
+        self.hide_loading()
+
+        # 清除生成状态
+        self.generating_chapter = None
+        if hasattr(self, 'sidebar'):
+            self.sidebar.clearGeneratingState()
+
+    def __del__(self):
+        """析构函数，确保资源被释放"""
+        try:
+            self._cleanup_workers()
+            if hasattr(self, 'api_client') and self.api_client:
+                self.api_client.close()
+        except Exception:
+            pass  # 忽略析构时的错误
+
     def refresh(self, **params):
-        """页面刷���"""
+        """页面刷新"""
         if 'project_id' in params:
             self.project_id = params['project_id']
             if hasattr(self, 'workspace'):

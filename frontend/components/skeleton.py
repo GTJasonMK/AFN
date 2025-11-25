@@ -12,7 +12,7 @@
 """
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 

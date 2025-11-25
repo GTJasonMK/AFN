@@ -196,13 +196,13 @@ class ProjectCard(ThemeAwareFrame):
         # 查看详情按钮
         self.view_btn = QPushButton("查看详情")
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.view_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
+        self.view_btn.clicked.connect(self._on_view_details_clicked)
         buttons_layout.addWidget(self.view_btn, stretch=1)
 
         # 删除按钮
         self.delete_btn = QPushButton("删除")
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.delete_btn.clicked.connect(lambda: self.deleteClicked.emit(self.project_data['id']))
+        self.delete_btn.clicked.connect(self._on_delete_clicked)
         # 移除固定宽度限制，让按钮根据内容自动调整
         buttons_layout.addWidget(self.delete_btn)
 
@@ -215,13 +215,12 @@ class ProjectCard(ThemeAwareFrame):
         if project_status in blueprint_ready_states:
             # 已有蓝图，显示"继续创作"
             self.continue_btn = QPushButton("继续创作")
-            self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.continue_btn.clicked.connect(lambda: self.continueWritingClicked.emit(self.project_data['id']))
         else:
             # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
             self.continue_btn = QPushButton("继续灵感模式")
-            self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.continue_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
+        self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 连接到统一的槽方法，避免重复连接lambda
+        self.continue_btn.clicked.connect(self._on_continue_clicked)
         buttons_layout.addWidget(self.continue_btn, stretch=1)
 
         layout.addWidget(self.buttons_container)
@@ -482,6 +481,34 @@ class ProjectCard(ThemeAwareFrame):
                 fill_width = int(bg_width * self.progress_percent / 100)
                 self.progress_bar_fill.setFixedWidth(fill_width)
 
+    def _on_continue_clicked(self):
+        """继续按钮点击处理 - 根据当前状态发射对应信号"""
+        project_id = self.project_data.get('id')
+        if not project_id:
+            return
+
+        project_status = self.project_data.get('status', '')
+        blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
+
+        if project_status in blueprint_ready_states:
+            # 已有蓝图，导航到写作台
+            self.continueWritingClicked.emit(project_id)
+        else:
+            # 未完成蓝图，导航到灵感模式
+            self.viewDetailsClicked.emit(project_id)
+
+    def _on_view_details_clicked(self):
+        """查看详情按钮点击处理"""
+        project_id = self.project_data.get('id')
+        if project_id:
+            self.viewDetailsClicked.emit(project_id)
+
+    def _on_delete_clicked(self):
+        """删除按钮点击处理"""
+        project_id = self.project_data.get('id')
+        if project_id:
+            self.deleteClicked.emit(project_id)
+
     def updateData(self, new_project_data):
         """更新卡片数据（避免重建卡片）"""
         self.project_data = new_project_data
@@ -522,7 +549,8 @@ class ProjectCard(ThemeAwareFrame):
             self.chapter_tag.setText(f"{completed_chapters}/{total_chapters} 章")
             self.chapter_tag.setVisible(total_chapters > 0)
 
-        # 更新继续按钮 - 根据项目状态更新文本和行为
+        # 更新继续按钮 - 只更新文本，不重新连接信号
+        # （槽方法 _on_continue_clicked 会在调用时读取最新的 project_data）
         if self.continue_btn:
             project_status = new_project_data.get('status', '')
             # 蓝图后的状态列表（这些状态表示项目已有蓝图）
@@ -531,21 +559,9 @@ class ProjectCard(ThemeAwareFrame):
             if project_status in blueprint_ready_states:
                 # 已有蓝图，显示"继续创作"
                 self.continue_btn.setText("继续创作")
-                # 断开旧连接并连接新信号（导航到写作台）
-                try:
-                    self.continue_btn.clicked.disconnect()
-                except:
-                    pass
-                self.continue_btn.clicked.connect(lambda: self.continueWritingClicked.emit(self.project_data['id']))
             else:
                 # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
                 self.continue_btn.setText("继续灵感模式")
-                # 断开旧连接并连接新信号（导航到灵感模式）
-                try:
-                    self.continue_btn.clicked.disconnect()
-                except:
-                    pass
-                self.continue_btn.clicked.connect(lambda: self.viewDetailsClicked.emit(self.project_data['id']))
 
 
 
@@ -727,7 +743,7 @@ class NovelWorkspace(BasePage):
     def loadProjects(self):
         """加载项目列表"""
         try:
-            response = self.api_client.get_all_novels()
+            response = self.api_client.get_novels()
             self.projects = response
 
             self.renderProjects()

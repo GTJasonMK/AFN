@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 import sys
 
-from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, validator
+from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -204,19 +204,23 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    @validator("database_url", pre=True, always=True)
+    @field_validator("database_url", mode="before")
+    @classmethod
     def _normalize_database_url(cls, value: Optional[str]) -> Optional[str]:
         """当环境变量中提供 DATABASE_URL 时，原样返回，便于自定义。"""
         return value.strip() if isinstance(value, str) and value.strip() else value
 
-    @validator("db_provider", pre=True)
+    @field_validator("db_provider", mode="before")
+    @classmethod
     def _normalize_db_provider(cls, value: Optional[str]) -> str:
         """统一数据库类型大小写，并限制为受支持的驱动。"""
         candidate = (value or "mysql").strip().lower()
         if candidate not in {"mysql", "sqlite"}:
             raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
         return candidate
-    @validator("embedding_provider", pre=True)
+
+    @field_validator("embedding_provider", mode="before")
+    @classmethod
     def _normalize_embedding_provider(cls, value: Optional[str]) -> str:
         """限制嵌入模型提供方的取值范围。"""
         candidate = (value or "openai").strip().lower()
@@ -224,7 +228,8 @@ class Settings(BaseSettings):
             raise ValueError("EMBEDDING_PROVIDER 仅支持 openai 或 ollama")
         return candidate
 
-    @validator("logging_level", pre=True)
+    @field_validator("logging_level", mode="before")
+    @classmethod
     def _normalize_logging_level(cls, value: Optional[str]) -> str:
         """规范日志级别配置。"""
         candidate = (value or "INFO").strip().upper()

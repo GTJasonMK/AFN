@@ -6,8 +6,8 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsOpacityEffect
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QRectF, QPointF, pyqtProperty, QSequentialAnimationGroup
-from PyQt6.QtGui import QLinearGradient, QGradient, QColor, QPalette, QPainter, QPen, QBrush, QTransform
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup
+from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform
 from .base_page import BasePage
 from themes.theme_manager import theme_manager
 from themes.modern_effects import ModernEffects

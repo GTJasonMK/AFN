@@ -4,7 +4,6 @@ Arboris Novel API 客户端封装
 提供与后端API交互的所有方法，无需认证。
 """
 
-import json
 import logging
 from typing import Any, Dict, List, Optional
 import requests
@@ -29,6 +28,18 @@ class ArborisAPIClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
+
+    def __del__(self):
+        """析构函数，确保session被关闭"""
+        self.close()
+
+    def close(self):
+        """显式关闭session，释放资源"""
+        if hasattr(self, 'session') and self.session:
+            try:
+                self.session.close()
+            except Exception:
+                pass  # 忽略关闭时的错误
 
     def _request(
         self,
@@ -176,10 +187,6 @@ class ArborisAPIClient:
         """
         return self._request('GET', f'/api/novels/{project_id}')
 
-    def get_all_novels(self) -> List[Dict[str, Any]]:
-        """获取所有项目列表（别名）"""
-        return self.get_novels()
-
     def get_section(self, project_id: str, section_type: str) -> Dict[str, Any]:
         """
         获取小说的特定section数据
@@ -293,35 +300,6 @@ class ArborisAPIClient:
             f'/api/novels/{project_id}/inspiration/history'
         )
 
-    def concept_converse(
-        self,
-        project_id: str,
-        user_input: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        概念对话（已弃用，请使用 inspiration_converse）
-
-        此方法仅为向后兼容保留，将在未来版本移除。
-        请使用 inspiration_converse(project_id, message_text) 替代。
-
-        Args:
-            project_id: 项目ID
-            user_input: 用户输入字典
-
-        Returns:
-            AI响应
-        """
-        import warnings
-        warnings.warn(
-            "concept_converse已弃用，请使用inspiration_converse方法",
-            DeprecationWarning,
-            stacklevel=2
-        )
-
-        # 提取消息文本并调用新方法
-        message = user_input.get('message', '') if isinstance(user_input, dict) else str(user_input)
-        return self.inspiration_converse(project_id, message)
-
     # ==================== 蓝图生成 ====================
 
     def generate_blueprint(
@@ -342,7 +320,7 @@ class ArborisAPIClient:
         return self._request(
             'POST',
             f'/api/novels/{project_id}/blueprint/generate',
-            params={'force_regenerate': 'true' if force_regenerate else 'false'},  # 转换为小写字符串
+            params={'force_regenerate': force_regenerate},
             timeout=480
         )
 
@@ -388,7 +366,7 @@ class ArborisAPIClient:
             'POST',
             f'/api/novels/{project_id}/blueprint/refine',
             {'refinement_instruction': refinement_instruction},
-            params={'force': 'true' if force else 'false'},  # 转换为小写字符串
+            params={'force': force},
             timeout=480
         )
 
@@ -870,83 +848,6 @@ class ArborisAPIClient:
             {"version": "1.0", "export_time": "...", "export_type": "batch", "configs": [...]}
         """
         return self._request('GET', '/api/llm-configs/export')
-
-    # ==================== 异步任务管理 ====================
-
-    def get_task(self, task_id: str) -> Dict[str, Any]:
-        """
-        获取任务详情
-
-        Args:
-            task_id: 任务ID
-
-        Returns:
-            任务信息，包含状态、进度、结果等
-        """
-        return self._request('GET', f'/tasks/{task_id}')
-
-    def get_project_tasks(
-        self,
-        project_id: str,
-        task_type: Optional[str] = None,
-        status: Optional[str] = None,
-        limit: int = 50
-    ) -> Dict[str, Any]:
-        """
-        获取项目的所有任务
-
-        Args:
-            project_id: 项目ID
-            task_type: 任务类型过滤（可选）
-            status: 状态过滤（可选）
-            limit: 返回数量限制
-
-        Returns:
-            任务列表和总数
-        """
-        params = {'limit': limit}
-        if task_type:
-            params['task_type'] = task_type
-        if status:
-            params['status'] = status
-
-        return self._request('GET', f'/projects/{project_id}/tasks', params=params)
-
-    def get_active_tasks(self, project_id: str) -> Dict[str, Any]:
-        """
-        获取项目的活动任务（PENDING或RUNNING状态）
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            活动任务列表
-        """
-        return self._request('GET', f'/projects/{project_id}/tasks/active')
-
-    def get_task_statistics(self, project_id: str) -> Dict[str, Any]:
-        """
-        获取项目的任务统计信息
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            统计信息
-        """
-        return self._request('GET', f'/projects/{project_id}/tasks/statistics')
-
-    def cancel_task(self, task_id: str) -> Dict[str, Any]:
-        """
-        取消正在执行的任务
-
-        Args:
-            task_id: 任务ID
-
-        Returns:
-            取消结果
-        """
-        return self._request('POST', f'/tasks/{task_id}/cancel')
 
     # ==================== 异步生成接口（支持async_mode参数）====================
 

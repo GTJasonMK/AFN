@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from .project_status import ProjectStatus, ProjectStatusHelpers
+from .project_status import ProjectStatus
 
 
 @dataclass

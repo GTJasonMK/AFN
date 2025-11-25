@@ -4,10 +4,13 @@
 提供统一的导航信号和页面生命周期接口
 """
 
+import logging
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import pyqtSignal
 from themes.theme_manager import theme_manager
 from components import LoadingOverlay
+
+logger = logging.getLogger(__name__)
 
 
 class BasePage(QWidget):
@@ -18,6 +21,7 @@ class BasePage(QWidget):
     - 页面刷新接口（refresh）
     - 页面生命周期钩子（onShow, onHide）
     - 统一的LoadingOverlay支持
+    - 主题信号的安全管理
     """
 
     # 导航信号
@@ -26,12 +30,40 @@ class BasePage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # 连接主题变化信号
-        theme_manager.theme_changed.connect(self.on_theme_changed)
+        # 主题信号连接标志
+        self._theme_connected = False
+        self._connect_theme_signal()
 
         # 创建统一的LoadingOverlay（默认隐藏）
         self._loading_overlay = None
         self._init_loading_overlay()
+
+    def _connect_theme_signal(self):
+        """连接主题信号（只连接一次）"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self._safe_on_theme_changed)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self._safe_on_theme_changed)
+            except TypeError:
+                pass  # 信号可能已断开
+            self._theme_connected = False
+
+    def _safe_on_theme_changed(self, mode: str):
+        """安全的主题改变回调（检查对象有效性）"""
+        try:
+            # 检查对象是否仍有效
+            if not self.isVisible() and not self.parent():
+                # 对象可能正在被删除，跳过处理
+                return
+            self.on_theme_changed(mode)
+        except RuntimeError:
+            # 对象已被删除，静默处理
+            logger.debug("主题回调时对象已被删除")
 
     def on_theme_changed(self, mode: str):
         """主题改变时的回调
@@ -154,3 +186,13 @@ class BasePage(QWidget):
         super().resizeEvent(event)
         if self._loading_overlay:
             self._loading_overlay.setGeometry(self.rect())
+
+    def closeEvent(self, event):
+        """关闭时清理主题信号连接"""
+        self._disconnect_theme_signal()
+        super().closeEvent(event)
+
+    def deleteLater(self):
+        """删除前清理信号连接"""
+        self._disconnect_theme_signal()
+        super().deleteLater()

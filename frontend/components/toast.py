@@ -12,9 +12,9 @@ Toast通知组件 - 禅意风格
 - 可堆叠显示
 """
 
-from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect, QVBoxLayout
+from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor
 from themes.theme_manager import theme_manager
 
 
@@ -31,6 +31,7 @@ class Toast(QWidget):
         self.message_label = None
         self.icon_label = None
         self.close_btn = None
+        self._theme_connected = False
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -43,11 +44,26 @@ class Toast(QWidget):
         self.setupUI()
 
         # 连接主题变化信号
-        theme_manager.theme_changed.connect(self._apply_theme)
+        self._connect_theme_signal()
 
         # 自动关闭定时器
         if duration > 0:
             QTimer.singleShot(duration, self.fadeOut)
+
+    def _connect_theme_signal(self):
+        """连接主题信号"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self._apply_theme)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self._apply_theme)
+            except TypeError:
+                pass  # 信号可能已断开
+            self._theme_connected = False
 
     def setupUI(self):
         """初始化UI"""
@@ -205,6 +221,8 @@ class Toast(QWidget):
 
     def onFadeOutFinished(self):
         """淡出完成后关闭"""
+        # 在删除前断开主题信号
+        self._disconnect_theme_signal()
         self.closed.emit()
         self.close()
         self.deleteLater()

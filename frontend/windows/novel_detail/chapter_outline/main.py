@@ -14,7 +14,6 @@ from api.client import ArborisAPIClient
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
-from utils.task_monitor import TaskMonitorManager
 from utils.message_service import MessageService, confirm
 from utils.dpi_utils import dp, sp
 
@@ -64,7 +63,6 @@ class ChapterOutlineSection(ThemeAwareWidget):
         # 初始化服务
         self.api_client = ArborisAPIClient()
         self.async_helper = AsyncOperationHelper(self)
-        self.task_monitor_manager = TaskMonitorManager(self.api_client, parent=self)
 
         # 初始化UI
         self.setupUI()
@@ -530,12 +528,6 @@ class ChapterOutlineSection(ThemeAwareWidget):
     def stopAllTasks(self):
         """停止所有异步任务"""
         self.async_helper.stop_all()
-
-        if hasattr(self, 'task_monitor_manager'):
-            try:
-                self.task_monitor_manager.stop_all()
-            except Exception as e:
-                logger.debug(f"停止任务监控时出错: {e}")
 
     def closeEvent(self, event):
         """组件关闭时清理资源"""

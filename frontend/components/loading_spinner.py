@@ -4,9 +4,9 @@
 提供多种样式的加载动画
 """
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor
 
 from components.base.theme_aware_widget import ThemeAwareWidget
 from themes.theme_manager import theme_manager

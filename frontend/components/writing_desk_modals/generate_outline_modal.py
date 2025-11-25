@@ -16,8 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from themes.theme_manager import theme_manager
-from utils.dpi_utils import dpi_helper, dp, sp, responsive
-import json
+from utils.dpi_utils import dp, sp
 
 
 class WDGenerateOutlineModal(QDialog):

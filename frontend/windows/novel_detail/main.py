@@ -16,7 +16,6 @@ from pages.base_page import BasePage
 from api.client import ArborisAPIClient
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles, ModernEffects
-from utils.task_monitor import TaskMonitorManager
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
 from utils.formatters import get_project_status_text
@@ -49,7 +48,6 @@ class NovelDetail(BasePage):
         self.section_widgets = {}
 
         # 异步任务管理
-        self.task_monitor_manager = TaskMonitorManager(self.api_client, parent=self)
         self.refine_worker = None  # 蓝图优化异步worker
 
         self.setupUI()
@@ -782,9 +780,6 @@ class NovelDetail(BasePage):
 
     def onHide(self):
         """页面隐藏时清理资源"""
-        if hasattr(self, 'task_monitor_manager'):
-            self.task_monitor_manager.stop_all()
-
         # 清理蓝图优化worker
         try:
             if self.refine_worker and self.refine_worker.isRunning():

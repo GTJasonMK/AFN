@@ -13,7 +13,6 @@
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
 from components.base.theme_aware_widget import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 
@@ -119,7 +118,7 @@ class EmptyState(ThemeAwareWidget):
             """)
 
 
-class EmptyStateWithIllustration(QWidget):
+class EmptyStateWithIllustration(ThemeAwareWidget):
     """带插画的空状态（高级版）"""
 
     actionClicked = pyqtSignal()
@@ -133,7 +132,7 @@ class EmptyStateWithIllustration(QWidget):
         secondary_action_text='',
         parent=None
     ):
-        super().__init__(parent)
+        # 先初始化成员变量，再调用父类构造函数
         self.illustration_char = illustration_char
         self.title = title
         self.description = description
@@ -145,11 +144,10 @@ class EmptyStateWithIllustration(QWidget):
         self.action_btn = None
         self.secondary_btn = None
 
+        super().__init__(parent)
         self.setupUI()
-        # 连接主题变化信号
-        theme_manager.theme_changed.connect(self._apply_theme)
 
-    def setupUI(self):
+    def _create_ui_structure(self):
         """初始化UI"""
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -204,9 +202,6 @@ class EmptyStateWithIllustration(QWidget):
                 button_layout.addWidget(self.action_btn)
 
             layout.addLayout(button_layout)
-
-        # 应用主题
-        self._apply_theme()
 
     def _apply_theme(self):
         """应用主题样式"""

@@ -16,7 +16,7 @@ from PyQt6.QtGui import QAction, QKeySequence
 from typing import Dict, List, Tuple
 from collections import OrderedDict
 from themes.theme_manager import theme_manager, ThemeMode
-from themes.modern_effects import ModernEffects, gradient, shadow
+from themes.modern_effects import ModernEffects
 from themes.svg_icons import SVGIcons
 from utils.dpi_utils import dpi_helper, dp, sp
 
@@ -72,8 +72,9 @@ class MainWindow(QMainWindow):
         # 导航历史栈：[(page_type, params)]
         self.navigation_history: List[Tuple[str, dict]] = []
 
-        # 连接主题切换信号
-        theme_manager.theme_changed.connect(self.on_theme_changed)
+        # 主题信号连接标志
+        self._theme_connected = False
+        self._connect_theme_signal()
 
         # 应用主题样式到窗口
         self.apply_window_theme()
@@ -83,6 +84,21 @@ class MainWindow(QMainWindow):
 
         # 初始化首页
         self.navigateTo('HOME')
+
+    def _connect_theme_signal(self):
+        """连接主题信号（只连接一次）"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self.on_theme_changed)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self.on_theme_changed)
+            except TypeError:
+                pass  # 信号可能已断开
+            self._theme_connected = False
 
     def create_floating_toolbar(self):
         """创建浮动工具栏（改进的主题按钮定位）"""
@@ -270,8 +286,9 @@ class MainWindow(QMainWindow):
         if hasattr(page, 'onShow'):
             page.onShow()
 
-        # 添加到导航历史（如果不是返回操作）
-        self.navigation_history.append((page_type, params))
+        # 添加到导航历史（避免重复）
+        if not self.navigation_history or self.navigation_history[-1] != (page_type, params):
+            self.navigation_history.append((page_type, params))
 
     def goBack(self):
         """返回上一页"""
@@ -320,7 +337,10 @@ class MainWindow(QMainWindow):
         # 对于需要多实例的页面（如DETAIL, WRITING_DESK），使用参数作为缓存键
         cache_key = page_type
         if page_type in ['DETAIL', 'WRITING_DESK']:
-            project_id = params.get('project_id', '')
+            project_id = params.get('project_id')
+            if not project_id:
+                logger.warning(f"页面{page_type}缺少project_id参数")
+                return None
             cache_key = f"{page_type}_{project_id}"
 
         # 检查缓存
@@ -352,58 +372,48 @@ class MainWindow(QMainWindow):
         return page
 
     def _evict_if_needed(self, current_key: str):
-        """如果超出缓存限制，淘汰最久��使用的页面
+        """如果超出缓存限制，淘汰最久未使用的页面
 
         Args:
             current_key: 当前新添加的页面缓存键（不应被淘汰）
         """
-        while len(self.pages) > self.MAX_CACHED_PAGES:
-            # 获取最老的（最久未使用的）页面
-            oldest_key = next(iter(self.pages))
+        if len(self.pages) <= self.MAX_CACHED_PAGES:
+            return
 
-            # 不能淘汰刚创建的页面
-            if oldest_key == current_key:
-                # 将当前页移到最后，尝试淘汰下一个
-                self.pages.move_to_end(current_key)
-                oldest_key = next(iter(self.pages))
-                if oldest_key == current_key:
-                    # 只有一个页面，无法淘汰
-                    break
-
-            # 检查是否是重要页面
-            page_type = oldest_key.split('_')[0]
+        # 创建候选列表（排除重要页面、当前页面、正在显示的页面）
+        current_widget = self.page_stack.currentWidget()
+        candidates = []
+        for key in self.pages.keys():
+            page_type = key.split('_')[0]
+            page = self.pages[key]
+            # 跳过重要页面、当前键、当前显示的页面
             if page_type in self.IMPORTANT_PAGES:
-                # 重要页面移到最后（保留），继续检查下一个
-                self.pages.move_to_end(oldest_key)
-                # 如果所有剩余页面都是重要页面，停止淘汰
-                if all(key.split('_')[0] in self.IMPORTANT_PAGES or key == current_key
-                       for key in self.pages.keys()):
-                    logger.warning("LRU缓存已满但都是重要页面，无法继续淘汰")
-                    break
                 continue
-
-            # 检查是否是当前正在显示的页面
-            oldest_page = self.pages[oldest_key]
-            if oldest_page == self.page_stack.currentWidget():
-                # 不能淘汰当前页面，移到最后
-                self.pages.move_to_end(oldest_key)
+            if key == current_key:
                 continue
+            if page == current_widget:
+                continue
+            candidates.append(key)
 
-            # 执行淘汰
-            oldest_page = self.pages.pop(oldest_key)
+        if not candidates:
+            logger.warning("LRU缓存已满但没有可淘汰的页面")
+            return
 
-            # 调用页面的清理钩子
-            if hasattr(oldest_page, 'onHide'):
-                oldest_page.onHide()
+        # 淘汰第一个候选（最久未使用的）
+        oldest_key = candidates[0]
+        oldest_page = self.pages.pop(oldest_key)
 
-            # 从堆栈中移除
-            self.page_stack.removeWidget(oldest_page)
+        # 调用页面的清理钩子
+        if hasattr(oldest_page, 'onHide'):
+            oldest_page.onHide()
 
-            # 延迟删除widget
-            oldest_page.deleteLater()
+        # 从堆栈中移除
+        self.page_stack.removeWidget(oldest_page)
 
-            logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
-            break
+        # 延迟删除widget
+        oldest_page.deleteLater()
+
+        logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
 
     def clearCache(self, exclude_current=True):
         """手动清空页面缓存
@@ -501,3 +511,22 @@ class MainWindow(QMainWindow):
             params: 页面参数
         """
         self.navigateTo(page_type, params)
+
+    def closeEvent(self, event):
+        """窗口关闭时清理资源"""
+        # 断开主题信号
+        self._disconnect_theme_signal()
+
+        # 清理所有缓存的页面
+        for cache_key, page in list(self.pages.items()):
+            try:
+                if hasattr(page, 'onHide'):
+                    page.onHide()
+                self.page_stack.removeWidget(page)
+                page.deleteLater()
+            except Exception as e:
+                logger.warning(f"清理页面 {cache_key} 时出错: {e}")
+
+        self.pages.clear()
+
+        super().closeEvent(event)
