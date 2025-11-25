@@ -16,7 +16,14 @@ from .writing_desk_modals import (
     WDGenerateOutlineModal
 )
 
-from .toast import toast, Toast, ToastManager
+from .dialogs import (
+    ConfirmDialog,
+    AlertDialog,
+    InputDialog,
+    TextInputDialog,
+    IntInputDialog,
+    LoadingDialog
+)
 
 from .skeleton import (
     SkeletonLine,
@@ -48,9 +55,12 @@ __all__ = [
     'WDEvaluationDetailModal',
     'WDVersionDetailModal',
     'WDGenerateOutlineModal',
-    'toast',
-    'Toast',
-    'ToastManager',
+    'ConfirmDialog',
+    'AlertDialog',
+    'InputDialog',
+    'TextInputDialog',
+    'IntInputDialog',
+    'LoadingDialog',
     'SkeletonLine',
     'SkeletonCircle',
     'SkeletonCard',

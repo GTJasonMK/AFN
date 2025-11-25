@@ -510,6 +510,28 @@ class ArborisAPIClient:
             timeout=300
         )
 
+    def delete_part_outlines(
+        self,
+        project_id: str,
+        count: int
+    ) -> Dict[str, Any]:
+        """
+        删除最后N个部分大纲
+
+        Args:
+            project_id: 项目ID
+            count: 要删除的数量
+
+        Returns:
+            删除结果
+        """
+        return self._request(
+            'DELETE',
+            f'/api/writer/novels/{project_id}/parts/delete-latest',
+            params={'count': count},
+            timeout=60
+        )
+
     def generate_chapter_outlines_by_count(
         self,
         project_id: str,

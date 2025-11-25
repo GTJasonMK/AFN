@@ -7,8 +7,7 @@
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget,
-    QScrollArea, QStackedWidget, QInputDialog, QFileDialog, QGraphicsDropShadowEffect,
-    QProgressDialog, QApplication
+    QScrollArea, QStackedWidget, QFileDialog, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
@@ -522,11 +521,12 @@ class NovelDetail(BasePage):
 
     def editProjectTitle(self):
         """编辑项目标题"""
+        from components.dialogs import InputDialog
         current_title = self.project_data.get('title', '') if self.project_data else ''
-        new_title, ok = QInputDialog.getText(
-            self,
-            "编辑项目标题",
-            "请输入新标题：",
+        new_title, ok = InputDialog.getTextStatic(
+            parent=self,
+            title="编辑项目标题",
+            label="请输入新标题：",
             text=current_title
         )
 
@@ -685,13 +685,14 @@ class NovelDetail(BasePage):
             force: 是否强制优化（将删除所有章节大纲、部分大纲、章节内容）
         """
         # 创建加载提示对话框
-        loading_dialog = QProgressDialog("正在优化蓝图...", "取消", 0, 0, self)
-        loading_dialog.setWindowTitle("请稍候")
-        loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        loading_dialog.setMinimumDuration(0)
-        loading_dialog.setValue(0)
+        from components.dialogs import LoadingDialog
+        loading_dialog = LoadingDialog(
+            parent=self,
+            title="请稍候",
+            message="正在优化蓝图...",
+            cancelable=True
+        )
         loading_dialog.show()
-        QApplication.processEvents()
 
         # 禁用优化按钮，防止重复点击
         if hasattr(self, 'refine_btn') and self.refine_btn:
@@ -769,7 +770,7 @@ class NovelDetail(BasePage):
 
         self.refine_worker.success.connect(on_success)
         self.refine_worker.error.connect(on_error)
-        loading_dialog.canceled.connect(on_cancel)
+        loading_dialog.rejected.connect(on_cancel)
         self.refine_worker.start()
 
     def refresh(self, **params):

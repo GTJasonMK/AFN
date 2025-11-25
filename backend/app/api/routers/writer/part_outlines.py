@@ -177,7 +177,7 @@ async def regenerate_last_part_outline(
     await chapter_outline_repo.delete_from_chapter(project_id, last_part.start_chapter)
 
     # 删除最后一个部分大纲
-    await part_service.repo.delete(last_part.id)
+    await part_service.repo.delete(last_part)
 
     # 获取前面的部分（用于串行生成上下文）
     previous_parts = [p for p in all_parts if p.part_number < last_part_number]
@@ -331,7 +331,7 @@ async def regenerate_specific_part_outline(
             part_number, target_part.start_chapter, target_part.end_chapter
         )
         await chapter_outline_repo.delete_from_chapter(project_id, target_part.start_chapter)
-        await part_service.repo.delete(target_part.id)
+        await part_service.repo.delete(target_part)
 
     # 获取前面的部分（用于串行生成上下文）
     # 注意：如果刚进行了级联删除，需要重新获取
@@ -578,3 +578,82 @@ async def get_part_outline_progress(
     except Exception as exc:
         logger.error("查询部分大纲进度失败: %s", exc, exc_info=True)
         raise DatabaseError(f"查询进度失败: {str(exc)}") from exc
+
+
+@router.delete("/novels/{project_id}/parts/delete-latest")
+async def delete_latest_part_outlines(
+    project_id: str,
+    count: int = 1,
+    novel_service: NovelService = Depends(get_novel_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> Dict[str, Any]:
+    """
+    删除最后N个部分大纲（串行生成原则）
+
+    删除最后N个部分大纲及其对应的章节大纲。
+
+    Args:
+        project_id: 项目ID
+        count: 要删除的部分数量（从最后开始）
+
+    Returns:
+        删除结果
+    """
+    logger.info(
+        "用户 %s 请求删除项目 %s 的最后 %d 个部分大纲",
+        desktop_user.id,
+        project_id,
+        count,
+    )
+
+    part_service = PartOutlineService(session)
+    chapter_outline_repo = ChapterOutlineRepository(session)
+
+    # 验证权限
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    # 获取所有部分大纲
+    all_parts = await part_service.repo.get_by_project_id(project_id)
+    if not all_parts:
+        raise ResourceNotFoundError("部分大纲", project_id)
+
+    total_parts = len(all_parts)
+    if count > total_parts:
+        raise InvalidParameterError(f"要删除的数量({count})超过现有部分数量({total_parts})")
+
+    if count == total_parts:
+        raise InvalidParameterError("不能删除所有部分大纲，请使用重新生成功能")
+
+    # 计算要删除的起始部分号
+    start_part = total_parts - count + 1
+
+    # 找到要删除的第一个部分的起始章节
+    parts_to_delete = [p for p in all_parts if p.part_number >= start_part]
+    if parts_to_delete:
+        first_part_to_delete = min(parts_to_delete, key=lambda p: p.part_number)
+        start_chapter = first_part_to_delete.start_chapter
+
+        # 删除对应的章节大纲
+        logger.info(
+            "删除第 %d 章及之后的章节大纲",
+            start_chapter
+        )
+        await chapter_outline_repo.delete_from_chapter(project_id, start_chapter)
+
+    # 删除部分大纲
+    deleted_count = await part_service.repo.delete_from_part(project_id, start_part)
+
+    await session.commit()
+
+    logger.info(
+        "项目 %s 删除了 %d 个部分大纲（第 %d-%d 部分）",
+        project_id, deleted_count, start_part, total_parts
+    )
+
+    return {
+        "success": True,
+        "message": f"已删除最后 {deleted_count} 个部分大纲",
+        "deleted_count": deleted_count,
+        "remaining_parts": total_parts - deleted_count,
+    }

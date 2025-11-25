@@ -694,7 +694,7 @@ class WDWorkspace(ThemeAwareFrame):
         if self.current_chapter and self.content_text:
             content = self.content_text.toPlainText()
             self.saveContentRequested.emit(self.current_chapter, content)
-            MessageService.show_success(self, "章节内容已保存")
+            # 注意：成功消息由 main.py 的异步回调显示，此处不显示
 
     def createVersionsTab(self, chapter_data):
         """创建版本对比标签页 - 现代化设计"""

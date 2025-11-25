@@ -90,9 +90,9 @@ class Toast(QWidget):
         self.close_btn.mousePressEvent = lambda e: self.fadeOut()
         layout.addWidget(self.close_btn)
 
-        # 设置固定宽度
+        # 设置固定宽度和最小高度
         self.setFixedWidth(400)
-        self.adjustSize()
+        self.setMinimumHeight(60)
 
         # 初始透明度为0（用于淡入动画）
         self.opacity_effect = QGraphicsOpacityEffect(self)
@@ -101,6 +101,9 @@ class Toast(QWidget):
 
         # 应用主题
         self._apply_theme()
+
+        # 调整大小以适应内容
+        self.adjustSize()
 
     def _apply_theme(self):
         """应用主题样式"""
@@ -249,19 +252,19 @@ class ToastManager:
             message: 消息内容
             toast_type: 类型（success/error/warning/info）
             duration: 显示时长（毫秒），0表示不自动关闭
-            parent: 父窗口
+            parent: 父窗口（未使用，保持API兼容）
         """
-        toast = Toast(message, toast_type, duration, parent)
+        toast = Toast(message, toast_type, duration, None)  # 不设parent，作为独立窗口
         toast.closed.connect(lambda: self.removeToast(toast))
 
         # 添加到列表
         self.toasts.append(toast)
 
-        # 计算位置
-        self.updatePositions()
-
-        # 显示Toast
+        # 先显示Toast（这样才能获取正确的尺寸）
         toast.show()
+
+        # 然后计算位置
+        self.updatePositions()
 
         return toast
 
@@ -275,13 +278,21 @@ class ToastManager:
         """更新所有Toast的位置（右下角堆叠）"""
         from PyQt6.QtWidgets import QApplication
 
-        screen = QApplication.primaryScreen().geometry()
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return
 
-        y_offset = screen.height() - self.margin_bottom
+        screen_geo = screen.availableGeometry()  # 使用可用区域，避开任务栏
+
+        y_offset = screen_geo.bottom() - self.margin_bottom
 
         for toast in reversed(self.toasts):
-            x = screen.width() - toast.width() - self.margin_right
-            y = y_offset - toast.height()
+            # 确保获取正确的尺寸
+            toast_width = toast.width() if toast.width() > 0 else 400
+            toast_height = toast.height() if toast.height() > 0 else 60
+
+            x = screen_geo.right() - toast_width - self.margin_right
+            y = y_offset - toast_height
 
             toast.move(x, y)
 

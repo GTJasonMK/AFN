@@ -85,33 +85,73 @@ class AccessibilityTheme:
 
     @classmethod
     def high_contrast_mode(cls):
-        """高对比度模式（可选）"""
+        """高对比度模式（支持亮色/深色主题）
+
+        根据当前主题自动调整高对比度配色
+        符合WCAG 2.1 AAA级对比度标准
+        """
+        is_dark = theme_manager.is_dark_mode()
+
+        if is_dark:
+            # 深色主题的高对比度模式
+            text_color = "#FFFFFF"
+            bg_color = "#000000"
+            border_color = "#FFFFFF"
+            focus_color = "#00FFFF"  # 青色焦点
+        else:
+            # 亮色主题的高对比度模式
+            text_color = "#000000"
+            bg_color = "#FFFFFF"
+            border_color = "#000000"
+            focus_color = theme_manager.PRIMARY
+
         return f"""
             /* 高对比度文本 */
-            QLabel, QPushButton, QLineEdit {{
-                color: #000000;
+            QLabel, QPushButton, QLineEdit, QTextEdit {{
+                color: {text_color};
             }}
 
             /* 高对比度边框 */
             QFrame, QWidget {{
-                border: 2px solid #000000;
+                border: 2px solid {border_color};
             }}
 
             /* 高对比度按钮 */
             QPushButton {{
-                background-color: #FFFFFF;
-                border: 3px solid #000000;
-                color: #000000;
+                background-color: {bg_color};
+                border: 3px solid {border_color};
+                color: {text_color};
             }}
 
             QPushButton:hover {{
-                background-color: {theme_manager.PRIMARY};
-                color: #FFFFFF;
+                background-color: {focus_color};
+                color: {bg_color};
             }}
 
             QPushButton:pressed {{
                 background-color: {theme_manager.PRIMARY_DARK};
-                color: #FFFFFF;
+                color: {theme_manager.BUTTON_TEXT};
+            }}
+
+            QPushButton:focus {{
+                border: 4px solid {focus_color};
+            }}
+
+            /* 高对比度输入框 */
+            QLineEdit, QTextEdit {{
+                background-color: {bg_color};
+                border: 2px solid {border_color};
+                color: {text_color};
+            }}
+
+            QLineEdit:focus, QTextEdit:focus {{
+                border: 3px solid {focus_color};
+            }}
+
+            /* 高对比度列表项 */
+            QListWidget::item:selected {{
+                background-color: {focus_color};
+                color: {bg_color};
             }}
         """
 

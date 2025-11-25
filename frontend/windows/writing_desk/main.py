@@ -6,8 +6,7 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QProgressDialog,
-    QApplication, QFileDialog
+    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog
 )
 from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
@@ -40,6 +39,7 @@ class WritingDesk(BasePage):
         self.current_worker = None  # 用于评审和重试等长时间操作
         self.select_version_worker = None  # 用于版本选择
         self.edit_content_worker = None  # 用于内容编辑
+        self.save_content_worker = None  # 用于保存内容
 
         self.setupUI()
         self.loadProject()
@@ -193,17 +193,13 @@ class WritingDesk(BasePage):
         worker.error.connect(on_error)
 
         # 显示加载对话框
-        loading_dialog = QProgressDialog(
-            f"正在生成第{chapter_number}章，请稍候...\n这可能需要几分钟时间。",
-            None,  # 无取消按钮
-            0, 0,
-            self
+        from components.dialogs import LoadingDialog
+        loading_dialog = LoadingDialog(
+            parent=self,
+            title="生成中",
+            message=f"正在生成第{chapter_number}章，请稍候...\n这可能需要几分钟时间。",
+            cancelable=False
         )
-        loading_dialog.setWindowTitle("生成中")
-        loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        loading_dialog.setCancelButton(None)
-        loading_dialog.setMinimumDuration(0)
-        loading_dialog.setValue(0)
 
         # Worker完成后关闭对话框
         worker.finished.connect(loading_dialog.close)
@@ -218,10 +214,63 @@ class WritingDesk(BasePage):
         """生成章节大纲"""
         MessageService.show_info(self, "章节大纲生成功能请在项目详情页操作", "提示")
 
-    @handle_errors("保存章节内容", show_message=True)
     def onSaveContent(self, chapter_number, content):
-        """保存章节内容"""
-        self.api_client.update_chapter_content(self.project_id, chapter_number, content)
+        """保存章节内容到后端（异步非阻塞）"""
+        # 显示保存中提示
+        self.show_loading(f"正在保存第{chapter_number}章内容...")
+
+        # 创建异步工作线程
+        self.save_content_worker = AsyncAPIWorker(
+            self.api_client.update_chapter,
+            self.project_id,
+            chapter_number,
+            content
+        )
+        self.save_content_worker.success.connect(
+            lambda r: self.onSaveContentSuccess(chapter_number)
+        )
+        self.save_content_worker.error.connect(self.onSaveContentError)
+
+        # 启动保存任务
+        self.save_content_worker.start()
+
+    def onSaveContentSuccess(self, chapter_number):
+        """保存成功回调"""
+        self.hide_loading()
+
+        # 使用对话框显示保存成功（更明显）
+        from components.dialogs import AlertDialog
+        dialog = AlertDialog(
+            parent=self,
+            title="保存成功",
+            message=f"第{chapter_number}章内容已成功保存",
+            button_text="确定",
+            dialog_type="success"
+        )
+        dialog.exec()
+
+        # 清理工作线程引用
+        if hasattr(self, 'save_content_worker') and self.save_content_worker:
+            self.save_content_worker = None
+
+    def onSaveContentError(self, error_msg):
+        """保存失败回调"""
+        self.hide_loading()
+
+        # 使用对话框显示保存失败
+        from components.dialogs import AlertDialog
+        dialog = AlertDialog(
+            parent=self,
+            title="保存失败",
+            message=f"保存章节内容时出错：{error_msg}",
+            button_text="确定",
+            dialog_type="error"
+        )
+        dialog.exec()
+
+        # 清理工作线程引用
+        if hasattr(self, 'save_content_worker') and self.save_content_worker:
+            self.save_content_worker = None
 
     def onSelectVersion(self, version_index):
         """选择版本（异步非阻塞版本）"""
@@ -379,18 +428,13 @@ class WritingDesk(BasePage):
             return
 
         # 询问用户输入优化提示词
-        from PyQt6.QtWidgets import QInputDialog
-        custom_prompt, ok = QInputDialog.getMultiLineText(
-            self,
-            "优化方向",
-            f"请输入第{self.selected_chapter_number}章版本{version_index + 1}的优化方向：\n\n"
-            "（可选，留空则按原设定重新生成）\n\n"
-            "示例：\n"
-            "- 增加心理描写\n"
-            "- 加快节奏，减少环境描写\n"
-            "- 强化角色冲突\n"
-            "- 增加悬念感",
-            ""
+        from components.dialogs import TextInputDialog
+        custom_prompt, ok = TextInputDialog.getTextStatic(
+            parent=self,
+            title="优化方向",
+            label=f"请输入第{self.selected_chapter_number}章版本{version_index + 1}的优化方向：\n\n"
+                  "（可选，留空则按原设定重新生成）",
+            placeholder="示例：增加心理描写、加快节奏、强化角色冲突、增加悬念感"
         )
 
         if not ok:

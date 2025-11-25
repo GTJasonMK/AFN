@@ -6,7 +6,7 @@
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QFrame, QLabel, QPushButton,
-    QStackedWidget, QScrollArea, QProgressDialog, QApplication
+    QStackedWidget, QScrollArea
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from pages.base_page import BasePage
@@ -254,13 +254,14 @@ class InspirationMode(BasePage):
             force_regenerate: 是否强制重新生成（将删除所有章节大纲、部分大纲、章节内容）
         """
         # 创建加载提示对话框
-        loading_dialog = QProgressDialog("正在生成蓝图...", "取消", 0, 0, self)
-        loading_dialog.setWindowTitle("请稍候")
-        loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        loading_dialog.setMinimumDuration(0)
-        loading_dialog.setValue(0)
+        from components.dialogs import LoadingDialog
+        loading_dialog = LoadingDialog(
+            parent=self,
+            title="请稍候",
+            message="正在生成蓝图...",
+            cancelable=True
+        )
         loading_dialog.show()
-        QApplication.processEvents()
 
         # 禁用生成按钮，防止重复点击
         if hasattr(self, 'generate_btn'):
@@ -351,7 +352,7 @@ class InspirationMode(BasePage):
 
         self.blueprint_worker.success.connect(on_success)
         self.blueprint_worker.error.connect(on_error)
-        loading_dialog.canceled.connect(on_cancel)
+        loading_dialog.rejected.connect(on_cancel)
         self.blueprint_worker.start()
 
     def onBlueprintConfirmed(self):
@@ -475,40 +476,49 @@ class InspirationMode(BasePage):
     def _cleanup_worker(self):
         """清理异步worker（包括SSE Worker和蓝图Worker）"""
         # 清理SSE/对话worker
-        if self.current_worker and self.current_worker.isRunning():
+        if self.current_worker:
             try:
-                # 尝试断开SSE Worker的信号
-                if isinstance(self.current_worker, SSEWorker):
-                    self.current_worker.token_received.disconnect()
-                    self.current_worker.complete.disconnect()
-                    self.current_worker.error.disconnect()
-                    # 停止SSE监听
-                    self.current_worker.stop()
-                else:
-                    # 旧的AsyncAPIWorker信号
-                    self.current_worker.success.disconnect()
-                    self.current_worker.error.disconnect()
-            except:
-                pass  # 信号可能已经断开
+                if self.current_worker.isRunning():
+                    try:
+                        # 尝试断开SSE Worker的信号
+                        if isinstance(self.current_worker, SSEWorker):
+                            self.current_worker.token_received.disconnect()
+                            self.current_worker.complete.disconnect()
+                            self.current_worker.error.disconnect()
+                            # 停止SSE监听
+                            self.current_worker.stop()
+                        else:
+                            # 旧的AsyncAPIWorker信号
+                            self.current_worker.success.disconnect()
+                            self.current_worker.error.disconnect()
+                    except:
+                        pass  # 信号可能已经断开
 
-            # 终止线程
-            self.current_worker.quit()
-            self.current_worker.wait(1000)  # 等待最多1秒
-
-            self.current_worker = None
+                    # 终止线程
+                    self.current_worker.quit()
+                    self.current_worker.wait(1000)  # 等待最多1秒
+            except RuntimeError:
+                pass  # C++ 对象可能已被删除
+            finally:
+                self.current_worker = None
 
         # 清理蓝图生成worker
-        if self.blueprint_worker and self.blueprint_worker.isRunning():
+        if self.blueprint_worker:
             try:
-                self.blueprint_worker.success.disconnect()
-                self.blueprint_worker.error.disconnect()
-                self.blueprint_worker.cancel()
-            except:
-                pass  # 信号可能已经断开
+                if self.blueprint_worker.isRunning():
+                    try:
+                        self.blueprint_worker.success.disconnect()
+                        self.blueprint_worker.error.disconnect()
+                        self.blueprint_worker.cancel()
+                    except:
+                        pass  # 信号可能已经断开
 
-            self.blueprint_worker.quit()
-            self.blueprint_worker.wait(1000)
-            self.blueprint_worker = None
+                    self.blueprint_worker.quit()
+                    self.blueprint_worker.wait(1000)
+            except RuntimeError:
+                pass  # C++ 对象可能已被删除
+            finally:
+                self.blueprint_worker = None
 
     def _start_sse_stream(self, message):
         """启动SSE流式监听"""

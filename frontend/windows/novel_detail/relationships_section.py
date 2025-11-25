@@ -1,20 +1,22 @@
 """
-人物关系 Section - 现代化设计
+人物关系 Section - 垂直列表布局
 
-展示角色之间的关系网络
+展示角色之间的关系网络，采用横条式垂直列表布局（无水平滚动）
 """
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget
+    QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget, QScrollArea
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 
+from .relationship_row import RelationshipRow
+
 
 class RelationshipsSection(ThemeAwareWidget):
-    """人物关系组件 - 现代化卡片设计"""
+    """人物关系组件 - 垂直列表布局"""
 
     editRequested = pyqtSignal(str, str, object)
 
@@ -26,29 +28,33 @@ class RelationshipsSection(ThemeAwareWidget):
         self.header_widget = None
         self.count_label = None
         self.edit_btn = None
+        self.scroll_area = None
+        self.content_widget = None
+        self.content_layout = None
         self.no_data_widget = None
-        self.cards_container = None
-        self.relationship_cards = []
+        self.relationship_rows = []
 
         super().__init__(parent)
         self.setupUI()
 
     def _create_ui_structure(self):
-        """创建UI结构（只调用一次）"""
+        """创建UI结构"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(20))
+        layout.setSpacing(dp(16))
 
         # 顶部标题栏
-        self.header_widget = QWidget()
+        self._create_header(layout)
+
+        # 内容区域（带滚动）
+        self._create_content_area(layout)
+
+    def _create_header(self, parent_layout):
+        """创建标题栏"""
+        self.header_widget = QFrame()
         header_layout = QHBoxLayout(self.header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(dp(12))
-
-        # 图标
-        icon = QLabel("\U0001F517")  # 链接图标
-        icon.setStyleSheet(f"font-size: {sp(20)}px;")
-        header_layout.addWidget(icon)
 
         # 标题
         title = QLabel("人物关系")
@@ -67,42 +73,44 @@ class RelationshipsSection(ThemeAwareWidget):
             self.edit_btn = QPushButton("编辑关系")
             self.edit_btn.setObjectName("edit_btn")
             self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.edit_btn.clicked.connect(lambda: self.editRequested.emit('relationships', '人物关系', self.data))
+            self.edit_btn.clicked.connect(
+                lambda: self.editRequested.emit('relationships', '人物关系', self.data)
+            )
             header_layout.addWidget(self.edit_btn)
 
-        layout.addWidget(self.header_widget)
+        parent_layout.addWidget(self.header_widget)
 
-        # 关系内容区域
+    def _create_content_area(self, parent_layout):
+        """创建内容区域"""
+        # 滚动区域（只允许垂直滚动）
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # 内容容器
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, dp(8), 0)  # 右边留出滚动条空间
+        self.content_layout.setSpacing(dp(8))
+
         if not self.data:
-            self.no_data_widget = self._createEmptyState()
-            layout.addWidget(self.no_data_widget)
+            self._create_empty_state()
         else:
-            self.cards_container = QWidget()
-            cards_layout = QVBoxLayout(self.cards_container)
-            cards_layout.setContentsMargins(0, 0, 0, 0)
-            cards_layout.setSpacing(dp(12))
+            self._create_relationship_rows()
 
-            for relationship in self.data:
-                card = self._createRelationshipCard(relationship)
-                cards_layout.addWidget(card)
-                self.relationship_cards.append(card)
+        self.content_layout.addStretch()
+        self.scroll_area.setWidget(self.content_widget)
+        parent_layout.addWidget(self.scroll_area, stretch=1)
 
-            layout.addWidget(self.cards_container)
-
-        layout.addStretch()
-
-    def _createEmptyState(self):
+    def _create_empty_state(self):
         """创建空状态提示"""
-        widget = QFrame()
-        widget.setObjectName("empty_state")
-        layout = QVBoxLayout(widget)
+        self.no_data_widget = QFrame()
+        self.no_data_widget.setObjectName("empty_state")
+        layout = QVBoxLayout(self.no_data_widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(dp(12))
-
-        icon = QLabel("\U0001F91D")  # 握手图标
-        icon.setStyleSheet(f"font-size: {sp(48)}px;")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(icon)
 
         text = QLabel("暂无人物关系")
         text.setObjectName("empty_text")
@@ -114,84 +122,19 @@ class RelationshipsSection(ThemeAwareWidget):
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
-        return widget
+        self.content_layout.addWidget(self.no_data_widget)
 
-    def _createRelationshipCard(self, relationship):
-        """创建关系卡片 - 现代化设计"""
-        card = QFrame()
-        card.setObjectName("relationship_card")
-        card_layout = QHBoxLayout(card)
-        card_layout.setContentsMargins(dp(20), dp(16), dp(20), dp(16))
-        card_layout.setSpacing(dp(16))
+    def _create_relationship_rows(self):
+        """创建关系横条列表"""
+        self.relationship_rows.clear()
 
-        # 角色A（圆形头像 + 名字）
-        from_widget = self._createCharacterBadge(relationship.get('character_from', ''))
-        card_layout.addWidget(from_widget)
-
-        # 关系连接线和类型
-        connection = QWidget()
-        connection_layout = QVBoxLayout(connection)
-        connection_layout.setContentsMargins(0, 0, 0, 0)
-        connection_layout.setSpacing(dp(4))
-
-        # 箭头
-        arrow = QLabel("\u2192")  # 右箭头
-        arrow.setObjectName("arrow")
-        arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        connection_layout.addWidget(arrow)
-
-        # 关系类型标签
-        rel_type = relationship.get('relationship_type', '')
-        if rel_type:
-            type_label = QLabel(rel_type)
-            type_label.setObjectName("rel_type")
-            type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            connection_layout.addWidget(type_label)
-
-        card_layout.addWidget(connection)
-
-        # 角色B
-        to_widget = self._createCharacterBadge(relationship.get('character_to', ''))
-        card_layout.addWidget(to_widget)
-
-        card_layout.addStretch()
-
-        # 关系描述（如果有）
-        description = relationship.get('description', '')
-        if description:
-            desc_label = QLabel(description)
-            desc_label.setObjectName("rel_desc")
-            desc_label.setWordWrap(True)
-            desc_label.setMaximumWidth(dp(250))
-            card_layout.addWidget(desc_label)
-
-        return card
-
-    def _createCharacterBadge(self, name):
-        """创建角色徽章（头像 + 名字）"""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(8))
-
-        # 圆形头像
-        avatar = QLabel()
-        avatar.setObjectName("char_avatar")
-        avatar.setFixedSize(dp(36), dp(36))
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        first_char = name[0] if name else '?'
-        avatar.setText(first_char)
-        layout.addWidget(avatar)
-
-        # 名字
-        name_label = QLabel(name)
-        name_label.setObjectName("char_badge_name")
-        layout.addWidget(name_label)
-
-        return widget
+        for relationship in self.data:
+            row = RelationshipRow(relationship)
+            self.relationship_rows.append(row)
+            self.content_layout.addWidget(row)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
+        """应用主题样式"""
         self.setStyleSheet(f"""
             #section_title {{
                 font-size: {sp(18)}px;
@@ -233,45 +176,22 @@ class RelationshipsSection(ThemeAwareWidget):
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_TERTIARY};
             }}
-            #relationship_card {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(12)}px;
-            }}
-            #relationship_card:hover {{
-                border-color: {theme_manager.PRIMARY_LIGHT};
-            }}
-            #char_avatar {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.ACCENT_LIGHT}, stop:1 {theme_manager.ACCENT});
-                color: {theme_manager.BUTTON_TEXT};
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                border-radius: {dp(18)}px;
-            }}
-            #char_badge_name {{
-                font-size: {sp(15)}px;
-                font-weight: 600;
-                color: {theme_manager.TEXT_PRIMARY};
-            }}
-            #arrow {{
-                font-size: {sp(20)}px;
-                color: {theme_manager.PRIMARY};
-            }}
-            #rel_type {{
-                font-size: {sp(12)}px;
-                color: {theme_manager.TEXT_PRIMARY};
-                background-color: {theme_manager.PRIMARY_PALE};
-                padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(10)}px;
-            }}
-            #rel_desc {{
-                font-size: {sp(13)}px;
-                color: {theme_manager.TEXT_SECONDARY};
-                background-color: {theme_manager.BG_TERTIARY};
-                padding: {dp(8)}px {dp(12)}px;
-                border-radius: {dp(8)}px;
-            }}
         """)
+
+        # 滚动区域样式
+        self.scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            {theme_manager.scrollbar()}
+        """)
+
+        self.content_widget.setStyleSheet("background: transparent;")
+
+        # 更新所有关系横条样式
+        for row in self.relationship_rows:
+            row.update_theme()
 
     def updateData(self, new_data):
         """更新数据并刷新显示"""
@@ -281,49 +201,20 @@ class RelationshipsSection(ThemeAwareWidget):
         if self.count_label:
             self.count_label.setText(f"{len(new_data)} 条关系")
 
-        # 获取主layout
-        main_layout = self.layout()
+        # 清空现有内容
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        # 先删除所有现有的关系卡片
-        for card in self.relationship_cards:
-            card.deleteLater()
-        self.relationship_cards.clear()
+        self.relationship_rows.clear()
+        self.no_data_widget = None
 
-        # 情况1：从无数据 -> 有数据
-        if self.no_data_widget and new_data:
-            self.no_data_widget.deleteLater()
-            self.no_data_widget = None
+        # 重建内容
+        if not new_data:
+            self._create_empty_state()
+        else:
+            self._create_relationship_rows()
 
-            # 创建卡片容器
-            self.cards_container = QWidget()
-            cards_layout = QVBoxLayout(self.cards_container)
-            cards_layout.setContentsMargins(0, 0, 0, 0)
-            cards_layout.setSpacing(dp(12))
-
-            for relationship in new_data:
-                card = self._createRelationshipCard(relationship)
-                cards_layout.addWidget(card)
-                self.relationship_cards.append(card)
-
-            main_layout.insertWidget(main_layout.count() - 1, self.cards_container)
-            self._apply_theme()
-
-        # 情况2：从有数据 -> 无数据
-        elif self.cards_container and not new_data:
-            self.cards_container.deleteLater()
-            self.cards_container = None
-
-            self.no_data_widget = self._createEmptyState()
-            main_layout.insertWidget(main_layout.count() - 1, self.no_data_widget)
-            self._apply_theme()
-
-        # 情况3：从有数据 -> 有数据（更新）
-        elif self.cards_container and new_data:
-            cards_layout = self.cards_container.layout()
-
-            for relationship in new_data:
-                card = self._createRelationshipCard(relationship)
-                cards_layout.addWidget(card)
-                self.relationship_cards.append(card)
-
-            self._apply_theme()
+        self.content_layout.addStretch()
+        self._apply_theme()

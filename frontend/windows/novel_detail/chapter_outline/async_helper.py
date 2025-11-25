@@ -4,7 +4,7 @@
 封装异步API调用的通用模式，减少重复代码
 """
 
-from PyQt6.QtWidgets import QProgressDialog, QApplication, QWidget
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt
 from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
@@ -51,13 +51,14 @@ class AsyncOperationHelper:
             **kwargs: API函数的关键字参数
         """
         # 创建加载对话框
-        loading_dialog = QProgressDialog(loading_message, "取消", 0, 0, self.parent)
-        loading_dialog.setWindowTitle("请稍候")
-        loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        loading_dialog.setMinimumDuration(0)
-        loading_dialog.setValue(0)
+        from components.dialogs import LoadingDialog
+        loading_dialog = LoadingDialog(
+            parent=self.parent,
+            title="请稍候",
+            message=loading_message,
+            cancelable=True
+        )
         loading_dialog.show()
-        QApplication.processEvents()
 
         # 创建异步Worker
         worker = AsyncAPIWorker(api_func, *args, **kwargs)
@@ -91,7 +92,7 @@ class AsyncOperationHelper:
 
         worker.success.connect(handle_success)
         worker.error.connect(handle_error)
-        loading_dialog.canceled.connect(handle_cancel)
+        loading_dialog.rejected.connect(handle_cancel)
         worker.start()
 
     def _remove_worker(self, worker):
