@@ -64,7 +64,7 @@ class ProjectCard(ThemeAwareFrame):
         self.icon_container = None
         self.icon_label = None
         self.title_label = None
-        self.meta_label = None
+        self.status_label = None  # 状态标签
         self.time_label = None
         self.progress_label = None
         self.percent_label = None
@@ -84,11 +84,12 @@ class ProjectCard(ThemeAwareFrame):
     def _create_ui_structure(self):
         """创建UI结构（只调用一次）"""
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumHeight(dp(240))
+        self.setMinimumHeight(dp(200))
+        self.setMaximumWidth(dp(380))  # 限制最大宽度，防止卡片过宽
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
-        layout.setSpacing(dp(16))
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        layout.setSpacing(dp(12))
 
         # 顶部：图标 + 标题区域
         header_layout = QHBoxLayout()
@@ -96,94 +97,92 @@ class ProjectCard(ThemeAwareFrame):
 
         # 渐变图标容器
         self.icon_container = QFrame()
-        self.icon_container.setFixedSize(dp(48), dp(48))
+        self.icon_container.setFixedSize(dp(40), dp(40))
         icon_layout = QVBoxLayout(self.icon_container)
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # 使用SVG图标
         self.icon_label = QLabel()
-        icon_svg = SVGIcons.book(dp(28), "white")
+        icon_svg = SVGIcons.book(dp(24), "white")
         self.icon_label.setText(icon_svg)
         self.icon_label.setTextFormat(Qt.TextFormat.RichText)
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_layout.addWidget(self.icon_label)
 
-        header_layout.addWidget(self.icon_container)
+        header_layout.addWidget(self.icon_container, alignment=Qt.AlignmentFlag.AlignTop)
 
         # 标题 + 元数据
         title_container = QWidget()
         title_layout = QVBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(6)
+        title_layout.setSpacing(4)
 
-        # 标题
+        # 标题（支持换行，限制2行）
         self.title_label = QLabel(self.project_data.get('title', '未命名项目'))
         self.title_label.setWordWrap(True)
+        self.title_label.setMaximumHeight(dp(48))  # 约2行高度
         self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
         title_layout.addWidget(self.title_label)
 
-        # 类型 + 状态
-        genre = self.project_data.get('blueprint', {}).get('genre', '未知类型')
+        # 状态标签
         status = self.project_data.get('status', 'draft')
-        meta_text = f"{genre}  ·  {get_project_status_text(status)}"
-        self.meta_label = QLabel(meta_text)
-        title_layout.addWidget(self.meta_label)
+        self.status_label = QLabel(get_project_status_text(status))
+        title_layout.addWidget(self.status_label)
 
         # 最后编辑时间
         updated_at = self.project_data.get('updated_at', '')[:10] if self.project_data.get('updated_at') else '未知'
-        self.time_label = QLabel(f"最后编辑: {updated_at}")
+        self.time_label = QLabel(f"编辑于 {updated_at}")
         title_layout.addWidget(self.time_label)
 
         header_layout.addWidget(title_container, stretch=1)
         layout.addLayout(header_layout)
 
-        # 进度条
+        # 进度条区域
         progress_container = QWidget()
         progress_layout = QVBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.setSpacing(6)
+        progress_layout.setSpacing(4)
 
-        # 进度文本
+        # 进度计算
         total_chapters = self.project_data.get('total_chapters', 0)
         completed_chapters = self.project_data.get('completed_chapters', 0)
         self.progress_percent = int((completed_chapters / total_chapters * 100) if total_chapters > 0 else 0)
 
+        # 进度文本行（章节数 + 百分比）
         progress_text_layout = QHBoxLayout()
         progress_text_layout.setContentsMargins(0, 0, 0, 0)
-        self.progress_label = QLabel("完成进度")
+
+        # 章节进度
+        if total_chapters > 0:
+            self.progress_label = QLabel(f"{completed_chapters}/{total_chapters} 章")
+        else:
+            self.progress_label = QLabel("暂无章节")
         progress_text_layout.addWidget(self.progress_label)
+
         progress_text_layout.addStretch()
+
+        # 百分比
         self.percent_label = QLabel(f"{self.progress_percent}%")
         progress_text_layout.addWidget(self.percent_label)
         progress_layout.addLayout(progress_text_layout)
 
         # 进度条
         self.progress_bar_bg = QFrame()
-        self.progress_bar_bg.setFixedHeight(8)
+        self.progress_bar_bg.setFixedHeight(6)
 
         self.progress_bar_fill = QFrame(self.progress_bar_bg)
-        self.progress_bar_fill.setFixedHeight(8)
-        # 进度条宽度在显示时计算
+        self.progress_bar_fill.setFixedHeight(6)
         self.progress_bar_fill.setFixedWidth(0)
 
         progress_layout.addWidget(self.progress_bar_bg)
         layout.addWidget(progress_container)
 
-        # 标签（类型、章节数）
-        tags_layout = QHBoxLayout()
-        tags_layout.setSpacing(10)
-
-        if genre != '未知类型':
+        # 类型标签
+        genre = self.project_data.get('blueprint', {}).get('genre', '')
+        if genre and genre != '未知类型':
             self.genre_tag = QLabel(genre)
-            tags_layout.addWidget(self.genre_tag)
-
-        if total_chapters > 0:
-            self.chapter_tag = QLabel(f"{completed_chapters}/{total_chapters} 章")
-            tags_layout.addWidget(self.chapter_tag)
-
-        tags_layout.addStretch()
-        layout.addLayout(tags_layout)
+            layout.addWidget(self.genre_tag)
 
         layout.addStretch()
 
@@ -234,91 +233,72 @@ class ProjectCard(ThemeAwareFrame):
         """应用主题样式（可多次调用）"""
         # 图标容器 - 渐变背景
         if self.icon_container:
-            # 简化的图标容器样式
             self.icon_container.setStyleSheet(f"""
                 QFrame {{
-                    background-color: {theme_manager.BG_SECONDARY};
-                    border: 1px solid {theme_manager.BORDER_DEFAULT};
-                    border-radius: {dp(24)}px;
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.PRIMARY}, stop:1 {theme_manager.ACCENT});
+                    border-radius: {dp(20)}px;
                 }}
             """)
 
-        # 标题 - 增强字重和间距
+        # 标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-size: {sp(18)}px;
-                font-weight: 700;
+                font-size: {sp(16)}px;
+                font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
-                letter-spacing: 0.02em;
             """)
 
-        # 元数据
-        if self.meta_label:
-            self.meta_label.setStyleSheet(f"""
-                font-size: {sp(14)}px;
+        # 状态标签
+        if self.status_label:
+            self.status_label.setStyleSheet(f"""
+                font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};
-                opacity: 0.9;
             """)
 
         # 时间
         if self.time_label:
             self.time_label.setStyleSheet(f"""
-                font-size: {sp(13)}px;
+                font-size: {sp(11)}px;
                 color: {theme_manager.TEXT_TERTIARY};
-                opacity: 0.8;
             """)
 
         # 进度标签
         if self.progress_label:
             self.progress_label.setStyleSheet(f"""
-                font-size: {sp(14)}px;
+                font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};
-                font-weight: 500;
             """)
 
         if self.percent_label:
-            # 渐变文字色（如果百分比高）
             percent_color = theme_manager.SUCCESS if self.progress_percent > 70 else theme_manager.PRIMARY
             self.percent_label.setStyleSheet(f"""
-                font-size: {sp(14)}px;
+                font-size: {sp(12)}px;
                 color: {percent_color};
                 font-weight: 600;
             """)
 
-        # 进度条背景 - 玻璃态
+        # 进度条背景
         if self.progress_bar_bg:
             self.progress_bar_bg.setStyleSheet(f"""
                 background-color: {theme_manager.BG_TERTIARY};
-                border-radius: {dp(4)}px;
-                opacity: 0.6;
+                border-radius: {dp(3)}px;
             """)
 
-        # 进度条填充 - 简化样式
+        # 进度条填充
         if self.progress_bar_fill:
             self.progress_bar_fill.setStyleSheet(f"""
                 background-color: {theme_manager.PRIMARY if self.progress_percent < 70 else theme_manager.SUCCESS};
-                border-radius: {dp(4)}px;
+                border-radius: {dp(3)}px;
             """)
 
-        # 标签 - 简化样式
+        # 类型标签
         if self.genre_tag:
             self.genre_tag.setStyleSheet(f"""
-                background-color: {theme_manager.ACCENT};
-                color: {theme_manager.BUTTON_TEXT};
-                padding: {dp(4)}px {dp(12)}px;
+                background-color: {theme_manager.PRIMARY_PALE};
+                color: {theme_manager.PRIMARY};
+                padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(4)}px;
-                font-size: {sp(12)}px;
-                font-weight: 600;
-            """)
-
-        if self.chapter_tag:
-            self.chapter_tag.setStyleSheet(f"""
-                background-color: {theme_manager.SUCCESS};
-                color: {theme_manager.BUTTON_TEXT};
-                padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(4)}px;
-                font-size: {sp(12)}px;
-                font-weight: 600;
+                font-size: {sp(11)}px;
             """)
 
         # 按钮样式 - 现代化设计（统一使用小号样式）
@@ -517,50 +497,47 @@ class ProjectCard(ThemeAwareFrame):
         if self.title_label:
             self.title_label.setText(new_project_data.get('title', '未命名项目'))
 
-        # 更新元数据（类型 + 状态）
-        if self.meta_label:
-            genre = new_project_data.get('blueprint', {}).get('genre', '未知类型')
+        # 更新状态
+        if self.status_label:
             status = new_project_data.get('status', 'draft')
-            meta_text = f"{genre}  ·  {get_project_status_text(status)}"
-            self.meta_label.setText(meta_text)
+            self.status_label.setText(get_project_status_text(status))
 
         # 更新时间
         if self.time_label:
             updated_at = new_project_data.get('updated_at', '')[:10] if new_project_data.get('updated_at') else '未知'
-            self.time_label.setText(f"最后编辑: {updated_at}")
+            self.time_label.setText(f"编辑于 {updated_at}")
 
         # 更新进度
         total_chapters = new_project_data.get('total_chapters', 0)
         completed_chapters = new_project_data.get('completed_chapters', 0)
         self.progress_percent = int((completed_chapters / total_chapters * 100) if total_chapters > 0 else 0)
 
+        # 更新进度标签
+        if self.progress_label:
+            if total_chapters > 0:
+                self.progress_label.setText(f"{completed_chapters}/{total_chapters} 章")
+            else:
+                self.progress_label.setText("暂无章节")
+
         if self.percent_label:
             self.percent_label.setText(f"{self.progress_percent}%")
 
         self._update_progress_bar_width()
 
-        # 更新标签
-        genre = new_project_data.get('blueprint', {}).get('genre', '未知类型')
+        # 更新类型标签
+        genre = new_project_data.get('blueprint', {}).get('genre', '')
         if self.genre_tag:
             self.genre_tag.setText(genre)
-            self.genre_tag.setVisible(genre != '未知类型')
+            self.genre_tag.setVisible(bool(genre) and genre != '未知类型')
 
-        if self.chapter_tag:
-            self.chapter_tag.setText(f"{completed_chapters}/{total_chapters} 章")
-            self.chapter_tag.setVisible(total_chapters > 0)
-
-        # 更新继续按钮 - 只更新文本，不重新连接信号
-        # （槽方法 _on_continue_clicked 会在调用时读取最新的 project_data）
+        # 更新继续按钮文本
         if self.continue_btn:
             project_status = new_project_data.get('status', '')
-            # 蓝图后的状态列表（这些状态表示项目已有蓝图）
             blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
 
             if project_status in blueprint_ready_states:
-                # 已有蓝图，显示"继续创作"
                 self.continue_btn.setText("继续创作")
             else:
-                # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
                 self.continue_btn.setText("继续灵感模式")
 
 
@@ -585,12 +562,13 @@ class CreateProjectCard(ThemeAwareFrame):
         """创建UI结构（只调用一次）"""
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(dp(200))
+        self.setMaximumWidth(dp(380))  # 与ProjectCard保持一致
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        layout.setSpacing(dp(12))
 
         # 加号图标
         self.plus_label = QLabel("+")
@@ -607,17 +585,16 @@ class CreateProjectCard(ThemeAwareFrame):
         # 加号样式
         if self.plus_label:
             self.plus_label.setStyleSheet(f"""
-                font-size: 64px;
-                color: {theme_manager.ACCENT_PRIMARY};
+                font-size: {sp(48)}px;
+                color: {theme_manager.PRIMARY};
                 font-weight: 300;
             """)
 
         # 文字样式
         if self.text_label:
             self.text_label.setStyleSheet(f"""
-                font-size: 16px;
+                font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
-                font-weight: 500;
             """)
 
         # 虚线框样式
@@ -625,11 +602,11 @@ class CreateProjectCard(ThemeAwareFrame):
             CreateProjectCard {{
                 background-color: transparent;
                 border: 2px dashed {theme_manager.BORDER_DEFAULT};
-                border-radius: {theme_manager.RADIUS_MD};
+                border-radius: {dp(12)}px;
             }}
             CreateProjectCard:hover {{
-                background-color: {theme_manager.ACCENT_PALE};
-                border-color: {theme_manager.ACCENT_PRIMARY};
+                background-color: {theme_manager.PRIMARY_PALE};
+                border-color: {theme_manager.PRIMARY};
             }}
         """)
 
@@ -669,8 +646,8 @@ class NovelWorkspace(BasePage):
     def _create_ui_structure(self):
         """创建UI结构（只调用一次）"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        layout.setContentsMargins(dp(24), dp(20), dp(24), dp(20))
+        layout.setSpacing(dp(16))
 
         # 顶部标题栏
         header_layout = QHBoxLayout()
@@ -681,7 +658,8 @@ class NovelWorkspace(BasePage):
         header_layout.addStretch()
 
         # 返回按钮
-        self.back_btn = QPushButton("← 返回首页")
+        self.back_btn = QPushButton("返回首页")
+        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.back_btn.clicked.connect(self.goBack)
         header_layout.addWidget(self.back_btn)
 
@@ -696,11 +674,13 @@ class NovelWorkspace(BasePage):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setSpacing(20)
-        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.grid_layout.setSpacing(dp(16))
+        self.grid_layout.setContentsMargins(0, dp(8), 0, dp(8))
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self.scroll_area.setWidget(self.grid_container)
         layout.addWidget(self.scroll_area, stretch=1)
@@ -709,8 +689,8 @@ class NovelWorkspace(BasePage):
         """应用主题样式（可多次调用）"""
         if hasattr(self, 'title_label'):
             self.title_label.setStyleSheet(f"""
-                font-size: 32px;
-                font-weight: 300;
+                font-size: {sp(24)}px;
+                font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
             """)
 
