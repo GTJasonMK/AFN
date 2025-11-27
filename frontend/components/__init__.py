@@ -10,7 +10,6 @@ from .loading_spinner import (
 )
 
 from .writing_desk_modals import (
-    WDEditChapterModal,
     WDEvaluationDetailModal,
     WDVersionDetailModal,
     WDGenerateOutlineModal
@@ -51,7 +50,6 @@ __all__ = [
     'DotsSpinner',
     'LoadingOverlay',
     'InlineSpinner',
-    'WDEditChapterModal',
     'WDEvaluationDetailModal',
     'WDVersionDetailModal',
     'WDGenerateOutlineModal',

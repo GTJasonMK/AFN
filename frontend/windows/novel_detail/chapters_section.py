@@ -25,6 +25,8 @@ class ChaptersSection(ThemeAwareWidget):
     双面板布局：左侧章节列表 + 右侧正文内容
     """
 
+    dataChanged = pyqtSignal()  # 数据变动信号
+
     def __init__(self, chapters=None, parent=None):
         self.all_chapters = chapters or []
         self.completed_chapters = []  # 过滤后的已完成章节
@@ -123,6 +125,13 @@ class ChaptersSection(ThemeAwareWidget):
         self.count_label = QLabel(f"{len(self.completed_chapters)} 章")
         self.count_label.setObjectName("count_label")
         header_layout.addWidget(self.count_label)
+        
+        # 导入按钮
+        import_btn = QPushButton("导入")
+        import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        import_btn.setObjectName("import_btn")
+        import_btn.clicked.connect(self._onImportChapter)
+        header_layout.addWidget(import_btn)
 
         list_layout.addWidget(header)
 
@@ -256,6 +265,17 @@ class ChaptersSection(ThemeAwareWidget):
                     background-color: {theme_manager.BG_TERTIARY};
                     padding: {dp(4)}px {dp(10)}px;
                     border-radius: {dp(10)}px;
+                }}
+                #import_btn {{
+                    background-color: transparent;
+                    color: {theme_manager.PRIMARY};
+                    border: 1px solid {theme_manager.PRIMARY};
+                    border-radius: {dp(6)}px;
+                    padding: {dp(2)}px {dp(8)}px;
+                    font-size: {sp(12)}px;
+                }}
+                #import_btn:hover {{
+                    background-color: {theme_manager.PRIMARY_PALE};
                 }}
                 #chapter_list {{
                     background-color: transparent;
@@ -496,6 +516,54 @@ class ChaptersSection(ThemeAwareWidget):
                 MessageService.show_operation_success(self, "章节导出")
 
             _export()
+
+    def _onImportChapter(self):
+        """导入章节"""
+        if not self.project_id:
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "导入章节文件", "", "文本文件 (*.txt);;所有文件 (*.*)"
+        )
+        if not file_path:
+            return
+
+        # 询问章节号
+        from components.dialogs import IntInputDialog, InputDialog
+        default_num = len(self.all_chapters) + 1
+        chapter_num, ok = IntInputDialog.getInt(
+            self, "导入章节", "请输入章节号:", 
+            value=default_num, 
+            min_value=1
+        )
+        if not ok:
+            return
+
+        # 询问标题
+        import os
+        default_title = os.path.splitext(os.path.basename(file_path))[0]
+        title, ok = InputDialog.getText(
+            self, "导入章节", "请输入章节标题:", text=default_title
+        )
+        if not ok:
+            return
+
+        # 读取内容
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            MessageService.show_error(self, f"读取文件失败: {e}")
+            return
+
+        # 调用API
+        @handle_errors("导入章节")
+        def _do_import():
+            self.api_client.import_chapter(self.project_id, chapter_num, title, content)
+            MessageService.show_success(self, "导入成功")
+            self.dataChanged.emit()
+
+        _do_import()
 
     def updateData(self, new_chapters):
         """更新章节数据并刷新显示"""

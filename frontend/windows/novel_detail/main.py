@@ -25,7 +25,7 @@ from .overview_section import OverviewSection
 from .world_setting_section import WorldSettingSection
 from .characters_section import CharactersSection
 from .relationships_section import RelationshipsSection
-from .chapter_outline_section import ChapterOutlineSection
+from .chapter_outline import ChapterOutlineSection
 from .chapters_section import ChaptersSection
 from .edit_dialog import EditDialog
 from .refine_dialog import RefineDialog
@@ -430,6 +430,7 @@ class NovelDetail(BasePage):
             chapters = self.project_data.get('chapters', []) if self.project_data else []
             section = ChaptersSection(chapters=chapters)
             section.setProjectId(self.project_id)
+            section.dataChanged.connect(self.refreshProject)
         else:
             section = QLabel("未知Section")
 

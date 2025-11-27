@@ -18,8 +18,10 @@ from themes.modern_effects import ModernEffects
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.formatters import count_chinese_characters
-
+from utils.message_service import MessageService, confirm
+from api.client import ArborisAPIClient
 from .chapter_card import ChapterCard
+from .outline_edit_dialog import OutlineEditDialog
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ class WDSidebar(ThemeAwareFrame):
         self.selected_chapter = None
         self.generating_chapter = None
         self.chapter_cards = []  # 存储所有章节卡片
+        self.api_client = ArborisAPIClient() # 初始化API客户端
 
         # 保存组件引用
         self.bp_style = None
@@ -333,6 +336,8 @@ class WDSidebar(ThemeAwareFrame):
             # 创建卡片
             card = ChapterCard(chapter_data, is_selected=False)
             card.clicked.connect(self._on_chapter_card_clicked)
+            card.editOutlineRequested.connect(self._on_edit_outline)
+            card.regenerateOutlineRequested.connect(self._on_regenerate_outline)
 
             # 添加到布局（插入到stretch之前）
             self.chapters_layout.insertWidget(self.chapters_layout.count() - 1, card)
@@ -382,6 +387,75 @@ class WDSidebar(ThemeAwareFrame):
 
         self.selected_chapter = chapter_number
         self.chapterSelected.emit(chapter_number)
+
+    def _on_edit_outline(self, chapter_number):
+        """处理编辑大纲请求"""
+        # 查找当前章节的大纲数据
+        current_outline = None
+        blueprint = self.project.get('blueprint', {})
+        chapter_outlines = blueprint.get('chapter_outline', [])
+        
+        for outline in chapter_outlines:
+            if outline.get('chapter_number') == chapter_number:
+                current_outline = outline
+                break
+        
+        if not current_outline:
+            MessageService.show_error(self, "无法找到章节大纲数据", "错误")
+            return
+
+        # 显示编辑对话框
+        title, summary, ok = OutlineEditDialog.getOutlineStatic(
+            self,
+            chapter_number,
+            current_outline.get('title', ''),
+            current_outline.get('summary', '')
+        )
+
+        if ok:
+            try:
+                project_id = self.project.get('id')
+                # 调用API更新
+                updated_project = self.api_client.update_chapter_outline(
+                    project_id,
+                    chapter_number,
+                    title,
+                    summary
+                )
+                
+                MessageService.show_success(self, "大纲已更新")
+                
+                # 更新本地数据并刷新显示
+                self.setProject(updated_project)
+                
+            except Exception as e:
+                MessageService.show_error(self, f"更新失败: {str(e)}", "错误")
+
+    def _on_regenerate_outline(self, chapter_number):
+        """处理重新生成大纲请求"""
+        if not confirm(
+            self,
+            f"确定要重新生成第 {chapter_number} 章的大纲吗？\n这将会覆盖当前的标题和摘要。",
+            "确认重新生成"
+        ):
+            return
+
+        try:
+            project_id = self.project.get('id')
+            # 调用API重新生成（不级联删除）
+            updated_project = self.api_client.regenerate_chapter_outline(
+                project_id,
+                chapter_number,
+                cascade_delete=False
+            )
+            
+            MessageService.show_success(self, "大纲已重新生成")
+            
+            # 更新本地数据并刷新显示
+            self.setProject(updated_project)
+            
+        except Exception as e:
+            MessageService.show_error(self, f"重生成失败: {str(e)}", "错误")
 
     def setGeneratingChapter(self, chapter_num):
         """设置正在生成的章节

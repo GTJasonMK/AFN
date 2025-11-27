@@ -2,9 +2,12 @@
 高级配置管理路由
 
 提供系统配置的读取和更新接口。
+桌面版：配置保存到 storage 目录的 config.json 文件中。
 """
 
 import os
+import sys
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Any
@@ -15,6 +18,39 @@ from ...core.config import settings, reload_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def get_config_file() -> Path:
+    """获取配置文件路径（适配打包环境）"""
+    if getattr(sys, 'frozen', False):
+        # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
+        work_dir = Path(sys.executable).parent
+    else:
+        # 开发环境：配置保存到 backend/storage 文件夹
+        work_dir = Path(__file__).resolve().parents[3]
+
+    storage_dir = work_dir / 'storage'
+    storage_dir.mkdir(exist_ok=True)
+    return storage_dir / 'config.json'
+
+
+def load_config() -> Dict[str, Any]:
+    """加载配置文件"""
+    config_file = get_config_file()
+    if config_file.exists():
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning("读取配置文件失败：%s", str(e))
+    return {}
+
+
+def save_config(config: Dict[str, Any]) -> None:
+    """保存配置文件"""
+    config_file = get_config_file()
+    with open(config_file, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
 
 
 class AdvancedConfigResponse(BaseModel):
@@ -51,7 +87,7 @@ async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]
     """
     更新高级配置
 
-    将配置写入.env文件，需要重启应用生效。
+    将配置写入 storage/config.json 文件。
 
     Args:
         config: 配置更新数据
@@ -60,65 +96,28 @@ async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]
         更新结果
     """
     try:
-        # 定位.env文件
-        project_root = Path(__file__).resolve().parents[4]  # 回到项目根目录
-        env_file = project_root / "backend" / ".env"
+        # 读取现有配置
+        current_config = load_config()
 
-        if not env_file.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f".env文件不存在：{env_file}"
-            )
+        # 更新配置
+        current_config['writer_chapter_version_count'] = config.writer_chapter_version_count
+        current_config['writer_parallel_generation'] = config.writer_parallel_generation
+        current_config['part_outline_threshold'] = config.part_outline_threshold
 
-        # 读取现有内容
-        with open(env_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        # 保存配置
+        save_config(current_config)
+        logger.info("高级配置已保存到配置文件")
 
-        # 更新配置行
-        config_map = {
-            'WRITER_CHAPTER_VERSION_COUNT': str(config.writer_chapter_version_count),
-            'WRITER_PARALLEL_GENERATION': 'true' if config.writer_parallel_generation else 'false',
-            'PART_OUTLINE_THRESHOLD': str(config.part_outline_threshold),
-        }
-
-        updated_lines = []
-        updated_keys = set()
-
-        for line in lines:
-            stripped = line.strip()
-            # 跳过空行和注释
-            if not stripped or stripped.startswith('#'):
-                updated_lines.append(line)
-                continue
-
-            # 检查是否是需要更新的配置
-            key = stripped.split('=')[0] if '=' in stripped else None
-            if key in config_map:
-                updated_lines.append(f"{key}={config_map[key]}\n")
-                updated_keys.add(key)
-                logger.info("更新配置：%s=%s", key, config_map[key])
-            else:
-                updated_lines.append(line)
-
-        # 添加缺失的配置项
-        for key, value in config_map.items():
-            if key not in updated_keys:
-                updated_lines.append(f"\n# 自动添加的配置\n{key}={value}\n")
-                logger.info("添加配置：%s=%s", key, value)
-
-        # 写回文件
-        with open(env_file, 'w', encoding='utf-8') as f:
-            f.writelines(updated_lines)
-
-        logger.info("高级配置已保存到.env文件")
-
-        # 重新加载配置，使更改立即生效
+        # 更新运行时配置
         try:
-            reload_settings()
-            logger.info("配置已重新加载，立即生效")
+            # 直接修改 settings 对象的值
+            settings.writer_chapter_versions = config.writer_chapter_version_count
+            settings.writer_parallel_generation = config.writer_parallel_generation
+            settings.part_outline_threshold = config.part_outline_threshold
+            logger.info("运行时配置已更新")
             hot_reload_success = True
         except Exception as reload_error:
-            logger.warning("配置重载失败: %s，需要重启应用", str(reload_error), exc_info=True)
+            logger.warning("运行时配置更新失败: %s", str(reload_error), exc_info=True)
             hot_reload_success = False
 
         return {

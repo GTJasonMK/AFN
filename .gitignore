@@ -1,37 +1,30 @@
-# Python
+# ============================================
+# Arboris Novel PyQt 桌面版 .gitignore
+# ============================================
+
+# ----------------
+# Python 通用
+# ----------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
 MANIFEST
 
-# Virtual Environment
+# ----------------
+# 虚拟环境
+# ----------------
+.venv/
 venv/
 env/
 ENV/
-env.bak/
-venv.bak/
-.venv/
 
-# IDE
+# ----------------
+# IDE 和编辑器
+# ----------------
 .vscode/
 .idea/
 *.swp
@@ -43,27 +36,34 @@ venv.bak/
 *.sublime-project
 *.sublime-workspace
 
-# Environment Variables
+# ----------------
+# 环境变量文件
+# ----------------
 .env
 .env.local
 .env.*.local
-*.env
+backend/.env
 
-# Database
+# ----------------
+# 数据库文件
+# ----------------
 *.db
 *.sqlite
 *.sqlite3
+backend/storage/*.db
 storage/*.db
-storage/*.sqlite
-storage/*.sqlite3
 
-# Logs
+# ----------------
+# 日志文件
+# ----------------
 *.log
 logs/
-storage/debug.log
+backend/storage/*.log
 storage/*.log
 
-# Testing
+# ----------------
+# 测试相关
+# ----------------
 .pytest_cache/
 .coverage
 htmlcov/
@@ -71,42 +71,35 @@ htmlcov/
 .nox/
 coverage.xml
 *.cover
-*.py,cover
 .hypothesis/
 .cache
 
-# MyPy
+# ----------------
+# 类型检查
+# ----------------
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre
 .pyre/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# PyInstaller
-*.manifest
+# ----------------
+# PyInstaller 打包
+# ----------------
+build/
+dist/
 *.spec
 
-# Celery
-celerybeat-schedule
-celerybeat.pid
+# ----------------
+# 临时文件
+# ----------------
+*.tmp
+*.bak
+*.temp
+*~.nib
 
-# SageMath
-*.sage.py
-
-# Spyder
-.spyderproject
-.spyproject
-
-# Rope
-.ropeproject
-
-# mkdocs
-/site
-CLAUDE.md
+# ----------------
+# 操作系统文件
+# ----------------
 # macOS
 .DS_Store
 .AppleDouble
@@ -114,39 +107,33 @@ CLAUDE.md
 
 # Windows
 Thumbs.db
-Thumbs.db:encryptable
 ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
-[Dd]esktop.ini
+Desktop.ini
 $RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
 *.lnk
 
-# Project Specific
-backend/storage/*.db
-backend/storage/*.log
-backend/.venv/
-frontend/__pycache__/
-backend/alembic/versions/*.pyc
+# ----------------
+# 项目特定
+# ----------------
+# 存储目录（数据库、日志、配置）
+backend/storage/
+storage/
 
-# Temporary files
-*.tmp
-*.bak
-*.swp
-*~.nib
+# Alembic 迁移编译文件
+backend/alembic/versions/__pycache__/
 
-# PyQt
-*.ui.py
-moc_*.cpp
-ui_*.h
-qrc_*.cpp
+# 前端配置文件
+frontend/config.json
 
-# Build artifacts
-*.exe
-*.dll
-*.dylib
+# 运行脚本（本地使用）
+run_app.py
+CLAUDE.md
+GEMINI.md
+可改进的点.txt
+# 打包相关
+ArborisNovel.spec
+ArborisNovelRelease.spec
+build.bat
+
+# 临时文档
+*.md.bak

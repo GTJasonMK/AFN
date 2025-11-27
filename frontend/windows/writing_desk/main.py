@@ -14,11 +14,13 @@ from api.client import ArborisAPIClient
 from utils.async_worker import AsyncAPIWorker
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
+from utils.dpi_utils import dp, sp
 from themes.theme_manager import theme_manager
 
 from .header import WDHeader
 from .sidebar import WDSidebar
 from .workspace import WDWorkspace
+from .assistant_panel import AssistantPanel
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ class WritingDesk(BasePage):
         self.select_version_worker = None  # 用于版本选择
         self.edit_content_worker = None  # 用于内容编辑
         self.save_content_worker = None  # 用于保存内容
+        self.generation_worker = None   # 用于章节生成
 
         self.setupUI()
         self.loadProject()
@@ -94,8 +97,21 @@ class WritingDesk(BasePage):
         self.workspace.editContent.connect(self.onEditContent)
         self.workspace.setProjectId(self.project_id)
         content_layout.addWidget(self.workspace, stretch=1)
+        
+        # Assistant Panel (Initially hidden)
+        self.assistant_panel = AssistantPanel(self.project_id)
+        self.assistant_panel.setVisible(False)
+        self.assistant_panel.setFixedWidth(dp(350)) # 固定宽度
+        content_layout.addWidget(self.assistant_panel)
+        
+        # Connect Header Signal
+        self.header.toggleAssistantClicked.connect(self.toggleAssistant)
 
         main_layout.addWidget(self.content_widget, stretch=1)
+
+    def toggleAssistant(self, show: bool):
+        """切换AI助手显示状态"""
+        self.assistant_panel.setVisible(show)
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）"""
@@ -145,7 +161,7 @@ class WritingDesk(BasePage):
         self.workspace.loadChapter(chapter_number)
 
     def onGenerateChapter(self, chapter_number):
-        """生成章节 - 使用同步模式"""
+        """生成章节 - 后台异步执行模式"""
         # 防止快速点击导致多个生成任务同时运行
         if self.generating_chapter is not None:
             MessageService.show_warning(
@@ -157,7 +173,7 @@ class WritingDesk(BasePage):
 
         if not confirm(
             self,
-            f"确定要生成第{chapter_number}章吗？这可能需要几分钟时间。",
+            f"确定要生成第{chapter_number}章吗？\n\n任务将在后台运行，您可以继续浏览其他内容。\n生成过程可能需要 1-3 分钟。",
             "确认生成"
         ):
             return
@@ -165,6 +181,13 @@ class WritingDesk(BasePage):
         # 标记正在生成的章节
         self.generating_chapter = chapter_number
         self.sidebar.setGeneratingChapter(chapter_number)
+        
+        # 显示开始通知
+        MessageService.show_info(
+            self, 
+            f"开始生成第{chapter_number}章，请耐心等待...", 
+            "任务已提交"
+        )
 
         # 定义生成任务
         def generate_task():
@@ -177,38 +200,31 @@ class WritingDesk(BasePage):
         def on_success(result):
             self.generating_chapter = None
             self.sidebar.clearGeneratingState()
+            
+            # 显示成功通知
             MessageService.show_operation_success(self, f"第{chapter_number}章生成")
+            
+            # 重新加载项目数据
             self.loadProject()
-            self.workspace.loadChapter(chapter_number)
+            
+            # 如果当前正停留在该章节，刷新显示
+            if self.selected_chapter_number == chapter_number:
+                self.workspace.loadChapter(chapter_number)
 
         # 定义错误回调
         def on_error(error_msg):
             self.generating_chapter = None
             self.sidebar.clearGeneratingState()
-            MessageService.show_error(self, f"生成失败：{error_msg}", "错误")
+            MessageService.show_error(self, f"第{chapter_number}章生成失败：\n{error_msg}", "错误")
 
         # 使用AsyncWorker在后台线程执行
-        worker = AsyncAPIWorker(generate_task)
-        worker.success.connect(on_success)
-        worker.error.connect(on_error)
-
-        # 显示加载对话框
-        from components.dialogs import LoadingDialog
-        loading_dialog = LoadingDialog(
-            parent=self,
-            title="生成中",
-            message=f"正在生成第{chapter_number}章，请稍候...\n这可能需要几分钟时间。",
-            cancelable=False
-        )
-
-        # Worker完成后关闭对话框
-        worker.finished.connect(loading_dialog.close)
+        # 注意：我们需要将worker保存在实例变量中，防止被垃圾回收
+        self.generation_worker = AsyncAPIWorker(generate_task)
+        self.generation_worker.success.connect(on_success)
+        self.generation_worker.error.connect(on_error)
 
         # 启动Worker
-        worker.start()
-
-        # 显示对话框（会阻塞直到Worker完成）
-        loading_dialog.exec()
+        self.generation_worker.start()
 
     def onGenerateOutline(self):
         """生成章节大纲"""
@@ -530,6 +546,8 @@ class WritingDesk(BasePage):
             ('current_worker', self.current_worker),
             ('select_version_worker', self.select_version_worker),
             ('edit_content_worker', self.edit_content_worker),
+            ('save_content_worker', self.save_content_worker),
+            ('generation_worker', self.generation_worker),
         ]
 
         for name, worker in workers:

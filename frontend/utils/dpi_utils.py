@@ -242,6 +242,38 @@ class DPIHelper:
         """判断是否为高DPI屏幕"""
         return self._scale_factor > 1.5
 
+    def create_icon(self, svg_content: str, size: int = 24) -> 'QIcon':
+        """
+        从SVG字符串创建QIcon
+
+        Args:
+            svg_content: SVG内容字符串
+            size: 图标基础大小（会自动根据DPI缩放）
+
+        Returns:
+            QIcon对象
+        """
+        from PyQt6.QtGui import QIcon, QPixmap, QPainter
+        from PyQt6.QtCore import QByteArray, Qt
+        from PyQt6.QtSvg import QSvgRenderer
+
+        # 计算实际大小
+        actual_size = self.dp(size)
+        
+        # 创建Pixmap
+        pixmap = QPixmap(actual_size, actual_size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        # 渲染SVG
+        svg_bytes = QByteArray(svg_content.encode('utf-8'))
+        renderer = QSvgRenderer(svg_bytes)
+        
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+
+        return QIcon(pixmap)
+
 
 # 全局DPI助手实例
 dpi_helper = DPIHelper()

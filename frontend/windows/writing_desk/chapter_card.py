@@ -4,12 +4,13 @@
 用于写作台侧边栏的章节列表项
 """
 
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget
-from PyQt6.QtCore import pyqtSignal, Qt, QPropertyAnimation, QEasingCurve, QRect
-from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import (
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget, QMenu
+)
+from PyQt6.QtCore import pyqtSignal, Qt, QPoint
+from PyQt6.QtGui import QCursor, QAction
 from components.base.theme_aware_widget import ThemeAwareWidget
 from themes.theme_manager import theme_manager
-from themes.modern_effects import ModernEffects
 from utils.dpi_utils import dp, sp
 from utils.formatters import format_word_count
 
@@ -18,20 +19,18 @@ class ChapterCard(ThemeAwareWidget):
     """章节卡片组件 - 现代化设计
 
     显示章节信息：编号、标题、状态、字数
-    支持选中状态和悬停效果
+    支持选中状态、悬停效果和右键菜单
     """
 
     clicked = pyqtSignal(int)  # chapter_number
+    editOutlineRequested = pyqtSignal(int)  # chapter_number
+    regenerateOutlineRequested = pyqtSignal(int)  # chapter_number
 
     def __init__(self, chapter_data, is_selected=False, parent=None):
         """初始化章节卡片
 
         Args:
             chapter_data: 章节数据字典
-                - chapter_number: 章节编号
-                - title: 章节标题
-                - status: 状态（not_generated/generating/completed/failed）
-                - word_count: 字数（可选）
             is_selected: 是否选中
         """
         self.chapter_data = chapter_data
@@ -61,12 +60,12 @@ class ChapterCard(ThemeAwareWidget):
         self.container = QFrame()
         self.container.setObjectName("chapter_card_container")
         container_layout = QHBoxLayout(self.container)
-        container_layout.setContentsMargins(dp(12), dp(10), dp(12), dp(10))  # 从16,12减少
-        container_layout.setSpacing(dp(10))  # 从12减少到10
+        container_layout.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
+        container_layout.setSpacing(dp(10))
 
         # 左侧：状态图标 - 紧凑版
         self.status_icon = QLabel(self._get_status_icon())
-        self.status_icon.setFixedSize(dp(20), dp(20))  # 从24减少到20
+        self.status_icon.setFixedSize(dp(20), dp(20))
         self.status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         container_layout.addWidget(self.status_icon)
 
@@ -74,11 +73,11 @@ class ChapterCard(ThemeAwareWidget):
         info_widget = QWidget()
         info_layout = QVBoxLayout(info_widget)
         info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(dp(2))  # 从4减少到2
+        info_layout.setSpacing(dp(2))
 
         # 章节标题行（编号 + 标题）
         title_row = QHBoxLayout()
-        title_row.setSpacing(dp(4))  # 从6减少到4
+        title_row.setSpacing(dp(4))
 
         chapter_number = self.chapter_data.get('chapter_number', 0)
         self.number_label = QLabel(f"{chapter_number}.")
@@ -88,7 +87,7 @@ class ChapterCard(ThemeAwareWidget):
         title = self.chapter_data.get('title', f'第{chapter_number}章')
         self.title_label = QLabel(title)
         self.title_label.setObjectName("chapter_title")
-        self.title_label.setWordWrap(True)  # 启用自动换行确保文字完整显示
+        self.title_label.setWordWrap(True)
         title_row.addWidget(self.title_label, stretch=1)
 
         info_layout.addLayout(title_row)
@@ -237,6 +236,45 @@ class ChapterCard(ThemeAwareWidget):
             chapter_number = self.chapter_data.get('chapter_number', 0)
             self.clicked.emit(chapter_number)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):
+        """右键菜单事件"""
+        menu = QMenu(self)
+        
+        # 设置菜单样式
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {theme_manager.BG_CARD};
+                border: 1px solid {theme_manager.BORDER_LIGHT};
+                border-radius: {dp(8)}px;
+                padding: {dp(4)}px;
+            }}
+            QMenu::item {{
+                padding: {dp(6)}px {dp(24)}px;
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(13)}px;
+                border-radius: {dp(4)}px;
+            }}
+            QMenu::item:selected {{
+                background-color: {theme_manager.PRIMARY_PALE};
+                color: {theme_manager.PRIMARY};
+            }}
+        """)
+
+        # 添加动作
+        edit_action = QAction("编辑大纲", self)
+        edit_action.triggered.connect(
+            lambda: self.editOutlineRequested.emit(self.chapter_data.get('chapter_number', 0))
+        )
+        menu.addAction(edit_action)
+
+        regenerate_action = QAction("重新生成大纲", self)
+        regenerate_action.triggered.connect(
+            lambda: self.regenerateOutlineRequested.emit(self.chapter_data.get('chapter_number', 0))
+        )
+        menu.addAction(regenerate_action)
+
+        menu.exec(event.globalPos())
 
     def enterEvent(self, event):
         """鼠标进入事件"""

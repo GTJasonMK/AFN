@@ -584,7 +584,37 @@ class ArborisAPIClient:
             timeout=180
         )
 
-    def delete_chapter_outlines(
+    def update_chapter_outline(
+        self,
+        project_id: str,
+        chapter_number: int,
+        title: str,
+        summary: str
+    ) -> Dict[str, Any]:
+        """
+        更新章节大纲
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            title: 章节标题
+            summary: 章节摘要
+
+        Returns:
+            更新后的项目信息
+        """
+        data = {
+            'chapter_number': chapter_number,
+            'title': title,
+            'summary': summary
+        }
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/update-outline',
+            data
+        )
+
+    def delete_chapters(
         self,
         project_id: str,
         count: int
@@ -731,6 +761,35 @@ class ArborisAPIClient:
             'PUT',
             f'/api/writer/novels/{project_id}/chapters/{chapter_number}',
             {'content': content}
+        )
+
+    def import_chapter(
+        self,
+        project_id: str,
+        chapter_number: int,
+        title: str,
+        content: str
+    ) -> Dict[str, Any]:
+        """
+        导入章节内容
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            title: 章节标题
+            content: 章节内容
+
+        Returns:
+            更新后的项目数据
+        """
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/import',
+            {
+                'chapter_number': chapter_number,
+                'title': title,
+                'content': content
+            }
         )
 
     def export_chapters(

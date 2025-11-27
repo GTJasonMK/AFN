@@ -1,4 +1,5 @@
 import logging
+import os
 
 from pathlib import Path
 
@@ -91,8 +92,15 @@ async def _ensure_database_exists() -> None:
 
 
 async def _ensure_default_prompts(session: AsyncSession) -> None:
-    prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
+    # 优先使用环境变量指定的路径（打包环境），否则使用相对路径（开发环境）
+    prompts_dir_env = os.environ.get('PROMPTS_DIR')
+    if prompts_dir_env:
+        prompts_dir = Path(prompts_dir_env)
+    else:
+        prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
+
     if not prompts_dir.is_dir():
+        logger.warning(f"提示词目录不存在: {prompts_dir}")
         return
 
     result = await session.execute(select(Prompt.name))

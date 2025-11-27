@@ -217,8 +217,9 @@ class BlueprintPatch(BaseModel):
     chapter_outline: Optional[List[ChapterOutline]] = None
 
 
-class EditChapterRequest(BaseModel):
+class ImportChapterRequest(BaseModel):
     chapter_number: int
+    title: str
     content: str
 
 

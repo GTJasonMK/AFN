@@ -23,6 +23,7 @@ class WDHeader(ThemeAwareFrame):
     goBackClicked = pyqtSignal()
     viewDetailClicked = pyqtSignal()
     exportClicked = pyqtSignal(str)  # format: txt/markdown
+    toggleAssistantClicked = pyqtSignal(bool)  # true=show, false=hide
 
     def __init__(self, project=None, parent=None):
         self.project = project
@@ -35,6 +36,7 @@ class WDHeader(ThemeAwareFrame):
         self.stats_container = None
         self.export_btn = None
         self.detail_btn = None
+        self.assistant_btn = None
 
         super().__init__(parent)
         self.setupUI()
@@ -98,6 +100,15 @@ class WDHeader(ThemeAwareFrame):
         self.detail_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.detail_btn.clicked.connect(self.viewDetailClicked.emit)
         buttons_layout.addWidget(self.detail_btn)
+        
+        # AI助手按钮
+        self.assistant_btn = QPushButton("AI助手")
+        self.assistant_btn.setCheckable(True)
+        self.assistant_btn.setChecked(False)
+        self.assistant_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.assistant_btn.toggled.connect(self.toggleAssistantClicked.emit)
+        self.assistant_btn.toggled.connect(self._update_assistant_btn_style)
+        buttons_layout.addWidget(self.assistant_btn)
 
         container_layout.addLayout(buttons_layout)
 
@@ -109,6 +120,12 @@ class WDHeader(ThemeAwareFrame):
         # 如果已有项目数据，设置
         if self.project:
             self.setProject(self.project)
+            
+    def _update_assistant_btn_style(self):
+        """更新助手按钮样式"""
+        if self.assistant_btn:
+            style = ButtonStyles.primary('SM') if self.assistant_btn.isChecked() else ButtonStyles.secondary('SM')
+            self.assistant_btn.setStyleSheet(style)
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）- 现代化设计"""
@@ -196,6 +213,12 @@ class WDHeader(ThemeAwareFrame):
         # 详情按钮
         if self.detail_btn:
             self.detail_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            
+        # AI助手按钮
+        if self.assistant_btn:
+            # 未选中是secondary，选中是primary
+            style = ButtonStyles.primary('SM') if self.assistant_btn.isChecked() else ButtonStyles.secondary('SM')
+            self.assistant_btn.setStyleSheet(style)
 
     def setProject(self, project):
         """设置项目数据 - 统计信息合并到元信息行"""

@@ -193,13 +193,15 @@ class ProjectCard(ThemeAwareFrame):
         buttons_layout.setSpacing(10)
 
         # 查看详情按钮
-        self.view_btn = QPushButton("查看详情")
+        self.view_btn = QPushButton("查看")
+        self.view_btn.setIcon(dpi_helper.create_icon(SVGIcons.eye(16, theme_manager.TEXT_PRIMARY)))
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_btn.clicked.connect(self._on_view_details_clicked)
         buttons_layout.addWidget(self.view_btn, stretch=1)
 
         # 删除按钮
         self.delete_btn = QPushButton("删除")
+        self.delete_btn.setIcon(dpi_helper.create_icon(SVGIcons.trash(16, theme_manager.ERROR)))
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_btn.clicked.connect(self._on_delete_clicked)
         # 移除固定宽度限制，让按钮根据内容自动调整
@@ -213,10 +215,13 @@ class ProjectCard(ThemeAwareFrame):
 
         if project_status in blueprint_ready_states:
             # 已有蓝图，显示"继续创作"
-            self.continue_btn = QPushButton("继续创作")
+            self.continue_btn = QPushButton("继续")
+            self.continue_btn.setIcon(dpi_helper.create_icon(SVGIcons.play(16, theme_manager.BUTTON_TEXT)))
         else:
-            # 未完成蓝图（draft或其他未知状态），显示"继续灵感模式"
-            self.continue_btn = QPushButton("继续灵感模式")
+            # 未完成蓝图（draft或其他未知状态），显示"继续灵感"
+            self.continue_btn = QPushButton("继续灵感")
+            self.continue_btn.setIcon(dpi_helper.create_icon(SVGIcons.sparkles(16, theme_manager.BUTTON_TEXT)))
+        
         self.continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         # 连接到统一的槽方法，避免重复连接lambda
         self.continue_btn.clicked.connect(self._on_continue_clicked)
@@ -536,9 +541,11 @@ class ProjectCard(ThemeAwareFrame):
             blueprint_ready_states = ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']
 
             if project_status in blueprint_ready_states:
-                self.continue_btn.setText("继续创作")
+                self.continue_btn.setText("继续")
+                self.continue_btn.setIcon(dpi_helper.create_icon(SVGIcons.play(16, theme_manager.BUTTON_TEXT)))
             else:
-                self.continue_btn.setText("继续灵感模式")
+                self.continue_btn.setText("继续灵感")
+                self.continue_btn.setIcon(dpi_helper.create_icon(SVGIcons.sparkles(16, theme_manager.BUTTON_TEXT)))
 
 
 

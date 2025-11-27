@@ -29,7 +29,7 @@ from ....exceptions import (
 from ....models.novel import Chapter, ChapterOutline
 from ....schemas.novel import (
     DeleteChapterRequest,
-    EditChapterRequest,
+    ImportChapterRequest,
     EvaluateChapterRequest,
     NovelProject as NovelProjectSchema,
     SelectVersionRequest,
@@ -47,6 +47,131 @@ from ....utils.prompt_helpers import ensure_prompt
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+@router.post("/novels/{project_id}/chapters/import", response_model=NovelProjectSchema)
+async def import_chapter(
+    project_id: str,
+    request: ImportChapterRequest,
+    novel_service: NovelService = Depends(get_novel_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> NovelProjectSchema:
+    """
+    导入章节内容
+
+    如果章节已存在，则更新内容；如果不存在，则创建章节和大纲。
+    """
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    
+    # 1. 确保大纲存在或更新大纲
+    chapter_outline_repo = ChapterOutlineRepository(session)
+    await chapter_outline_repo.upsert_outline(
+        project_id=project_id,
+        chapter_number=request.chapter_number,
+        title=request.title,
+        summary="（导入章节，摘要待生成）",  # 默认摘要
+    )
+    
+    # 2. 获取或创建章节记录
+    chapter_repo = ChapterRepository(session)
+    chapter = await chapter_repo.get_chapter(project_id, request.chapter_number)
+    
+    if not chapter:
+        # 创建新章节
+        chapter = Chapter(
+            project_id=project_id,
+            chapter_number=request.chapter_number,
+            title=request.title,
+        )
+        session.add(chapter)
+        await session.commit()  # 提交以获取ID
+    
+    # 3. 创建新的版本并设为选中
+    from ....models.novel import ChapterVersion  # 延迟导入避免循环
+    
+    # 确定新版本号
+    new_version_number = 1
+    if chapter.versions:
+        new_version_number = max(v.version_number for v in chapter.versions) + 1
+        
+    new_version = ChapterVersion(
+        chapter_id=chapter.id,
+        version_number=new_version_number,
+        content=request.content,
+        llm_model="imported",  # 标记为导入
+        prompt="imported"
+    )
+    session.add(new_version)
+    await session.commit()
+    
+    # 更新章节选中版本和字数
+    chapter.selected_version_id = new_version.id
+    chapter.word_count = len(request.content)
+    session.add(chapter)
+    await session.commit()
+
+    logger.info(
+        "用户 %s 导入项目 %s 第 %s 章内容 (版本 %d)", 
+        desktop_user.id, 
+        project_id, 
+        request.chapter_number,
+        new_version_number
+    )
+
+    # 4. 尝试生成摘要（异步或同步）
+    if request.content.strip():
+        try:
+            summary = await llm_service.get_summary(
+                request.content,
+                temperature=settings.llm_temp_summary,
+                user_id=desktop_user.id,
+                timeout=180.0,
+            )
+            chapter.real_summary = remove_think_tags(summary)
+            
+            # 同时更新大纲摘要
+            await chapter_outline_repo.upsert_outline(
+                project_id=project_id,
+                chapter_number=request.chapter_number,
+                title=request.title,
+                summary=chapter.real_summary,
+            )
+            
+        except Exception as exc:
+            logger.error("项目 %s 第 %s 章导入后摘要生成失败: %s", project_id, request.chapter_number, exc)
+            chapter.real_summary = "摘要生成失败，请稍后手动生成"
+    
+    await session.commit()
+
+    # 5. 向量入库
+    vector_store: Optional[VectorStoreService]
+    if not settings.vector_store_enabled:
+        vector_store = None
+    else:
+        try:
+            vector_store = VectorStoreService()
+        except RuntimeError as exc:
+            logger.warning("向量库初始化失败，跳过章节向量更新: %s", exc)
+            vector_store = None
+
+    if vector_store:
+        ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+        await ingestion_service.ingest_chapter(
+            project_id=project_id,
+            chapter_number=request.chapter_number,
+            title=request.title,
+            content=request.content,
+            summary=chapter.real_summary,
+            user_id=desktop_user.id,
+        )
+        logger.info("项目 %s 第 %s 章导入内容已同步至向量库", project_id, request.chapter_number)
+
+    # 检查完成状态
+    await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
+
+    return await novel_service.get_project_schema(project_id, desktop_user.id)
+
 
 @router.post("/novels/{project_id}/chapters/select", response_model=NovelProjectSchema)
 async def select_chapter_version(
@@ -263,74 +388,6 @@ async def delete_chapters(
             project_id,
             request.chapter_numbers,
         )
-
-    return await novel_service.get_project_schema(project_id, desktop_user.id)
-
-
-@router.post("/novels/{project_id}/chapters/edit", response_model=NovelProjectSchema, deprecated=True)
-async def edit_chapter(
-    project_id: str,
-    request: EditChapterRequest,
-    novel_service: NovelService = Depends(get_novel_service),
-    llm_service: LLMService = Depends(get_llm_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> NovelProjectSchema:
-    """
-    编辑章节内容（已弃用，请使用 PUT /novels/{project_id}/chapters/{chapter_number}）
-
-    保留此端点用于向后兼容。
-    """
-
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    chapter = next((ch for ch in project.chapters if ch.chapter_number == request.chapter_number), None)
-    if not chapter or chapter.selected_version is None:
-        logger.warning("项目 %s 第 %s 章尚未生成或未选择版本，无法编辑", project_id, request.chapter_number)
-        raise ChapterNotGeneratedError(project_id, request.chapter_number)
-
-    chapter.selected_version.content = request.content
-    chapter.word_count = len(request.content)
-    logger.info("用户 %s 更新了项目 %s 第 %s 章内容", desktop_user.id, project_id, request.chapter_number)
-
-    # 优化：分离内容保存和摘要生成，避免摘要失败导致编辑失败
-    if request.content.strip():
-        try:
-            summary = await llm_service.get_summary(
-                request.content,
-                temperature=settings.llm_temp_summary,
-                user_id=desktop_user.id,
-                timeout=180.0,
-            )
-            chapter.real_summary = remove_think_tags(summary)
-        except Exception as exc:
-            logger.error("项目 %s 第 %s 章编辑后摘要生成失败，但内容已保存: %s", project_id, request.chapter_number, exc)
-            # 摘要生成失败不影响内容保存，继续处理
-            chapter.real_summary = "摘要生成失败，请稍后手动生成"
-    await session.commit()
-
-    vector_store: Optional[VectorStoreService]
-    if not settings.vector_store_enabled:
-        vector_store = None
-    else:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过章节向量更新: %s", exc)
-            vector_store = None
-
-    if vector_store and chapter.selected_version and chapter.selected_version.content:
-        ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
-        outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
-        chapter_title = outline.title if outline and outline.title else f"第{chapter.chapter_number}章"
-        await ingestion_service.ingest_chapter(
-            project_id=project_id,
-            chapter_number=chapter.chapter_number,
-            title=chapter_title,
-            content=chapter.selected_version.content,
-            summary=chapter.real_summary,
-            user_id=desktop_user.id,
-        )
-        logger.info("项目 %s 第 %s 章更新内容已同步至向量库", project_id, chapter.chapter_number)
 
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 
