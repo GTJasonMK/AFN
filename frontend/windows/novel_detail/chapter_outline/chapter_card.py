@@ -20,6 +20,8 @@ class ChapterOutlineCard(QFrame):
         self.chapter = chapter
         self.editable = editable
         self.chapter_number = chapter.get('chapter_number', 0)
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self._setup_ui()
         self._apply_style()
 
@@ -78,6 +80,7 @@ class ChapterOutlineCard(QFrame):
 
         # 编号徽章样式
         self.num_badge.setStyleSheet(f"""
+            font-family: {self.serif_font};
             background-color: {theme_manager.PRIMARY};
             color: {theme_manager.BUTTON_TEXT};
             border-radius: {dp(16)}px;
@@ -87,18 +90,19 @@ class ChapterOutlineCard(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+            f"font-family: {self.serif_font}; font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
         )
 
         # 章节号标签样式
         self.num_tag.setStyleSheet(
-            f"font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"font-family: {self.serif_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
         # 重新生成按钮样式
         if self.editable and hasattr(self, 'regenerate_btn'):
             self.regenerate_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {self.serif_font};
                     background-color: transparent;
                     color: {theme_manager.TEXT_SECONDARY};
                     border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -115,7 +119,7 @@ class ChapterOutlineCard(QFrame):
 
         # 摘要样式
         self.summary_label.setStyleSheet(
-            f"font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY}; line-height: 1.6;"
+            f"font-family: {self.serif_font}; font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY}; line-height: 1.6;"
         )
 
     def update_theme(self):

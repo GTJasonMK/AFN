@@ -17,6 +17,8 @@ class LLMConfigDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self.is_create = config is None
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self.setWindowTitle("新增 LLM 配置" if self.is_create else "编辑 LLM 配置")
         self.setMinimumSize(600, 500)
         self.setupUI()
@@ -36,6 +38,7 @@ class LLMConfigDialog(QDialog):
         self.name_input.setPlaceholderText("如：GPT-4 配置、Claude 配置等")
         self.name_input.setStyleSheet(f"""
             QLineEdit {{
+                font-family: {self.serif_font};
                 background-color: {theme_manager.BG_TERTIARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 padding: 8px 12px;
@@ -68,7 +71,7 @@ class LLMConfigDialog(QDialog):
 
         if not self.is_create:
             hint = QLabel("留空表示保持原有 API Key 不变")
-            hint.setStyleSheet(f"font-size: 11px; color: {theme_manager.TEXT_SECONDARY};")
+            hint.setStyleSheet(f"font-family: {self.serif_font}; font-size: 11px; color: {theme_manager.TEXT_SECONDARY};")
             form_layout.addRow("", hint)
 
         # 模型名称
@@ -94,6 +97,7 @@ class LLMConfigDialog(QDialog):
         save_btn.clicked.connect(self.accept)
         save_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {self.serif_font};
                 background-color: {theme_manager.ACCENT_PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;

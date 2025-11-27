@@ -114,22 +114,25 @@ class WritingDesk(BasePage):
         self.assistant_panel.setVisible(show)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 整体背景 - 使用渐变
-        from themes.modern_effects import ModernEffects
-        gradient_colors = theme_manager.current_theme.BG_GRADIENT
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        if is_dark:
+            bg_color = "#1E1E1E"
+        else:
+            bg_color = "#F9F5F0"
 
         # 主窗口背景
         self.setStyleSheet(f"""
             WritingDesk {{
-                background: {ModernEffects.linear_gradient(gradient_colors, 180)};
+                background-color: {bg_color};
             }}
         """)
 
         if hasattr(self, 'content_widget'):
             self.content_widget.setStyleSheet(f"""
                 QWidget {{
-                    background: transparent;
+                    background-color: transparent;
                 }}
             """)
 
@@ -227,8 +230,8 @@ class WritingDesk(BasePage):
         self.generation_worker.start()
 
     def onGenerateOutline(self):
-        """生成章节大纲"""
-        MessageService.show_info(self, "章节大纲生成功能请在项目详情页操作", "提示")
+        """跳转到项目详情的章节大纲页面"""
+        self.navigateTo('DETAIL', project_id=self.project_id, section='chapter_outline')
 
     def onSaveContent(self, chapter_number, content):
         """保存章节内容到后端（异步非阻塞）"""

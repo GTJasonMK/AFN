@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from api.client import ArborisAPIClient
 from components.base import ThemeAwareWidget
-from components.dialogs import IntInputDialog, InputDialog
+from components.dialogs import IntInputDialog, InputDialog, LoadingDialog
 from themes.theme_manager import theme_manager
 from utils.message_service import MessageService, confirm
 from utils.dpi_utils import dp, sp
@@ -56,6 +56,10 @@ class ChapterOutlineSection(ThemeAwareWidget):
         self._part_list = None
         self._chapter_list = None
         self._tab_widget = None
+
+        # 进度轮询相关
+        self._progress_timer = None
+        self._progress_dialog = None
 
         # 先调用父类初始化
         super().__init__(parent)
@@ -137,16 +141,16 @@ class ChapterOutlineSection(ThemeAwareWidget):
             part_layout.setContentsMargins(0, dp(16), 0, 0)
             part_layout.setSpacing(dp(16))
 
-            # 部分大纲操作栏
+            # 部分大纲操作栏（不显示继续生成按钮，因为部分大纲不支持增量生成）
             total_parts = len(part_outlines)
             self._part_action_bar = OutlineActionBar(
                 title="部分大纲",
                 current_count=total_parts,
                 total_count=total_parts,
                 outline_type="part",
-                editable=self.editable
+                editable=self.editable,
+                show_continue_button=False  # 部分大纲不支持继续生成
             )
-            self._part_action_bar.continueGenerateClicked.connect(self._on_continue_generate_parts)
             self._part_action_bar.regenerateLatestClicked.connect(self._on_regenerate_latest_parts)
             self._part_action_bar.deleteLatestClicked.connect(self._on_delete_latest_parts)
             part_layout.addWidget(self._part_action_bar)
@@ -218,12 +222,23 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def _rebuild_ui(self):
         """重建UI"""
+        # 保存当前Tab索引
+        saved_tab_index = 0
+        if self._tab_widget:
+            saved_tab_index = self._tab_widget.currentIndex()
+
         self._clear_ui()
 
         if self.current_mode == 'long':
             self._create_long_novel_ui()
         else:
             self._create_short_novel_ui()
+
+        # 恢复Tab索引
+        if self._tab_widget and saved_tab_index > 0:
+            # 确保索引不越界
+            if saved_tab_index < self._tab_widget.count():
+                self._tab_widget.setCurrentIndex(saved_tab_index)
 
     def _clear_ui(self):
         """清空UI"""
@@ -274,26 +289,100 @@ class ChapterOutlineSection(ThemeAwareWidget):
         if not ok:
             return
 
-        self.async_helper.execute(
+        # 计算预计生成的部分数
+        estimated_parts = (total_chapters + chapters_per_part - 1) // chapters_per_part
+
+        # 显示带进度的加载对话框
+        self._progress_dialog = LoadingDialog(
+            parent=self,
+            title="生成部分大纲",
+            message=f"正在启动生成任务...\n预计生成 {estimated_parts} 个部分大纲",
+            cancelable=True
+        )
+        self._progress_dialog.rejected.connect(self._stop_progress_polling)
+        self._progress_dialog.show()
+
+        # 启动生成任务（使用异步worker）
+        from utils.async_worker import AsyncAPIWorker
+        worker = AsyncAPIWorker(
             self.api_client.generate_part_outlines,
             self.project_id,
             total_chapters=total_chapters,
-            chapters_per_part=chapters_per_part,
-            loading_message="正在启动部分大纲生成任务...",
-            success_message="部分大纲生成",
-            error_context="启动生成任务",
-            on_success=lambda r: self.refreshRequested.emit()
+            chapters_per_part=chapters_per_part
         )
+        worker.success.connect(self._on_generate_started)
+        worker.error.connect(self._on_generate_error)
+        worker.start()
 
-    def _on_continue_generate_parts(self):
-        """继续生成N个部分大纲"""
-        # 暂不支持，因为部分大纲通常一次性生成
-        MessageService.show_info(
-            self,
-            "部分大纲通常一次性完整生成。\n\n"
-            "如需调整，请使用\"重新生成最新\"或\"删除最新\"功能。",
-            "提示"
-        )
+    def _on_generate_started(self, result):
+        """生成任务启动成功，开始轮询进度"""
+        logger.info(f"部分大纲生成任务已启动: {result}")
+        # 启动进度轮询
+        self._start_progress_polling()
+
+    def _on_generate_error(self, error_msg):
+        """生成任务启动失败"""
+        self._stop_progress_polling()
+        MessageService.show_api_error(self, error_msg, "启动生成任务")
+
+    def _start_progress_polling(self):
+        """开始轮询进度"""
+        if self._progress_timer:
+            self._progress_timer.stop()
+
+        self._progress_timer = QTimer(self)
+        self._progress_timer.timeout.connect(self._poll_progress)
+        self._progress_timer.start(2000)  # 每2秒轮询一次
+
+    def _stop_progress_polling(self):
+        """停止进度轮询"""
+        if self._progress_timer:
+            self._progress_timer.stop()
+            self._progress_timer = None
+
+        if self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog = None
+
+    def _poll_progress(self):
+        """轮询生成进度"""
+        try:
+            status_data = self.api_client.get_part_outline_generation_status(self.project_id)
+            status = status_data.get('status', 'pending')
+            completed_parts = status_data.get('completed_parts', 0)
+            total_parts = status_data.get('total_parts', 0)
+            parts = status_data.get('parts', [])
+
+            logger.info(f"部分大纲生成进度: {completed_parts}/{total_parts}, 状态: {status}")
+
+            # 更新进度显示
+            if self._progress_dialog:
+                progress_text = f"正在生成部分大纲...\n已完成: {completed_parts} / {total_parts}"
+
+                # 查找正在生成的部分
+                generating_part = None
+                for part in parts:
+                    if part.get('generation_status') == 'generating':
+                        generating_part = part.get('part_number', 0)
+                        break
+
+                if generating_part:
+                    progress_text += f"\n当前正在生成: 第 {generating_part} 部分"
+
+                self._progress_dialog.setMessage(progress_text)
+
+            # 检查是否完成
+            if status == 'completed' or completed_parts >= total_parts:
+                self._stop_progress_polling()
+                MessageService.show_operation_success(self, f"部分大纲生成完成，共 {total_parts} 个部分")
+                self.refreshRequested.emit()
+            elif status == 'failed':
+                self._stop_progress_polling()
+                MessageService.show_error(self, "部分大纲生成失败，请重试", "生成失败")
+
+        except Exception as e:
+            logger.error(f"轮询进度失败: {e}")
+            # 轮询失败不停止，继续尝试
 
     def _on_regenerate_latest_parts(self):
         """重新生成最新N个部分大纲"""
@@ -534,13 +623,19 @@ class ChapterOutlineSection(ThemeAwareWidget):
                     logger.info(
                         f"检测到正在生成的部分大纲任务 ({completed_parts}/{total_parts})，自动开始轮询"
                     )
+                    # 显示进度对话框
+                    self._progress_dialog = LoadingDialog(
+                        parent=self,
+                        title="生成部分大纲",
+                        message=f"正在生成部分大纲...\n已完成: {completed_parts} / {total_parts}",
+                        cancelable=True
+                    )
+                    self._progress_dialog.rejected.connect(self._stop_progress_polling)
+                    self._progress_dialog.show()
+                    # 开始轮询
                     self._start_progress_polling()
         except Exception as e:
             logger.debug(f"检查部分大纲生成状态失败（正常情况，可忽略）: {e}")
-
-    def _start_progress_polling(self):
-        """开始轮询进度（保留用于特殊情况）"""
-        pass
 
     # ========== 公共方法 ==========
 
@@ -556,6 +651,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def stopAllTasks(self):
         """停止所有异步任务"""
+        self._stop_progress_polling()
         self.async_helper.stop_all()
 
     def closeEvent(self, event):

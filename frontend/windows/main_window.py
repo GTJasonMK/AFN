@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
     def update_theme_button(self):
         """更新主题切换按钮的样式和图标"""
         is_dark = theme_manager.is_dark_mode()
+        serif_font = theme_manager.serif_font()
 
         # 简化的文字标签
         button_text = "深" if is_dark else "浅"
@@ -191,6 +192,7 @@ class MainWindow(QMainWindow):
         # 简化的按钮样式
         self.theme_button.setStyleSheet(f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -268,6 +270,8 @@ class MainWindow(QMainWindow):
         if params is None:
             params = {}
 
+        logger.info("navigateTo called: page_type=%s, params=%s", page_type, params)
+
         # 获取或创建页面
         page = self.getOrCreatePage(page_type, params)
 
@@ -275,12 +279,15 @@ class MainWindow(QMainWindow):
             logger.error(f"无法创建页面 {page_type}")
             return
 
+        logger.info("Page created/retrieved successfully: %s", type(page).__name__)
+
         # 调用页面刷新方法
         if hasattr(page, 'refresh'):
             page.refresh(**params)
 
         # 切换到页面
         self.page_stack.setCurrentWidget(page)
+        logger.info("Page switched to: %s", page_type)
 
         # 调用页面显示钩子
         if hasattr(page, 'onShow'):
@@ -289,6 +296,7 @@ class MainWindow(QMainWindow):
         # 添加到导航历史（避免重复）
         if not self.navigation_history or self.navigation_history[-1] != (page_type, params):
             self.navigation_history.append((page_type, params))
+            logger.info("Navigation history updated: %s", [(p, dict(pr) if pr else {}) for p, pr in self.navigation_history[-3:]])
 
     def goBack(self):
         """返回上一页"""
@@ -299,10 +307,15 @@ class MainWindow(QMainWindow):
         # 移除当前页
         current_page_info = self.navigation_history.pop()
 
-        # 调用当前页面隐藏钩子
+        # 安全地调用当前页面隐藏钩子
         current_widget = self.page_stack.currentWidget()
-        if hasattr(current_widget, 'onHide'):
-            current_widget.onHide()
+        try:
+            if current_widget and hasattr(current_widget, 'onHide'):
+                current_widget.onHide()
+        except RuntimeError:
+            logger.debug("当前页面已被删除，跳过onHide")
+        except Exception as e:
+            logger.warning(f"调用当前页面onHide时出错: {e}")
 
         # 获取上一页信息
         prev_page_type, prev_params = self.navigation_history[-1]
@@ -362,6 +375,9 @@ class MainWindow(QMainWindow):
         if hasattr(page, 'goBackRequested'):
             page.goBackRequested.connect(self.goBack)
 
+        if hasattr(page, 'navigateReplaceRequested'):
+            page.navigateReplaceRequested.connect(self.onNavigateReplaceRequested)
+
         # 添加到容器和缓存
         self.page_stack.addWidget(page)
         self.pages[cache_key] = page
@@ -403,15 +419,30 @@ class MainWindow(QMainWindow):
         oldest_key = candidates[0]
         oldest_page = self.pages.pop(oldest_key)
 
-        # 调用页面的清理钩子
-        if hasattr(oldest_page, 'onHide'):
-            oldest_page.onHide()
+        # 安全地调用页面的清理钩子
+        try:
+            if hasattr(oldest_page, 'onHide'):
+                oldest_page.onHide()
+        except RuntimeError:
+            logger.debug(f"页面 {oldest_key} 已被删除，跳过onHide")
+        except Exception as e:
+            logger.warning(f"调用页面 {oldest_key} 的onHide时出错: {e}")
 
-        # 从堆栈中移除
-        self.page_stack.removeWidget(oldest_page)
+        # 安全地从堆栈中移除
+        try:
+            self.page_stack.removeWidget(oldest_page)
+        except RuntimeError:
+            logger.debug(f"页面 {oldest_key} 已被删除，跳过removeWidget")
+        except Exception as e:
+            logger.warning(f"移除页面 {oldest_key} 时出错: {e}")
 
         # 延迟删除widget
-        oldest_page.deleteLater()
+        try:
+            oldest_page.deleteLater()
+        except RuntimeError:
+            pass  # 对象已被删除
+        except Exception as e:
+            logger.warning(f"删除页面 {oldest_key} 时出错: {e}")
 
         logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
 
@@ -440,15 +471,30 @@ class MainWindow(QMainWindow):
         for key in keys_to_remove:
             page = self.pages.pop(key)
 
-            # 调用清理钩子
-            if hasattr(page, 'onHide'):
-                page.onHide()
+            # 安全地调用清理钩子
+            try:
+                if hasattr(page, 'onHide'):
+                    page.onHide()
+            except RuntimeError:
+                logger.debug(f"页面 {key} 已被删除，跳过onHide")
+            except Exception as e:
+                logger.warning(f"调用页面 {key} 的onHide时出错: {e}")
 
-            # 从堆栈移除
-            self.page_stack.removeWidget(page)
+            # 安全地从堆栈移除
+            try:
+                self.page_stack.removeWidget(page)
+            except RuntimeError:
+                logger.debug(f"页面 {key} 已被删除，跳过removeWidget")
+            except Exception as e:
+                logger.warning(f"移除页面 {key} 时出错: {e}")
 
-            # 删除widget
-            page.deleteLater()
+            # 安全地删除widget
+            try:
+                page.deleteLater()
+            except RuntimeError:
+                pass  # 对象已被删除
+            except Exception as e:
+                logger.warning(f"删除页面 {key} 时出错: {e}")
 
         logger.info(f"清理了 {len(keys_to_remove)} 个页面，剩余 {len(self.pages)} 个")
 
@@ -510,6 +556,33 @@ class MainWindow(QMainWindow):
             page_type: 目标页面类型
             params: 页面参数
         """
+        self.navigateTo(page_type, params)
+
+    def onNavigateReplaceRequested(self, page_type: str, params: dict):
+        """处理替换导航请求信号
+
+        导航到新页面，并移除当前页面在历史栈中的记录。
+        这样返回时会跳过当前页面，直接返回到更早的页面。
+
+        Args:
+            page_type: 目标页面类型
+            params: 页面参数
+        """
+        # 移除当前页面的历史记录
+        if self.navigation_history:
+            self.navigation_history.pop()
+
+        # 安全地调用当前页面隐藏钩子
+        current_widget = self.page_stack.currentWidget()
+        try:
+            if current_widget and hasattr(current_widget, 'onHide'):
+                current_widget.onHide()
+        except RuntimeError:
+            logger.debug("当前页面已被删除，跳过onHide")
+        except Exception as e:
+            logger.warning(f"调用当前页面onHide时出错: {e}")
+
+        # 导航到新页面
         self.navigateTo(page_type, params)
 
     def closeEvent(self, event):

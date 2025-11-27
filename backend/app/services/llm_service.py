@@ -279,6 +279,23 @@ class LLMService:
                     detail=f"{detail}，请稍后重试 {retry_hint}"
                 ) from exc
 
+            except Exception as exc:
+                # 捕获所有其他未预期的异常，防止进程崩溃
+                logger.critical(
+                    "LLM stream unexpected error: model=%s user_id=%s attempt=%d/%d error_type=%s error=%s",
+                    config.get("model"),
+                    user_id,
+                    attempt + 1,
+                    max_retries + 1,
+                    type(exc).__name__,
+                    str(exc),
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"AI 服务发生意外错误: {type(exc).__name__}: {str(exc)}"
+                ) from exc
+
         # 理论上不应该到达这里，但为了代码完整性保留
         if last_error:
             raise HTTPException(

@@ -973,7 +973,7 @@ class ThemeManager(QObject):
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
                 background: none;
             }}
-            
+
             QScrollBar:horizontal {{
                 background-color: transparent;
                 height: 8px;
@@ -994,6 +994,241 @@ class ThemeManager(QObject):
                 background: none;
             }}
         """
+
+    # ==================== 书香风格专用方法 ====================
+
+    def serif_font(self) -> str:
+        """获取衬线字体族 - 书香风格核心字体"""
+        return "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+
+    def book_accent_color(self) -> str:
+        """获取书香风格强调色 - 赭石(亮)/暗金(暗)"""
+        return "#8B4513" if self.is_light_mode() else "#D4AF37"
+
+    def book_accent_light(self) -> str:
+        """获取书香风格浅强调色"""
+        return "#A0522D" if self.is_light_mode() else "#E5C158"
+
+    def book_text_primary(self) -> str:
+        """获取书香风格主文字色 - 深褐(亮)/浅灰(暗)"""
+        return "#2C1810" if self.is_light_mode() else "#E0E0E0"
+
+    def book_text_secondary(self) -> str:
+        """获取书香风格次要文字色"""
+        return "#5D4037" if self.is_light_mode() else "#A0A0A0"
+
+    def book_bg_primary(self) -> str:
+        """获取书香风格主背景色 - 米色(亮)/深灰(暗)"""
+        return "#F9F5F0" if self.is_light_mode() else "#1E1E1E"
+
+    def book_bg_secondary(self) -> str:
+        """获取书香风格次要背景色 - 亮米色(亮)/中灰(暗)"""
+        return "#FFFBF0" if self.is_light_mode() else "#2D2D2D"
+
+    def book_border_color(self) -> str:
+        """获取书香风格边框色"""
+        return "#D7CCC8" if self.is_light_mode() else "#4A4A4A"
+
+    def glassmorphism_bg(self, opacity: float = 0.85) -> str:
+        """获取玻璃态背景色
+
+        Args:
+            opacity: 透明度 (0.0-1.0)
+
+        Returns:
+            rgba颜色字符串
+        """
+        if self.is_dark_mode():
+            # 深色模式 - 深蓝灰玻璃
+            return f"rgba(26, 31, 53, {opacity})"
+        else:
+            # 亮色模式 - 暖米色玻璃
+            return f"rgba(255, 251, 240, {opacity})"
+
+    def book_card_style(self, hover: bool = False) -> str:
+        """书香风格卡片样式
+
+        Args:
+            hover: 是否为悬停状态
+
+        Returns:
+            CSS样式字符串
+        """
+        bg = self.book_bg_secondary()
+        border = self.book_border_color()
+        accent = self.book_accent_color()
+
+        if hover:
+            return f"""
+                background-color: {bg};
+                border: 1px solid {accent};
+                border-radius: 4px;
+            """
+        return f"""
+            background-color: {bg};
+            border: 1px solid {border};
+            border-radius: 4px;
+        """
+
+    def book_title_style(self, size: int = 28) -> str:
+        """书香风格标题样式
+
+        Args:
+            size: 字体大小 (px)
+
+        Returns:
+            CSS样式字符串
+        """
+        return f"""
+            font-family: {self.serif_font()};
+            font-size: {size}px;
+            font-weight: bold;
+            color: {self.book_text_primary()};
+            letter-spacing: 2px;
+        """
+
+    def book_body_style(self, size: int = 15) -> str:
+        """书香风格正文样式
+
+        Args:
+            size: 字体大小 (px)
+
+        Returns:
+            CSS样式字符串
+        """
+        return f"""
+            font-family: {self.serif_font()};
+            font-size: {size}px;
+            color: {self.book_text_primary()};
+            line-height: 1.8;
+        """
+
+    def book_button_style(self, primary: bool = False) -> str:
+        """书香风格按钮样式
+
+        Args:
+            primary: 是否为主要按钮
+
+        Returns:
+            CSS样式字符串
+        """
+        accent = self.book_accent_color()
+        text_secondary = self.book_text_secondary()
+        border = self.book_border_color()
+        serif = self.serif_font()
+
+        if primary:
+            return f"""
+                QPushButton {{
+                    background-color: {accent};
+                    color: #FFFFFF;
+                    border: 1px solid {accent};
+                    border-radius: 4px;
+                    font-family: {serif};
+                    padding: 8px 16px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.book_text_primary()};
+                    border-color: {self.book_text_primary()};
+                }}
+                QPushButton:pressed {{
+                    background-color: {self.book_accent_light()};
+                }}
+            """
+        else:
+            return f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border};
+                    border-radius: 4px;
+                    font-family: {serif};
+                    padding: 8px 16px;
+                }}
+                QPushButton:hover {{
+                    color: {accent};
+                    border-color: {accent};
+                    background-color: rgba(0,0,0,0.03);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba(0,0,0,0.05);
+                }}
+            """
+
+    def book_tag_style(self, accent: bool = False) -> str:
+        """书香风格标签样式
+
+        Args:
+            accent: 是否使用强调色
+
+        Returns:
+            CSS样式字符串
+        """
+        border = self.book_border_color()
+        text = self.book_text_secondary()
+        bg = "transparent"
+        serif = self.serif_font()
+
+        if accent:
+            color = self.book_accent_color()
+            return f"""
+                background-color: {bg};
+                color: {color};
+                border: 1px solid {color};
+                padding: 4px 12px;
+                border-radius: 4px;
+                font-family: {serif};
+                font-size: 12px;
+                font-weight: bold;
+            """
+        return f"""
+            background-color: {bg};
+            color: {text};
+            border: 1px solid {border};
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-family: {serif};
+            font-size: 12px;
+        """
+
+    def book_input_style(self) -> str:
+        """书香风格输入框样式"""
+        bg = self.book_bg_secondary()
+        border = self.book_border_color()
+        text = self.book_text_primary()
+        accent = self.book_accent_color()
+        serif = self.serif_font()
+
+        return f"""
+            QLineEdit, QTextEdit, QPlainTextEdit {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 12px 16px;
+                font-family: {serif};
+                font-size: 15px;
+                color: {text};
+                line-height: 1.8;
+            }}
+            QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
+                border-color: {accent};
+            }}
+        """
+
+    def book_separator(self, vertical: bool = False) -> str:
+        """书香风格分隔线样式
+
+        Args:
+            vertical: 是否为垂直分隔线
+
+        Returns:
+            CSS样式字符串
+        """
+        border = self.book_border_color()
+        if vertical:
+            return f"border-left: 1px solid {border};"
+        return f"border-top: 1px solid {border};"
 
 
 # 全局主题管理器实例

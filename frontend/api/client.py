@@ -5,6 +5,7 @@ Arboris Novel API 客户端封装
 """
 
 import logging
+import sys
 from typing import Any, Dict, List, Optional
 import requests
 
@@ -28,6 +29,7 @@ class ArborisAPIClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
+        logger.debug("ArborisAPIClient initialized: base_url=%s", self.base_url)
 
     def __del__(self):
         """析构函数，确保session被关闭"""
@@ -70,6 +72,9 @@ class ArborisAPIClient:
         url = f"{self.base_url}{endpoint}"
         silent_status_codes = silent_status_codes or []
 
+        logger.info("API request start: %s %s (timeout=%ds)", method, endpoint, timeout)
+        sys.stdout.flush()
+
         try:
             response = self.session.request(
                 method=method,
@@ -78,8 +83,21 @@ class ArborisAPIClient:
                 params=params,
                 timeout=timeout
             )
+
+            logger.info(
+                "API response received: %s %s -> status=%d, content_length=%s",
+                method, endpoint, response.status_code,
+                response.headers.get('content-length', 'unknown')
+            )
+            sys.stdout.flush()
+
             response.raise_for_status()
-            return response.json()
+
+            result = response.json()
+            logger.info("API request success: %s %s", method, endpoint)
+            sys.stdout.flush()
+
+            return result
 
         except requests.HTTPError as e:
             # 尝试提取后端返回的详细错误信息

@@ -35,9 +35,13 @@ class LLMSettingsWidget(QWidget):
         layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
         layout.setSpacing(dp(20))
 
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 标题
         title = QLabel("LLM 配置")
         title.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(24)}px;
             font-weight: bold;
             color: {theme_manager.TEXT_PRIMARY};
@@ -73,6 +77,7 @@ class LLMSettingsWidget(QWidget):
         self.config_list = QListWidget()
         self.config_list.setStyleSheet(f"""
             QListWidget {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(4)}px;

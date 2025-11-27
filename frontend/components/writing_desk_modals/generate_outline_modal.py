@@ -173,6 +173,8 @@ class WDGenerateOutlineModal(QDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
         # 获取当前是否为深色模式
         is_dark = theme_manager.is_dark_mode()
 
@@ -203,6 +205,7 @@ class WDGenerateOutlineModal(QDialog):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(20)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -210,6 +213,7 @@ class WDGenerateOutlineModal(QDialog):
 
         if self.desc_label:
             self.desc_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(16)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)
@@ -217,6 +221,7 @@ class WDGenerateOutlineModal(QDialog):
         if self.num_input:
             self.num_input.setStyleSheet(f"""
                 QSpinBox {{
+                    font-family: {serif_font};
                     padding: 12px 16px;
                     border: 1px solid {theme_manager.BORDER_DEFAULT};
                     border-radius: {theme_manager.RADIUS_MD};
@@ -235,6 +240,7 @@ class WDGenerateOutlineModal(QDialog):
         for btn in self.quick_buttons:
             btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.BG_TERTIARY};
                     color: {theme_manager.TEXT_SECONDARY};
                     border: none;
@@ -261,6 +267,7 @@ class WDGenerateOutlineModal(QDialog):
         if self.cancel_btn:
             self.cancel_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.BG_TERTIARY};
                     color: {theme_manager.TEXT_SECONDARY};
                     border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -277,6 +284,7 @@ class WDGenerateOutlineModal(QDialog):
         if self.generate_btn:
             self.generate_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;

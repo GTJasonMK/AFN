@@ -87,107 +87,117 @@ class WDWorkspace(ThemeAwareFrame):
         self.project_id = project_id
 
     def _refresh_content_styles(self):
-        """刷新内容区域的主题样式（主题切换时调用）"""
+        """刷新内容区域的主题样式（主题切换时调用） - 书香风格"""
         if not self.content_widget:
             return
 
-        # 获取当前主题的颜色值
-        border_color = theme_manager.BORDER_LIGHT
-        is_dark = theme_manager.is_dark_mode()
+        # 使用 theme_manager 的书香风格便捷方法
+        bg_color = theme_manager.book_bg_primary()
+        editor_bg = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        highlight_color = theme_manager.book_accent_color()
+        serif_font = theme_manager.serif_font()
 
-        # 更新章节标题卡片
+        # 更新章节标题卡片 - 简约风格
         if chapter_header := self.content_widget.findChild(QFrame, "chapter_header"):
-            gradient = ModernEffects.linear_gradient(
-                theme_manager.PRIMARY_GRADIENT,
-                135
-            )
-            # 根据主题调整阴影强度
-            shadow_color = "rgba(0, 0, 0, 30)" if not theme_manager.is_dark_mode() else "rgba(0, 0, 0, 60)"
             chapter_header.setStyleSheet(f"""
                 QFrame#chapter_header {{
-                    background: {gradient};
-                    border: none;
-                    border-radius: {theme_manager.RADIUS_MD};
+                    background-color: {bg_color};
+                    border-bottom: 1px solid {border_color};
+                    border-radius: 0px;
                     padding: {dp(12)}px;
                 }}
             """)
+            # 移除阴影
+            chapter_header.setGraphicsEffect(None)
 
         # 更新章节标题文字
         if self.chapter_title:
             self.chapter_title.setStyleSheet(f"""
-                font-size: {sp(18)}px;
-                font-weight: 700;
-                color: {theme_manager.BUTTON_TEXT};
+                font-family: {serif_font};
+                font-size: {sp(20)}px;
+                font-weight: bold;
+                color: {text_primary};
             """)
 
         # 更新章节元信息标签
         if meta_label := self.content_widget.findChild(QLabel, "chapter_meta_label"):
             meta_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                color: {theme_manager.BUTTON_TEXT};
-                opacity: 0.85;
+                color: {text_secondary};
+                font-style: italic;
             """)
 
-        # 更新生成按钮 - 使用主题变量而非硬编码
+        # 更新生成按钮
         if self.generate_btn:
-            # 根据主题选择按钮颜色（深色主题用更亮的颜色）
-            btn_bg = "rgba(255, 255, 255, 0.2)" if not theme_manager.is_dark_mode() else "rgba(255, 255, 255, 0.15)"
-            btn_border = "rgba(255, 255, 255, 0.3)" if not theme_manager.is_dark_mode() else "rgba(255, 255, 255, 0.25)"
-            btn_hover_bg = "rgba(255, 255, 255, 0.3)" if not theme_manager.is_dark_mode() else "rgba(255, 255, 255, 0.25)"
-            btn_hover_border = "rgba(255, 255, 255, 0.5)" if not theme_manager.is_dark_mode() else "rgba(255, 255, 255, 0.4)"
-
             self.generate_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {btn_bg};
-                    color: {theme_manager.BUTTON_TEXT};
-                    border: 1px solid {btn_border};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(16)}px;
-                    font-size: {sp(13)}px;
-                    font-weight: 600;
+                    background-color: {highlight_color};
+                    color: #FFFFFF;
+                    border: 1px solid {highlight_color};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-family: {serif_font};
+                    font-weight: bold;
                 }}
                 QPushButton:hover {{
-                    background-color: {btn_hover_bg};
-                    border-color: {btn_hover_border};
-                }}
-                QPushButton:pressed {{
-                    background-color: rgba(255, 255, 255, 0.1);
+                    background-color: {text_primary};
+                    border-color: {text_primary};
                 }}
             """)
 
         # 更新TabWidget
         if self.tab_widget:
-            self.tab_widget.setStyleSheet(theme_manager.tabs())
+            # 使用与详情页类似的Tab样式
+            self.tab_widget.setStyleSheet(f"""
+                QTabWidget::pane {{
+                    border: none;
+                    background: transparent;
+                }}
+                QTabBar::tab {{
+                    background: transparent;
+                    color: {text_secondary};
+                    padding: {dp(8)}px {dp(16)}px;
+                    font-family: {serif_font};
+                    border-bottom: 2px solid transparent;
+                }}
+                QTabBar::tab:selected {{
+                    color: {highlight_color};
+                    border-bottom: 2px solid {highlight_color};
+                    font-weight: bold;
+                }}
+                QTabBar::tab:hover {{
+                    color: {text_primary};
+                }}
+            """)
 
-        # 更新文本编辑器（增强版本，包含选中颜色和滚动条）
+        # 更新文本编辑器 - 纸张效果
         if self.content_text:
-            # 简单的StyleSheet设置（学习其他组件的做法）
             self.content_text.setStyleSheet(f"""
                 QTextEdit {{
-                    background-color: {theme_manager.BG_CARD};
+                    background-color: {editor_bg};
                     border: none;
-                    padding: {dp(16)}px;
-                    font-size: {sp(15)}px;
-                    color: {theme_manager.TEXT_PRIMARY};
+                    padding: {dp(32)}px;
+                    font-family: {serif_font};
+                    font-size: {sp(16)}px;
+                    color: {text_primary};
                     line-height: 1.8;
+                    selection-background-color: {highlight_color};
+                    selection-color: #FFFFFF;
                 }}
                 {theme_manager.scrollbar()}
             """)
 
-        # 更新编辑器容器的玻璃拟态效果
+        # 更新编辑器容器 - 去除玻璃态，改为边框
         if editor_container := self.content_widget.findChild(QFrame, "editor_container"):
-            # 完全手动设置样式
-            if is_dark:
-                bg_color = "rgba(26, 31, 53, 0.65)"
-            else:
-                bg_color = "rgba(255, 255, 255, 0.72)"
-
             editor_container.setStyleSheet(f"""
                 QFrame#editor_container {{
-                    background-color: {bg_color};
+                    background-color: {editor_bg};
                     border: 1px solid {border_color};
-                    border-radius: {theme_manager.RADIUS_SM};
-                    padding: {dp(2)}px;
+                    border-radius: {dp(2)}px;
                 }}
             """)
 
@@ -195,9 +205,9 @@ class WDWorkspace(ThemeAwareFrame):
         if toolbar := self.content_widget.findChild(QFrame, "content_toolbar"):
             toolbar.setStyleSheet(f"""
                 QFrame#content_toolbar {{
-                    background-color: {theme_manager.BG_CARD};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-radius: {theme_manager.RADIUS_SM};
+                    background-color: transparent;
+                    border-bottom: 1px solid {border_color};
+                    border-radius: 0;
                     padding: {dp(6)}px {dp(10)}px;
                 }}
             """)
@@ -205,21 +215,35 @@ class WDWorkspace(ThemeAwareFrame):
         # 更新字数统计标签
         if word_count_label := self.content_widget.findChild(QLabel, "word_count_label"):
             word_count_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(13)}px;
-                color: {theme_manager.TEXT_SECONDARY};
-                font-weight: 500;
+                color: {text_secondary};
             """)
 
-        # 更新状态标签（如果存在）
+        # 更新状态标签
         if status_label := self.content_widget.findChild(QLabel, "status_label"):
             status_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(13)}px;
-                color: {theme_manager.WARNING};
+                color: {highlight_color};
             """)
 
         # 更新保存按钮
         if save_btn := self.content_widget.findChild(QPushButton, "save_btn"):
-            save_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            save_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(4)}px {dp(12)}px;
+                    font-family: {serif_font};
+                }}
+                QPushButton:hover {{
+                    color: {highlight_color};
+                    border-color: {highlight_color};
+                }}
+            """)
 
         # 更新滚动区域的样式
         for scroll_area in self.content_widget.findChildren(QScrollArea):
@@ -238,50 +262,57 @@ class WDWorkspace(ThemeAwareFrame):
         self._refresh_review_styles()
 
     def _refresh_version_cards_styles(self):
-        """刷新版本卡片的主题样式"""
+        """刷新版本卡片的主题样式 - 书香风格"""
         if not self.content_widget:
             return
 
-        # 获取当前主题的边框颜色
-        border_color = theme_manager.BORDER_LIGHT
-        is_dark = theme_manager.is_dark_mode()
+        # 使用 theme_manager 的书香风格便捷方法
+        card_bg = theme_manager.book_bg_secondary()
+        border_color = theme_manager.book_border_color()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        highlight_color = theme_manager.book_accent_color()
+        serif_font = theme_manager.serif_font()
 
-        # 关键修复：更新嵌套的 version_tabs TabWidget 背景色
-        # 查找所有 QTabWidget，排除主TabWidget
+        # 查找所有 QTabWidget，排除主TabWidget，应用简约Tab样式
         for tab_widget in self.content_widget.findChildren(QTabWidget):
-            if tab_widget != self.tab_widget:  # 不是主TabWidget
-                tab_widget.setStyleSheet(theme_manager.tabs())
+            if tab_widget != self.tab_widget:
+                tab_widget.setStyleSheet(f"""
+                    QTabWidget::pane {{ border: none; background: transparent; }}
+                    QTabBar::tab {{
+                        background: transparent; color: {text_secondary};
+                        padding: {dp(6)}px {dp(12)}px; font-family: {serif_font};
+                        border-bottom: 2px solid transparent;
+                    }}
+                    QTabBar::tab:selected {{
+                        color: {highlight_color}; border-bottom: 2px solid {highlight_color};
+                    }}
+                """)
 
         # 查找所有版本卡片并更新样式
-        for i in range(10):  # 最多支持10个版本
+        for i in range(10):
             card_name = f"version_card_{i}"
             if version_card := self.content_widget.findChild(QFrame, card_name):
-                # 完全手动设置样式
-                if is_dark:
-                    bg_color = "rgba(26, 31, 53, 0.65)"
-                else:
-                    bg_color = "rgba(255, 255, 255, 0.72)"
-
                 version_card.setStyleSheet(f"""
                     QFrame#{card_name} {{
-                        background-color: {bg_color};
+                        background-color: {card_bg};
                         border: 1px solid {border_color};
-                        border-radius: {theme_manager.RADIUS_SM};
+                        border-radius: {dp(2)}px;
                         padding: {dp(2)}px;
                     }}
                 """)
 
                 # 更新版本卡片内的文本编辑器
                 for text_edit in version_card.findChildren(QTextEdit):
-                    # 简单的StyleSheet设置（学习其他组件的做法）
                     text_edit.setStyleSheet(f"""
                         QTextEdit {{
-                            background-color: {theme_manager.BG_CARD};
+                            background-color: transparent;
                             border: none;
                             padding: {dp(16)}px;
-                            font-size: {sp(15)}px;
-                            color: {theme_manager.TEXT_PRIMARY};
-                            line-height: 1.8;
+                            font-family: {serif_font};
+                            font-size: {sp(14)}px;
+                            color: {text_primary};
+                            line-height: 1.6;
                         }}
                         {theme_manager.scrollbar()}
                     """)
@@ -291,9 +322,9 @@ class WDWorkspace(ThemeAwareFrame):
             if info_bar := self.content_widget.findChild(QFrame, info_bar_name):
                 info_bar.setStyleSheet(f"""
                     QFrame {{
-                        background-color: {theme_manager.BG_CARD};
-                        border: 1px solid {border_color};
-                        border-radius: {theme_manager.RADIUS_SM};
+                        background-color: transparent;
+                        border-top: 1px solid {border_color};
+                        border-radius: 0;
                         padding: {dp(8)}px {dp(12)}px;
                     }}
                 """)
@@ -302,42 +333,66 @@ class WDWorkspace(ThemeAwareFrame):
                 for label in info_bar.findChildren(QLabel):
                     if "info_label" in label.objectName():
                         label.setStyleSheet(f"""
+                            font-family: {serif_font};
                             font-size: {sp(12)}px;
-                            color: {theme_manager.TEXT_SECONDARY};
+                            color: {text_secondary};
                         """)
 
-                # 更新按钮样式
+                # 更新按钮样式 - 简约风
+                btn_style = f"""
+                    QPushButton {{
+                        background: transparent;
+                        color: {text_secondary};
+                        border: 1px solid {border_color};
+                        border-radius: {dp(4)}px;
+                        padding: {dp(4)}px {dp(8)}px;
+                        font-family: {serif_font};
+                        font-size: {sp(12)}px;
+                    }}
+                    QPushButton:hover {{
+                        color: {highlight_color};
+                        border-color: {highlight_color};
+                    }}
+                """
+                
                 for btn in info_bar.findChildren(QPushButton):
                     if "select_btn" in btn.objectName():
                         if btn.isEnabled():
-                            btn.setStyleSheet(ButtonStyles.primary('SM'))
+                            btn.setStyleSheet(btn_style)
                         else:
                             btn.setStyleSheet(f"""
                                 QPushButton {{
-                                    background: {theme_manager.SUCCESS};
-                                    color: {theme_manager.BUTTON_TEXT};
+                                    background: transparent;
+                                    color: {highlight_color};
                                     border: none;
-                                    border-radius: {dp(4)}px;
-                                    padding: {dp(6)}px {dp(12)}px;
-                                    font-size: {sp(12)}px;
+                                    font-family: {serif_font};
+                                    font-weight: bold;
                                 }}
                             """)
                     elif "retry_btn" in btn.objectName():
-                        btn.setStyleSheet(ButtonStyles.secondary('SM'))
+                        btn.setStyleSheet(btn_style)
 
     def _refresh_review_styles(self):
-        """刷新评审区域的主题样式"""
+        """刷新评审区域的主题样式 - 书香风格"""
         if not self.content_widget:
             return
 
+        # 使用 theme_manager 的书香风格便捷方法
+        card_bg = theme_manager.book_bg_secondary()
+        border_color = theme_manager.book_border_color()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        highlight_color = theme_manager.book_accent_color()
+        serif_font = theme_manager.serif_font()
+
         # 更新推荐卡片
         if recommendation_card := self.content_widget.findChild(QFrame, "recommendation_card"):
-            gradient = ModernEffects.linear_gradient(theme_manager.PRIMARY_GRADIENT, 135)
             recommendation_card.setStyleSheet(f"""
                 QFrame#recommendation_card {{
-                    background: {gradient};
-                    border-radius: {theme_manager.RADIUS_MD};
-                    border: none;
+                    background-color: {card_bg};
+                    border: 1px solid {highlight_color};
+                    border-left: 4px solid {highlight_color};
+                    border-radius: {dp(2)}px;
                     padding: {dp(14)}px;
                 }}
             """)
@@ -346,31 +401,33 @@ class WDWorkspace(ThemeAwareFrame):
             for label in recommendation_card.findChildren(QLabel):
                 if "rec_title" in label.objectName():
                     label.setStyleSheet(f"""
-                        font-size: {sp(15)}px;
-                        font-weight: 700;
-                        color: {theme_manager.BUTTON_TEXT};
+                        font-family: {serif_font};
+                        font-size: {sp(16)}px;
+                        font-weight: bold;
+                        color: {highlight_color};
                     """)
                 elif "rec_reason" in label.objectName():
                     label.setStyleSheet(f"""
-                        font-size: {sp(12)}px;
-                        color: {theme_manager.BUTTON_TEXT};
-                        opacity: 0.9;
+                        font-family: {serif_font};
+                        font-size: {sp(14)}px;
+                        color: {text_primary};
+                        line-height: 1.6;
                     """)
 
         # 更新评审卡片样式
-        for i in range(1, 10):  # 最多支持10个版本的评审卡片
+        for i in range(1, 10):
             card_name = f"eval_card_{i}"
             if eval_card := self.content_widget.findChild(QFrame, card_name):
-                # 检查是否为推荐版本（通过边框判断）
+                # 检查是否为推荐版本
                 current_style = eval_card.styleSheet()
-                is_recommended = "2px solid" in current_style
-                border_style = f"2px solid {theme_manager.PRIMARY}" if is_recommended else f"1px solid {theme_manager.BORDER_DEFAULT}"
-
+                # 简化判断逻辑，推荐版本用highlight_color边框，否则用普通border
+                # 这里简单重置所有为普通样式，如果需要区分可以在创建时打标记
+                
                 eval_card.setStyleSheet(f"""
                     QFrame#{card_name} {{
-                        background-color: {theme_manager.BG_CARD};
-                        border: {border_style};
-                        border-radius: {theme_manager.RADIUS_SM};
+                        background-color: {card_bg};
+                        border: 1px solid {border_color};
+                        border-radius: {dp(2)}px;
                         padding: {dp(12)}px;
                     }}
                 """)
@@ -379,53 +436,69 @@ class WDWorkspace(ThemeAwareFrame):
                 for label in eval_card.findChildren(QLabel):
                     if "eval_title" in label.objectName():
                         label.setStyleSheet(f"""
+                            font-family: {serif_font};
                             font-size: {sp(14)}px;
-                            font-weight: 700;
-                            color: {theme_manager.TEXT_PRIMARY};
+                            font-weight: bold;
+                            color: {text_primary};
                         """)
                     elif "eval_badge" in label.objectName():
                         label.setStyleSheet(f"""
-                            background: {theme_manager.PRIMARY};
-                            color: {theme_manager.BUTTON_TEXT};
+                            background: transparent;
+                            color: {highlight_color};
+                            border: 1px solid {highlight_color};
                             padding: {dp(2)}px {dp(8)}px;
-                            border-radius: {dp(4)}px;
+                            border-radius: {dp(2)}px;
+                            font-family: {serif_font};
                             font-size: {sp(11)}px;
                         """)
                     elif "pros_label" in label.objectName():
                         label.setStyleSheet(f"""
+                            font-family: {serif_font};
                             font-size: {sp(12)}px;
-                            color: {theme_manager.SUCCESS};
-                            padding: {dp(4)}px {dp(8)}px;
-                            background-color: {theme_manager.SUCCESS_BG};
-                            border-radius: {dp(4)}px;
+                            color: {text_secondary};
+                            padding: {dp(4)}px 0;
                         """)
                     elif "cons_label" in label.objectName():
                         label.setStyleSheet(f"""
+                            font-family: {serif_font};
                             font-size: {sp(12)}px;
-                            color: {theme_manager.WARNING};
-                            padding: {dp(4)}px {dp(8)}px;
-                            background-color: {theme_manager.WARNING_BG};
-                            border-radius: {dp(4)}px;
+                            color: {text_secondary};
+                            padding: {dp(4)}px 0;
                         """)
 
         # 更新重新评审按钮
         if reeval_btn := self.content_widget.findChild(QPushButton, "reeval_btn"):
-            reeval_btn.setStyleSheet(ButtonStyles.secondary())
+            reeval_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-family: {serif_font};
+                }}
+                QPushButton:hover {{
+                    color: {highlight_color};
+                    border-color: {highlight_color};
+                }}
+            """)
 
-        # 更新开始评审按钮（空状态时显示）
+        # 更新开始评审按钮
         if evaluate_btn := self.content_widget.findChild(QPushButton, "evaluate_btn"):
-            evaluate_btn.setStyleSheet(ButtonStyles.primary())
-
-        # 更新评审区域的滚动条
-        for scroll_area in self.content_widget.findChildren(QScrollArea):
-            if "details_scroll" in scroll_area.objectName():
-                scroll_area.setStyleSheet(f"""
-                    QScrollArea {{
-                        border: none;
-                        background-color: transparent;
-                    }}
-                    {theme_manager.scrollbar()}
-                """)
+            evaluate_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {highlight_color};
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: {dp(4)}px;
+                    padding: {dp(8)}px {dp(16)}px;
+                    font-family: {serif_font};
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {text_primary};
+                }}
+            """)
 
     @handle_errors("加载章节")
     def loadChapter(self, chapter_number):
@@ -456,6 +529,9 @@ class WDWorkspace(ThemeAwareFrame):
 
     def createChapterWidget(self, chapter_data):
         """创建章节内容widget"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         widget = QWidget()
         # 设置明确的颜色以避免系统默认
         widget.setStyleSheet(f"""
@@ -511,6 +587,7 @@ class WDWorkspace(ThemeAwareFrame):
 
         self.chapter_title = QLabel(chapter_data.get('title', f"第{chapter_data.get('chapter_number', '')}章"))
         self.chapter_title.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(18)}px;
             font-weight: 700;
             color: {theme_manager.BUTTON_TEXT};
@@ -527,6 +604,7 @@ class WDWorkspace(ThemeAwareFrame):
         meta_label = QLabel(meta_text)
         meta_label.setObjectName("chapter_meta_label")  # 添加objectName用于主题切换
         meta_label.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(12)}px;
             color: {theme_manager.BUTTON_TEXT};
             opacity: 0.85;
@@ -540,6 +618,7 @@ class WDWorkspace(ThemeAwareFrame):
         self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.generate_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: rgba(255, 255, 255, 0.2);
                 color: {theme_manager.BUTTON_TEXT};
                 border: 1px solid rgba(255, 255, 255, 0.3);
@@ -583,6 +662,9 @@ class WDWorkspace(ThemeAwareFrame):
 
     def createContentTab(self, chapter_data):
         """创建正文标签页 - 现代化设计（内容优先）"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         container = QWidget()
         # 设置明确的颜色以避免系统默认
         container.setStyleSheet(f"""
@@ -616,6 +698,7 @@ class WDWorkspace(ThemeAwareFrame):
         word_count_label = QLabel(f"字数：{format_word_count(word_count)}")
         word_count_label.setObjectName("word_count_label")
         word_count_label.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(13)}px;
             color: {theme_manager.TEXT_SECONDARY};
             font-weight: 500;
@@ -624,9 +707,10 @@ class WDWorkspace(ThemeAwareFrame):
 
         # 状态提示
         if not content:
-            status_label = QLabel("• 尚未生成")
+            status_label = QLabel("* 尚未生成")
             status_label.setObjectName("status_label")  # 添加objectName
             status_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(13)}px;
                 color: {theme_manager.WARNING};
             """)
@@ -648,15 +732,12 @@ class WDWorkspace(ThemeAwareFrame):
         editor_container = QFrame()
         editor_container.setObjectName("editor_container")
 
-        # 应用玻璃拟态效果 - 手动设置样式
-        if theme_manager.is_dark_mode():
-            bg_color = "rgba(26, 31, 53, 0.65)"
-        else:
-            bg_color = "rgba(255, 255, 255, 0.72)"
+        # 应用玻璃拟态效果 - 使用 theme_manager 的统一方法
+        glass_bg = theme_manager.glassmorphism_bg(0.72)
 
         editor_container.setStyleSheet(f"""
             QFrame#editor_container {{
-                background-color: {bg_color};
+                background-color: {glass_bg};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
                 border-radius: {theme_manager.RADIUS_SM};
                 padding: {dp(2)}px;
@@ -677,6 +758,7 @@ class WDWorkspace(ThemeAwareFrame):
                 background-color: {theme_manager.BG_CARD};
                 border: none;
                 padding: {dp(16)}px;
+                font-family: {serif_font};
                 font-size: {sp(15)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.8;
@@ -706,8 +788,7 @@ class WDWorkspace(ThemeAwareFrame):
             return EmptyStateWithIllustration(
                 illustration_char='📑',
                 title='暂无版本',
-                description='生成章节后，AI会创建3个候选版本供你选择',
-                action_text='生成章节',
+                description='生成章节后，AI会创建3个候选版本供你选择\n请点击顶部的"生成章节"按钮',
                 parent=self
             )
 
@@ -743,6 +824,9 @@ class WDWorkspace(ThemeAwareFrame):
 
     def createSingleVersionWidget(self, version_index, content, selected_idx):
         """创建单个版本的widget - 精简设计"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         widget = QWidget()
         # 设置透明背景，不设置color避免固定值
         widget.setStyleSheet("""
@@ -758,15 +842,12 @@ class WDWorkspace(ThemeAwareFrame):
         content_card = QFrame()
         content_card.setObjectName(f"version_card_{version_index}")
 
-        # 手动设置样式
-        if theme_manager.is_dark_mode():
-            bg_color = "rgba(26, 31, 53, 0.65)"
-        else:
-            bg_color = "rgba(255, 255, 255, 0.72)"
+        # 使用 theme_manager 的统一玻璃态方法
+        glass_bg = theme_manager.glassmorphism_bg(0.72)
 
         content_card.setStyleSheet(f"""
             QFrame#version_card_{version_index} {{
-                background-color: {bg_color};
+                background-color: {glass_bg};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
                 border-radius: {theme_manager.RADIUS_SM};
                 padding: {dp(2)}px;
@@ -787,6 +868,7 @@ class WDWorkspace(ThemeAwareFrame):
                 background-color: {theme_manager.BG_CARD};
                 border: none;
                 padding: {dp(16)}px;
+                font-family: {serif_font};
                 font-size: {sp(15)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.8;
@@ -818,6 +900,7 @@ class WDWorkspace(ThemeAwareFrame):
         info_label = QLabel(f"{format_word_count(word_count)}")
         info_label.setObjectName(f"version_info_label_{version_index}")  # 添加objectName
         info_label.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(12)}px;
             color: {theme_manager.TEXT_SECONDARY};
         """)
@@ -831,6 +914,7 @@ class WDWorkspace(ThemeAwareFrame):
             select_btn.setEnabled(False)
             select_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background: {theme_manager.SUCCESS};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -862,6 +946,9 @@ class WDWorkspace(ThemeAwareFrame):
 
     def createReviewTab(self, chapter_data):
         """创建评审结果标签页 - 现代化设计"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         evaluation_str = chapter_data.get('evaluation')
 
         # 如果没有评审数据，使用专业空状态组件
@@ -958,6 +1045,7 @@ class WDWorkspace(ThemeAwareFrame):
         rec_title = QLabel(f"AI推荐: 版本 {best_choice}")
         rec_title.setObjectName("rec_title")  # 添加objectName
         rec_title.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(15)}px;
             font-weight: 700;
             color: {theme_manager.BUTTON_TEXT};
@@ -968,6 +1056,7 @@ class WDWorkspace(ThemeAwareFrame):
         rec_reason.setObjectName("rec_reason")  # 添加objectName
         rec_reason.setWordWrap(True)
         rec_reason.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(12)}px;
             color: {theme_manager.BUTTON_TEXT};
             opacity: 0.9;
@@ -1030,6 +1119,9 @@ class WDWorkspace(ThemeAwareFrame):
 
     def createVersionEvaluationCard(self, version_num, version_data, is_recommended):
         """创建单个版本的评审卡片 - 紧凑设计"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         card = QFrame()
         card.setObjectName(f"eval_card_{version_num}")
 
@@ -1055,6 +1147,7 @@ class WDWorkspace(ThemeAwareFrame):
         title = QLabel(f"版本 {version_num}")
         title.setObjectName(f"eval_title_{version_num}")  # 添加objectName
         title.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {sp(14)}px;
             font-weight: 700;
             color: {theme_manager.TEXT_PRIMARY};
@@ -1065,6 +1158,7 @@ class WDWorkspace(ThemeAwareFrame):
             badge = QLabel("AI推荐")
             badge.setObjectName(f"eval_badge_{version_num}")  # 添加objectName
             badge.setStyleSheet(f"""
+                font-family: {serif_font};
                 background: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(2)}px {dp(8)}px;
@@ -1086,6 +1180,7 @@ class WDWorkspace(ThemeAwareFrame):
             pros_label.setObjectName(f"pros_label_{version_num}")  # 添加objectName
             pros_label.setWordWrap(True)
             pros_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.SUCCESS};
                 padding: {dp(4)}px {dp(8)}px;
@@ -1104,6 +1199,7 @@ class WDWorkspace(ThemeAwareFrame):
             cons_label.setObjectName(f"cons_label_{version_num}")  # 添加objectName
             cons_label.setWordWrap(True)
             cons_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.WARNING};
                 padding: {dp(4)}px {dp(8)}px;

@@ -186,6 +186,8 @@ class WDVersionDetailModal(QDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
         # 获取当前是否为深色模式
         is_dark = theme_manager.is_dark_mode()
 
@@ -214,6 +216,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -221,6 +224,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.meta_label:
             self.meta_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)
@@ -251,6 +255,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.content_label:
             self.content_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: 15px;
                 color: {theme_manager.TEXT_SECONDARY};
                 line-height: 1.7;
@@ -268,6 +273,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.current_badge:
             self.current_badge.setStyleSheet(f"""
+                font-family: {serif_font};
                 background-color: {theme_manager.SUCCESS_BG};
                 color: {theme_manager.SUCCESS};
                 padding: 4px 12px;
@@ -278,6 +284,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.placeholder_label:
             self.placeholder_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 color: {theme_manager.TEXT_SECONDARY};
                 font-size: {sp(14)}px;
             """)
@@ -288,6 +295,7 @@ class WDVersionDetailModal(QDialog):
         if self.select_btn:
             self.select_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;

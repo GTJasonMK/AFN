@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLineEdit, QWidget
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from typing import Any
@@ -24,6 +23,8 @@ class EditDialog(QDialog):
         self.current_value = current_value
         self.multiline = multiline
         self.new_value = None
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
 
         self.setupUI()
         self.setWindowTitle(f"编辑 - {field_label}")
@@ -37,8 +38,12 @@ class EditDialog(QDialog):
 
         # 标题
         title = QLabel(f"编辑{self.field_label}")
-        title.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+        title.setStyleSheet(f"""
+            font-family: {self.serif_font};
+            font-size: 16px;
+            font-weight: bold;
+            color: {theme_manager.TEXT_PRIMARY};
+        """)
         layout.addWidget(title)
 
         # 输入框
@@ -57,6 +62,7 @@ class EditDialog(QDialog):
 
         self.input_widget.setStyleSheet(f"""
             QTextEdit, QLineEdit {{
+                font-family: {self.serif_font};
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
                 border-radius: {theme_manager.RADIUS_MD};
@@ -73,6 +79,7 @@ class EditDialog(QDialog):
         # 提示文字
         hint = QLabel("提示：修改后点击保存按钮")
         hint.setStyleSheet(f"""
+            font-family: {self.serif_font};
             font-size: {theme_manager.FONT_SIZE_XS};
             color: {theme_manager.TEXT_SECONDARY};
         """)
@@ -87,6 +94,7 @@ class EditDialog(QDialog):
         cancel_btn.setFixedWidth(100)
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {self.serif_font};
                 background-color: {theme_manager.BG_TERTIARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: none;

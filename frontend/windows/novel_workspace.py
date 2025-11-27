@@ -235,102 +235,150 @@ class ProjectCard(ThemeAwareFrame):
         self.buttons_container.setGraphicsEffect(self.buttons_opacity)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 图标容器 - 渐变背景
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        # 颜色定义
+        if is_dark:
+            bg_color = "#2D2D2D"
+            text_primary = "#E0E0E0"
+            text_secondary = "#A0A0A0"
+            border_color = "#4A4A4A"
+            icon_bg = "transparent" # 移除渐变背景
+            icon_color = "#D4AF37" # 暗金
+        else:
+            bg_color = "#FFFBF0" # 羊皮纸亮色
+            text_primary = "#2C1810" # 深褐
+            text_secondary = "#5D4037" # 浅褐
+            border_color = "#D7CCC8"
+            icon_bg = "transparent"
+            icon_color = "#8B4513" # 赭石
+
+        # 字体设置
+        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+
+        # 图标容器 - 简约风格
         if self.icon_container:
             self.icon_container.setStyleSheet(f"""
                 QFrame {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.PRIMARY}, stop:1 {theme_manager.ACCENT});
-                    border-radius: {dp(20)}px;
+                    background: {icon_bg};
+                    border: none;
                 }}
             """)
+            # 更新图标颜色
+            icon_svg = SVGIcons.book(dp(24), icon_color)
+            self.icon_label.setText(icon_svg)
 
         # 标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-size: {sp(16)}px;
-                font-weight: 600;
-                color: {theme_manager.TEXT_PRIMARY};
+                font-family: {serif_font};
+                font-size: {sp(18)}px;
+                font-weight: bold;
+                color: {text_primary};
             """)
 
         # 状态标签
         if self.status_label:
             self.status_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                color: {theme_manager.TEXT_SECONDARY};
+                color: {text_secondary};
+                font-style: italic;
             """)
 
         # 时间
         if self.time_label:
             self.time_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(11)}px;
-                color: {theme_manager.TEXT_TERTIARY};
+                color: {text_secondary};
             """)
 
         # 进度标签
         if self.progress_label:
             self.progress_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                color: {theme_manager.TEXT_SECONDARY};
+                color: {text_secondary};
             """)
 
         if self.percent_label:
-            percent_color = theme_manager.SUCCESS if self.progress_percent > 70 else theme_manager.PRIMARY
+            percent_color = icon_color
             self.percent_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
                 color: {percent_color};
-                font-weight: 600;
+                font-weight: bold;
             """)
 
         # 进度条背景
         if self.progress_bar_bg:
             self.progress_bar_bg.setStyleSheet(f"""
                 background-color: {theme_manager.BG_TERTIARY};
-                border-radius: {dp(3)}px;
+                border-radius: {dp(2)}px;
             """)
 
         # 进度条填充
         if self.progress_bar_fill:
             self.progress_bar_fill.setStyleSheet(f"""
-                background-color: {theme_manager.PRIMARY if self.progress_percent < 70 else theme_manager.SUCCESS};
-                border-radius: {dp(3)}px;
+                background-color: {icon_color};
+                border-radius: {dp(2)}px;
             """)
 
         # 类型标签
         if self.genre_tag:
             self.genre_tag.setStyleSheet(f"""
-                background-color: {theme_manager.PRIMARY_PALE};
-                color: {theme_manager.PRIMARY};
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid {border_color};
                 padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(4)}px;
+                font-family: {serif_font};
                 font-size: {sp(11)}px;
             """)
 
-        # 按钮样式 - 现代化设计（统一使用小号样式）
+        # 按钮样式 - 简约文字按钮风格
+        btn_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                border-radius: {dp(4)}px;
+                font-family: {serif_font};
+                padding: {dp(4)}px {dp(8)}px;
+            }}
+            QPushButton:hover {{
+                color: {icon_color};
+                border-color: {icon_color};
+                background-color: {bg_color};
+            }}
+        """
         if self.view_btn:
-            self.view_btn.setStyleSheet(ButtonStyles.glass('SM'))
-
+            self.view_btn.setStyleSheet(btn_style)
         if self.delete_btn:
-            self.delete_btn.setStyleSheet(ButtonStyles.danger('SM'))
-
+            self.delete_btn.setStyleSheet(btn_style)
         if self.continue_btn:
-            self.continue_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            self.continue_btn.setStyleSheet(btn_style)
 
-        # 预计算卡片样式 - 避免hover时重复构建
-        # 注意：Qt StyleSheet 不支持 box-shadow、transform 等 CSS3 属性
-        # hover效果通过 QPropertyAnimation 实现（见 enterEvent/leaveEvent）
+        # 预计算卡片样式 - 书籍封面/档案卡风格
+        # 左侧增加一条装饰线模拟书脊
+        spine_color = icon_color
+        
         self._stylesheet_normal = f"""
             ProjectCard {{
-                {ModernEffects.glassmorphism_card(theme_manager.is_dark_mode())}
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {theme_manager.RADIUS_MD};
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-left: 4px solid {spine_color};
+                border-radius: {dp(2)}px; 
             }}
         """
         self._stylesheet_hover = f"""
             ProjectCard {{
-                {ModernEffects.glassmorphism_card(theme_manager.is_dark_mode())}
-                border: 2px solid {theme_manager.PRIMARY};
-                border-radius: {theme_manager.RADIUS_LG};
+                background-color: {bg_color};
+                border: 1px solid {spine_color};
+                border-left: 6px solid {spine_color};
+                border-radius: {dp(2)}px;
             }}
         """
 
@@ -588,32 +636,50 @@ class CreateProjectCard(ThemeAwareFrame):
         layout.addWidget(self.text_label)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        # 颜色定义
+        if is_dark:
+            text_primary = "#E0E0E0"
+            text_secondary = "#A0A0A0"
+            border_color = "#4A4A4A"
+            highlight_color = "#D4AF37"
+        else:
+            text_primary = "#2C1810"
+            text_secondary = "#5D4037"
+            border_color = "#D7CCC8"
+            highlight_color = "#8B4513"
+            
+        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+
         # 加号样式
         if self.plus_label:
             self.plus_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(48)}px;
-                color: {theme_manager.PRIMARY};
+                color: {highlight_color};
                 font-weight: 300;
             """)
 
         # 文字样式
         if self.text_label:
             self.text_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
-                color: {theme_manager.TEXT_SECONDARY};
+                color: {text_secondary};
             """)
 
         # 虚线框样式
         self.setStyleSheet(f"""
             CreateProjectCard {{
                 background-color: transparent;
-                border: 2px dashed {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(12)}px;
+                border: 2px dashed {border_color};
+                border-radius: {dp(4)}px;
             }}
             CreateProjectCard:hover {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                border-color: {theme_manager.PRIMARY};
+                border-color: {highlight_color};
+                background-color: rgba(0,0,0,0.02);
             }}
         """)
 
@@ -693,19 +759,51 @@ class NovelWorkspace(BasePage):
         layout.addWidget(self.scroll_area, stretch=1)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        # 颜色定义
+        if is_dark:
+            bg_color = "#1E1E1E" # 页面背景
+            text_primary = "#E0E0E0"
+            text_secondary = "#A0A0A0"
+            border_color = "#4A4A4A"
+        else:
+            bg_color = "#F9F5F0" # 页面背景
+            text_primary = "#2C1810"
+            text_secondary = "#5D4037"
+            border_color = "#D7CCC8"
+
+        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+
         if hasattr(self, 'title_label'):
             self.title_label.setStyleSheet(f"""
-                font-size: {sp(24)}px;
-                font-weight: 600;
-                color: {theme_manager.TEXT_PRIMARY};
+                font-family: {serif_font};
+                font-size: {sp(28)}px;
+                font-weight: bold;
+                color: {text_primary};
+                letter-spacing: {dp(2)}px;
             """)
 
         if hasattr(self, 'back_btn'):
-            self.back_btn.setStyleSheet(ButtonStyles.secondary())
+            # 简单的文字按钮
+            self.back_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-family: {serif_font};
+                }}
+                QPushButton:hover {{
+                    color: {text_primary};
+                    border-color: {text_secondary};
+                }}
+            """)
 
         if hasattr(self, 'separator'):
-            self.separator.setStyleSheet(f"background-color: {theme_manager.BORDER_LIGHT}; border: none;")
+            self.separator.setStyleSheet(f"background-color: {border_color}; border: none;")
 
         if hasattr(self, 'scroll_area'):
             self.scroll_area.setStyleSheet(f"""
@@ -723,7 +821,7 @@ class NovelWorkspace(BasePage):
         # 背景样式
         self.setStyleSheet(f"""
             NovelWorkspace {{
-                background-color: {theme_manager.BG_PRIMARY};
+                background-color: {bg_color};
             }}
         """)
 
@@ -823,3 +921,11 @@ class NovelWorkspace(BasePage):
 
         except Exception as e:
             MessageService.show_error(self, f"删除失败：{str(e)}", "错误")
+
+    def refresh(self, **params):
+        """刷新页面数据
+
+        当页面被重新导航到时调用（页面已缓存的情况）
+        重新加载项目列表以显示最新数据
+        """
+        self.loadProjects()

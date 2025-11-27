@@ -20,6 +20,8 @@ class CharacterDetailDialog(QDialog):
     def __init__(self, character: dict, parent=None):
         super().__init__(parent)
         self.character = character
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         name = character.get('name', '未命名')
         self.setWindowTitle(f"角色详情 - {name}")
         self.setMinimumSize(dp(500), dp(400))
@@ -130,6 +132,7 @@ class CharacterDetailDialog(QDialog):
                 background-color: {theme_manager.BG_PRIMARY};
             }}
             #avatar {{
+                font-family: {self.serif_font};
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.PRIMARY_LIGHT}, stop:1 {theme_manager.PRIMARY});
                 color: {theme_manager.BUTTON_TEXT};
                 font-size: {sp(24)}px;
@@ -137,11 +140,13 @@ class CharacterDetailDialog(QDialog):
                 border-radius: {dp(32)}px;
             }}
             #char_name {{
+                font-family: {self.serif_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
             }}
             #char_identity {{
+                font-family: {self.serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             }}
@@ -151,11 +156,13 @@ class CharacterDetailDialog(QDialog):
                 border-radius: {dp(8)}px;
             }}
             #field_label {{
+                font-family: {self.serif_font};
                 font-size: {sp(13)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_TERTIARY};
             }}
             #field_value {{
+                font-family: {self.serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.5;
@@ -176,6 +183,8 @@ class CharacterRow(QFrame):
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         self.data = data
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self._setup_ui()
         self._apply_style()
 
@@ -252,6 +261,7 @@ class CharacterRow(QFrame):
 
         # 头像样式
         self.avatar.setStyleSheet(f"""
+            font-family: {self.serif_font};
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.PRIMARY_LIGHT}, stop:1 {theme_manager.PRIMARY});
             color: {theme_manager.BUTTON_TEXT};
             font-size: {sp(18)}px;
@@ -261,13 +271,13 @@ class CharacterRow(QFrame):
 
         # 名字样式
         self.name_label.setStyleSheet(
-            f"font-size: {sp(15)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
+            f"font-family: {self.serif_font}; font-size: {sp(15)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
         )
 
         # 身份样式
         if hasattr(self, 'identity_label'):
             self.identity_label.setStyleSheet(
-                f"font-size: {sp(12)}px; color: {theme_manager.TEXT_TERTIARY}; "
+                f"font-family: {self.serif_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_TERTIARY}; "
                 f"background-color: {theme_manager.BG_TERTIARY}; "
                 f"padding: {dp(2)}px {dp(8)}px; border-radius: {dp(10)}px;"
             )
@@ -275,6 +285,7 @@ class CharacterRow(QFrame):
         # 按钮样式
         self.detail_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {self.serif_font};
                 background-color: transparent;
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};

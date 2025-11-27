@@ -4,6 +4,8 @@
 """
 
 import logging
+import sys
+import traceback
 from logging.config import dictConfig
 from contextlib import asynccontextmanager
 
@@ -16,6 +18,27 @@ from .db.init_db import init_db
 from .services.prompt_service import PromptService
 from .db.session import AsyncSessionLocal
 from .exceptions import ArborisException
+
+
+def setup_exception_hook():
+    """设置全局异常钩子，捕获未处理的异常"""
+    original_hook = sys.excepthook
+
+    def exception_hook(exc_type, exc_value, exc_traceback):
+        # 记录到日志
+        logger = logging.getLogger(__name__)
+        error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        logger.critical(f"未捕获的异常导致程序崩溃:\n{error_msg}")
+
+        # 确保日志被写入
+        for handler in logging.root.handlers:
+            handler.flush()
+
+        # 调用原始钩子
+        original_hook(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = exception_hook
+
 
 # 重要：必须先配置 logging，再导入 api_router
 # 否则 router 模块中的 logger 会在配置完成前被创建，导致日志无法正常输出
@@ -32,6 +55,7 @@ dictConfig(
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
+                "stream": "ext://sys.stdout",
             },
             "file": {
                 "class": "logging.FileHandler",
@@ -77,6 +101,11 @@ dictConfig(
                 "handlers": ["console", "file"],
                 "propagate": False,
             },
+            "app.utils": {
+                "level": settings.logging_level,
+                "handlers": ["console", "file"],
+                "propagate": False,
+            },
             # 禁用 SQLAlchemy SQL 日志，避免淹没业务日志
             "sqlalchemy.engine": {
                 "level": "WARNING",
@@ -90,6 +119,9 @@ dictConfig(
         },
     }
 )
+
+# 设置全局异常钩子
+setup_exception_hook()
 
 # 在 logging 配置完成后导入 api_router，确保所有 router 模块的 logger 都能正确配置
 from .api.routers import api_router
@@ -139,6 +171,31 @@ async def arboris_exception_handler(request: Request, exc: ArborisException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message}
+    )
+
+
+# 全局异常处理器：捕获所有未处理的异常
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    捕获所有未处理的异常，防止服务崩溃
+    """
+    import traceback
+    error_traceback = traceback.format_exc()
+    logger.critical(
+        "未捕获的异常 [%s %s]: %s\n%s",
+        request.method,
+        request.url.path,
+        str(exc),
+        error_traceback
+    )
+    # 确保日志被写入
+    for handler in logging.root.handlers:
+        handler.flush()
+
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"服务器内部错误: {type(exc).__name__}: {str(exc)}"}
     )
 
 # CORS 配置，桌面版允许本地访问

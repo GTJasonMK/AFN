@@ -23,6 +23,8 @@ class PartOutlineCard(QFrame):
         super().__init__(parent)
         self.part_outlines = part_outlines or []
         self.editable = editable
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self._setup_ui()
         self._apply_style()
 
@@ -161,16 +163,17 @@ class PartOutlineCard(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-size: {sp(20)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};"
+            f"font-family: {self.serif_font}; font-size: {sp(20)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};"
         )
         self.subtitle_label.setStyleSheet(
-            f"font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"font-family: {self.serif_font}; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
         # 重新生成按钮样式
         if self.editable and hasattr(self, 'regenerate_btn'):
             self.regenerate_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {self.serif_font};
                     background-color: {theme_manager.WARNING_BG};
                     color: {theme_manager.WARNING};
                     border: 1px solid {theme_manager.WARNING};
@@ -187,6 +190,7 @@ class PartOutlineCard(QFrame):
 
         # 标签样式
         self.tag_label.setStyleSheet(f"""
+            font-family: {self.serif_font};
             background-color: {theme_manager.PRIMARY_PALE};
             color: {theme_manager.PRIMARY};
             padding: {dp(4)}px {dp(12)}px;
@@ -210,19 +214,19 @@ class PartOutlineCard(QFrame):
                 name = child.objectName()
                 if name == "part_num":
                     child.setStyleSheet(
-                        f"font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+                        f"font-family: {self.serif_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
                     )
                 elif name == "part_range":
                     child.setStyleSheet(
-                        f"font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
+                        f"font-family: {self.serif_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
                     )
                 elif name == "part_title":
                     child.setStyleSheet(
-                        f"font-size: {sp(13)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+                        f"font-family: {self.serif_font}; font-size: {sp(13)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
                     )
                 elif name == "part_summary":
                     child.setStyleSheet(
-                        f"font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};"
+                        f"font-family: {self.serif_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};"
                     )
 
             # 查看详情按钮样式
@@ -231,6 +235,7 @@ class PartOutlineCard(QFrame):
                 if obj_name == "detail_btn":
                     btn.setStyleSheet(f"""
                         QPushButton {{
+                            font-family: {self.serif_font};
                             background-color: {theme_manager.PRIMARY_PALE};
                             color: {theme_manager.PRIMARY};
                             border: 1px solid {theme_manager.PRIMARY};
@@ -247,6 +252,7 @@ class PartOutlineCard(QFrame):
                 elif obj_name == "regen_part_btn":
                     btn.setStyleSheet(f"""
                         QPushButton {{
+                            font-family: {self.serif_font};
                             background-color: {theme_manager.WARNING_BG};
                             color: {theme_manager.WARNING};
                             border: 1px solid {theme_manager.WARNING};

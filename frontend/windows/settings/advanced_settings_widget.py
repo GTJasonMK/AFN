@@ -33,9 +33,13 @@ class AdvancedSettingsWidget(QWidget):
         layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
         layout.setSpacing(dp(20))
 
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
+
         # 标题
         title = QLabel("高级配置")
         title.setStyleSheet(f"""
+            font-family: {self.serif_font};
             font-size: {sp(24)}px;
             font-weight: bold;
             color: {theme_manager.TEXT_PRIMARY};
@@ -46,6 +50,7 @@ class AdvancedSettingsWidget(QWidget):
         desc = QLabel("这些配置会影响章节生成和大纲规划的行为。修改后需要重启应用生效。")
         desc.setWordWrap(True)
         desc.setStyleSheet(f"""
+            font-family: {self.serif_font};
             font-size: {sp(14)}px;
             color: {theme_manager.TEXT_SECONDARY};
             margin-bottom: {dp(10)}px;
@@ -85,6 +90,7 @@ class AdvancedSettingsWidget(QWidget):
         group = QGroupBox("章节生成")
         group.setStyleSheet(f"""
             QGroupBox {{
+                font-family: {self.serif_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -151,6 +157,7 @@ class AdvancedSettingsWidget(QWidget):
         group = QGroupBox("大纲规划")
         group.setStyleSheet(f"""
             QGroupBox {{
+                font-family: {self.serif_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -199,6 +206,7 @@ class AdvancedSettingsWidget(QWidget):
         """获取SpinBox样式"""
         return f"""
             QSpinBox {{
+                font-family: {self.serif_font};
                 padding: {dp(8)}px {dp(12)}px;
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(4)}px;
@@ -222,6 +230,7 @@ class AdvancedSettingsWidget(QWidget):
         """获取CheckBox样式"""
         return f"""
             QCheckBox {{
+                font-family: {self.serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 spacing: {dp(8)}px;
@@ -245,6 +254,7 @@ class AdvancedSettingsWidget(QWidget):
     def getLabelStyle(self):
         """获取标签样式"""
         return f"""
+            font-family: {self.serif_font};
             font-size: {sp(14)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -253,6 +263,7 @@ class AdvancedSettingsWidget(QWidget):
     def getHelpTextStyle(self):
         """获取帮助文本样式"""
         return f"""
+            font-family: {self.serif_font};
             font-size: {sp(12)}px;
             color: {theme_manager.TEXT_SECONDARY};
             font-style: italic;

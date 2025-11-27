@@ -110,6 +110,9 @@ class OutlineEditDialog(BaseDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 容器样式
         self.container.setStyleSheet(f"""
             #outline_edit_container {{
@@ -122,6 +125,7 @@ class OutlineEditDialog(BaseDialog):
         # 标题样式
         if header := self.findChild(QLabel, "dialog_header"):
             header.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(18)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -131,6 +135,7 @@ class OutlineEditDialog(BaseDialog):
         # 字段标签样式
         for label in self.findChildren(QLabel, "field_label"):
             label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 font-weight: 500;
                 color: {theme_manager.TEXT_SECONDARY};
@@ -138,6 +143,7 @@ class OutlineEditDialog(BaseDialog):
 
         # 输入框通用样式
         input_style = f"""
+            font-family: {serif_font};
             background-color: {theme_manager.BG_SECONDARY};
             color: {theme_manager.TEXT_PRIMARY};
             border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -172,6 +178,7 @@ class OutlineEditDialog(BaseDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #cancel_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -192,6 +199,7 @@ class OutlineEditDialog(BaseDialog):
         # 确定按钮样式
         self.ok_btn.setStyleSheet(f"""
             #ok_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;

@@ -78,12 +78,26 @@ class NovelDetail(BasePage):
         main_layout.addWidget(self.content_stack, stretch=1)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 使用渐变背景
-        gradient_colors = theme_manager.current_theme.BG_GRADIENT
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+
+        # 颜色定义
+        if is_dark:
+            bg_color = "#1E1E1E"
+            header_bg = "#2D2D2D"
+            tab_bg = "#2D2D2D"
+            text_primary = "#E0E0E0"
+            border_color = "#4A4A4A"
+        else:
+            bg_color = "#F9F5F0" # 米色
+            header_bg = "#FFFBF0" # 亮米色
+            tab_bg = "#FFFBF0"
+            text_primary = "#2C1810" # 深褐
+            border_color = "#D7CCC8"
+
         self.setStyleSheet(f"""
             NovelDetail {{
-                background: {ModernEffects.linear_gradient(gradient_colors, 180)};
+                background-color: {bg_color};
             }}
         """)
 
@@ -94,7 +108,7 @@ class NovelDetail(BasePage):
             self._applyTabStyle()
 
     def createHeader(self):
-        """创建顶部Header - 现代化设计"""
+        """创建顶部Header - 书香风格"""
         self.header = QFrame()
         self.header.setObjectName("detail_header")
         self.header.setFixedHeight(dp(100))
@@ -117,8 +131,8 @@ class NovelDetail(BasePage):
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_label = QLabel("\U0001F4D6")  # 书本emoji
-        icon_label.setStyleSheet(f"font-size: {sp(28)}px;")
+        icon_label = QLabel("B")  # 使用字母代替emoji
+        icon_label.setStyleSheet(f"font-size: {sp(28)}px; font-weight: bold;")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_layout.addWidget(icon_label)
 
@@ -149,7 +163,7 @@ class NovelDetail(BasePage):
 
         info_layout.addLayout(title_row)
 
-        # 元信息行（类型 + 状态标签）
+        # 元信��行（类型 + 状态标签）
         meta_row = QHBoxLayout()
         meta_row.setSpacing(dp(8))
 
@@ -174,11 +188,11 @@ class NovelDetail(BasePage):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(dp(12))
 
-        # 返回按钮
-        self.back_btn = QPushButton("返回列表")
+        # 返回按钮 - 返回写作台（更符合用户工作流）
+        self.back_btn = QPushButton("返回写作台")
         self.back_btn.setObjectName("back_btn")
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.back_btn.clicked.connect(self.goBack)
+        self.back_btn.clicked.connect(self.openWritingDesk)
         btn_layout.addWidget(self.back_btn)
 
         # 导出按钮
@@ -208,61 +222,117 @@ class NovelDetail(BasePage):
         self._applyHeaderStyle()
 
     def _applyHeaderStyle(self):
-        """应用Header样式"""
+        """应用Header样式 - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        if is_dark:
+            header_bg = "#2D2D2D"
+            text_primary = "#E0E0E0"
+            text_secondary = "#A0A0A0"
+            border_color = "#4A4A4A"
+            icon_color = "#D4AF37" # 暗金
+            tag_bg = "transparent"
+        else:
+            header_bg = "#FFFBF0"
+            text_primary = "#2C1810"
+            text_secondary = "#5D4037"
+            border_color = "#D7CCC8"
+            icon_color = "#8B4513" # 赭石
+            tag_bg = "transparent"
+
+        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+
         # 设置header容器和子组件样式
         self.header.setStyleSheet(f"""
             QFrame#detail_header {{
-                background-color: {theme_manager.BG_CARD};
-                border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
+                background-color: {header_bg};
+                border-bottom: 1px solid {border_color};
             }}
             QFrame#project_icon {{
-                background: {ModernEffects.linear_gradient(theme_manager.PRIMARY_GRADIENT, 135)};
-                border-radius: {dp(12)}px;
+                background: transparent;
+                border: 2px solid {icon_color};
+                border-radius: {dp(4)}px;
             }}
             QLabel#project_title {{
-                font-size: {sp(24)}px;
-                font-weight: 700;
-                color: {theme_manager.TEXT_PRIMARY};
+                font-family: {serif_font};
+                font-size: {sp(28)}px;
+                font-weight: bold;
+                color: {text_primary};
+                letter-spacing: {dp(2)}px;
             }}
             QPushButton#edit_title_btn {{
                 background: transparent;
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
-                padding: 0 {dp(8)}px;
+                border: none;
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                color: {theme_manager.TEXT_SECONDARY};
+                color: {text_secondary};
+                text-decoration: underline;
             }}
             QPushButton#edit_title_btn:hover {{
-                background-color: {theme_manager.BG_TERTIARY};
-                color: {theme_manager.TEXT_PRIMARY};
+                color: {icon_color};
             }}
             QLabel#genre_tag {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                color: {theme_manager.PRIMARY};
-                padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(4)}px;
+                background-color: {tag_bg};
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                padding: {dp(2)}px {dp(8)}px;
+                border-radius: {dp(2)}px;
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                font-weight: 500;
             }}
             QLabel#status_tag {{
-                background-color: {theme_manager.SUCCESS_BG};
-                color: {theme_manager.SUCCESS};
-                padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(4)}px;
+                background-color: {tag_bg};
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                padding: {dp(2)}px {dp(8)}px;
+                border-radius: {dp(2)}px;
+                font-family: {serif_font};
                 font-size: {sp(12)}px;
-                font-weight: 500;
+                font-style: italic;
             }}
         """)
 
-        # 单独为操作按钮设置样式（不能嵌套在父样式表中）
+        # 操作按钮样式
+        btn_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                border-radius: {dp(4)}px;
+                font-family: {serif_font};
+                padding: {dp(6)}px {dp(12)}px;
+            }}
+            QPushButton:hover {{
+                color: {icon_color};
+                border-color: {icon_color};
+                background-color: rgba(0,0,0,0.05);
+            }}
+        """
+        
+        primary_btn_style = f"""
+            QPushButton {{
+                background-color: {icon_color};
+                color: #FFFFFF;
+                border: 1px solid {icon_color};
+                border-radius: {dp(4)}px;
+                font-family: {serif_font};
+                padding: {dp(6)}px {dp(16)}px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {text_primary};
+                border-color: {text_primary};
+            }}
+        """
+
         if hasattr(self, 'back_btn') and self.back_btn:
-            self.back_btn.setStyleSheet(ButtonStyles.secondary())
+            self.back_btn.setStyleSheet(btn_style)
         if hasattr(self, 'export_btn') and self.export_btn:
-            self.export_btn.setStyleSheet(ButtonStyles.secondary())
+            self.export_btn.setStyleSheet(btn_style)
         if hasattr(self, 'refine_btn') and self.refine_btn:
-            self.refine_btn.setStyleSheet(ButtonStyles.glass())
+            self.refine_btn.setStyleSheet(btn_style)
         if hasattr(self, 'create_btn') and self.create_btn:
-            self.create_btn.setStyleSheet(ButtonStyles.primary())
+            self.create_btn.setStyleSheet(primary_btn_style)
 
     def createTabBar(self):
         """创建Tab导航栏"""
@@ -272,7 +342,7 @@ class NovelDetail(BasePage):
 
         tab_layout = QHBoxLayout(self.tab_bar)
         tab_layout.setContentsMargins(dp(24), 0, dp(24), 0)
-        tab_layout.setSpacing(dp(4))
+        tab_layout.setSpacing(dp(24)) # 增加间距
 
         # Tab定义
         tabs = [
@@ -289,7 +359,7 @@ class NovelDetail(BasePage):
             btn = QPushButton(tab_name)
             btn.setObjectName(f"tab_{tab_id}")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedHeight(dp(36))
+            btn.setFixedHeight(dp(48)) # 占满高度
             btn.clicked.connect(lambda checked, tid=tab_id: self.switchSection(tid))
             tab_layout.addWidget(btn)
             self.tab_buttons[tab_id] = btn
@@ -300,11 +370,20 @@ class NovelDetail(BasePage):
         self._applyTabStyle()
 
     def _applyTabStyle(self):
-        """应用Tab样式"""
+        """应用Tab样式 - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        
+        if is_dark:
+            tab_bg = "#2D2D2D"
+            border_color = "#4A4A4A"
+        else:
+            tab_bg = "#FFFBF0"
+            border_color = "#D7CCC8"
+
         self.tab_bar.setStyleSheet(f"""
             QFrame#tab_bar {{
-                background-color: {theme_manager.BG_CARD};
-                border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
+                background-color: {tab_bg};
+                border-bottom: 1px solid {border_color};
             }}
         """)
 
@@ -314,32 +393,49 @@ class NovelDetail(BasePage):
 
     def _updateTabButtonStyle(self, btn, is_active):
         """更新Tab按钮样式"""
+        is_dark = theme_manager.is_dark_mode()
+        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+        
+        if is_dark:
+            text_active = "#D4AF37"
+            text_normal = "#A0A0A0"
+            hover_color = "#E0E0E0"
+            border_active = "#D4AF37"
+        else:
+            text_active = "#8B4513" # 赭石
+            text_normal = "#5D4037"
+            hover_color = "#2C1810"
+            border_active = "#8B4513"
+
         if is_active:
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {theme_manager.PRIMARY_PALE};
-                    color: {theme_manager.PRIMARY};
+                    background-color: transparent;
+                    color: {text_active};
                     border: none;
-                    border-radius: {dp(8)}px;
-                    padding: 0 {dp(16)}px;
-                    font-size: {sp(14)}px;
-                    font-weight: 600;
+                    border-bottom: 2px solid {border_active};
+                    border-radius: 0;
+                    padding: 0 {dp(4)}px;
+                    font-family: {serif_font};
+                    font-size: {sp(15)}px;
+                    font-weight: bold;
                 }}
             """)
         else:
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: transparent;
-                    color: {theme_manager.TEXT_SECONDARY};
+                    color: {text_normal};
                     border: none;
-                    border-radius: {dp(8)}px;
-                    padding: 0 {dp(16)}px;
-                    font-size: {sp(14)}px;
-                    font-weight: 500;
+                    border-bottom: 2px solid transparent;
+                    border-radius: 0;
+                    padding: 0 {dp(4)}px;
+                    font-family: {serif_font};
+                    font-size: {sp(15)}px;
+                    font-weight: normal;
                 }}
                 QPushButton:hover {{
-                    background-color: {theme_manager.BG_TERTIARY};
-                    color: {theme_manager.TEXT_PRIMARY};
+                    color: {hover_color};
                 }}
             """)
 
@@ -370,6 +466,9 @@ class NovelDetail(BasePage):
 
     def createSectionWidget(self, section_id):
         """创建Section widget"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         # 创建滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -391,53 +490,99 @@ class NovelDetail(BasePage):
         layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))
         layout.setSpacing(dp(20))
 
-        # 根据section_id创建对应组件
-        if section_id == 'overview':
-            blueprint = self.project_data.get('blueprint', {}) if self.project_data else {}
-            section = OverviewSection(data=blueprint, editable=True)
-            section.editRequested.connect(self.onEditRequested)
-        elif section_id == 'world_setting':
-            world_setting = self.project_data.get('blueprint', {}).get('world_setting', {}) if self.project_data else {}
-            section = WorldSettingSection(data=world_setting, editable=True)
-            section.editRequested.connect(self.onEditRequested)
-        elif section_id == 'characters':
-            characters = self.project_data.get('blueprint', {}).get('characters', []) if self.project_data else []
-            section = CharactersSection(data=characters, editable=True)
-            section.editRequested.connect(self.onEditRequested)
-        elif section_id == 'relationships':
-            relationships = self.project_data.get('blueprint', {}).get('relationships', []) if self.project_data else []
-            section = RelationshipsSection(data=relationships, editable=True)
-            section.editRequested.connect(self.onEditRequested)
-        elif section_id == 'chapter_outline':
-            blueprint = self.project_data.get('blueprint', {}) if self.project_data else {}
-            # 章节大纲在 blueprint.chapter_outline 中，不是顶层 chapter_outlines
-            outline = blueprint.get('chapter_outline', [])
+        section = None
 
-            # 调试日志
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"创建ChapterOutlineSection: "
-                f"blueprint存在={bool(blueprint)}, "
-                f"outline章节数={len(outline)}, "
-                f"needs_part_outlines={blueprint.get('needs_part_outlines', False)}"
-            )
+        try:
+            # 根据section_id创建对应组件
+            if section_id == 'overview':
+                blueprint = self._safe_get_blueprint()
+                section = OverviewSection(data=blueprint, editable=True)
+                section.editRequested.connect(self.onEditRequested)
+            elif section_id == 'world_setting':
+                world_setting = self._safe_get_nested(self._safe_get_blueprint(), 'world_setting', {})
+                section = WorldSettingSection(data=world_setting, editable=True)
+                section.editRequested.connect(self.onEditRequested)
+            elif section_id == 'characters':
+                characters = self._safe_get_nested(self._safe_get_blueprint(), 'characters', [])
+                # 确保是列表
+                if not isinstance(characters, list):
+                    logger.warning("characters数据类型错误，期望list，实际为%s，使用空列表", type(characters).__name__)
+                    characters = []
+                section = CharactersSection(data=characters, editable=True)
+                section.editRequested.connect(self.onEditRequested)
+            elif section_id == 'relationships':
+                relationships = self._safe_get_nested(self._safe_get_blueprint(), 'relationships', [])
+                # 确保是列表
+                if not isinstance(relationships, list):
+                    logger.warning("relationships数据类型错误，期望list，实际为%s，使用空列表", type(relationships).__name__)
+                    relationships = []
+                section = RelationshipsSection(data=relationships, editable=True)
+                section.editRequested.connect(self.onEditRequested)
+            elif section_id == 'chapter_outline':
+                blueprint = self._safe_get_blueprint()
+                # 章节大纲在 blueprint.chapter_outline 中，不是顶层 chapter_outlines
+                outline = self._safe_get_nested(blueprint, 'chapter_outline', [])
+                # 确保是列表
+                if not isinstance(outline, list):
+                    logger.warning("chapter_outline数据类型错误，期望list，实际为%s，使用空列表", type(outline).__name__)
+                    outline = []
 
-            section = ChapterOutlineSection(outline=outline, blueprint=blueprint, project_id=self.project_id, editable=True)
-            section.editRequested.connect(self.onEditRequested)
-            section.refreshRequested.connect(self.refreshProject)
-        elif section_id == 'chapters':
-            chapters = self.project_data.get('chapters', []) if self.project_data else []
-            section = ChaptersSection(chapters=chapters)
-            section.setProjectId(self.project_id)
-            section.dataChanged.connect(self.refreshProject)
-        else:
-            section = QLabel("未知Section")
+                # 调试日志
+                logger.info(
+                    f"创建ChapterOutlineSection: "
+                    f"blueprint存在={bool(blueprint)}, "
+                    f"outline章节数={len(outline)}, "
+                    f"needs_part_outlines={blueprint.get('needs_part_outlines', False)}"
+                )
 
-        layout.addWidget(section, stretch=1)
+                section = ChapterOutlineSection(outline=outline, blueprint=blueprint, project_id=self.project_id, editable=True)
+                section.editRequested.connect(self.onEditRequested)
+                section.refreshRequested.connect(self.refreshProject)
+            elif section_id == 'chapters':
+                chapters = self._safe_get_data('chapters', [])
+                # 确保是列表
+                if not isinstance(chapters, list):
+                    logger.warning("chapters数据类型错误，期望list，实际为%s，使用空列表", type(chapters).__name__)
+                    chapters = []
+                section = ChaptersSection(chapters=chapters)
+                section.setProjectId(self.project_id)
+                section.dataChanged.connect(self.refreshProject)
+            else:
+                section = QLabel("未知Section")
+
+        except Exception as e:
+            logger.error("创建Section '%s' 时出错: %s", section_id, str(e), exc_info=True)
+            # 创建一个错误提示widget
+            section = QLabel(f"加载 {section_id} 失败: {str(e)}")
+            section.setWordWrap(True)
+            section.setStyleSheet(f"color: {theme_manager.ERROR}; padding: {dp(20)}px;")
+
+        if section:
+            layout.addWidget(section, stretch=1)
 
         scroll.setWidget(container)
         return scroll
+
+    def _safe_get_blueprint(self):
+        """安全获取蓝图数据"""
+        if not self.project_data:
+            return {}
+        blueprint = self.project_data.get('blueprint')
+        if blueprint is None or not isinstance(blueprint, dict):
+            return {}
+        return blueprint
+
+    def _safe_get_data(self, key, default=None):
+        """安全获取项目数据"""
+        if not self.project_data:
+            return default
+        return self.project_data.get(key, default)
+
+    def _safe_get_nested(self, data, key, default=None):
+        """安全获取嵌套数据"""
+        if not data or not isinstance(data, dict):
+            return default
+        return data.get(key, default)
 
     @handle_errors("加载项目")
     def loadProjectBasicInfo(self):
@@ -501,24 +646,45 @@ class NovelDetail(BasePage):
         logger = logging.getLogger(__name__)
         logger.info(f"refreshProject被调用: project_id={self.project_id}, active_section={self.active_section}")
 
-        # 停止所有section的异步任务
-        for section_id, widget in self.section_widgets.items():
-            if hasattr(widget, 'stopAllTasks'):
-                widget.stopAllTasks()
+        # 安全地停止所有section的异步任务
+        for section_id, widget in list(self.section_widgets.items()):
+            try:
+                if widget is not None and hasattr(widget, 'stopAllTasks'):
+                    widget.stopAllTasks()
+            except RuntimeError:
+                logger.debug(f"section {section_id} 已被删除，跳过清理")
+            except Exception as e:
+                logger.warning(f"停止section {section_id} 异步任务时出错: {e}")
 
         # 清除缓存的Section widgets
         self.section_widgets.clear()
+
+        # 安全地移除content_stack中的widgets
         while self.content_stack.count() > 0:
-            widget = self.content_stack.widget(0)
-            self.content_stack.removeWidget(widget)
-            widget.deleteLater()
+            try:
+                widget = self.content_stack.widget(0)
+                if widget is not None:
+                    self.content_stack.removeWidget(widget)
+                    widget.deleteLater()
+                else:
+                    # widget为None，直接跳出循环避免无限循环
+                    break
+            except RuntimeError:
+                logger.debug("widget已被删除，跳过")
+                break
+            except Exception as e:
+                logger.warning(f"移除widget时出错: {e}")
+                break
 
         # 重新加载
-        logger.info("开始重新加载项目基本信息")
-        self.loadProjectBasicInfo()
-        logger.info(f"重新加载section: {self.active_section}")
-        self.loadSection(self.active_section)
-        logger.info("refreshProject完成")
+        try:
+            logger.info("开始重新加载项目基本信息")
+            self.loadProjectBasicInfo()
+            logger.info(f"重新加载section: {self.active_section}")
+            self.loadSection(self.active_section)
+            logger.info("refreshProject完成")
+        except Exception as e:
+            logger.error(f"刷新项目数据时出错: {e}", exc_info=True)
 
     def editProjectTitle(self):
         """编辑项目标题"""
@@ -543,6 +709,13 @@ class NovelDetail(BasePage):
     def openWritingDesk(self):
         """打开写作台"""
         self.navigateTo('WRITING_DESK', project_id=self.project_id)
+
+    def goToWorkspace(self):
+        """返回项目工作台"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("goToWorkspace called, navigating to WORKSPACE")
+        self.navigateTo('WORKSPACE')
 
     def onEditRequested(self, field, label, value):
         """处理编辑请求"""
@@ -780,8 +953,20 @@ class NovelDetail(BasePage):
             self.project_id = params['project_id']
             self.refreshProject()
 
+        # 支持通过section参数切换到指定Tab
+        if 'section' in params:
+            section_id = params['section']
+            # 验证section_id是否有效
+            valid_sections = ['overview', 'world_setting', 'characters', 'relationships', 'chapter_outline', 'chapters']
+            if section_id in valid_sections:
+                self.switchSection(section_id)
+
     def onHide(self):
         """页面隐藏时清理资源"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug("NovelDetail.onHide() called for project_id=%s", self.project_id)
+
         # 清理蓝图优化worker
         try:
             if self.refine_worker and self.refine_worker.isRunning():
@@ -790,10 +975,25 @@ class NovelDetail(BasePage):
                 self.refine_worker.wait(1000)
         except RuntimeError:
             pass  # C++对象已被删除，忽略
+        except Exception as e:
+            logger.warning("清理refine_worker时出错: %s", str(e))
         finally:
             self.refine_worker = None
 
-        if 'chapter_outline' in self.section_widgets:
-            section = self.section_widgets['chapter_outline']
-            if hasattr(section, 'stopAllTasks'):
-                section.stopAllTasks()
+        # 安全地清理section widgets
+        try:
+            if 'chapter_outline' in self.section_widgets:
+                section = self.section_widgets['chapter_outline']
+                try:
+                    # 检查对象是否仍然有效
+                    if section is not None and hasattr(section, 'stopAllTasks'):
+                        section.stopAllTasks()
+                except RuntimeError:
+                    # C++对象已被删除
+                    logger.debug("chapter_outline section已被删除，跳过清理")
+                except Exception as e:
+                    logger.warning("清理chapter_outline section时出错: %s", str(e))
+        except Exception as e:
+            logger.warning("访问section_widgets时出错: %s", str(e))
+
+        logger.debug("NovelDetail.onHide() completed")

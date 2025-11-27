@@ -82,7 +82,7 @@ class ChaptersSection(ThemeAwareWidget):
         no_chapters_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         no_chapters_layout.setSpacing(dp(16))
 
-        icon = QLabel("\u270D\uFE0F")  # 写作图标
+        icon = QLabel("*")  # 写作图标
         icon.setObjectName("empty_icon")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         no_chapters_layout.addWidget(icon)
@@ -203,7 +203,7 @@ class ChaptersSection(ThemeAwareWidget):
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(dp(12))
 
-        empty_icon = QLabel("\U0001F4D6")  # 书本图标
+        empty_icon = QLabel("*")  # 书本图标
         empty_icon.setObjectName("empty_icon")
         empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.addWidget(empty_icon)

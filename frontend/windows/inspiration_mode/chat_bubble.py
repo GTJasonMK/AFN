@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from themes.modern_effects import ModernEffects
+from utils.dpi_utils import dp, sp
 
 
 class ChatBubble(ThemeAwareFrame):
@@ -74,57 +75,68 @@ class ChatBubble(ThemeAwareFrame):
             QTimer.singleShot(500, self._start_typing)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 气泡背景 - 用户使用渐变，AI使用卡片
-        if self.is_user:
-            # 用户气泡 - 主色渐变背景
-            gradient_style = ModernEffects.linear_gradient(theme_manager.PRIMARY_GRADIENT, 135)
-            self.setStyleSheet(f"""
-                ChatBubble {{
-                    background: {gradient_style};
-                    border: none;
-                    border-radius: {theme_manager.RADIUS_LG};
-                }}
-            """)
-            text_color = theme_manager.BUTTON_TEXT
-            # 使用按钮文字颜色（白色，在深色渐变背景上）
-            sender_color = theme_manager.BUTTON_TEXT
-        else:
-            # AI气泡 - 卡片背景+微阴影
-            self.setStyleSheet(f"""
-                ChatBubble {{
-                    background-color: {theme_manager.BG_CARD};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-radius: {theme_manager.RADIUS_LG};
-                }}
-            """)
-            text_color = theme_manager.TEXT_PRIMARY
-            sender_color = theme_manager.TEXT_SECONDARY
+        """应用主题样式（可多次调用） - 书香风格"""
+        is_dark = theme_manager.is_dark_mode()
+        serif_font = theme_manager.serif_font()
+        highlight_color = theme_manager.book_accent_color()
 
-            # 添加阴影效果（仅AI气泡）
-            shadow = QGraphicsDropShadowEffect()
-            shadow.setBlurRadius(12)
-            shadow.setColor(QColor(0, 0, 0, 20))
-            shadow.setOffset(0, 2)
-            # 注意：不能同时设置shadow和opacity_effect，所以移除shadow
-            # self.setGraphicsEffect(shadow)
+        if self.is_user:
+            # 用户气泡 - 深色纯色背景
+            if is_dark:
+                bg_color = "#4A4A4A"
+                text_color = "#E0E0E0"
+                sender_color = highlight_color
+            else:
+                bg_color = "#2C3E50"  # 墨蓝
+                text_color = "#F9F5F0"  # 米白
+                sender_color = "#D7CCC8"
+
+            self.setStyleSheet(f"""
+                ChatBubble {{
+                    background-color: {bg_color};
+                    border: none;
+                    border-radius: {dp(4)}px;
+                    border-top-right-radius: 0px;
+                }}
+            """)
+        else:
+            # AI气泡 - 透明背景 + 左侧装饰线
+            border_color = highlight_color
+            text_color = theme_manager.book_text_primary()
+            sender_color = theme_manager.book_text_secondary()
+            bg_color = "rgba(255, 255, 255, 0.05)" if is_dark else "rgba(0, 0, 0, 0.02)"
+
+            self.setStyleSheet(f"""
+                ChatBubble {{
+                    background-color: {bg_color};
+                    border: none;
+                    border-left: 3px solid {border_color};
+                    border-radius: {dp(2)}px;
+                }}
+            """)
+            
+            # 移除阴影效果
+            # shadow = QGraphicsDropShadowEffect() ... 移除
 
         # 发送者标签
         if self.sender_label:
             self.sender_label.setStyleSheet(f"""
-                font-size: {theme_manager.FONT_SIZE_SM};
-                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
+                font-family: {serif_font};
+                font-size: {sp(12)}px;
+                font-weight: bold;
                 color: {sender_color};
-                letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
+                letter-spacing: {dp(1)}px;
+                margin-bottom: {dp(4)}px;
             """)
 
         # 消息内容
         if self.message_label:
             self.message_label.setStyleSheet(f"""
-                font-size: {theme_manager.FONT_SIZE_BASE};
+                font-family: {serif_font};
+                font-size: {sp(15)}px;
                 color: {text_color};
-                line-height: {theme_manager.LINE_HEIGHT_RELAXED};
-                letter-spacing: {theme_manager.LETTER_SPACING_NORMAL};
+                line-height: 1.6;
+                padding: 0px;
             """)
 
     def _animate_entrance(self):
@@ -222,10 +234,25 @@ class ChatBubble(ThemeAwareFrame):
 
     def closeEvent(self, event):
         """组件关闭时清理资源"""
+        self._cleanup_timers()
+        super().closeEvent(event)
+
+    def deleteLater(self):
+        """删除前清理资源"""
+        self._cleanup_timers()
+        super().deleteLater()
+
+    def _cleanup_timers(self):
+        """清理定时器"""
         if self.typing_timer:
-            self.typing_timer.stop()
+            try:
+                self.typing_timer.stop()
+            except RuntimeError:
+                pass  # 对象可能已被删除
             self.typing_timer = None
         if self.loading_timer:
-            self.loading_timer.stop()
+            try:
+                self.loading_timer.stop()
+            except RuntimeError:
+                pass  # 对象可能已被删除
             self.loading_timer = None
-        super().closeEvent(event)

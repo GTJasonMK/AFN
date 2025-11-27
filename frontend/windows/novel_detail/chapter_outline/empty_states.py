@@ -89,7 +89,7 @@ class ShortNovelEmptyState(OutlineEmptyState):
 
     def _setup_ui(self):
         super()._setup_ui()
-        self.icon_label.setText("\U0001F4DD")
+        self.icon_label.setText("*")
         self.icon_label.setStyleSheet(f"font-size: {sp(48)}px;")
         self.title_label.setText("还没有章节大纲")
         self.desc_label.setText("请使用下方的\"生成大纲\"按钮开始创作")

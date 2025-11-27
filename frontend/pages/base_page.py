@@ -27,6 +27,8 @@ class BasePage(QWidget):
     # 导航信号
     navigateRequested = pyqtSignal(str, dict)  # (page_type, params)
     goBackRequested = pyqtSignal()
+    # 替换导航信号：导航到新页面并清除当前页面的历史记录
+    navigateReplaceRequested = pyqtSignal(str, dict)  # (page_type, params)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -142,7 +144,21 @@ class BasePage(QWidget):
             page_type: 页面类型（如'WORKSPACE', 'DETAIL'等）
             **params: 页面参数
         """
+        logger.info("BasePage.navigateTo called: page_type=%s, params=%s", page_type, params)
         self.navigateRequested.emit(page_type, params)
+        logger.info("BasePage.navigateTo signal emitted")
+
+    def navigateReplace(self, page_type, **params):
+        """导航到其他页面并替换当前历史记录
+
+        用于完成某个流程后导航到新页面，使返回按钮跳过当前流程页面。
+        例如：灵感对话完成后跳转到项目详情页，返回时应直接到首页而非灵感对话。
+
+        Args:
+            page_type: 页面类型（如'WORKSPACE', 'DETAIL'等）
+            **params: 页面参数
+        """
+        self.navigateReplaceRequested.emit(page_type, params)
 
     def goBack(self):
         """返回上一页的便捷方法"""

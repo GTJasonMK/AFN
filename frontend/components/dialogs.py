@@ -11,7 +11,7 @@
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
-    QLineEdit, QTextEdit, QSpinBox
+    QLineEdit, QTextEdit, QSpinBox, QScrollArea
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -180,12 +180,15 @@ class ConfirmDialog(BaseDialog):
         icons = {
             "normal": "?",
             "danger": "!",
-            "warning": "\u26A0"
+            "warning": "!"
         }
         return icons.get(self.dialog_type, "?")
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 获取类型对应的颜色
         if self.dialog_type == "danger":
             accent_color = theme_manager.ERROR
@@ -220,6 +223,7 @@ class ConfirmDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #dialog_title {{
+                font-family: {serif_font};
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -229,6 +233,7 @@ class ConfirmDialog(BaseDialog):
         # 消息样式
         self.message_label.setStyleSheet(f"""
             #dialog_message {{
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(44)}px;
@@ -239,6 +244,7 @@ class ConfirmDialog(BaseDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #cancel_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -260,6 +266,7 @@ class ConfirmDialog(BaseDialog):
         if self.dialog_type == "danger":
             self.confirm_btn.setStyleSheet(f"""
                 #confirm_btn {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.ERROR};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -278,6 +285,7 @@ class ConfirmDialog(BaseDialog):
         elif self.dialog_type == "warning":
             self.confirm_btn.setStyleSheet(f"""
                 #confirm_btn {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.WARNING};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -296,6 +304,7 @@ class ConfirmDialog(BaseDialog):
         else:
             self.confirm_btn.setStyleSheet(f"""
                 #confirm_btn {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -347,6 +356,7 @@ class AlertDialog(BaseDialog):
         self.icon_label = None
         self.title_label = None
         self.message_label = None
+        self.message_scroll = None
         self.ok_btn = None
 
         super().__init__(parent)
@@ -383,12 +393,27 @@ class AlertDialog(BaseDialog):
 
         container_layout.addLayout(header_layout)
 
-        # 消息内容
+        # 消息内容 - 使用滚动区域防止内容过长
+        self.message_scroll = QScrollArea()
+        self.message_scroll.setObjectName("alert_message_scroll")
+        self.message_scroll.setWidgetResizable(True)
+        self.message_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.message_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.message_scroll.setMaximumHeight(dp(300))  # 最大高度限制
+
+        message_container = QWidget()
+        message_layout = QVBoxLayout(message_container)
+        message_layout.setContentsMargins(0, 0, 0, 0)
+
         self.message_label = QLabel(self.message_text)
         self.message_label.setObjectName("alert_message")
         self.message_label.setWordWrap(True)
-        self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        container_layout.addWidget(self.message_label)
+        self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.message_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        message_layout.addWidget(self.message_label)
+
+        self.message_scroll.setWidget(message_container)
+        container_layout.addWidget(self.message_scroll)
 
         # 按钮区域
         button_layout = QHBoxLayout()
@@ -413,15 +438,18 @@ class AlertDialog(BaseDialog):
     def _get_icon(self) -> str:
         """获取图标"""
         icons = {
-            "info": "\u2139",
-            "success": "\u2713",
-            "warning": "\u26A0",
-            "error": "\u2717"
+            "info": "i",
+            "success": "*",
+            "warning": "!",
+            "error": "x"
         }
-        return icons.get(self.dialog_type, "\u2139")
+        return icons.get(self.dialog_type, "i")
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 获取类型对应的颜色
         colors = {
             "info": (theme_manager.INFO, getattr(theme_manager, 'INFO_BG', theme_manager.PRIMARY_PALE)),
@@ -454,6 +482,7 @@ class AlertDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #alert_title {{
+                font-family: {serif_font};
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -463,6 +492,7 @@ class AlertDialog(BaseDialog):
         # 消息样式
         self.message_label.setStyleSheet(f"""
             #alert_message {{
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(44)}px;
@@ -470,9 +500,23 @@ class AlertDialog(BaseDialog):
             }}
         """)
 
+        # 滚动区域样式
+        if hasattr(self, 'message_scroll'):
+            self.message_scroll.setStyleSheet(f"""
+                QScrollArea#alert_message_scroll {{
+                    background: transparent;
+                    border: none;
+                }}
+                QScrollArea#alert_message_scroll > QWidget > QWidget {{
+                    background: transparent;
+                }}
+                {theme_manager.scrollbar()}
+            """)
+
         # 按钮样式
         self.ok_btn.setStyleSheet(f"""
             #alert_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -594,6 +638,9 @@ class InputDialog(BaseDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 容器样式
         self.container.setStyleSheet(f"""
             #input_container {{
@@ -606,6 +653,7 @@ class InputDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #input_title {{
+                font-family: {serif_font};
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -616,6 +664,7 @@ class InputDialog(BaseDialog):
         if self.label_widget:
             self.label_widget.setStyleSheet(f"""
                 #input_label {{
+                    font-family: {serif_font};
                     font-size: {sp(14)}px;
                     color: {theme_manager.TEXT_SECONDARY};
                 }}
@@ -624,6 +673,7 @@ class InputDialog(BaseDialog):
         # 输入框样式
         self.input_field.setStyleSheet(f"""
             #input_field {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -640,6 +690,7 @@ class InputDialog(BaseDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #input_cancel_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -660,6 +711,7 @@ class InputDialog(BaseDialog):
         # 确定按钮样式
         self.ok_btn.setStyleSheet(f"""
             #input_ok_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -805,6 +857,9 @@ class TextInputDialog(BaseDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 容器样式
         self.container.setStyleSheet(f"""
             #text_input_container {{
@@ -817,6 +872,7 @@ class TextInputDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #text_input_title {{
+                font-family: {serif_font};
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -827,6 +883,7 @@ class TextInputDialog(BaseDialog):
         if self.label_widget:
             self.label_widget.setStyleSheet(f"""
                 #text_input_label {{
+                    font-family: {serif_font};
                     font-size: {sp(14)}px;
                     color: {theme_manager.TEXT_SECONDARY};
                 }}
@@ -835,6 +892,7 @@ class TextInputDialog(BaseDialog):
         # 多行输入框样式
         self.text_edit.setStyleSheet(f"""
             #text_input_field {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -851,6 +909,7 @@ class TextInputDialog(BaseDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #text_input_cancel_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -871,6 +930,7 @@ class TextInputDialog(BaseDialog):
         # 确定按钮样式
         self.ok_btn.setStyleSheet(f"""
             #text_input_ok_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -1021,6 +1081,9 @@ class IntInputDialog(BaseDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 容器样式
         self.container.setStyleSheet(f"""
             #int_input_container {{
@@ -1033,6 +1096,7 @@ class IntInputDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #int_input_title {{
+                font-family: {serif_font};
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -1043,6 +1107,7 @@ class IntInputDialog(BaseDialog):
         if self.label_widget:
             self.label_widget.setStyleSheet(f"""
                 #int_input_label {{
+                    font-family: {serif_font};
                     font-size: {sp(14)}px;
                     color: {theme_manager.TEXT_SECONDARY};
                 }}
@@ -1051,6 +1116,7 @@ class IntInputDialog(BaseDialog):
         # 数字输入框样式
         self.spin_box.setStyleSheet(f"""
             #int_input_field {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -1087,6 +1153,7 @@ class IntInputDialog(BaseDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #int_input_cancel_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -1107,6 +1174,7 @@ class IntInputDialog(BaseDialog):
         # 确定按钮样式
         self.ok_btn.setStyleSheet(f"""
             #int_input_ok_btn {{
+                font-family: {serif_font};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -1252,6 +1320,9 @@ class LoadingDialog(BaseDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+
         # 容器样式
         self.container.setStyleSheet(f"""
             #loading_container {{
@@ -1264,6 +1335,7 @@ class LoadingDialog(BaseDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             #loading_title {{
+                font-family: {serif_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -1273,6 +1345,7 @@ class LoadingDialog(BaseDialog):
         # 消息样式
         self.message_label.setStyleSheet(f"""
             #loading_message {{
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 line-height: 1.5;
@@ -1283,6 +1356,7 @@ class LoadingDialog(BaseDialog):
         if self.cancel_btn:
             self.cancel_btn.setStyleSheet(f"""
                 #loading_cancel_btn {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.BG_SECONDARY};
                     color: {theme_manager.TEXT_PRIMARY};
                     border: 1px solid {theme_manager.BORDER_DEFAULT};

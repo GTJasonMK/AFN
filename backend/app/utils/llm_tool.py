@@ -145,23 +145,33 @@ class LLMClient:
 
         # 使用 with_options() 设置超时，而不是放在payload中
         # 这是OpenAI SDK v1.x的标准做法，兼容newapi等代理服务
-        stream = await self._client.with_options(timeout=float(timeout)).chat.completions.create(**payload)
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
+        try:
+            stream = await self._client.with_options(timeout=float(timeout)).chat.completions.create(**payload)
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
 
-            # 支持DeepSeek R1等模型的reasoning_content字段
-            result = {
-                "content": choice.delta.content,
-                "finish_reason": choice.finish_reason,
-            }
+                # 支持DeepSeek R1等模型的reasoning_content字段
+                result = {
+                    "content": choice.delta.content,
+                    "finish_reason": choice.finish_reason,
+                }
 
-            # 检查是否有reasoning_content（DeepSeek R1特有）
-            if hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content:
-                result["reasoning_content"] = choice.delta.reasoning_content
+                # 检查是否有reasoning_content（DeepSeek R1特有）
+                if hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content:
+                    result["reasoning_content"] = choice.delta.reasoning_content
 
-            yield result
+                yield result
+        except Exception as e:
+            logger.error(
+                "stream_chat error: model=%s error_type=%s error=%s",
+                model,
+                type(e).__name__,
+                str(e),
+                exc_info=True
+            )
+            raise
 
     async def stream_and_collect(
         self,
@@ -199,33 +209,44 @@ class LLMClient:
         finish_reason = None
         chunk_count = 0
 
-        async for chunk in self.stream_chat(
-            messages=messages,
-            model=model,
-            response_format=response_format,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            **kwargs,
-        ):
-            chunk_count += 1
+        try:
+            async for chunk in self.stream_chat(
+                messages=messages,
+                model=model,
+                response_format=response_format,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                **kwargs,
+            ):
+                chunk_count += 1
 
-            # 可选的日志记录
-            if log_chunks and chunk_count <= 3:
-                logger.debug("收到第 %d 个 chunk: %s", chunk_count, chunk)
+                # 可选的日志记录
+                if log_chunks and chunk_count <= 3:
+                    logger.debug("收到第 %d 个 chunk: %s", chunk_count, chunk)
 
-            # 根据收集模式决定收集哪些内容
-            if collect_mode in (ContentCollectMode.CONTENT_ONLY, ContentCollectMode.WITH_REASONING):
-                if chunk.get("content"):
-                    content += chunk["content"]
+                # 根据收集模式决定收集哪些内容
+                if collect_mode in (ContentCollectMode.CONTENT_ONLY, ContentCollectMode.WITH_REASONING):
+                    if chunk.get("content"):
+                        content += chunk["content"]
 
-            if collect_mode in (ContentCollectMode.WITH_REASONING, ContentCollectMode.REASONING_ONLY):
-                if chunk.get("reasoning_content"):
-                    reasoning += chunk["reasoning_content"]
+                if collect_mode in (ContentCollectMode.WITH_REASONING, ContentCollectMode.REASONING_ONLY):
+                    if chunk.get("reasoning_content"):
+                        reasoning += chunk["reasoning_content"]
 
-            if chunk.get("finish_reason"):
-                finish_reason = chunk["finish_reason"]
+                if chunk.get("finish_reason"):
+                    finish_reason = chunk["finish_reason"]
+        except Exception as e:
+            logger.error(
+                "stream_and_collect error after %d chunks: model=%s error_type=%s error=%s",
+                chunk_count,
+                model,
+                type(e).__name__,
+                str(e),
+                exc_info=True
+            )
+            raise
 
         return StreamCollectResult(
             content=content,

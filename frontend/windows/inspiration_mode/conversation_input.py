@@ -58,43 +58,50 @@ class ConversationInput(ThemeAwareWidget):
         layout.addLayout(bottom_layout)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 输入框 - 玻璃态背景 + focus发光
-        if self.input_field:
-            # 使用玻璃态背景
-            glass_bg = theme_manager.current_theme.GLASS_BG
+        """应用主题样式（可多次调用） - 书香风格"""
+        # 使用 theme_manager 的书香风格便捷方法
+        serif_font = theme_manager.serif_font()
+        bg_secondary = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        accent_color = theme_manager.book_accent_color()
 
+        # 输入框 - 书香风格
+        if self.input_field:
             self.input_field.setStyleSheet(f"""
                 QTextEdit {{
-                    background-color: {glass_bg};
-                    border: 2px solid {theme_manager.BORDER_DEFAULT};
-                    border-radius: {theme_manager.RADIUS_MD};
+                    background-color: {bg_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {theme_manager.RADIUS_SM};
                     padding: 16px;
+                    font-family: {serif_font};
                     font-size: {theme_manager.FONT_SIZE_BASE};
-                    color: {theme_manager.TEXT_PRIMARY};
+                    color: {text_primary};
                     line-height: {theme_manager.LINE_HEIGHT_RELAXED};
                 }}
                 QTextEdit:focus {{
-                    border-color: {theme_manager.PRIMARY};
-                    background-color: {theme_manager.BG_CARD};
-                    /* QSS不支持box-shadow，但我们可以通过边框颜色暗示focus状态 */
+                    border-color: {accent_color};
+                    background-color: {bg_secondary};
                 }}
                 QTextEdit:hover {{
-                    border-color: {theme_manager.PRIMARY_LIGHT};
+                    border-color: {theme_manager.book_accent_light()};
                 }}
             """)
 
         # 字数统计
         if self.char_count:
             self.char_count.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
-                color: {theme_manager.TEXT_SECONDARY};
+                color: {text_secondary};
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
             """)
 
         # 快捷键提示
         if self.hint_label:
             self.hint_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_TERTIARY};
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
@@ -124,6 +131,7 @@ class ConversationInput(ThemeAwareWidget):
             # 字数过多时变色提示
             if count > 500:
                 self.char_count.setStyleSheet(f"""
+                    font-family: {theme_manager.serif_font()};
                     font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.WARNING};
                     font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};

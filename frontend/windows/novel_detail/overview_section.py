@@ -104,10 +104,10 @@ class OverviewSection(ThemeAwareWidget):
 
         # 定义字段
         fields = [
-            ('genre', '类型', '\U0001F4DA'),      # 书本图标
-            ('target_audience', '目标读者', '\U0001F465'),  # 人群图标
-            ('style', '写作风格', '\u270D\uFE0F'),   # 写字图标
-            ('tone', '情感基调', '\U0001F3AD')     # 面具图标
+            ('genre', '类型', '*'),      # 书本图标
+            ('target_audience', '目标读者', '*'),  # 人群图标
+            ('style', '写作风格', '*'),   # 写字图标
+            ('tone', '情感基调', '*')     # 面具图标
         ]
 
         for idx, (field_key, field_label, icon) in enumerate(fields):
@@ -177,7 +177,7 @@ class OverviewSection(ThemeAwareWidget):
         header = QHBoxLayout()
         header.setSpacing(dp(8))
 
-        icon = QLabel("\U0001F4DD")  # 备忘录图标
+        icon = QLabel("*")  # 备忘录图标
         icon.setStyleSheet(f"font-size: {sp(18)}px;")
         header.addWidget(icon)
 
@@ -207,71 +207,80 @@ class OverviewSection(ThemeAwareWidget):
         return card
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 核心摘要卡片 - 带渐变左边框
+        """应用主题样式（可多次调用） - 书香风格"""
+        # 使用 theme_manager 的书香风格便捷方法
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        text_tertiary = "#8D6E63" if theme_manager.is_light_mode() else "#666666"
+        border_color = theme_manager.book_border_color()
+        highlight_color = theme_manager.book_accent_color()
+        bg_card = "transparent"
+        serif_font = theme_manager.serif_font()
+
+        # 核心摘要卡片 - 简约风格
         if self.summary_card:
             self.summary_card.setStyleSheet(f"""
                 #summary_card {{
-                    background-color: {theme_manager.BG_CARD};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-left: 4px solid {theme_manager.PRIMARY};
-                    border-radius: {dp(12)}px;
+                    background-color: {bg_card};
+                    border: none;
+                    border-bottom: 1px solid {border_color};
                 }}
                 #summary_title {{
-                    font-size: {sp(16)}px;
-                    font-weight: 600;
-                    color: {theme_manager.PRIMARY};
+                    font-family: {serif_font};
+                    font-size: {sp(18)}px;
+                    font-weight: bold;
+                    color: {highlight_color};
                 }}
                 #summary_content {{
-                    font-size: {sp(16)}px;
-                    color: {theme_manager.TEXT_PRIMARY};
+                    font-family: {serif_font};
+                    font-size: {sp(20)}px;
+                    color: {text_primary};
                     line-height: 1.6;
                     min-height: {dp(48)}px;
+                    font-style: italic;
                 }}
                 #edit_btn {{
                     background: transparent;
-                    border: 1px solid {theme_manager.BORDER_DEFAULT};
-                    border-radius: {dp(4)}px;
-                    padding: {dp(4)}px {dp(12)}px;
+                    border: none;
+                    font-family: {serif_font};
                     font-size: {sp(12)}px;
-                    color: {theme_manager.TEXT_SECONDARY};
+                    color: {text_tertiary};
+                    text-decoration: underline;
                 }}
                 #edit_btn:hover {{
-                    background-color: {theme_manager.PRIMARY_PALE};
-                    border-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.PRIMARY};
+                    color: {highlight_color};
                 }}
             """)
 
         # 字段卡片样式
         field_card_style = f"""
             #field_card {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(12)}px;
+                background-color: {bg_card};
+                border: 1px solid {border_color};
+                border-radius: {dp(4)}px;
             }}
             #field_label {{
+                font-family: {serif_font};
                 font-size: {sp(13)}px;
-                font-weight: 500;
-                color: {theme_manager.TEXT_SECONDARY};
+                font-weight: bold;
+                color: {text_secondary};
             }}
             #field_value {{
+                font-family: {serif_font};
                 font-size: {sp(15)}px;
-                font-weight: 500;
-                color: {theme_manager.TEXT_PRIMARY};
+                color: {text_primary};
                 min-height: {dp(24)}px;
             }}
             #field_edit_btn {{
                 background: transparent;
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
+                border: none;
+                font-family: {serif_font};
                 font-size: {sp(11)}px;
-                color: {theme_manager.TEXT_TERTIARY};
+                color: {text_tertiary};
+                text-decoration: underline;
             }}
             #field_edit_btn:hover {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                border-color: {theme_manager.PRIMARY};
-                color: {theme_manager.PRIMARY};
+                color: {highlight_color};
             }}
         """
 
@@ -282,32 +291,32 @@ class OverviewSection(ThemeAwareWidget):
         if self.synopsis_card:
             self.synopsis_card.setStyleSheet(f"""
                 #synopsis_card {{
-                    background-color: {theme_manager.BG_CARD};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-radius: {dp(12)}px;
+                    background-color: {bg_card};
+                    border: none;
+                    border-top: 1px solid {border_color};
                 }}
                 #synopsis_title {{
-                    font-size: {sp(16)}px;
-                    font-weight: 600;
-                    color: {theme_manager.TEXT_PRIMARY};
+                    font-family: {serif_font};
+                    font-size: {sp(18)}px;
+                    font-weight: bold;
+                    color: {text_primary};
                 }}
                 #synopsis_content {{
-                    font-size: {sp(14)}px;
-                    color: {theme_manager.TEXT_SECONDARY};
+                    font-family: {serif_font};
+                    font-size: {sp(16)}px;
+                    color: {text_secondary};
                     line-height: 1.8;
                 }}
                 #edit_btn {{
                     background: transparent;
-                    border: 1px solid {theme_manager.BORDER_DEFAULT};
-                    border-radius: {dp(4)}px;
-                    padding: {dp(4)}px {dp(12)}px;
+                    border: none;
+                    font-family: {serif_font};
                     font-size: {sp(12)}px;
-                    color: {theme_manager.TEXT_SECONDARY};
+                    color: {text_tertiary};
+                    text-decoration: underline;
                 }}
                 #edit_btn:hover {{
-                    background-color: {theme_manager.PRIMARY_PALE};
-                    border-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.PRIMARY};
+                    color: {highlight_color};
                 }}
             """)
 

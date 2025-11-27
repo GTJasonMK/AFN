@@ -88,22 +88,35 @@ class ParticleBackground(QWidget):
         self.timer.start(50)  # 50ms更新一次
 
     def init_particles(self):
-        """初始化粒子"""
+        """初始化粒子 - 调整为书香风格的墨点/尘埃"""
         # 创建30个粒子
         for _ in range(30):
             x = random.randint(0, 1000)
             y = random.randint(0, 800)
-            vx = random.uniform(-0.5, 0.5)
-            vy = random.uniform(-0.5, 0.5)
-            size = random.randint(3, 8)
-            # 使用主题色系的颜色
-            colors = [
-                QColor(theme_manager.PRIMARY),
-                QColor(theme_manager.ACCENT),
-                QColor(theme_manager.SUCCESS),
-            ]
+            vx = random.uniform(-0.2, 0.2)  # 减慢速度，更优雅
+            vy = random.uniform(-0.2, 0.2)
+            size = random.randint(2, 5)     # 减小尺寸
+
+            # 使用书香风格颜色 (基于 theme_manager)
+            is_dark = theme_manager.is_dark_mode()
+            accent = theme_manager.book_accent_color()
+            text_secondary = theme_manager.book_text_secondary()
+
+            if is_dark:
+                colors = [
+                    QColor(accent),        # 暗金
+                    QColor("#8B7E66"),     # 灰褐
+                    QColor("#C4B093"),     # 羊皮纸色
+                ]
+            else:
+                colors = [
+                    QColor(text_secondary), # 深褐
+                    QColor(accent),         # 赭石
+                    QColor("#2C3E50"),      # 墨蓝
+                ]
+
             color = random.choice(colors)
-            color.setAlpha(int(random.uniform(30, 80)))
+            color.setAlpha(int(random.uniform(15, 50))) # 降低透明度
 
             self.particles.append(FloatingParticle(x, y, vx, vy, size, color))
 
@@ -169,13 +182,23 @@ class HomePage(BasePage):
 
         layout.addLayout(header_layout)
 
-        # 添加垂直间距
-        layout.addSpacing(dp(40))
+        # 添加垂直间距 (增加留白)
+        layout.addSpacing(dp(60))
 
         # 主标题 - 使用BreathingLabel支持动画
         self.title = BreathingLabel("拯救小说家")
         self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.title)
+
+        # 装饰性分隔线
+        line_container = QWidget()
+        line_layout = QHBoxLayout(line_container)
+        line_layout.addStretch()
+        self.divider = QLabel()
+        self.divider.setFixedSize(dp(60), dp(4)) 
+        line_layout.addWidget(self.divider)
+        line_layout.addStretch()
+        layout.addWidget(line_container)
 
         # 副标题
         self.subtitle = QLabel("AI 驱动的长篇小说创作助手")
@@ -183,25 +206,25 @@ class HomePage(BasePage):
         layout.addWidget(self.subtitle)
 
         # 添加间距
-        layout.addSpacing(dp(40))
+        layout.addSpacing(dp(50))
 
         # 主要功能按钮容器
         buttons_widget = QWidget()
-        buttons_widget.setMaximumWidth(dp(460))
+        buttons_widget.setMaximumWidth(dp(400)) # 略微收窄
         buttons_layout = QVBoxLayout(buttons_widget)
-        buttons_layout.setSpacing(dp(16))
+        buttons_layout.setSpacing(dp(20))
 
-        # 灵感涌现按钮（主要按钮 - 渐变）
+        # 灵感涌现按钮（主要按钮）
         self.inspiration_btn = QPushButton("✨ 灵感涌现")
         self.inspiration_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.inspiration_btn.setMinimumHeight(dp(56))
+        self.inspiration_btn.setMinimumHeight(dp(52))
         self.inspiration_btn.clicked.connect(lambda: self.navigateTo('INSPIRATION'))
         buttons_layout.addWidget(self.inspiration_btn)
 
         # 创作工作台按钮（次要按钮）
         self.workspace_btn = QPushButton("📚 创作工作台")
         self.workspace_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.workspace_btn.setMinimumHeight(dp(56))
+        self.workspace_btn.setMinimumHeight(dp(52))
         self.workspace_btn.clicked.connect(lambda: self.navigateTo('WORKSPACE'))
         buttons_layout.addWidget(self.workspace_btn)
 
@@ -223,110 +246,103 @@ class HomePage(BasePage):
             self.particle_bg.setGeometry(self.rect())
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
-        # 获取渐变背景颜色
-        gradient_colors = theme_manager.current_theme.BG_GRADIENT
+        """应用主题样式（可多次调用） - 书香风格"""
+        # 使用 theme_manager 的书香风格便捷方法
+        bg_color = theme_manager.book_bg_primary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        accent_color = theme_manager.book_accent_color()
+        border_color = theme_manager.book_border_color()
+        btn_bg = theme_manager.book_bg_secondary()
+        serif_font = theme_manager.serif_font()
 
-        # 设置渐变背景
+        # 设置背景
         self.setStyleSheet(f"""
             HomePage {{
-                background: {ModernEffects.linear_gradient(gradient_colors, 180)};
+                background-color: {bg_color};
             }}
         """)
 
-        # 主标题样式 - 使用渐变文字效果（通过颜色模拟）
+        # 主标题样式
         if hasattr(self, 'title'):
             self.title.setStyleSheet(f"""
                 QLabel {{
-                    font-size: {theme_manager.FONT_SIZE_3XL};
-                    font-weight: {theme_manager.FONT_WEIGHT_BOLD};
-                    color: {theme_manager.TEXT_PRIMARY};
-                    letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
+                    font-family: {serif_font};
+                    font-size: {dp(48)}px;
+                    font-weight: bold;
+                    color: {text_primary};
+                    letter-spacing: {dp(4)}px;
                     margin: 0;
                     padding: 0;
                 }}
+            """)
+
+        # 分隔线样式
+        if hasattr(self, 'divider'):
+            self.divider.setStyleSheet(f"""
+                background-color: {accent_color};
+                border-radius: {dp(2)}px;
             """)
 
         # 副标题样式
         if hasattr(self, 'subtitle'):
             self.subtitle.setStyleSheet(f"""
                 QLabel {{
-                    font-size: {theme_manager.FONT_SIZE_MD};
-                    font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
-                    color: {theme_manager.TEXT_SECONDARY};
-                    letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
+                    font-family: {serif_font};
+                    font-size: {dp(18)}px;
+                    font-weight: normal;
+                    color: {text_secondary};
+                    letter-spacing: {dp(2)}px;
+                    font-style: italic;
                     margin: 0;
                     padding: 0;
                 }}
             """)
 
-        # 设置按钮 - 玻璃态效果
+        # 设置按钮 - 简约线条风格
         if hasattr(self, 'settings_btn'):
             self.settings_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {theme_manager.current_theme.GLASS_BG};
-                    color: {theme_manager.TEXT_PRIMARY};
-                    border: 1px solid {theme_manager.BORDER_DEFAULT};
-                    border-radius: {theme_manager.RADIUS_SM};
-                    padding: {dp(8)}px {dp(16)}px;
-                    font-size: {theme_manager.FONT_SIZE_SM};
-                    font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid transparent;
+                    border-radius: {dp(4)}px;
+                    padding: {dp(4)}px {dp(8)}px;
+                    font-family: {serif_font};
                 }}
                 QPushButton:hover {{
-                    background-color: {theme_manager.PRIMARY_PALE};
-                    border-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.PRIMARY};
-                }}
-                QPushButton:pressed {{
-                    background-color: {theme_manager.BG_SECONDARY};
+                    color: {accent_color};
+                    border-color: {border_color};
                 }}
             """)
 
-        # 灵感涌现按钮 - 增强悬停效果
+        # 通用大按钮样式
+        btn_style = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_primary};
+                border: 1px solid {border_color};
+                border-radius: {dp(8)}px;
+                padding: {dp(12)}px {dp(24)}px;
+                font-family: {serif_font};
+                font-size: {dp(18)}px;
+                letter-spacing: {dp(2)}px;
+            }}
+            QPushButton:hover {{
+                border-color: {accent_color};
+                background-color: {bg_color};
+                color: {accent_color};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme_manager.BG_SECONDARY};
+            }}
+        """
+
         if hasattr(self, 'inspiration_btn'):
-            self.inspiration_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.BUTTON_TEXT};
-                    border: none;
-                    border-radius: {theme_manager.RADIUS_MD};
-                    padding: {dp(16)}px {dp(32)}px;
-                    font-size: {theme_manager.FONT_SIZE_LG};
-                    font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
-                    letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
-                }}
-                QPushButton:hover {{
-                    background-color: {theme_manager.PRIMARY_LIGHT};
-                    padding: {dp(18)}px {dp(34)}px;
-                }}
-                QPushButton:pressed {{
-                    background-color: {theme_manager.PRIMARY_DARK};
-                    padding: {dp(15)}px {dp(30)}px;
-                }}
-            """)
+            self.inspiration_btn.setStyleSheet(btn_style)
 
-        # 工作台按钮 - 增强悬停效果
         if hasattr(self, 'workspace_btn'):
-            self.workspace_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme_manager.ACCENT};
-                    color: {theme_manager.BUTTON_TEXT};
-                    border: none;
-                    border-radius: {theme_manager.RADIUS_MD};
-                    padding: {dp(16)}px {dp(32)}px;
-                    font-size: {theme_manager.FONT_SIZE_LG};
-                    font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
-                    letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
-                }}
-                QPushButton:hover {{
-                    background-color: {theme_manager.ACCENT_LIGHT};
-                    padding: {dp(18)}px {dp(34)}px;
-                }}
-                QPushButton:pressed {{
-                    background-color: {theme_manager.ACCENT_DARK};
-                    padding: {dp(15)}px {dp(30)}px;
-                }}
-            """)
+            self.workspace_btn.setStyleSheet(btn_style)
 
     def _animate_entrance(self):
         """入场动画 - 淡入效果和呼吸动画"""

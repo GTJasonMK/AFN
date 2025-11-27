@@ -49,20 +49,26 @@ class WorldSettingSection(ThemeAwareWidget):
         grid_layout.setContentsMargins(0, 0, 0, 0)
         grid_layout.setSpacing(dp(16))
 
-        # 关键地点
+        # 关键地点 - 确保是列表类型
+        key_locations = self.data.get('key_locations', [])
+        if not isinstance(key_locations, list):
+            key_locations = []
         self.locations_card = self._createListCard(
-            '\U0001F4CD',  # 地点图标
+            '*',  # 地点图标
             '关键地点',
-            self.data.get('key_locations', []),
+            key_locations,
             'world_setting.key_locations'
         )
         grid_layout.addWidget(self.locations_card, 0, 0)
 
-        # 主要阵营
+        # 主要阵营 - 确保是列表类型
+        factions = self.data.get('factions', [])
+        if not isinstance(factions, list):
+            factions = []
         self.factions_card = self._createListCard(
-            '\u2694\uFE0F',  # 剑图标
+            '*',  # 剑图标
             '主要阵营',
-            self.data.get('factions', []),
+            factions,
             'world_setting.factions'
         )
         grid_layout.addWidget(self.factions_card, 0, 1)
@@ -83,7 +89,7 @@ class WorldSettingSection(ThemeAwareWidget):
         header.setSpacing(dp(8))
 
         # 图标
-        icon = QLabel("\U0001F30D")  # 地球图标
+        icon = QLabel("*")  # 地球图标
         icon.setStyleSheet(f"font-size: {sp(18)}px;")
         header.addWidget(icon)
 

@@ -94,57 +94,60 @@ class InspiredOptionCard(ThemeAwareWidget):
             layout.addLayout(tags_layout)
 
     def _apply_theme(self):
-        """更新主题样式"""
+        """更新主题样式 - 书香风格"""
+        # 使用 theme_manager 的书香风格便捷方法
+        serif_font = theme_manager.serif_font()
+        bg_primary = theme_manager.book_bg_primary()
+        bg_secondary = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        accent_color = theme_manager.book_accent_color()
         is_dark = theme_manager.is_dark_mode()
 
         # 卡片基础样式
         if self.is_disabled:
             # 禁用状态 - 降低透明度，移除交互效果
-            border_color = theme_manager.BORDER_LIGHT
-            border_width = "1px"
-            bg_color = theme_manager.BG_TERTIARY if is_dark else "#F3F4F6"
-            opacity = "0.6"
+            disabled_bg = theme_manager.BG_TERTIARY if is_dark else "#F3F4F6"
 
             self.setStyleSheet(f"""
                 InspiredOptionCard {{
-                    background: {bg_color};
-                    border: {border_width} solid {border_color};
-                    border-radius: {theme_manager.RADIUS_MD};
+                    background: {disabled_bg};
+                    border: 1px solid {border_color};
+                    border-radius: {theme_manager.RADIUS_SM};
                     padding: 0;
                 }}
             """)
             # 禁用时移除手型光标
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         else:
-            border_color = theme_manager.ACCENT_PRIMARY if self.is_selected else theme_manager.BORDER_LIGHT
+            selected_border = accent_color if self.is_selected else border_color
             border_width = "2px" if self.is_selected else "1px"
-
-            bg_color = theme_manager.BG_SECONDARY if is_dark else "#FFFFFF"
-            hover_bg = theme_manager.BG_PRIMARY if is_dark else "#F9FAFB"
 
             self.setStyleSheet(f"""
                 InspiredOptionCard {{
-                    background: {bg_color};
-                    border: {border_width} solid {border_color};
-                    border-radius: {theme_manager.RADIUS_MD};
+                    background: {bg_secondary};
+                    border: {border_width} solid {selected_border};
+                    border-radius: {theme_manager.RADIUS_SM};
                     padding: 0;
                 }}
 
                 InspiredOptionCard:hover {{
-                    background: {hover_bg};
-                    border-color: {theme_manager.ACCENT_PRIMARY};
+                    background: {bg_primary};
+                    border-color: {accent_color};
                     border-width: 2px;
                 }}
             """)
             # 启用时恢复手型光标
             self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        # 编号标签样式
+        # 编号标签样式 - 书香风格
         self.number_label.setStyleSheet(f"""
             QLabel#numberLabel {{
-                background: {theme_manager.ACCENT_PRIMARY};
+                background: {accent_color};
                 color: #FFFFFF;
                 border-radius: 12px;
+                font-family: {serif_font};
                 font-weight: 600;
                 font-size: 14px;
             }}
@@ -153,7 +156,8 @@ class InspiredOptionCard(ThemeAwareWidget):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             QLabel#titleLabel {{
-                color: {theme_manager.TEXT_PRIMARY};
+                color: {text_primary};
+                font-family: {serif_font};
                 font-weight: 600;
                 font-size: 15px;
             }}
@@ -163,21 +167,32 @@ class InspiredOptionCard(ThemeAwareWidget):
         if hasattr(self, 'desc_label'):
             self.desc_label.setStyleSheet(f"""
                 QLabel#descLabel {{
-                    color: {theme_manager.TEXT_SECONDARY};
+                    color: {text_secondary};
+                    font-family: {serif_font};
                     font-size: 13px;
                     line-height: 1.5;
                 }}
             """)
 
-        # 标签样式
+        # 标签样式 - 书香风格（优化浅色主题可读性）
         tag_labels = self.findChildren(QLabel, "tagLabel")
+        if is_dark:
+            # 深色主题：金色文字 + 深色暖色背景
+            tag_text_color = accent_color
+            tag_bg_color = f"{accent_color}25"  # 约15%透明度
+        else:
+            # 浅色主题：深褐色文字 + 柔和暖色背景
+            tag_text_color = "#5D4037"  # 深褐色，与次要文字色一致
+            tag_bg_color = "#E8DDD4"    # 柔和的米褐色背景
+
         for tag in tag_labels:
             tag.setStyleSheet(f"""
                 QLabel#tagLabel {{
-                    color: {theme_manager.ACCENT_PRIMARY};
-                    background: {theme_manager.ACCENT_PRIMARY}22;
+                    color: {tag_text_color};
+                    background: {tag_bg_color};
                     border-radius: 4px;
                     padding: 4px 8px;
+                    font-family: {serif_font};
                     font-size: 12px;
                     font-weight: 500;
                 }}
@@ -252,10 +267,14 @@ class InspiredOptionsContainer(ThemeAwareWidget):
         if self.is_locked:
             return
 
-        # 取消其他卡片的选中状态
+        # 取消其他卡片的选中状态（检查对象有效性）
         for card in self.cards:
-            if card.option_data.get('id') != option_id:
-                card.set_selected(False)
+            try:
+                if card.option_data.get('id') != option_id:
+                    card.set_selected(False)
+            except RuntimeError:
+                # C++对象已被删除，跳过
+                pass
 
         # 发射选择信号
         self.option_selected.emit(option_id, label)
@@ -263,9 +282,15 @@ class InspiredOptionsContainer(ThemeAwareWidget):
     def lock(self):
         """锁定选项容器，禁止再次选择"""
         self.is_locked = True
-        # 禁用所有卡片
+        # 禁用所有卡片（检查对象是否仍有效）
         for card in self.cards:
-            card.set_disabled(True)
+            try:
+                # 检查C++对象是否仍有效
+                card.isVisible()  # 如果对象已删除，这会抛出RuntimeError
+                card.set_disabled(True)
+            except RuntimeError:
+                # C++对象已被删除，跳过
+                pass
 
     def _apply_theme(self):
         """更新主题样式"""

@@ -91,9 +91,11 @@ class ButtonStyles:
         gradient_hover = ModernEffects.linear_gradient(
             [theme_manager.PRIMARY_LIGHT, theme_manager.PRIMARY], 135
         )
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background: {gradient};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -119,9 +121,11 @@ class ButtonStyles:
     def secondary(size: str = 'MD') -> str:
         """次要按钮样式 - 浅色背景带边框"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -150,9 +154,11 @@ class ButtonStyles:
     def glass(size: str = 'MD') -> str:
         """玻璃态按钮 - 半透明背景"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.BG_CARD};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -181,9 +187,11 @@ class ButtonStyles:
     def danger(size: str = 'MD') -> str:
         """危险操作按钮 - 砖红色"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.ERROR};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -209,9 +217,11 @@ class ButtonStyles:
     def outline_danger(size: str = 'MD') -> str:
         """危险操作轮廓按钮 - 砖红色边框"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.ERROR};
                 border: 1px solid {theme_manager.ERROR};
@@ -240,9 +250,11 @@ class ButtonStyles:
     def success(size: str = 'MD') -> str:
         """成功按钮 - 翠绿色"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.SUCCESS};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -268,9 +280,11 @@ class ButtonStyles:
     def outline_success(size: str = 'MD') -> str:
         """成功轮廓按钮 - 翠绿色边框"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.SUCCESS};
                 border: 1px solid {theme_manager.SUCCESS};
@@ -299,9 +313,11 @@ class ButtonStyles:
     def warning(size: str = 'MD') -> str:
         """警告按钮 - 琥珀色"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: {theme_manager.WARNING};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -327,9 +343,11 @@ class ButtonStyles:
     def link(size: str = 'MD') -> str:
         """链接按钮 - 无背景，带下划线"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.PRIMARY};
                 border: none;
@@ -353,9 +371,11 @@ class ButtonStyles:
     def text(size: str = 'MD') -> str:
         """文本按钮 - 无背景无边框，纯文字"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.TEXT_SECONDARY};
                 border: none;
@@ -484,9 +504,11 @@ class ButtonStyles:
         gradient_hover = ModernEffects.linear_gradient(
             [theme_manager.ACCENT_LIGHT, theme_manager.ACCENT], 135
         )
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background: {gradient};
                 color: {theme_manager.BUTTON_TEXT};
                 border: none;
@@ -512,9 +534,11 @@ class ButtonStyles:
     def outline_primary(size: str = 'MD') -> str:
         """主色轮廓按钮 - 赭红色边框"""
         props = ButtonStyles._get_size_props(size)
+        serif_font = theme_manager.serif_font()
 
         return f"""
             QPushButton {{
+                font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.PRIMARY};
                 border: 1px solid {theme_manager.PRIMARY};

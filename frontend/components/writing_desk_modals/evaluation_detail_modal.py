@@ -175,6 +175,8 @@ class WDEvaluationDetailModal(QDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
         # 获取当前是否为深色模式
         is_dark = theme_manager.is_dark_mode()
 
@@ -211,6 +213,7 @@ class WDEvaluationDetailModal(QDialog):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -242,6 +245,7 @@ class WDEvaluationDetailModal(QDialog):
 
         if self.eval_label:
             self.eval_label.setStyleSheet(f"""
+                font-family: {serif_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.6;
@@ -260,6 +264,7 @@ class WDEvaluationDetailModal(QDialog):
         if self.close_footer_btn:
             self.close_footer_btn.setStyleSheet(f"""
                 QPushButton {{
+                    font-family: {serif_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;

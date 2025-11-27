@@ -19,6 +19,8 @@ class TestResultDialog(QDialog):
         self.success = success
         self.message = message
         self.details = details or {}
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self.setWindowTitle("测试结果")
         self.setMinimumSize(400, 300)
         self.setupUI()
@@ -30,10 +32,11 @@ class TestResultDialog(QDialog):
         layout.setSpacing(16)
 
         # 图标
-        icon = QLabel("✓" if self.success else "✗")
+        icon = QLabel("Y" if self.success else "X")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setFixedSize(64, 64)
         icon.setStyleSheet(f"""
+            font-family: {self.serif_font};
             background-color: {theme_manager.SUCCESS_BG if self.success else theme_manager.ERROR_BG};
             color: {theme_manager.SUCCESS if self.success else theme_manager.ERROR};
             border-radius: 32px;
@@ -45,14 +48,14 @@ class TestResultDialog(QDialog):
         # 标题
         title = QLabel("连接成功" if self.success else "连接失败")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};")
+        title.setStyleSheet(f"font-family: {self.serif_font}; font-size: 18px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};")
         layout.addWidget(title)
 
         # 消息
         message = QLabel(self.message)
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message.setWordWrap(True)
-        message.setStyleSheet(f"font-size: 14px; color: {theme_manager.TEXT_SECONDARY};")
+        message.setStyleSheet(f"font-family: {self.serif_font}; font-size: 14px; color: {theme_manager.TEXT_SECONDARY};")
         layout.addWidget(message)
 
         # 详细信息
@@ -71,22 +74,22 @@ class TestResultDialog(QDialog):
             if 'response_time_ms' in self.details:
                 time_row = QHBoxLayout()
                 time_label = QLabel("响应时间:")
-                time_label.setStyleSheet(f"font-size: 13px; color: {theme_manager.TEXT_SECONDARY};")
+                time_label.setStyleSheet(f"font-family: {self.serif_font}; font-size: 13px; color: {theme_manager.TEXT_SECONDARY};")
                 time_row.addWidget(time_label)
                 time_row.addStretch()
                 time_value = QLabel(f"{self.details['response_time_ms']:.2f} ms")
-                time_value.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};")
+                time_value.setStyleSheet(f"font-family: {self.serif_font}; font-size: 13px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};")
                 time_row.addWidget(time_value)
                 details_layout.addLayout(time_row)
 
             if 'model_info' in self.details:
                 model_row = QHBoxLayout()
                 model_label = QLabel("模型:")
-                model_label.setStyleSheet(f"font-size: 13px; color: {theme_manager.TEXT_SECONDARY};")
+                model_label.setStyleSheet(f"font-family: {self.serif_font}; font-size: 13px; color: {theme_manager.TEXT_SECONDARY};")
                 model_row.addWidget(model_label)
                 model_row.addStretch()
                 model_value = QLabel(str(self.details['model_info']))
-                model_value.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};")
+                model_value.setStyleSheet(f"font-family: {self.serif_font}; font-size: 13px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};")
                 model_row.addWidget(model_value)
                 details_layout.addLayout(model_row)
 

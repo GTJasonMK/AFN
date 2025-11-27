@@ -26,6 +26,8 @@ class OutlineRow(QFrame):
         super().__init__(parent)
         self.data = data
         self.row_type = row_type
+        # 使用书香风格字体
+        self.serif_font = theme_manager.serif_font()
         self._setup_ui()
         self._apply_style()
 
@@ -130,6 +132,7 @@ class OutlineRow(QFrame):
         else:
             badge_bg = theme_manager.ACCENT
         self.num_badge.setStyleSheet(f"""
+            font-family: {self.serif_font};
             background-color: {badge_bg};
             color: {theme_manager.BUTTON_TEXT};
             border-radius: {dp(18)}px;
@@ -139,24 +142,25 @@ class OutlineRow(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
+            f"font-family: {self.serif_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
         )
 
         # 范围标签样式
         if hasattr(self, 'range_label'):
             self.range_label.setStyleSheet(
-                f"font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+                f"font-family: {self.serif_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
             )
 
         # 摘要样式
         if hasattr(self, 'summary_label'):
             self.summary_label.setStyleSheet(
-                f"font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+                f"font-family: {self.serif_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
             )
 
         # 详情按钮样式
         self.detail_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {self.serif_font};
                 background-color: transparent;
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
