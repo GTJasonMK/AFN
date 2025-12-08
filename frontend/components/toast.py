@@ -109,8 +109,8 @@ class Toast(QWidget):
         """应用主题样式"""
         # 根据类型获取颜色
         colors = self.getColors()
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         self.setStyleSheet(f"""
             Toast {{
@@ -140,7 +140,7 @@ class Toast(QWidget):
 
         if self.message_label:
             self.message_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_BASE};
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
                 color: {colors['text']};

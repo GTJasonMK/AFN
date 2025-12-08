@@ -222,6 +222,9 @@ class ChaptersSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+
         # 无章节状态样式
         if self.no_chapters_state:
             self.no_chapters_state.setStyleSheet(f"""
@@ -232,11 +235,13 @@ class ChaptersSection(ThemeAwareWidget):
                     font-size: {sp(56)}px;
                 }}
                 #empty_title {{
+                    font-family: {ui_font};
                     font-size: {sp(18)}px;
                     font-weight: 600;
                     color: {theme_manager.TEXT_SECONDARY};
                 }}
                 #empty_hint {{
+                    font-family: {ui_font};
                     font-size: {sp(13)}px;
                     color: {theme_manager.TEXT_TERTIARY};
                     max-width: {dp(300)}px;
@@ -255,11 +260,13 @@ class ChaptersSection(ThemeAwareWidget):
                     border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
                 }}
                 #list_title {{
+                    font-family: {ui_font};
                     font-size: {sp(15)}px;
                     font-weight: 600;
                     color: {theme_manager.TEXT_PRIMARY};
                 }}
                 #count_label {{
+                    font-family: {ui_font};
                     font-size: {sp(12)}px;
                     color: {theme_manager.TEXT_TERTIARY};
                     background-color: {theme_manager.BG_TERTIARY};
@@ -272,6 +279,7 @@ class ChaptersSection(ThemeAwareWidget):
                     border: 1px solid {theme_manager.PRIMARY};
                     border-radius: {dp(6)}px;
                     padding: {dp(2)}px {dp(8)}px;
+                    font-family: {ui_font};
                     font-size: {sp(12)}px;
                 }}
                 #import_btn:hover {{
@@ -296,15 +304,18 @@ class ChaptersSection(ThemeAwareWidget):
                     background-color: {theme_manager.SUCCESS};
                     color: {theme_manager.BUTTON_TEXT};
                     border-radius: {dp(14)}px;
+                    font-family: {ui_font};
                     font-size: {sp(12)}px;
                     font-weight: 700;
                 }}
                 #chapter_item_title {{
+                    font-family: {ui_font};
                     font-size: {sp(14)}px;
                     font-weight: 500;
                     color: {theme_manager.TEXT_PRIMARY};
                 }}
                 #chapter_item_word_count {{
+                    font-family: {ui_font};
                     font-size: {sp(11)}px;
                     color: {theme_manager.TEXT_TERTIARY};
                     padding-left: {dp(38)}px;
@@ -324,11 +335,23 @@ class ChaptersSection(ThemeAwareWidget):
                     font-size: {sp(56)}px;
                 }}
                 #empty_text {{
+                    font-family: {ui_font};
                     font-size: {sp(15)}px;
                     font-weight: 500;
                     color: {theme_manager.TEXT_TERTIARY};
                 }}
             """)
+
+        # 重建当前显示的章节详情以应用新主题
+        if self.detail_stack and self.detail_stack.count() > 1:
+            # 有显示中的章节详情（不是空状态）
+            current_row = self.chapter_list_widget.currentRow() if self.chapter_list_widget else -1
+            if current_row >= 0 and current_row < len(self.completed_chapters):
+                chapter = self.completed_chapters[current_row]
+                chapter_number = chapter.get('chapter_number')
+                if chapter_number in self.chapter_cache:
+                    # 重新显示章节详情
+                    self._displayChapterDetail(self.chapter_cache[chapter_number])
 
     def _onChapterSelected(self, row):
         """章节被选中"""
@@ -373,6 +396,11 @@ class ChaptersSection(ThemeAwareWidget):
 
     def _createChapterDetailWidget(self, detail):
         """创建章节详情widget - 只显示正文"""
+        # 使用书香风格字体
+        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(dp(24), dp(20), dp(24), dp(20))
@@ -396,6 +424,7 @@ class ChaptersSection(ThemeAwareWidget):
         chapter_num = detail.get('chapter_number', '')
         title = QLabel(f"第{chapter_num}章  {detail.get('title', '')}")
         title.setStyleSheet(f"""
+            font-family: {ui_font};
             font-size: {sp(18)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -407,6 +436,7 @@ class ChaptersSection(ThemeAwareWidget):
         word_count = count_chinese_characters(content)
         word_label = QLabel(f"{word_count} 字")
         word_label.setStyleSheet(f"""
+            font-family: {ui_font};
             font-size: {sp(13)}px;
             color: {theme_manager.TEXT_SECONDARY};
             background-color: {theme_manager.BG_TERTIARY};
@@ -421,6 +451,7 @@ class ChaptersSection(ThemeAwareWidget):
         export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         export_btn.setStyleSheet(f"""
             QPushButton {{
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_TERTIARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -480,6 +511,7 @@ class ChaptersSection(ThemeAwareWidget):
             QTextEdit {{
                 background-color: transparent;
                 border: none;
+                font-family: {serif_font};
                 font-size: {sp(15)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.9;

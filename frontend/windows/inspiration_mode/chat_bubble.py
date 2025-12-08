@@ -77,19 +77,18 @@ class ChatBubble(ThemeAwareFrame):
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
         is_dark = theme_manager.is_dark_mode()
-        serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
         highlight_color = theme_manager.book_accent_color()
 
         if self.is_user:
-            # 用户气泡 - 深色纯色背景
+            # 用户气泡 - 使用 theme_manager 的颜色，避免硬编码
             if is_dark:
-                bg_color = "#4A4A4A"
-                text_color = "#E0E0E0"
-                sender_color = highlight_color
+                bg_color = theme_manager.BG_TERTIARY
+                text_color = theme_manager.TEXT_PRIMARY
             else:
-                bg_color = "#2C3E50"  # 墨蓝
-                text_color = "#F9F5F0"  # 米白
-                sender_color = "#D7CCC8"
+                bg_color = theme_manager.PRIMARY_DARK  # 使用主题的深主色
+                text_color = theme_manager.BUTTON_TEXT
+            sender_color = highlight_color
 
             self.setStyleSheet(f"""
                 ChatBubble {{
@@ -121,7 +120,7 @@ class ChatBubble(ThemeAwareFrame):
         # 发送者标签
         if self.sender_label:
             self.sender_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 font-weight: bold;
                 color: {sender_color};
@@ -132,7 +131,7 @@ class ChatBubble(ThemeAwareFrame):
         # 消息内容
         if self.message_label:
             self.message_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(15)}px;
                 color: {text_color};
                 line-height: 1.6;

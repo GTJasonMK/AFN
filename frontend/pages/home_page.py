@@ -87,8 +87,59 @@ class ParticleBackground(QWidget):
         self.timer.timeout.connect(self.update_particles)
         self.timer.start(50)  # 50ms更新一次
 
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_mode):
+        """主题切换时更新粒子颜色"""
+        self._refresh_particle_colors()
+
+    def _refresh_particle_colors(self):
+        """刷新所有粒子的颜色以适应当前主题"""
+        is_dark = theme_manager.is_dark_mode()
+        accent = theme_manager.book_accent_color()
+        text_secondary = theme_manager.book_text_secondary()
+
+        if is_dark:
+            colors = [
+                QColor(accent),        # 暗金
+                QColor("#8B7E66"),     # 灰褐
+                QColor("#C4B093"),     # 羊皮纸色
+            ]
+        else:
+            colors = [
+                QColor(text_secondary), # 深褐
+                QColor(accent),         # 赭石
+                QColor("#2C3E50"),      # 墨蓝
+            ]
+
+        # 更新现有粒子的颜色
+        for particle in self.particles:
+            color = random.choice(colors)
+            color.setAlpha(int(random.uniform(15, 50)))
+            particle.color = color
+
+        self.update()  # 触发重绘
+
     def init_particles(self):
         """初始化粒子 - 调整为书香风格的墨点/尘埃"""
+        is_dark = theme_manager.is_dark_mode()
+        accent = theme_manager.book_accent_color()
+        text_secondary = theme_manager.book_text_secondary()
+
+        if is_dark:
+            colors = [
+                QColor(accent),        # 暗金
+                QColor("#8B7E66"),     # 灰褐
+                QColor("#C4B093"),     # 羊皮纸色
+            ]
+        else:
+            colors = [
+                QColor(text_secondary), # 深褐
+                QColor(accent),         # 赭石
+                QColor("#2C3E50"),      # 墨蓝
+            ]
+
         # 创建30个粒子
         for _ in range(30):
             x = random.randint(0, 1000)
@@ -96,24 +147,6 @@ class ParticleBackground(QWidget):
             vx = random.uniform(-0.2, 0.2)  # 减慢速度，更优雅
             vy = random.uniform(-0.2, 0.2)
             size = random.randint(2, 5)     # 减小尺寸
-
-            # 使用书香风格颜色 (基于 theme_manager)
-            is_dark = theme_manager.is_dark_mode()
-            accent = theme_manager.book_accent_color()
-            text_secondary = theme_manager.book_text_secondary()
-
-            if is_dark:
-                colors = [
-                    QColor(accent),        # 暗金
-                    QColor("#8B7E66"),     # 灰褐
-                    QColor("#C4B093"),     # 羊皮纸色
-                ]
-            else:
-                colors = [
-                    QColor(text_secondary), # 深褐
-                    QColor(accent),         # 赭石
-                    QColor("#2C3E50"),      # 墨蓝
-                ]
 
             color = random.choice(colors)
             color.setAlpha(int(random.uniform(15, 50))) # 降低透明度
@@ -255,6 +288,7 @@ class HomePage(BasePage):
         border_color = theme_manager.book_border_color()
         btn_bg = theme_manager.book_bg_secondary()
         serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
 
         # 设置背景
         self.setStyleSheet(f"""
@@ -288,12 +322,11 @@ class HomePage(BasePage):
         if hasattr(self, 'subtitle'):
             self.subtitle.setStyleSheet(f"""
                 QLabel {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {dp(18)}px;
                     font-weight: normal;
                     color: {text_secondary};
-                    letter-spacing: {dp(2)}px;
-                    font-style: italic;
+                    letter-spacing: {dp(1)}px;
                     margin: 0;
                     padding: 0;
                 }}
@@ -308,7 +341,7 @@ class HomePage(BasePage):
                     border: 1px solid transparent;
                     border-radius: {dp(4)}px;
                     padding: {dp(4)}px {dp(8)}px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                 }}
                 QPushButton:hover {{
                     color: {accent_color};
@@ -324,9 +357,9 @@ class HomePage(BasePage):
                 border: 1px solid {border_color};
                 border-radius: {dp(8)}px;
                 padding: {dp(12)}px {dp(24)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {dp(18)}px;
-                letter-spacing: {dp(2)}px;
+                letter-spacing: {dp(1)}px;
             }}
             QPushButton:hover {{
                 border-color: {accent_color};

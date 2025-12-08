@@ -56,10 +56,14 @@ class ChapterOutlineSection(ThemeAwareWidget):
         self._part_list = None
         self._chapter_list = None
         self._tab_widget = None
+        self._max_covered_chapter = 0  # 部分大纲覆盖的最大章节数
 
         # 进度轮询相关
         self._progress_timer = None
         self._progress_dialog = None
+
+        # 异步任务引用（防止被垃圾回收）
+        self._generate_worker = None
 
         # 先调用父类初始化
         super().__init__(parent)
@@ -167,12 +171,24 @@ class ChapterOutlineSection(ThemeAwareWidget):
             chapter_layout.setContentsMargins(0, dp(16), 0, 0)
             chapter_layout.setSpacing(dp(16))
 
-            # 章节大纲操作栏
+            # 计算部分大纲覆盖的最大章节数
+            # 章节大纲只能生成到已有部分大纲覆盖的范围内
+            max_covered_chapter = 0
+            for part in part_outlines:
+                end_chapter = part.get('end_chapter', 0)
+                if end_chapter > max_covered_chapter:
+                    max_covered_chapter = end_chapter
+
+            # 章节大纲操作栏 - 使用部分大纲覆盖范围作为上限
             total_chapters = self.blueprint.get('total_chapters', 0)
+            # 如果部分大纲覆盖范围小于总章节数，显示覆盖范围
+            effective_total = max_covered_chapter if max_covered_chapter > 0 else total_chapters
+            self._max_covered_chapter = max_covered_chapter  # 保存供后续使用
+
             self._chapter_action_bar = OutlineActionBar(
                 title="章节大纲",
                 current_count=len(self.outline),
-                total_count=total_chapters,
+                total_count=effective_total,
                 outline_type="chapter",
                 editable=self.editable
             )
@@ -185,7 +201,12 @@ class ChapterOutlineSection(ThemeAwareWidget):
             self._chapter_list = OutlineListView(self.outline, item_type="chapter")
             chapter_layout.addWidget(self._chapter_list, stretch=1)
 
-            self._tab_widget.addTab(chapter_tab, f"章节大纲 ({len(self.outline)}/{total_chapters})")
+            # Tab标题显示当前进度和可生成范围
+            if max_covered_chapter > 0 and max_covered_chapter < total_chapters:
+                tab_title = f"章节大纲 ({len(self.outline)}/{max_covered_chapter}，共{total_chapters}章)"
+            else:
+                tab_title = f"章节大纲 ({len(self.outline)}/{total_chapters})"
+            self._tab_widget.addTab(chapter_tab, tab_title)
 
             self._main_layout.addWidget(self._tab_widget, stretch=1)
             logger.info("长篇小说UI创建完成")
@@ -259,6 +280,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
         self._part_list = None
         self._chapter_list = None
         self._tab_widget = None
+        self._max_covered_chapter = 0
 
     def _clear_layout(self, layout):
         """递归清空布局"""
@@ -278,44 +300,59 @@ class ChapterOutlineSection(ThemeAwareWidget):
             MessageService.show_warning(self, "无法获取总章节数，请先生成蓝图", "提示")
             return
 
-        chapters_per_part, ok = IntInputDialog.getIntStatic(
+        # 使用新的配置对话框（支持指定生成范围）
+        from components.dialogs import PartOutlineConfigDialog
+        result = PartOutlineConfigDialog.getConfigStatic(
             parent=self,
-            title="生成部分大纲",
-            label=f"小说共 {total_chapters} 章\n请输入每个部分包含的章节数：",
-            value=25,
-            min_value=10,
-            max_value=100
+            total_chapters=total_chapters
         )
-        if not ok:
+        if not result:
             return
 
+        generate_chapters, chapters_per_part = result
+
         # 计算预计生成的部分数
-        estimated_parts = (total_chapters + chapters_per_part - 1) // chapters_per_part
+        import math
+        estimated_parts = math.ceil(generate_chapters / chapters_per_part)
 
         # 显示带进度的加载对话框
+        if generate_chapters < total_chapters:
+            message = f"正在生成第1-{generate_chapters}章的部分大纲...\n预计生成 {estimated_parts} 个部分"
+        else:
+            message = f"正在启动生成任务...\n预计生成 {estimated_parts} 个部分大纲"
+
         self._progress_dialog = LoadingDialog(
             parent=self,
             title="生成部分大纲",
-            message=f"正在启动生成任务...\n预计生成 {estimated_parts} 个部分大纲",
+            message=message,
             cancelable=True
         )
         self._progress_dialog.rejected.connect(self._stop_progress_polling)
         self._progress_dialog.show()
 
-        # 启动生成任务（使用异步worker）
+        # 启动生成任务（使用异步worker，保存引用防止被垃圾回收）
+        # 注意：使用 generate_chapters 而非 total_chapters，支持增量生成
         from utils.async_worker import AsyncAPIWorker
-        worker = AsyncAPIWorker(
+        self._generate_worker = AsyncAPIWorker(
             self.api_client.generate_part_outlines,
             self.project_id,
-            total_chapters=total_chapters,
+            total_chapters=generate_chapters,  # 使用用户指定的范围
             chapters_per_part=chapters_per_part
         )
-        worker.success.connect(self._on_generate_started)
-        worker.error.connect(self._on_generate_error)
-        worker.start()
+        self._generate_worker.success.connect(self._on_generate_completed)
+        self._generate_worker.error.connect(self._on_generate_error)
+        self._generate_worker.start()
+
+    def _on_generate_completed(self, result):
+        """生成任务完成"""
+        self._stop_progress_polling()
+        total_parts = result.get('total_parts', 0)
+        logger.info(f"部分大纲生成完成: {result}")
+        MessageService.show_operation_success(self, f"部分大纲生成完成，共 {total_parts} 个部分")
+        self.refreshRequested.emit()
 
     def _on_generate_started(self, result):
-        """生成任务启动成功，开始轮询进度"""
+        """生成任务启动成功，开始轮询进度（已弃用，保留兼容）"""
         logger.info(f"部分大纲生成任务已启动: {result}")
         # 启动进度轮询
         self._start_progress_polling()
@@ -499,13 +536,56 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def _on_continue_generate_chapters(self):
         """继续生成N个章节大纲"""
+        # 计算当前已生成的章节数
+        current_count = len(self.outline)
+
+        # 长篇模式下，检查部分大纲覆盖范围
+        needs_part_outlines = self.blueprint.get('needs_part_outlines', False)
+        if needs_part_outlines:
+            # 计算部分大纲覆盖的最大章节数
+            part_outlines = self.blueprint.get('part_outlines', [])
+            max_covered_chapter = 0
+            for part in part_outlines:
+                end_chapter = part.get('end_chapter', 0)
+                if end_chapter > max_covered_chapter:
+                    max_covered_chapter = end_chapter
+
+            # 检查是否还有可生成的空间
+            remaining = max_covered_chapter - current_count
+            if remaining <= 0:
+                if max_covered_chapter < self.blueprint.get('total_chapters', 0):
+                    MessageService.show_warning(
+                        self,
+                        f"当前部分大纲仅覆盖到第{max_covered_chapter}章，\n"
+                        f"已生成{current_count}章，无法继续生成。\n\n"
+                        f"请先生成更多部分大纲以覆盖后续章节。",
+                        "提示"
+                    )
+                else:
+                    MessageService.show_warning(self, "所有章节大纲已生成完成", "提示")
+                return
+
+            # 限制最大可生成数量为剩余覆盖范围
+            max_generate = min(remaining, 100)
+            label_text = (
+                f"当前已生成 {current_count} 章，部分大纲覆盖到第 {max_covered_chapter} 章\n"
+                f"还可生成 {remaining} 章\n\n"
+                f"请输入要生成的章节数量："
+            )
+        else:
+            # 短篇模式，使用总章节数
+            total_chapters = self.blueprint.get('total_chapters', 0) or len(self.outline)
+            remaining = total_chapters - current_count if total_chapters > 0 else 100
+            max_generate = min(remaining, 100) if remaining > 0 else 100
+            label_text = "请输入要生成的章节数量："
+
         count, ok = IntInputDialog.getIntStatic(
             parent=self,
             title="继续生成章节大纲",
-            label="请输入要生成的章节数量：",
-            value=5,
+            label=label_text,
+            value=min(5, max_generate),
             min_value=1,
-            max_value=100
+            max_value=max_generate
         )
         if not ok:
             return
@@ -610,6 +690,18 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def _check_generation_status(self):
         """检查部分大纲生成状态"""
+        # 只有长篇模式且需要部分大纲时才检查
+        needs_part_outlines = self.blueprint.get('needs_part_outlines', False)
+        if not needs_part_outlines:
+            logger.debug("短篇模式，跳过部分大纲生成状态检查")
+            return
+
+        # 如果已有部分大纲，检查是否正在生成中
+        part_outlines = self.blueprint.get('part_outlines', [])
+        if not part_outlines:
+            logger.debug("尚未开始生成部分大纲，跳过状态检查")
+            return
+
         try:
             status_data = self.api_client.get_part_outline_generation_status(self.project_id)
             status = status_data.get('status', 'pending')
@@ -653,6 +745,17 @@ class ChapterOutlineSection(ThemeAwareWidget):
         """停止所有异步任务"""
         self._stop_progress_polling()
         self.async_helper.stop_all()
+
+        # 清理生成任务worker
+        if self._generate_worker is not None:
+            try:
+                self._generate_worker.blockSignals(True)
+                if self._generate_worker.isRunning():
+                    self._generate_worker.quit()
+                    self._generate_worker.wait(1000)
+            except Exception as e:
+                logger.warning(f"清理_generate_worker时出错: {e}")
+            self._generate_worker = None
 
     def closeEvent(self, event):
         """组件关闭时清理资源"""

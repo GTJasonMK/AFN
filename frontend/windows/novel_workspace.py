@@ -236,26 +236,16 @@ class ProjectCard(ThemeAwareFrame):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        # 颜色定义
-        if is_dark:
-            bg_color = "#2D2D2D"
-            text_primary = "#E0E0E0"
-            text_secondary = "#A0A0A0"
-            border_color = "#4A4A4A"
-            icon_bg = "transparent" # 移除渐变背景
-            icon_color = "#D4AF37" # 暗金
-        else:
-            bg_color = "#FFFBF0" # 羊皮纸亮色
-            text_primary = "#2C1810" # 深褐
-            text_secondary = "#5D4037" # 浅褐
-            border_color = "#D7CCC8"
-            icon_bg = "transparent"
-            icon_color = "#8B4513" # 赭石
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        bg_color = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        icon_bg = "transparent"
+        icon_color = theme_manager.book_accent_color()
 
         # 字体设置
-        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+        ui_font = theme_manager.ui_font()
 
         # 图标容器 - 简约风格
         if self.icon_container:
@@ -272,7 +262,7 @@ class ProjectCard(ThemeAwareFrame):
         # 标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(18)}px;
                 font-weight: bold;
                 color: {text_primary};
@@ -281,7 +271,7 @@ class ProjectCard(ThemeAwareFrame):
         # 状态标签
         if self.status_label:
             self.status_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {text_secondary};
                 font-style: italic;
@@ -290,7 +280,7 @@ class ProjectCard(ThemeAwareFrame):
         # 时间
         if self.time_label:
             self.time_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(11)}px;
                 color: {text_secondary};
             """)
@@ -298,7 +288,7 @@ class ProjectCard(ThemeAwareFrame):
         # 进度标签
         if self.progress_label:
             self.progress_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {text_secondary};
             """)
@@ -306,7 +296,7 @@ class ProjectCard(ThemeAwareFrame):
         if self.percent_label:
             percent_color = icon_color
             self.percent_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {percent_color};
                 font-weight: bold;
@@ -334,7 +324,7 @@ class ProjectCard(ThemeAwareFrame):
                 border: 1px solid {border_color};
                 padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(4)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(11)}px;
             """)
 
@@ -345,7 +335,7 @@ class ProjectCard(ThemeAwareFrame):
                 color: {text_secondary};
                 border: 1px solid {border_color};
                 border-radius: {dp(4)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 padding: {dp(4)}px {dp(8)}px;
             }}
             QPushButton:hover {{
@@ -637,26 +627,18 @@ class CreateProjectCard(ThemeAwareFrame):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        # 颜色定义
-        if is_dark:
-            text_primary = "#E0E0E0"
-            text_secondary = "#A0A0A0"
-            border_color = "#4A4A4A"
-            highlight_color = "#D4AF37"
-        else:
-            text_primary = "#2C1810"
-            text_secondary = "#5D4037"
-            border_color = "#D7CCC8"
-            highlight_color = "#8B4513"
-            
-        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        highlight_color = theme_manager.book_accent_color()
+
+        ui_font = theme_manager.ui_font()
 
         # 加号样式
         if self.plus_label:
             self.plus_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(48)}px;
                 color: {highlight_color};
                 font-weight: 300;
@@ -665,7 +647,7 @@ class CreateProjectCard(ThemeAwareFrame):
         # 文字样式
         if self.text_label:
             self.text_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {text_secondary};
             """)
@@ -733,7 +715,7 @@ class NovelWorkspace(BasePage):
         # 返回按钮
         self.back_btn = QPushButton("返回首页")
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.back_btn.clicked.connect(self.goBack)
+        self.back_btn.clicked.connect(self.goBackToHome)
         header_layout.addWidget(self.back_btn)
 
         layout.addLayout(header_layout)
@@ -760,21 +742,14 @@ class NovelWorkspace(BasePage):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        # 颜色定义
-        if is_dark:
-            bg_color = "#1E1E1E" # 页面背景
-            text_primary = "#E0E0E0"
-            text_secondary = "#A0A0A0"
-            border_color = "#4A4A4A"
-        else:
-            bg_color = "#F9F5F0" # 页面背景
-            text_primary = "#2C1810"
-            text_secondary = "#5D4037"
-            border_color = "#D7CCC8"
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        bg_color = theme_manager.book_bg_primary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
 
-        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+        ui_font = theme_manager.ui_font()
+        serif_font = theme_manager.serif_font()
 
         if hasattr(self, 'title_label'):
             self.title_label.setStyleSheet(f"""
@@ -794,7 +769,7 @@ class NovelWorkspace(BasePage):
                     border: 1px solid {border_color};
                     border-radius: {dp(4)}px;
                     padding: {dp(6)}px {dp(12)}px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                 }}
                 QPushButton:hover {{
                     color: {text_primary};
@@ -878,6 +853,10 @@ class NovelWorkspace(BasePage):
     def onCreateProject(self):
         """创建新项目"""
         self.navigateTo('INSPIRATION')
+
+    def goBackToHome(self):
+        """返回首页"""
+        self.navigateTo('HOME')
 
     def onViewDetails(self, project_id):
         """查看项目详情"""

@@ -190,7 +190,7 @@ class InspirationMode(BasePage):
                     background-color: {highlight_color};
                     border: 1px solid {highlight_color};
                     border-radius: {dp(4)}px;
-                    color: #FFFFFF;
+                    color: {theme_manager.BUTTON_TEXT};
                     font-family: {serif_font};
                     padding: {dp(4)}px {dp(12)}px;
                     min-width: 100px;

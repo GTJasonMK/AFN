@@ -135,13 +135,18 @@ class RelationshipsSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+
         self.setStyleSheet(f"""
             #section_title {{
+                font-family: {ui_font};
                 font-size: {sp(18)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
             }}
             #count_label {{
+                font-family: {ui_font};
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_TERTIARY};
                 background-color: {theme_manager.BG_TERTIARY};
@@ -149,6 +154,7 @@ class RelationshipsSection(ThemeAwareWidget):
                 border-radius: {dp(12)}px;
             }}
             #edit_btn {{
+                font-family: {ui_font};
                 background: transparent;
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(6)}px;
@@ -168,11 +174,13 @@ class RelationshipsSection(ThemeAwareWidget):
                 padding: {dp(40)}px;
             }}
             #empty_text {{
+                font-family: {ui_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_SECONDARY};
             }}
             #empty_hint {{
+                font-family: {ui_font};
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_TERTIARY};
             }}

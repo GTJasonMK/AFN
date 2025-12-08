@@ -65,6 +65,10 @@ class BlueprintDisplay(ThemeAwareWidget):
 
     def createFieldWidget(self, label, value):
         """创建字段展示widget"""
+        # 使用 theme_manager 的便捷方法
+        ui_font = theme_manager.ui_font()
+        serif_font = theme_manager.serif_font()
+
         widget = QFrame()
         widget.setStyleSheet(f"""
             QFrame {{
@@ -81,6 +85,7 @@ class BlueprintDisplay(ThemeAwareWidget):
         # 标签
         label_widget = QLabel(label)
         label_widget.setStyleSheet(f"""
+            font-family: {ui_font};
             font-size: {theme_manager.FONT_SIZE_XS};
             font-weight: {theme_manager.FONT_WEIGHT_BOLD};
             color: {theme_manager.TEXT_SECONDARY};
@@ -91,6 +96,7 @@ class BlueprintDisplay(ThemeAwareWidget):
         value_widget = QLabel(str(value))
         value_widget.setWordWrap(True)
         value_widget.setStyleSheet(f"""
+            font-family: {serif_font};
             font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_PRIMARY};
             line-height: 1.6;

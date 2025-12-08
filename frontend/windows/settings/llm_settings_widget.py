@@ -28,6 +28,13 @@ class LLMSettingsWidget(QWidget):
         self.setupUI()
         self.loadConfigs()
 
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_name: str):
+        """主题切换时更新样式"""
+        self._apply_styles()
+
     def setupUI(self):
         """初始化极简UI"""
         # 主布局
@@ -35,18 +42,9 @@ class LLMSettingsWidget(QWidget):
         layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
         layout.setSpacing(dp(20))
 
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
-
         # 标题
-        title = QLabel("LLM 配置")
-        title.setStyleSheet(f"""
-            font-family: {serif_font};
-            font-size: {sp(24)}px;
-            font-weight: bold;
-            color: {theme_manager.TEXT_PRIMARY};
-        """)
-        layout.addWidget(title)
+        self.title_label = QLabel("LLM 配置")
+        layout.addWidget(self.title_label)
 
         # 按钮栏
         button_layout = QHBoxLayout()
@@ -55,19 +53,16 @@ class LLMSettingsWidget(QWidget):
         # 新增按钮
         self.add_btn = QPushButton("新增")
         self.add_btn.clicked.connect(self.createConfig)
-        self.add_btn.setStyleSheet(self.getButtonStyle())
         button_layout.addWidget(self.add_btn)
 
         # 导入按钮
         self.import_btn = QPushButton("导入")
         self.import_btn.clicked.connect(self.importConfigs)
-        self.import_btn.setStyleSheet(self.getButtonStyle())
         button_layout.addWidget(self.import_btn)
 
         # 导出全部按钮
         self.export_all_btn = QPushButton("导出全部")
         self.export_all_btn.clicked.connect(self.exportAll)
-        self.export_all_btn.setStyleSheet(self.getButtonStyle())
         button_layout.addWidget(self.export_all_btn)
 
         button_layout.addStretch()
@@ -75,9 +70,76 @@ class LLMSettingsWidget(QWidget):
 
         # 配置列表
         self.config_list = QListWidget()
+        layout.addWidget(self.config_list)
+
+        # 操作按钮栏
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(dp(10))
+
+        # 测试按钮
+        self.test_btn = QPushButton("测试连接")
+        self.test_btn.clicked.connect(self.testSelectedConfig)
+        action_layout.addWidget(self.test_btn)
+
+        # 激活按钮
+        self.activate_btn = QPushButton("激活")
+        self.activate_btn.clicked.connect(self.activateSelectedConfig)
+        action_layout.addWidget(self.activate_btn)
+
+        # 编辑按钮
+        self.edit_btn = QPushButton("编辑")
+        self.edit_btn.clicked.connect(self.editSelectedConfig)
+        action_layout.addWidget(self.edit_btn)
+
+        # 导出按钮
+        self.export_btn = QPushButton("导出")
+        self.export_btn.clicked.connect(self.exportSelectedConfig)
+        action_layout.addWidget(self.export_btn)
+
+        # 删除按钮
+        self.delete_btn = QPushButton("删除")
+        self.delete_btn.clicked.connect(self.deleteSelectedConfig)
+        action_layout.addWidget(self.delete_btn)
+
+        action_layout.addStretch()
+        layout.addLayout(action_layout)
+
+        # 初始状态禁用操作按钮
+        self.updateActionButtons()
+
+        # 连接选择变化信号
+        self.config_list.itemSelectionChanged.connect(self.updateActionButtons)
+
+        # 应用样式
+        self._apply_styles()
+
+    def _apply_styles(self):
+        """应用主题样式（主题切换时调用）"""
+        ui_font = theme_manager.ui_font()
+
+        # 标题样式
+        self.title_label.setStyleSheet(f"""
+            font-family: {ui_font};
+            font-size: {sp(24)}px;
+            font-weight: bold;
+            color: {theme_manager.TEXT_PRIMARY};
+        """)
+
+        # 按钮样式
+        btn_style = self.getButtonStyle()
+        self.add_btn.setStyleSheet(btn_style)
+        self.import_btn.setStyleSheet(btn_style)
+        self.export_all_btn.setStyleSheet(btn_style)
+        self.test_btn.setStyleSheet(btn_style)
+        self.activate_btn.setStyleSheet(btn_style)
+        self.edit_btn.setStyleSheet(btn_style)
+        self.export_btn.setStyleSheet(btn_style)
+        self.delete_btn.setStyleSheet(self.getDeleteButtonStyle())
+
+        # 配置列表样式
         self.config_list.setStyleSheet(f"""
             QListWidget {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(4)}px;
@@ -96,50 +158,6 @@ class LLMSettingsWidget(QWidget):
                 border-color: {theme_manager.PRIMARY};
             }}
         """)
-        layout.addWidget(self.config_list)
-
-        # 操作按钮栏
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(dp(10))
-
-        # 测试按钮
-        self.test_btn = QPushButton("测试连接")
-        self.test_btn.clicked.connect(self.testSelectedConfig)
-        self.test_btn.setStyleSheet(self.getButtonStyle())
-        action_layout.addWidget(self.test_btn)
-
-        # 激活按钮
-        self.activate_btn = QPushButton("激活")
-        self.activate_btn.clicked.connect(self.activateSelectedConfig)
-        self.activate_btn.setStyleSheet(self.getButtonStyle())
-        action_layout.addWidget(self.activate_btn)
-
-        # 编辑按钮
-        self.edit_btn = QPushButton("编辑")
-        self.edit_btn.clicked.connect(self.editSelectedConfig)
-        self.edit_btn.setStyleSheet(self.getButtonStyle())
-        action_layout.addWidget(self.edit_btn)
-
-        # 导出按钮
-        self.export_btn = QPushButton("导出")
-        self.export_btn.clicked.connect(self.exportSelectedConfig)
-        self.export_btn.setStyleSheet(self.getButtonStyle())
-        action_layout.addWidget(self.export_btn)
-
-        # 删除按钮
-        self.delete_btn = QPushButton("删除")
-        self.delete_btn.clicked.connect(self.deleteSelectedConfig)
-        self.delete_btn.setStyleSheet(self.getDeleteButtonStyle())
-        action_layout.addWidget(self.delete_btn)
-
-        action_layout.addStretch()
-        layout.addLayout(action_layout)
-
-        # 初始状态禁用操作按钮
-        self.updateActionButtons()
-
-        # 连接选择变化信号
-        self.config_list.itemSelectionChanged.connect(self.updateActionButtons)
 
     def getButtonStyle(self):
         """获取标准按钮样式"""
@@ -344,7 +362,7 @@ class LLMSettingsWidget(QWidget):
                 MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
 
     def importConfigs(self):
-        """导入���置"""
+        """导入置"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "导入配置",

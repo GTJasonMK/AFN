@@ -69,7 +69,7 @@ class WritingDesk(BasePage):
 
         # Header
         self.header = WDHeader()
-        self.header.goBackClicked.connect(self.goBack)
+        self.header.goBackClicked.connect(self.goBackToWorkspace)
         self.header.viewDetailClicked.connect(self.openProjectDetail)
         self.header.exportClicked.connect(self.exportNovel)
         main_layout.addWidget(self.header)
@@ -115,12 +115,8 @@ class WritingDesk(BasePage):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        if is_dark:
-            bg_color = "#1E1E1E"
-        else:
-            bg_color = "#F9F5F0"
+        # 使用 theme_manager 的书香风格便捷方法，而非硬编码颜色
+        bg_color = theme_manager.book_bg_primary()
 
         # 主窗口背景
         self.setStyleSheet(f"""
@@ -512,6 +508,10 @@ class WritingDesk(BasePage):
     def openProjectDetail(self):
         """打开项目详情页"""
         self.navigateTo('DETAIL', project_id=self.project_id)
+
+    def goBackToWorkspace(self):
+        """返回项目工作台"""
+        self.navigateTo('WORKSPACE', project_id=self.project_id)
 
     def exportNovel(self, format_type):
         """导出小说"""

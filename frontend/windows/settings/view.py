@@ -50,15 +50,15 @@ class SettingsView(BasePage):
         container_layout.setContentsMargins(48, 20, 48, 20)
         container_layout.setSpacing(16)
 
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         # 返回按钮
         back_btn = QPushButton("← 返回")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_CARD};
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -87,7 +87,7 @@ class SettingsView(BasePage):
 
         title_label = QLabel("系统设置")
         title_label.setStyleSheet(f"""
-            font-family: {serif_font};
+            font-family: {ui_font};
             font-size: 24px;
             font-weight: 700;
             color: {theme_manager.TEXT_PRIMARY};
@@ -107,7 +107,7 @@ class SettingsView(BasePage):
                 padding: 16px;
             }}
             QTabBar::tab {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};

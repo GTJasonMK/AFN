@@ -20,8 +20,8 @@ class RelationshipDetailDialog(QDialog):
     def __init__(self, relationship: dict, parent=None):
         super().__init__(parent)
         self.relationship = relationship
-        # 使用书香风格字体
-        self.serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        self.ui_font = theme_manager.ui_font()
         char_from = relationship.get('character_from', '')
         char_to = relationship.get('character_to', '')
         self.setWindowTitle(f"关系详情 - {char_from} & {char_to}")
@@ -158,7 +158,7 @@ class RelationshipDetailDialog(QDialog):
                 background-color: {theme_manager.BG_PRIMARY};
             }}
             #avatar_large {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.ACCENT_LIGHT}, stop:1 {theme_manager.ACCENT});
                 color: {theme_manager.BUTTON_TEXT};
                 font-size: {sp(22)}px;
@@ -166,7 +166,7 @@ class RelationshipDetailDialog(QDialog):
                 border-radius: {dp(28)}px;
             }}
             #char_name_large {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -176,7 +176,7 @@ class RelationshipDetailDialog(QDialog):
                 color: {theme_manager.PRIMARY};
             }}
             #rel_type_large {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -190,13 +190,13 @@ class RelationshipDetailDialog(QDialog):
                 border-radius: {dp(8)}px;
             }}
             #field_label {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(13)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_TERTIARY};
             }}
             #field_value {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.5;
@@ -217,9 +217,17 @@ class RelationshipRow(QFrame):
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         self.data = data
-        # 使用书香风格字体
-        self.serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        self.ui_font = theme_manager.ui_font()
         self._setup_ui()
+        self._apply_style()
+
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_name: str):
+        """主题切换时更新样式"""
+        self.ui_font = theme_manager.ui_font()
         self._apply_style()
 
     def _setup_ui(self):
@@ -325,7 +333,7 @@ class RelationshipRow(QFrame):
 
         # 头像样式
         avatar_style = f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme_manager.ACCENT_LIGHT}, stop:1 {theme_manager.ACCENT});
             color: {theme_manager.BUTTON_TEXT};
             font-size: {sp(12)}px;
@@ -336,14 +344,14 @@ class RelationshipRow(QFrame):
         self.to_avatar.setStyleSheet(avatar_style)
 
         # 名字样式
-        name_style = f"font-family: {self.serif_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
+        name_style = f"font-family: {self.ui_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
         self.from_name.setStyleSheet(name_style)
         self.to_name.setStyleSheet(name_style)
 
         # 关系类型样式
         if hasattr(self, 'type_label'):
             self.type_label.setStyleSheet(
-                f"font-family: {self.serif_font}; font-size: {sp(12)}px; font-weight: 600; color: {theme_manager.PRIMARY}; "
+                f"font-family: {self.ui_font}; font-size: {sp(12)}px; font-weight: 600; color: {theme_manager.PRIMARY}; "
                 f"background-color: {theme_manager.PRIMARY_PALE}; "
                 f"padding: {dp(2)}px {dp(10)}px; border-radius: {dp(10)}px;"
             )
@@ -351,13 +359,13 @@ class RelationshipRow(QFrame):
         # 描述样式
         if hasattr(self, 'desc_label'):
             self.desc_label.setStyleSheet(
-                f"font-family: {self.serif_font}; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+                f"font-family: {self.ui_font}; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
             )
 
         # 按钮样式
         self.detail_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 background-color: transparent;
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};

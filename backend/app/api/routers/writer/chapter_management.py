@@ -37,6 +37,7 @@ from ....schemas.novel import (
 )
 from ....schemas.user import UserInDB
 from ....repositories.chapter_repository import ChapterOutlineRepository, ChapterRepository
+from ....services.chapter_analysis_service import ChapterAnalysisService
 from ....services.chapter_ingest_service import ChapterIngestionService
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
@@ -215,6 +216,36 @@ async def select_chapter_version(
             logger.error("项目 %s 第 %s 章摘要生成失败，但版本选择已保存: %s", project_id, request.chapter_number, exc)
             # 摘要生成失败不影响版本选择结果，继续处理
 
+        # 执行章节深度分析，提取元数据、角色状态、伏笔等结构化信息
+        outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
+        chapter_title = outline.title if outline and outline.title else f"第{chapter.chapter_number}章"
+        try:
+            analysis_service = ChapterAnalysisService(session)
+            analysis_data = await analysis_service.analyze_chapter(
+                content=selected.content,
+                title=chapter_title,
+                chapter_number=chapter.chapter_number,
+                novel_title=project.title,
+                user_id=desktop_user.id,
+                timeout=300.0,
+            )
+            if analysis_data:
+                chapter.analysis_data = analysis_data.model_dump()
+                await session.commit()
+                logger.info(
+                    "项目 %s 第 %s 章分析数据已保存",
+                    project_id,
+                    request.chapter_number,
+                )
+        except Exception as exc:
+            logger.error(
+                "项目 %s 第 %s 章分析失败，但版本选择已保存: %s",
+                project_id,
+                request.chapter_number,
+                exc,
+            )
+            # 分析失败不影响版本选择结果，继续处理
+
         # 选定版本后同步向量库，确保后续章节可检索到最新内容
         vector_store: Optional[VectorStoreService]
         if not settings.vector_store_enabled:
@@ -228,8 +259,6 @@ async def select_chapter_version(
 
         if vector_store:
             ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
-            outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
-            chapter_title = outline.title if outline and outline.title else f"第{chapter.chapter_number}章"
             await ingestion_service.ingest_chapter(
                 project_id=project_id,
                 chapter_number=chapter.chapter_number,

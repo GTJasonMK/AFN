@@ -50,6 +50,13 @@ class ChapterOutlineList(QWidget):
         self._setup_ui()
         self._apply_style()
 
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_name: str):
+        """主题切换时更新样式"""
+        self._apply_style()
+
     def _setup_ui(self):
         """设置UI结构"""
         self._layout = QVBoxLayout(self)

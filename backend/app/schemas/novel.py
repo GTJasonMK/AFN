@@ -49,6 +49,64 @@ class ChapterGenerationStatus(str, Enum):
     SUCCESSFUL = "successful"
 
 
+# 章节分析数据结构
+class ChapterMetadata(BaseModel):
+    """章节元数据"""
+    characters: List[str] = Field(default_factory=list, description="本章出现的角色")
+    locations: List[str] = Field(default_factory=list, description="本章出现的地点")
+    items: List[str] = Field(default_factory=list, description="本章提到的重要物品")
+    tags: List[str] = Field(default_factory=list, description="章节类型标签")
+    tone: Optional[str] = Field(default=None, description="情感基调")
+    timeline_marker: Optional[str] = Field(default=None, description="时间标记")
+
+
+class ChapterSummaries(BaseModel):
+    """章节分级摘要"""
+    compressed: Optional[str] = Field(default=None, description="100字压缩摘要")
+    one_line: Optional[str] = Field(default=None, description="30字一句话摘要")
+    keywords: List[str] = Field(default_factory=list, description="关键词列表")
+
+
+class CharacterState(BaseModel):
+    """角色状态"""
+    location: Optional[str] = Field(default=None, description="当前位置")
+    status: Optional[str] = Field(default=None, description="状态描述")
+    changes: List[str] = Field(default_factory=list, description="本章变化")
+
+
+class ForeshadowingItem(BaseModel):
+    """伏笔项"""
+    description: str = Field(..., description="伏笔描述")
+    original_text: Optional[str] = Field(default=None, description="原文片段")
+    category: Optional[str] = Field(default=None, description="分类:character_secret/plot_twist/item_mystery/world_rule")
+    priority: str = Field(default="medium", description="优先级:high/medium/low")
+    related_entities: List[str] = Field(default_factory=list, description="关联实体")
+
+
+class ForeshadowingData(BaseModel):
+    """伏笔数据"""
+    planted: List[ForeshadowingItem] = Field(default_factory=list, description="埋下的伏笔")
+    resolved: List[Dict[str, Any]] = Field(default_factory=list, description="回收的伏笔")
+    tensions: List[str] = Field(default_factory=list, description="未解悬念")
+
+
+class KeyEvent(BaseModel):
+    """关键事件"""
+    type: str = Field(..., description="事件类型:battle/revelation/relationship/discovery/decision")
+    description: str = Field(..., description="事件描述")
+    importance: str = Field(default="medium", description="重要性:high/medium/low")
+    involved_characters: List[str] = Field(default_factory=list, description="涉及角色")
+
+
+class ChapterAnalysisData(BaseModel):
+    """章节分析数据"""
+    metadata: Optional[ChapterMetadata] = None
+    summaries: Optional[ChapterSummaries] = None
+    character_states: Dict[str, CharacterState] = Field(default_factory=dict)
+    foreshadowing: Optional[ForeshadowingData] = None
+    key_events: List[KeyEvent] = Field(default_factory=list)
+
+
 class ChapterOutline(BaseModel):
     chapter_number: int
     title: str
@@ -89,6 +147,7 @@ class Chapter(ChapterOutline):
     generation_status: ChapterGenerationStatus = ChapterGenerationStatus.NOT_GENERATED
     selected_version: Optional[int] = None  # 选中的版本索引（0-based）
     word_count: int = 0  # 字数统计
+    analysis_data: Optional[ChapterAnalysisData] = None  # 章节分析数据
 
 
 class Relationship(BaseModel):

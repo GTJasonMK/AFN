@@ -96,6 +96,9 @@ class AssistantPanel(ThemeAwareFrame):
 
     def _apply_theme(self):
         """应用主题"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+
         # 背景
         self.setStyleSheet(f"""
             AssistantPanel {{
@@ -108,6 +111,7 @@ class AssistantPanel(ThemeAwareFrame):
         title_label = self.header_bar.findChild(QLabel, "assistant_title")
         if title_label:
             title_label.setStyleSheet(f"""
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};

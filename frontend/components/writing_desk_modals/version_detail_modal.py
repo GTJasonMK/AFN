@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from themes.theme_manager import theme_manager
+from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 import json
 
@@ -188,6 +189,8 @@ class WDVersionDetailModal(QDialog):
         """应用主题样式"""
         # 使用书香风格字体
         serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
         # 获取当前是否为深色模式
         is_dark = theme_manager.is_dark_mode()
 
@@ -216,7 +219,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -224,7 +227,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.meta_label:
             self.meta_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)
@@ -273,7 +276,7 @@ class WDVersionDetailModal(QDialog):
 
         if self.current_badge:
             self.current_badge.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.SUCCESS_BG};
                 color: {theme_manager.SUCCESS};
                 padding: 4px 12px;
@@ -284,18 +287,18 @@ class WDVersionDetailModal(QDialog):
 
         if self.placeholder_label:
             self.placeholder_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 color: {theme_manager.TEXT_SECONDARY};
                 font-size: {sp(14)}px;
             """)
 
         if self.close_footer_btn:
-            self.close_footer_btn.setStyleSheet(theme_manager.button_ghost())
+            self.close_footer_btn.setStyleSheet(ButtonStyles.secondary())
 
         if self.select_btn:
             self.select_btn.setStyleSheet(f"""
                 QPushButton {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -323,9 +326,9 @@ class WDVersionDetailModal(QDialog):
 
         # 清理转义字符
         cleaned = content.strip('"')
-        cleaned = cleaned.replace('\\n', '\n')
-        cleaned = cleaned.replace('\\"', '"')
-        cleaned = cleaned.replace('\\t', '\t')
+        cleaned = cleaned.replace('\n', '\n')
+        cleaned = cleaned.replace('\"', '"')
+        cleaned = cleaned.replace('\t', '\t')
         cleaned = cleaned.replace('\\\\', '\\')
 
         return cleaned
@@ -334,5 +337,3 @@ class WDVersionDetailModal(QDialog):
         """选择版本"""
         self.versionSelected.emit()
         self.accept()
-
-

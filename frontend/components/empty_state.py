@@ -1,15 +1,14 @@
-"""
-空状态组件 - 禅意风格
+#"空状态组件 - 禅意风格
 
-提供友好、有指引性的空状态显示
-符合2025年UX最佳实践
+#提供友好、有指引性的空状态显示
+#符合2025年UX最佳实践
 
-特点：
-- 清晰的视觉层次
-- 明确的行动指引
-- 情感化设计（图标/插画）
-- 可自定义内容
-"""
+#特点：
+#- 清晰的视觉层次
+#- 明确的行动指引
+#- 情感化设计（图标/插画）
+#- 可自定义内容
+#"
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -75,8 +74,8 @@ class EmptyState(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         if self.icon_label:
             self.icon_label.setStyleSheet(f"""
@@ -87,7 +86,7 @@ class EmptyState(ThemeAwareWidget):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_2XL};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -96,8 +95,8 @@ class EmptyState(ThemeAwareWidget):
 
         if self.desc_label:
             self.desc_label.setStyleSheet(f"""
-                font-family: {serif_font};
-                font-size: {theme_manager.FONT_SIZE_BASE};
+                font-family: {ui_font};
+                font-size: {theme_manager.FONT_SIZE_MD};
                 color: {theme_manager.TEXT_SECONDARY};
                 line-height: 1.7;
             """)
@@ -105,7 +104,7 @@ class EmptyState(ThemeAwareWidget):
         if self.action_btn:
             self.action_btn.setStyleSheet(f"""
                 QPushButton {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -211,8 +210,8 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         if self.illustration_container:
             self.illustration_container.setStyleSheet(f"""
@@ -225,7 +224,7 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_3XL};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -234,7 +233,7 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
 
         if self.desc_label:
             self.desc_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 color: {theme_manager.TEXT_SECONDARY};
                 line-height: 1.8;
@@ -246,7 +245,7 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
         if self.action_btn:
             self.action_btn.setStyleSheet(f"""
                 QPushButton {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;

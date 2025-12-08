@@ -20,8 +20,8 @@ class PartOutlineDetailDialog(QDialog):
     def __init__(self, part_data: dict, parent=None):
         super().__init__(parent)
         self.part_data = part_data
-        # 使用书香风格字体
-        self.serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        self.ui_font = theme_manager.ui_font()
         self.setWindowTitle(f"部分大纲详情 - {part_data.get('title', '')}")
         self.setMinimumSize(dp(700), dp(600))
         self._setup_ui()
@@ -69,7 +69,7 @@ class PartOutlineDetailDialog(QDialog):
         part_num = self.part_data.get('part_number', 1)
         badge = QLabel(f"第{part_num}部分")
         badge.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             background-color: {theme_manager.PRIMARY};
             color: {theme_manager.BUTTON_TEXT};
             padding: {dp(8)}px {dp(16)}px;
@@ -84,7 +84,7 @@ class PartOutlineDetailDialog(QDialog):
         end = self.part_data.get('end_chapter', 0)
         range_label = QLabel(f"{start}-{end}章 · 共{end-start+1}章")
         range_label.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(14)}px;
             color: {theme_manager.TEXT_SECONDARY};
         """)
@@ -97,7 +97,7 @@ class PartOutlineDetailDialog(QDialog):
         title = QLabel(self.part_data.get('title', ''))
         title.setWordWrap(True)
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(24)}px;
             font-weight: 700;
             color: {theme_manager.TEXT_PRIMARY};
@@ -122,7 +122,7 @@ class PartOutlineDetailDialog(QDialog):
 
         status_label = QLabel(f"状态：{status_text}")
         status_label.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(13)}px;
             color: {status_color};
             padding: {dp(4)}px {dp(8)}px;
@@ -178,7 +178,7 @@ class PartOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("关键事件")
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -190,7 +190,7 @@ class PartOutlineDetailDialog(QDialog):
             event_label = QLabel(f"{i}. {event}")
             event_label.setWordWrap(True)
             event_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(8)}px;
@@ -220,7 +220,7 @@ class PartOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("角色发展")
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -240,7 +240,7 @@ class PartOutlineDetailDialog(QDialog):
 
             name_label = QLabel(char_name)
             name_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 600;
                 color: {theme_manager.PRIMARY};
@@ -250,7 +250,7 @@ class PartOutlineDetailDialog(QDialog):
             arc_label = QLabel(arc)
             arc_label.setWordWrap(True)
             arc_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)
@@ -281,7 +281,7 @@ class PartOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("冲突点")
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -293,7 +293,7 @@ class PartOutlineDetailDialog(QDialog):
             conflict_label = QLabel(f"{i}. {conflict}")
             conflict_label.setWordWrap(True)
             conflict_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(8)}px;
@@ -332,7 +332,7 @@ class PartOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel(title_text)
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -343,7 +343,7 @@ class PartOutlineDetailDialog(QDialog):
         content = QLabel(content_text)
         content.setWordWrap(True)
         content.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(14)}px;
             color: {theme_manager.TEXT_SECONDARY};
             line-height: 1.6;

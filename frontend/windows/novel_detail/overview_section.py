@@ -211,10 +211,11 @@ class OverviewSection(ThemeAwareWidget):
         # 使用 theme_manager 的书香风格便捷方法
         text_primary = theme_manager.book_text_primary()
         text_secondary = theme_manager.book_text_secondary()
-        text_tertiary = "#8D6E63" if theme_manager.is_light_mode() else "#666666"
+        text_tertiary = theme_manager.book_text_tertiary()  # 使用 theme_manager 的三级文字色
         border_color = theme_manager.book_border_color()
         highlight_color = theme_manager.book_accent_color()
         bg_card = "transparent"
+        ui_font = theme_manager.ui_font()
         serif_font = theme_manager.serif_font()
 
         # 核心摘要卡片 - 简约风格
@@ -226,7 +227,7 @@ class OverviewSection(ThemeAwareWidget):
                     border-bottom: 1px solid {border_color};
                 }}
                 #summary_title {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(18)}px;
                     font-weight: bold;
                     color: {highlight_color};
@@ -242,7 +243,7 @@ class OverviewSection(ThemeAwareWidget):
                 #edit_btn {{
                     background: transparent;
                     border: none;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(12)}px;
                     color: {text_tertiary};
                     text-decoration: underline;
@@ -260,13 +261,13 @@ class OverviewSection(ThemeAwareWidget):
                 border-radius: {dp(4)}px;
             }}
             #field_label {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(13)}px;
                 font-weight: bold;
                 color: {text_secondary};
             }}
             #field_value {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(15)}px;
                 color: {text_primary};
                 min-height: {dp(24)}px;
@@ -274,7 +275,7 @@ class OverviewSection(ThemeAwareWidget):
             #field_edit_btn {{
                 background: transparent;
                 border: none;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(11)}px;
                 color: {text_tertiary};
                 text-decoration: underline;
@@ -296,7 +297,7 @@ class OverviewSection(ThemeAwareWidget):
                     border-top: 1px solid {border_color};
                 }}
                 #synopsis_title {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(18)}px;
                     font-weight: bold;
                     color: {text_primary};
@@ -310,7 +311,7 @@ class OverviewSection(ThemeAwareWidget):
                 #edit_btn {{
                     background: transparent;
                     border: none;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(12)}px;
                     color: {text_tertiary};
                     text-decoration: underline;

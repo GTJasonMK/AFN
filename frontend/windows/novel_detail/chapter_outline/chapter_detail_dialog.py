@@ -20,8 +20,8 @@ class ChapterOutlineDetailDialog(QDialog):
     def __init__(self, chapter_data: dict, parent=None):
         super().__init__(parent)
         self.chapter_data = chapter_data
-        # 使用书香风格字体
-        self.serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        self.ui_font = theme_manager.ui_font()
         chapter_num = chapter_data.get('chapter_number', 0)
         title = chapter_data.get('title', f'第{chapter_num}章')
         self.setWindowTitle(f"章节大纲详情 - {title}")
@@ -68,7 +68,7 @@ class ChapterOutlineDetailDialog(QDialog):
         chapter_num = self.chapter_data.get('chapter_number', 1)
         badge = QLabel(f"第{chapter_num}章")
         badge.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             background-color: {theme_manager.PRIMARY};
             color: {theme_manager.BUTTON_TEXT};
             padding: {dp(8)}px {dp(16)}px;
@@ -85,7 +85,7 @@ class ChapterOutlineDetailDialog(QDialog):
         title = QLabel(self.chapter_data.get('title', f'第{chapter_num}章'))
         title.setWordWrap(True)
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(24)}px;
             font-weight: 700;
             color: {theme_manager.TEXT_PRIMARY};
@@ -127,7 +127,7 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("关键情节点")
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -139,7 +139,7 @@ class ChapterOutlineDetailDialog(QDialog):
             point_label = QLabel(f"{i}. {point}")
             point_label.setWordWrap(True)
             point_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(8)}px;
@@ -169,7 +169,7 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("出场角色")
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -184,7 +184,7 @@ class ChapterOutlineDetailDialog(QDialog):
             char_name = char if isinstance(char, str) else char.get('name', '')
             char_label = QLabel(char_name)
             char_label.setStyleSheet(f"""
-                font-family: {self.serif_font};
+                font-family: {self.ui_font};
                 background-color: {theme_manager.PRIMARY_PALE};
                 color: {theme_manager.PRIMARY};
                 padding: {dp(4)}px {dp(12)}px;
@@ -229,7 +229,7 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel(title_text)
         title.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
             color: {theme_manager.TEXT_PRIMARY};
@@ -240,7 +240,7 @@ class ChapterOutlineDetailDialog(QDialog):
         content = QLabel(content_text)
         content.setWordWrap(True)
         content.setStyleSheet(f"""
-            font-family: {self.serif_font};
+            font-family: {self.ui_font};
             font-size: {sp(14)}px;
             color: {theme_manager.TEXT_SECONDARY};
             line-height: 1.6;

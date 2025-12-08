@@ -14,6 +14,7 @@ from ..models.novel import (
 from ..schemas.novel import (
     Blueprint,
     Chapter as ChapterSchema,
+    ChapterAnalysisData,
     ChapterGenerationStatus,
     ChapterOutline as ChapterOutlineSchema,
     NovelProject as NovelProjectSchema,
@@ -318,6 +319,7 @@ class NovelSerializer:
         title = outline.title if outline else f"第{chapter_number}章"
         summary = outline.summary if outline else ""
         real_summary = chapter.real_summary if chapter else None
+        analysis_data = None
         content = None
         versions: Optional[List[str]] = None
         evaluation_text: Optional[str] = None
@@ -328,6 +330,13 @@ class NovelSerializer:
         if chapter:
             status_value = chapter.status or ChapterGenerationStatus.NOT_GENERATED.value
             word_count = chapter.word_count or 0
+
+            # 解析章节分析数据
+            if chapter.analysis_data:
+                try:
+                    analysis_data = ChapterAnalysisData.model_validate(chapter.analysis_data)
+                except Exception:
+                    analysis_data = None
 
             # 只有在 include_content=True 时才包含完整内容
             if include_content:
@@ -357,4 +366,5 @@ class NovelSerializer:
             generation_status=ChapterGenerationStatus(status_value),
             word_count=word_count,
             selected_version=selected_version_idx,
+            analysis_data=analysis_data,
         )

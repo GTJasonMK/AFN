@@ -179,8 +179,8 @@ class LoadingOverlay(ThemeAwareWidget):
         """应用主题样式"""
         # 使用主题背景色
         bg_color = theme_manager.BG_PRIMARY
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         self.setStyleSheet(f"""
             LoadingOverlay {{
@@ -188,10 +188,10 @@ class LoadingOverlay(ThemeAwareWidget):
             }}
         """)
 
-        # 更新文字样式 - 使用书香主题字体
+        # 更新文字样式
         if hasattr(self, 'label'):
             self.label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: 15px;
                 color: {theme_manager.TEXT_SECONDARY};
                 font-weight: 500;
@@ -248,10 +248,10 @@ class InlineSpinner(ThemeAwareWidget):
     def _apply_theme(self):
         """应用主题样式"""
         if hasattr(self, 'label'):
-            # 使用书香风格字体
-            serif_font = theme_manager.serif_font()
+            # 使用现代UI字体
+            ui_font = theme_manager.ui_font()
             self.label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: 13px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)

@@ -33,12 +33,12 @@ class LightTheme:
     """
 
     # ==================== 设计系统常量 ====================
-    # 圆角规范 - 2025趋势：更大更圆润
-    RADIUS_XS = "6px"    # 超小元素（增大）
-    RADIUS_SM = "10px"   # 小元素：按钮、标签、小卡片（增大）
-    RADIUS_MD = "14px"   # 中等元素：卡片、输入框（增大）
-    RADIUS_LG = "20px"   # 大元素：大型容器（增大）
-    RADIUS_XL = "28px"   # 超大元素：模态框（新增）
+    # 圆角规范 - 方正风格（微圆角设计）
+    RADIUS_XS = "2px"    # 超小元素（几乎直角）
+    RADIUS_SM = "4px"    # 小元素：按钮、标签、小卡片
+    RADIUS_MD = "6px"    # 中等元素：卡片、输入框
+    RADIUS_LG = "8px"    # 大元素：大型容器
+    RADIUS_XL = "10px"   # 超大元素：模态框
     RADIUS_ROUND = "50%" # 圆形：头像、图标按钮
 
     # 间距规范 - 8px网格系统
@@ -151,22 +151,22 @@ class LightTheme:
 
 
 class DarkTheme:
-    """深色主题 - 深邃紫夜风格 (2025 Modern Design)
+    """深色主题 - 暖夜书香风格 (2025 Modern Design)
 
     设计理念：
-    - 深邃柔和的背景（护眼舒适）
-    - 紫蓝极光渐变（神秘优雅）
+    - 深邃温暖的背景（护眼舒适，带褐色调）
+    - 暖琥珀金色主调（与亮色主题赭红呼应）
     - 高亮度文字（清晰可读）
-    - 发光效果强调（科技感）
+    - 温暖典雅的文学气质
     """
 
     # ==================== 设计系统常量 ====================
-    # 圆角规范 - 与亮色主题保持一致
-    RADIUS_XS = "6px"
-    RADIUS_SM = "10px"
-    RADIUS_MD = "14px"
-    RADIUS_LG = "20px"
-    RADIUS_XL = "28px"
+    # 圆角规范 - 方正风格（微圆角设计，与亮色主题保持一致）
+    RADIUS_XS = "2px"
+    RADIUS_SM = "4px"
+    RADIUS_MD = "6px"
+    RADIUS_LG = "8px"
+    RADIUS_XL = "10px"
     RADIUS_ROUND = "50%"
 
     # 间距规范 - 与亮色主题保持一致
@@ -187,7 +187,7 @@ class DarkTheme:
     FONT_SIZE_2XL = "24px"
     FONT_SIZE_3XL = "32px"
 
-    # 字体粗细规范 - 与亮色主题保持一致
+    # 字体粗细规范 - 与亮色主题保��一致
     FONT_WEIGHT_NORMAL = "400"
     FONT_WEIGHT_MEDIUM = "500"
     FONT_WEIGHT_SEMIBOLD = "600"
@@ -205,77 +205,77 @@ class DarkTheme:
     LETTER_SPACING_WIDE = "0.05em"
     LETTER_SPACING_WIDER = "0.1em"
 
-    # ==================== 色彩系统 ====================
-    # 主色调 - 紫蓝极光渐变（神秘智慧）- 降低饱和度避免视觉疲劳
-    PRIMARY = "#9d7bf5"  # 紫罗兰（饱和度降低20%）
-    PRIMARY_LIGHT = "#b39dfc"
-    PRIMARY_DARK = "#8b5df0"
-    PRIMARY_PALE = "#581c87"
-    PRIMARY_GRADIENT = ["#b39dfc", "#9d7bf5", "#8b5df0"]  # 紫蓝极光渐变
+    # ==================== 色彩系统 - 暖夜书香风格 ====================
+    # 主色调 - 暖琥珀金（与亮色主题赭红呼应，温暖典雅）
+    PRIMARY = "#E89B6C"      # 暖橙琥珀
+    PRIMARY_LIGHT = "#F2B896"
+    PRIMARY_DARK = "#D4784F"
+    PRIMARY_PALE = "#3D2A1F"  # 深褐色背景tint
+    PRIMARY_GRADIENT = ["#F2B896", "#E89B6C", "#D4784F"]  # 暖琥珀渐变
 
-    # 强调色 - 青色渐变（现代科技）- 降低饱和度
-    ACCENT = "#3aa8c2"  # 青色（饱和度降低20%）
-    ACCENT_LIGHT = "#5dc4d6"
-    ACCENT_DARK = "#2e9bb5"
-    ACCENT_PALE = "#164e63"
-    ACCENT_GRADIENT = ["#78d4e3", "#5dc4d6", "#3aa8c2"]  # 青色渐变
+    # 强调色 - 温润青玉（与主色形成优雅对比）
+    ACCENT = "#5AB8A8"       # 青玉色
+    ACCENT_LIGHT = "#7DCCC0"
+    ACCENT_DARK = "#3D9C8C"
+    ACCENT_PALE = "#1F3D38"
+    ACCENT_GRADIENT = ["#9DDCD2", "#7DCCC0", "#5AB8A8"]  # 青玉渐变
 
     # 成功色 - 翠绿（舒适自然）
     SUCCESS = "#22c55e"
     SUCCESS_LIGHT = "#4ade80"
     SUCCESS_DARK = "#16a34a"
     SUCCESS_BG = "#14532d"
-    SUCCESS_GRADIENT = ["#86efac", "#4ade80", "#22c55e"]  # 翠绿渐变
+    SUCCESS_GRADIENT = ["#86efac", "#4ade80", "#22c55e"]
 
     # 错误色 - 玫瑰红（温和警示）
     ERROR = "#f43f5e"
     ERROR_LIGHT = "#fb7185"
     ERROR_DARK = "#e11d48"
     ERROR_BG = "#881337"
-    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]  # 玫瑰渐变
+    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]
 
     # 警告色 - 琥珀色（温暖提醒）
     WARNING = "#f59e0b"
     WARNING_LIGHT = "#fbbf24"
     WARNING_DARK = "#d97706"
     WARNING_BG = "#78350f"
-    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]  # 琥珀渐变
+    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]
 
     # 信息色 - 天空蓝（清新资讯）
     INFO = "#0ea5e9"
     INFO_LIGHT = "#38bdf8"
     INFO_DARK = "#0284c7"
     INFO_BG = "#0c4a6e"
-    INFO_GRADIENT = ["#7dd3fc", "#38bdf8", "#0ea5e9"]  # 天空蓝渐变
+    INFO_GRADIENT = ["#7dd3fc", "#38bdf8", "#0ea5e9"]
 
-    # 文字颜色 - 高亮度（护眼清晰）
-    TEXT_PRIMARY = "#f1f5f9"     # 极浅灰（柔和）
-    TEXT_SECONDARY = "#cbd5e1"    # 浅灰
-    TEXT_TERTIARY = "#94a3b8"     # 中灰
-    TEXT_PLACEHOLDER = "#64748b"  # 暗灰
-    TEXT_DISABLED = "#475569"     # 深灰
+    # 文字颜色 - 暖调高亮度（护眼清晰）
+    TEXT_PRIMARY = "#F5F0EB"     # 暖白色
+    TEXT_SECONDARY = "#D4CCC4"   # 暖浅灰
+    TEXT_TERTIARY = "#A89E94"    # 暖中灰
+    TEXT_PLACEHOLDER = "#6D635A" # 暖暗灰
+    TEXT_DISABLED = "#4A433D"    # 暖深灰
 
-    # 背景颜色 - 深邃柔和（2025最佳实践优化）
-    BG_PRIMARY = "#0a0e17"       # 深蓝黑（Material Design推荐）
-    BG_SECONDARY = "#12161f"     # 暗蓝灰
-    BG_TERTIARY = "#1a1f2e"      # 中蓝灰
-    BG_CARD = "#171d29"          # 卡片深蓝（增强与背景对比）
-    BG_CARD_HOVER = "#1f2638"    # 悬浮亮蓝
-    BG_GRADIENT = ["#0a0e17", "#12161f", "#1a1f2e"]  # 深邃渐变背景
+    # 背景颜色 - 深邃暖褐（温暖护眼）
+    BG_PRIMARY = "#0F0D0B"       # 深暖黑
+    BG_SECONDARY = "#171412"     # 暗褐灰
+    BG_TERTIARY = "#1F1B18"      # 中褐灰
+    BG_CARD = "#1A1714"          # 卡片深褐
+    BG_CARD_HOVER = "#252220"    # 悬浮亮褐
+    BG_GRADIENT = ["#0F0D0B", "#171412", "#1F1B18"]  # 暖夜渐变背景
 
-    # 边框颜色 - 微光边界（增强可见度）
-    BORDER_DEFAULT = "#3f4a5c"   # 更明显的边框
-    BORDER_LIGHT = "#2a3441"
-    BORDER_DARK = "#4f5a6e"
+    # 边框颜色 - 暖灰色调
+    BORDER_DEFAULT = "#3D3835"   # 暖灰边框
+    BORDER_LIGHT = "#2D2926"
+    BORDER_DARK = "#4D4845"
 
     # 特殊效果色
-    GLASS_BG = "rgba(23, 29, 41, 0.75)"  # 深色玻璃态（与BG_CARD协调）
-    SHADOW_COLOR = "rgba(0, 0, 0, 0.6)"  # 深色阴影（增强对比）
-    OVERLAY_COLOR = "rgba(0, 0, 0, 0.5)"  # 遮罩层颜色（深色主题较浓）
+    GLASS_BG = "rgba(26, 23, 20, 0.75)"   # 暖色玻璃态
+    SHADOW_COLOR = "rgba(0, 0, 0, 0.5)"   # 深色阴影
+    OVERLAY_COLOR = "rgba(0, 0, 0, 0.45)" # 遮罩层颜色
 
     # 按钮文字颜色（在有色按钮上）
-    BUTTON_TEXT = "#ffffff"      # 白色文字（在PRIMARY/ACCENT等深色按钮上）
-    BUTTON_TEXT_SECONDARY = "#f1f5f9"  # 浅色文字（在浅色按钮上）
+    BUTTON_TEXT = "#ffffff"          # 白色文字
+    BUTTON_TEXT_SECONDARY = "#F5F0EB"  # 暖白文字
 
 
 class ThemeManager(QObject):
@@ -556,10 +556,6 @@ class ThemeManager(QObject):
     @property
     def INFO_BG(self):
         return self._current_theme.INFO_BG
-    
-    @property
-    def ACCENT_PALE(self):
-        return self.SUCCESS_BG
 
     # ==================== 渐变属性 ====================
     @property
@@ -709,6 +705,7 @@ class ThemeManager(QObject):
         """主要按钮样式 - 渐变背景"""
         gradient_colors = self.PRIMARY_GRADIENT
         gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+        ui_font = self.ui_font()
 
         # 注意：Qt StyleSheet 不支持 box-shadow、transform 等 CSS3 属性
         return f"""
@@ -718,6 +715,7 @@ class ThemeManager(QObject):
                 border: none;
                 border-radius: {self.RADIUS_SM};
                 padding: 10px 24px;
+                font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
                 min-height: 36px;
@@ -737,6 +735,7 @@ class ThemeManager(QObject):
     def button_secondary(self):
         """次要按钮样式 - 玻璃态效果"""
         glass_style = ModernEffects.glassmorphism_card(self.is_dark_mode())
+        ui_font = self.ui_font()
 
         return f"""
             QPushButton {{
@@ -745,6 +744,7 @@ class ThemeManager(QObject):
                 border: 1px solid {self.BORDER_DEFAULT};
                 border-radius: {self.RADIUS_SM};
                 padding: 10px 24px;
+                font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
                 min-height: 36px;
@@ -768,6 +768,7 @@ class ThemeManager(QObject):
         """强调按钮样式 - 活力渐变"""
         gradient_colors = self.ACCENT_GRADIENT
         gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+        ui_font = self.ui_font()
 
         return f"""
             QPushButton {{
@@ -776,6 +777,7 @@ class ThemeManager(QObject):
                 border: none;
                 border-radius: {self.RADIUS_SM};
                 padding: 10px 24px;
+                font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
                 min-height: 36px;
@@ -790,6 +792,7 @@ class ThemeManager(QObject):
     
     def button_text(self):
         """文本按钮样式 - 纯文本无边框"""
+        ui_font = self.ui_font()
         return f"""
             QPushButton {{
                 background-color: transparent;
@@ -797,6 +800,7 @@ class ThemeManager(QObject):
                 border: none;
                 border-radius: {self.RADIUS_SM};
                 padding: 8px 16px;
+                font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_MEDIUM};
                 min-height: 32px;
@@ -997,37 +1001,66 @@ class ThemeManager(QObject):
 
     # ==================== 书香风格专用方法 ====================
 
+    def ui_font(self) -> str:
+        """获取UI字体族 - 现代无衬线字体"""
+        return "'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Roboto', sans-serif"
+
     def serif_font(self) -> str:
         """获取衬线字体族 - 书香风格核心字体"""
         return "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
 
     def book_accent_color(self) -> str:
-        """获取书香风格强调色 - 赭石(亮)/暗金(暗)"""
-        return "#8B4513" if self.is_light_mode() else "#D4AF37"
+        """获取书香风格强调色 - 赭石(亮)/暖琥珀(暗)"""
+        return "#8B4513" if self.is_light_mode() else "#E89B6C"
 
     def book_accent_light(self) -> str:
         """获取书香风格浅强调色"""
-        return "#A0522D" if self.is_light_mode() else "#E5C158"
+        return "#A0522D" if self.is_light_mode() else "#F2B896"
 
     def book_text_primary(self) -> str:
-        """获取书香风格主文字色 - 深褐(亮)/浅灰(暗)"""
-        return "#2C1810" if self.is_light_mode() else "#E0E0E0"
+        """获取书香风格主文字色 - 深褐(亮)/暖白(暗)"""
+        return "#2C1810" if self.is_light_mode() else "#F5F0EB"
 
     def book_text_secondary(self) -> str:
         """获取书香风格次要文字色"""
-        return "#5D4037" if self.is_light_mode() else "#A0A0A0"
+        return "#5D4037" if self.is_light_mode() else "#D4CCC4"
 
     def book_bg_primary(self) -> str:
-        """获取书香风格主背景色 - 米色(亮)/深灰(暗)"""
-        return "#F9F5F0" if self.is_light_mode() else "#1E1E1E"
+        """获取书香风格主背景色 - 米色(亮)/深暖褐(暗)"""
+        return "#F9F5F0" if self.is_light_mode() else "#171412"
 
     def book_bg_secondary(self) -> str:
-        """获取书香风格次要背景色 - 亮米色(亮)/中灰(暗)"""
-        return "#FFFBF0" if self.is_light_mode() else "#2D2D2D"
+        """获取书香风格次要背景色 - 亮米色(亮)/中暖褐(暗)"""
+        return "#FFFBF0" if self.is_light_mode() else "#1F1B18"
 
     def book_border_color(self) -> str:
         """获取书香风格边框色"""
-        return "#D7CCC8" if self.is_light_mode() else "#4A4A4A"
+        return "#D7CCC8" if self.is_light_mode() else "#3D3835"
+
+    def book_text_tertiary(self) -> str:
+        """获取书香风格三级文字色 - 确保在对应背景上有足够对比度"""
+        # 亮色模式使用更深的灰色，深色模式使用暖浅灰
+        return "#6D6560" if self.is_light_mode() else "#C4BAB0"
+
+    def text_success(self) -> str:
+        """获取用于文字的成功色 - 确保在背景上有足够对比度"""
+        # 亮色模式使用更深的绿色，深色模式使用标准成功色
+        return "#2E7D4A" if self.is_light_mode() else "#4ade80"
+
+    def text_warning(self) -> str:
+        """获取用于文字的警告色 - 确保在背景上有足够对比度"""
+        # 亮色模式使用更深的琥珀棕色（对比度 > 5:1），深色模式使用标准警告色
+        return "#8B5A00" if self.is_light_mode() else "#fbbf24"
+
+    def text_error(self) -> str:
+        """获取用于文字的错误色 - 确保在背景上有足够对比度"""
+        # 亮色模式使用更深的红色，深色模式使用标准错误色
+        return "#B8433C" if self.is_light_mode() else "#fb7185"
+
+    def text_info(self) -> str:
+        """获取用于文字的信息色 - 确保在背景上有足够对比度"""
+        # 亮色模式使用更深的蓝色，深色模式使用标准信息色
+        return "#2A6B8F" if self.is_light_mode() else "#38bdf8"
 
     def glassmorphism_bg(self, opacity: float = 0.85) -> str:
         """获取玻璃态背景色
@@ -1039,8 +1072,8 @@ class ThemeManager(QObject):
             rgba颜色字符串
         """
         if self.is_dark_mode():
-            # 深色模式 - 深蓝灰玻璃
-            return f"rgba(26, 31, 53, {opacity})"
+            # 深色模式 - 暖褐玻璃效果（与暖夜书香主题一致）
+            return f"rgba(26, 23, 20, {opacity})"
         else:
             # 亮色模式 - 暖米色玻璃
             return f"rgba(255, 251, 240, {opacity})"

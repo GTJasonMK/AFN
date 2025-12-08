@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
     def update_theme_button(self):
         """更新主题切换按钮的样式和图标"""
         is_dark = theme_manager.is_dark_mode()
-        serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
 
         # 简化的文字标签
         button_text = "深" if is_dark else "浅"
@@ -192,7 +192,7 @@ class MainWindow(QMainWindow):
         # 简化的按钮样式
         self.theme_button.setStyleSheet(f"""
             QPushButton {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -240,9 +240,53 @@ class MainWindow(QMainWindow):
         # 更新按钮样式
         self.update_theme_button()
 
+        # 使用QTimer延迟执行样式刷新，确保在所有组件的主题信号处理完成后执行
+        # 使用50ms延迟以确保任何异步样式更新都已完成
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(50, self._force_style_refresh_all)
+
         # 注意：不要在这里调用page.refresh()
         # 因为refresh()是用于刷新页面数据的（如导航时）
         # 主题切换已通过各页面自己的on_theme_changed()信号处理
+
+    def _force_style_refresh_all(self):
+        """强制刷新所有组件的样式"""
+        self._force_style_refresh(self)
+
+    def _force_style_refresh(self, widget):
+        """递归强制刷新组件及其所有子组件的样式
+
+        解决Qt样式表缓存问题：当主题切换时，某些组件的样式可能没有完全更新。
+
+        策略：
+        1. 对有 _apply_theme 方法的组件，调用该方法重新生成样式表
+        2. 对有 update_theme 方法的组件，调用该方法更新主题
+        3. 调用 style().unpolish() 和 style().polish() 强制Qt重新应用样式
+        4. 调用 update() 触发重绘
+        """
+        from PyQt6.QtWidgets import QWidget
+
+        # 收集所有需要刷新的组件（包括自身和所有子组件）
+        all_widgets = [widget] + widget.findChildren(QWidget)
+
+        for w in all_widgets:
+            try:
+                # 先尝试调用 _apply_theme 重新生成样式
+                if hasattr(w, '_apply_theme') and callable(getattr(w, '_apply_theme')):
+                    w._apply_theme()
+                # 或者调用 update_theme
+                elif hasattr(w, 'update_theme') and callable(getattr(w, 'update_theme')):
+                    w.update_theme()
+
+                # 然后强制Qt重新应用样式
+                w.style().unpolish(w)
+                w.style().polish(w)
+                w.update()
+            except RuntimeError:
+                # 组件可能已被删除，跳过
+                pass
+            except Exception as e:
+                logger.debug(f"刷新组件样式时出错: {e}")
 
     def showEvent(self, event):
         """窗口显示时，确保浮动工具栏位置正确"""

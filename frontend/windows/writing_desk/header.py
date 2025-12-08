@@ -129,6 +129,9 @@ class WDHeader(ThemeAwareFrame):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）- 现代化设计"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+
         # Header背景 - 透明以显示下层渐变
         self.setStyleSheet(f"""
             WDHeader {{
@@ -170,6 +173,7 @@ class WDHeader(ThemeAwareFrame):
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
                     border-radius: {dp(18)}px;
+                    font-family: {ui_font};
                     font-size: {sp(16)}px;
                     font-weight: 600;
                 }}
@@ -194,6 +198,7 @@ class WDHeader(ThemeAwareFrame):
         # 标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                font-family: {ui_font};
                 font-size: {sp(15)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -202,6 +207,7 @@ class WDHeader(ThemeAwareFrame):
         # 元信息
         if self.meta_label:
             self.meta_label.setStyleSheet(f"""
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             """)

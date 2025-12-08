@@ -103,8 +103,8 @@ class ChapterCard(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         # 根据选中状态和悬停状态设置卡片样式
         if self.is_selected:
@@ -151,7 +151,7 @@ class ChapterCard(ThemeAwareWidget):
                 color = theme_manager.TEXT_TERTIARY
 
             self.status_icon.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(16)}px;
                 color: {color};
             """)
@@ -159,7 +159,7 @@ class ChapterCard(ThemeAwareWidget):
         # 章节编号
         if self.number_label:
             self.number_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.PRIMARY};
@@ -168,7 +168,7 @@ class ChapterCard(ThemeAwareWidget):
         # 章节标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_BASE};
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -177,7 +177,7 @@ class ChapterCard(ThemeAwareWidget):
         # 元信息
         if self.meta_label:
             self.meta_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_XS};
                 color: {theme_manager.TEXT_SECONDARY};
             """)

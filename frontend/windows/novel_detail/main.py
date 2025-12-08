@@ -79,21 +79,12 @@ class NovelDetail(BasePage):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-
-        # 颜色定义
-        if is_dark:
-            bg_color = "#1E1E1E"
-            header_bg = "#2D2D2D"
-            tab_bg = "#2D2D2D"
-            text_primary = "#E0E0E0"
-            border_color = "#4A4A4A"
-        else:
-            bg_color = "#F9F5F0" # 米色
-            header_bg = "#FFFBF0" # 亮米色
-            tab_bg = "#FFFBF0"
-            text_primary = "#2C1810" # 深褐
-            border_color = "#D7CCC8"
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        bg_color = theme_manager.book_bg_primary()
+        header_bg = theme_manager.book_bg_secondary()
+        tab_bg = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        border_color = theme_manager.book_border_color()
 
         self.setStyleSheet(f"""
             NovelDetail {{
@@ -163,7 +154,7 @@ class NovelDetail(BasePage):
 
         info_layout.addLayout(title_row)
 
-        # 元信��行（类型 + 状态标签）
+        # 元信息行（类型 + 状态标签）
         meta_row = QHBoxLayout()
         meta_row.setSpacing(dp(8))
 
@@ -188,7 +179,7 @@ class NovelDetail(BasePage):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(dp(12))
 
-        # 返回按钮 - 返回写作台（更符合用户工作流）
+        # 返回按钮 - 返回写作台
         self.back_btn = QPushButton("返回写作台")
         self.back_btn.setObjectName("back_btn")
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -223,24 +214,16 @@ class NovelDetail(BasePage):
 
     def _applyHeaderStyle(self):
         """应用Header样式 - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        if is_dark:
-            header_bg = "#2D2D2D"
-            text_primary = "#E0E0E0"
-            text_secondary = "#A0A0A0"
-            border_color = "#4A4A4A"
-            icon_color = "#D4AF37" # 暗金
-            tag_bg = "transparent"
-        else:
-            header_bg = "#FFFBF0"
-            text_primary = "#2C1810"
-            text_secondary = "#5D4037"
-            border_color = "#D7CCC8"
-            icon_color = "#8B4513" # 赭石
-            tag_bg = "transparent"
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        header_bg = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        icon_color = theme_manager.book_accent_color()
+        tag_bg = "transparent"
 
-        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
+        ui_font = theme_manager.ui_font()
+        serif_font = theme_manager.serif_font()
 
         # 设置header容器和子组件样式
         self.header.setStyleSheet(f"""
@@ -263,7 +246,7 @@ class NovelDetail(BasePage):
             QPushButton#edit_title_btn {{
                 background: transparent;
                 border: none;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {text_secondary};
                 text-decoration: underline;
@@ -277,7 +260,7 @@ class NovelDetail(BasePage):
                 border: 1px solid {border_color};
                 padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(2)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
             }}
             QLabel#status_tag {{
@@ -286,7 +269,7 @@ class NovelDetail(BasePage):
                 border: 1px solid {border_color};
                 padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(2)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 font-style: italic;
             }}
@@ -299,7 +282,7 @@ class NovelDetail(BasePage):
                 color: {text_secondary};
                 border: 1px solid {border_color};
                 border-radius: {dp(4)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 padding: {dp(6)}px {dp(12)}px;
             }}
             QPushButton:hover {{
@@ -315,7 +298,7 @@ class NovelDetail(BasePage):
                 color: #FFFFFF;
                 border: 1px solid {icon_color};
                 border-radius: {dp(4)}px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 padding: {dp(6)}px {dp(16)}px;
                 font-weight: bold;
             }}
@@ -371,14 +354,9 @@ class NovelDetail(BasePage):
 
     def _applyTabStyle(self):
         """应用Tab样式 - 书香风格"""
-        is_dark = theme_manager.is_dark_mode()
-        
-        if is_dark:
-            tab_bg = "#2D2D2D"
-            border_color = "#4A4A4A"
-        else:
-            tab_bg = "#FFFBF0"
-            border_color = "#D7CCC8"
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        tab_bg = theme_manager.book_bg_secondary()
+        border_color = theme_manager.book_border_color()
 
         self.tab_bar.setStyleSheet(f"""
             QFrame#tab_bar {{
@@ -393,19 +371,13 @@ class NovelDetail(BasePage):
 
     def _updateTabButtonStyle(self, btn, is_active):
         """更新Tab按钮样式"""
-        is_dark = theme_manager.is_dark_mode()
-        serif_font = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
-        
-        if is_dark:
-            text_active = "#D4AF37"
-            text_normal = "#A0A0A0"
-            hover_color = "#E0E0E0"
-            border_active = "#D4AF37"
-        else:
-            text_active = "#8B4513" # 赭石
-            text_normal = "#5D4037"
-            hover_color = "#2C1810"
-            border_active = "#8B4513"
+        ui_font = theme_manager.ui_font()
+
+        # 使用 theme_manager 的书香风格便捷方法，避免硬编码颜色
+        text_active = theme_manager.book_accent_color()
+        text_normal = theme_manager.book_text_secondary()
+        hover_color = theme_manager.book_text_primary()
+        border_active = theme_manager.book_accent_color()
 
         if is_active:
             btn.setStyleSheet(f"""
@@ -416,7 +388,7 @@ class NovelDetail(BasePage):
                     border-bottom: 2px solid {border_active};
                     border-radius: 0;
                     padding: 0 {dp(4)}px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(15)}px;
                     font-weight: bold;
                 }}
@@ -430,7 +402,7 @@ class NovelDetail(BasePage):
                     border-bottom: 2px solid transparent;
                     border-radius: 0;
                     padding: 0 {dp(4)}px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {sp(15)}px;
                     font-weight: normal;
                 }}
@@ -710,6 +682,10 @@ class NovelDetail(BasePage):
         """打开写作台"""
         self.navigateTo('WRITING_DESK', project_id=self.project_id)
 
+    def goBackToWorkspace(self):
+        """返回项目列表"""
+        self.navigateTo('WORKSPACE')
+
     def goToWorkspace(self):
         """返回项目工作台"""
         import logging
@@ -852,11 +828,11 @@ class NovelDetail(BasePage):
         self._doRefineBlueprint(instruction)
 
     def _doRefineBlueprint(self, instruction, force=False):
-        """执行蓝图优化（异步方式，不阻塞UI）
+        """执行蓝图优化(异步方式, 不阻塞UI)
 
         Args:
             instruction: 优化指令
-            force: 是否强制优化（将删除所有章节大纲、部分大纲、章节内容）
+            force: 是否强制优化(将删除所有章节大纲, 部分大纲, 章节内容)
         """
         # 创建加载提示对话框
         from components.dialogs import LoadingDialog
@@ -916,13 +892,13 @@ class NovelDetail(BasePage):
                 # 显示确认对话框，明确告知会删除所有数据
                 if confirm(
                     self,
-                    "检测到项目已有章节大纲。\n\n"
-                    "优化蓝图将会删除以下所有数据：\n"
-                    "• 所有章节大纲\n"
-                    "• 所有部分大纲（如有）\n"
-                    "• 所有已生成的章节内容\n"
-                    "• 所有章节版本\n"
-                    "• 向量库数据\n\n"
+                    "检测到项目已有章节大纲。\n\n" 
+                    "优化蓝图将会删除以下所有数据：\n" 
+                    "• 所有章节大纲\n" 
+                    "• 所有部分大纲（如有）\n" 
+                    "• 所有已生成的章节内容\n" 
+                    "• 所有章节版本\n" 
+                    "• 向量库数据\n\n" 
                     "此操作不可恢复，确定要继续吗？",
                     "确认优化蓝图"
                 ):

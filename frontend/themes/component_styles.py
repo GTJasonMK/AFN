@@ -101,10 +101,10 @@ class InputStyles:
     @staticmethod
     def default() -> str:
         """默认输入框样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLineEdit, QTextEdit, QPlainTextEdit {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.BG_CARD};
                 border: 2px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {theme_manager.RADIUS_SM};
@@ -132,14 +132,14 @@ class InputStyles:
 
     @staticmethod
     def search() -> str:
-        """搜索框样式（带圆角）"""
-        serif_font = theme_manager.serif_font()
+        """搜索框样式（带微圆角）"""
+        font_family = theme_manager.ui_font()
         return f"""
             QLineEdit {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.BG_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(18)}px;
+                border-radius: {theme_manager.RADIUS_MD};
                 padding: {dp(8)}px {dp(16)}px;
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -156,10 +156,10 @@ class InputStyles:
     @staticmethod
     def minimal() -> str:
         """极简输入框（无边框）"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLineEdit, QTextEdit {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: transparent;
                 border: none;
                 border-bottom: 2px solid {theme_manager.BORDER_DEFAULT};
@@ -200,10 +200,10 @@ class LabelStyles:
     @staticmethod
     def title() -> str:
         """大标题样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(24)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -214,10 +214,10 @@ class LabelStyles:
     @staticmethod
     def subtitle() -> str:
         """副标题样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(18)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -228,10 +228,10 @@ class LabelStyles:
     @staticmethod
     def heading() -> str:
         """小标题样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(16)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -242,10 +242,10 @@ class LabelStyles:
     @staticmethod
     def body() -> str:
         """正文样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(14)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
                 color: {theme_manager.TEXT_PRIMARY};
@@ -256,10 +256,10 @@ class LabelStyles:
     @staticmethod
     def caption() -> str:
         """说明文字样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
                 color: {theme_manager.TEXT_SECONDARY};
@@ -270,10 +270,10 @@ class LabelStyles:
     @staticmethod
     def muted() -> str:
         """弱化文字样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(13)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
                 color: {theme_manager.TEXT_TERTIARY};
@@ -284,10 +284,10 @@ class LabelStyles:
     @staticmethod
     def link() -> str:
         """链接样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 font-size: {sp(14)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
                 color: {theme_manager.PRIMARY};
@@ -306,14 +306,14 @@ class BadgeStyles:
     @staticmethod
     def default() -> str:
         """默认徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.BG_TERTIARY};
                 color: {theme_manager.TEXT_SECONDARY};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
             }}
@@ -322,14 +322,14 @@ class BadgeStyles:
     @staticmethod
     def primary() -> str:
         """主色徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.PRIMARY};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             }}
@@ -338,14 +338,14 @@ class BadgeStyles:
     @staticmethod
     def success() -> str:
         """成功徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.SUCCESS};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             }}
@@ -354,14 +354,14 @@ class BadgeStyles:
     @staticmethod
     def warning() -> str:
         """警告徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.WARNING};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             }}
@@ -370,14 +370,14 @@ class BadgeStyles:
     @staticmethod
     def error() -> str:
         """错误徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.ERROR};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             }}
@@ -386,14 +386,14 @@ class BadgeStyles:
     @staticmethod
     def info() -> str:
         """信息徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.INFO};
                 color: {theme_manager.BUTTON_TEXT};
                 padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             }}
@@ -402,15 +402,15 @@ class BadgeStyles:
     @staticmethod
     def outline() -> str:
         """轮廓徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: transparent;
                 color: {theme_manager.TEXT_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 padding: {dp(3)}px {dp(9)}px;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
             }}
@@ -419,14 +419,14 @@ class BadgeStyles:
     @staticmethod
     def pill() -> str:
         """药丸形徽章"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QLabel {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 background-color: {theme_manager.PRIMARY_PALE};
                 color: {theme_manager.PRIMARY};
                 padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(12)}px;
+                border-radius: {theme_manager.RADIUS_SM};
                 font-size: {sp(12)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
             }}
@@ -439,7 +439,7 @@ class TabStyles:
     @staticmethod
     def default() -> str:
         """默认标签页样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QTabWidget::pane {{
                 border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -448,7 +448,7 @@ class TabStyles:
                 top: -1px;
             }}
             QTabBar::tab {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 padding: {dp(10)}px {dp(20)}px;
                 font-size: {sp(14)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
@@ -472,21 +472,21 @@ class TabStyles:
     @staticmethod
     def pills() -> str:
         """药丸形标签页"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QTabWidget::pane {{
                 border: none;
                 background-color: transparent;
             }}
             QTabBar::tab {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 padding: {dp(8)}px {dp(16)}px;
                 font-size: {sp(14)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
                 color: {theme_manager.TEXT_SECONDARY};
                 background-color: transparent;
                 border: none;
-                border-radius: {dp(16)}px;
+                border-radius: {theme_manager.RADIUS_SM};
                 margin-right: {dp(8)}px;
             }}
             QTabBar::tab:selected {{
@@ -502,7 +502,7 @@ class TabStyles:
     @staticmethod
     def segment() -> str:
         """分段控制器样式"""
-        serif_font = theme_manager.serif_font()
+        font_family = theme_manager.ui_font()
         return f"""
             QTabWidget::pane {{
                 border: none;
@@ -514,14 +514,14 @@ class TabStyles:
                 padding: {dp(2)}px;
             }}
             QTabBar::tab {{
-                font-family: {serif_font};
+                font-family: {font_family};
                 padding: {dp(8)}px {dp(20)}px;
                 font-size: {sp(14)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
                 color: {theme_manager.TEXT_SECONDARY};
                 background-color: transparent;
                 border: none;
-                border-radius: {dp(6)}px;
+                border-radius: {theme_manager.RADIUS_XS};
             }}
             QTabBar::tab:selected {{
                 color: {theme_manager.TEXT_PRIMARY};
@@ -544,7 +544,7 @@ class ScrollbarStyles:
             }}
             QScrollBar::handle:vertical {{
                 background-color: {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 min-height: {dp(30)}px;
             }}
             QScrollBar::handle:vertical:hover {{
@@ -564,7 +564,7 @@ class ScrollbarStyles:
             }}
             QScrollBar::handle:horizontal {{
                 background-color: {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 min-width: {dp(30)}px;
             }}
             QScrollBar::handle:horizontal:hover {{
@@ -589,7 +589,7 @@ class ScrollbarStyles:
             }}
             QScrollBar::handle:vertical {{
                 background-color: {theme_manager.BORDER_DARK};
-                border-radius: {dp(2)}px;
+                border-radius: 1px;
                 min-height: {dp(20)}px;
             }}
             QScrollBar::handle:vertical:hover {{
@@ -609,7 +609,7 @@ class ScrollbarStyles:
             }}
             QScrollBar::handle:horizontal {{
                 background-color: {theme_manager.BORDER_DARK};
-                border-radius: {dp(2)}px;
+                border-radius: 1px;
                 min-width: {dp(20)}px;
             }}
         """
@@ -675,13 +675,13 @@ class ProgressStyles:
             QProgressBar {{
                 background-color: {theme_manager.BG_TERTIARY};
                 border: none;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 height: {dp(8)}px;
                 text-align: center;
             }}
             QProgressBar::chunk {{
                 background-color: {theme_manager.PRIMARY};
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
             }}
         """
 
@@ -692,12 +692,12 @@ class ProgressStyles:
             QProgressBar {{
                 background-color: {theme_manager.BG_TERTIARY};
                 border: none;
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
                 height: {dp(8)}px;
             }}
             QProgressBar::chunk {{
                 background-color: {theme_manager.SUCCESS};
-                border-radius: {dp(4)}px;
+                border-radius: {theme_manager.RADIUS_XS};
             }}
         """
 
@@ -708,12 +708,12 @@ class ProgressStyles:
             QProgressBar {{
                 background-color: {theme_manager.BG_TERTIARY};
                 border: none;
-                border-radius: {dp(2)}px;
+                border-radius: 1px;
                 height: {dp(4)}px;
             }}
             QProgressBar::chunk {{
                 background-color: {theme_manager.PRIMARY};
-                border-radius: {dp(2)}px;
+                border-radius: 1px;
             }}
         """
 

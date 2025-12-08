@@ -107,21 +107,21 @@ class RefineDialog(QDialog):
 
     def applyTheme(self):
         """应用主题样式"""
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
 
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {theme_manager.BG_PRIMARY};
             }}
             #dialog_title {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
             }}
             #dialog_desc {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 line-height: 1.6;
@@ -132,24 +132,24 @@ class RefineDialog(QDialog):
                 border-radius: {dp(8)}px;
             }}
             #hints_title {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(13)}px;
                 font-weight: 600;
                 color: {theme_manager.PRIMARY};
             }}
             #hint_item {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};
             }}
             #input_label {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 500;
                 color: {theme_manager.TEXT_PRIMARY};
             }}
             #input_edit {{
-                font-family: {serif_font};
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;

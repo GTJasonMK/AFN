@@ -107,7 +107,7 @@ class WDEvaluationDetailModal(QDialog):
         self.icon_label = QLabel()
         self.icon_label.setFixedSize(dp(40), dp(40))
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_label.setText("◑")
+        self.icon_label.setText("◐")
         left_layout.addWidget(self.icon_label)
 
         self.title_label = QLabel("AI 评审详情")
@@ -175,8 +175,11 @@ class WDEvaluationDetailModal(QDialog):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
         # 使用书香风格字体
         serif_font = theme_manager.serif_font()
+        
         # 获取当前是否为深色模式
         is_dark = theme_manager.is_dark_mode()
 
@@ -213,7 +216,7 @@ class WDEvaluationDetailModal(QDialog):
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {sp(20)}px;
                 font-weight: 700;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -264,7 +267,7 @@ class WDEvaluationDetailModal(QDialog):
         if self.close_footer_btn:
             self.close_footer_btn.setStyleSheet(f"""
                 QPushButton {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     background-color: {theme_manager.PRIMARY};
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
@@ -315,6 +318,10 @@ class WDEvaluationDetailModal(QDialog):
 
     def renderStructuredEvaluation(self, layout, parsed_eval):
         """渲染结构化评审结果"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+        serif_font = theme_manager.serif_font()
+
         # 最佳选择卡片
         if 'best_choice' in parsed_eval:
             best_card = QFrame()
@@ -326,6 +333,7 @@ class WDEvaluationDetailModal(QDialog):
 
             best_title = QLabel(f"◐ 最佳选择：版本 {parsed_eval['best_choice']}")
             best_title.setStyleSheet(f"""
+                font-family: {ui_font};
                 font-size: {sp(16)}px;
                 font-weight: 600;
                 color: {theme_manager.WARNING};
@@ -336,6 +344,7 @@ class WDEvaluationDetailModal(QDialog):
                 best_reason = QLabel(parsed_eval['reason_for_choice'])
                 best_reason.setWordWrap(True)
                 best_reason.setStyleSheet(f"""
+                    font-family: {serif_font};
                     font-size: {sp(14)}px;
                     color: {theme_manager.PRIMARY};
                 """)
@@ -355,6 +364,7 @@ class WDEvaluationDetailModal(QDialog):
                 # 版本标题
                 version_title = QLabel(f"版本 {version_name.replace('version', '')} 评估")
                 version_title.setStyleSheet(f"""
+                    font-family: {ui_font};
                     font-size: {sp(18)}px;
                     font-weight: 700;
                     color: {theme_manager.TEXT_PRIMARY};
@@ -370,6 +380,7 @@ class WDEvaluationDetailModal(QDialog):
 
                     overall_label = QLabel("综合评价:")
                     overall_label.setStyleSheet(f"""
+                        font-family: {ui_font};
                         font-weight: 600;
                         color: {theme_manager.TEXT_PRIMARY};
                         font-size: {sp(14)}px;
@@ -379,6 +390,7 @@ class WDEvaluationDetailModal(QDialog):
                     overall_content = QLabel(eval_result['overall_review'])
                     overall_content.setWordWrap(True)
                     overall_content.setStyleSheet(f"""
+                        font-family: {serif_font};
                         color: {theme_manager.TEXT_SECONDARY};
                         font-size: {sp(14)}px;
                     """)
@@ -395,6 +407,7 @@ class WDEvaluationDetailModal(QDialog):
 
                     pros_label = QLabel("优点:")
                     pros_label.setStyleSheet(f"""
+                        font-family: {ui_font};
                         font-weight: 600;
                         color: {theme_manager.TEXT_PRIMARY};
                         font-size: {sp(14)}px;
@@ -405,6 +418,7 @@ class WDEvaluationDetailModal(QDialog):
                         pro_item = QLabel(f"• {pro}")
                         pro_item.setWordWrap(True)
                         pro_item.setStyleSheet(f"""
+                            font-family: {serif_font};
                             color: {theme_manager.TEXT_SECONDARY};
                             font-size: {sp(14)}px;
                             padding-left: 16px;
@@ -422,6 +436,7 @@ class WDEvaluationDetailModal(QDialog):
 
                     cons_label = QLabel("缺点:")
                     cons_label.setStyleSheet(f"""
+                        font-family: {ui_font};
                         font-weight: 600;
                         color: {theme_manager.TEXT_PRIMARY};
                         font-size: {sp(14)}px;
@@ -432,6 +447,7 @@ class WDEvaluationDetailModal(QDialog):
                         con_item = QLabel(f"• {con}")
                         con_item.setWordWrap(True)
                         con_item.setStyleSheet(f"""
+                            font-family: {serif_font};
                             color: {theme_manager.TEXT_SECONDARY};
                             font-size: {sp(14)}px;
                             padding-left: 16px;
@@ -441,5 +457,3 @@ class WDEvaluationDetailModal(QDialog):
                     version_layout.addWidget(cons_widget)
 
                 layout.addWidget(version_card)
-
-

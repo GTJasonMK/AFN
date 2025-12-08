@@ -171,6 +171,42 @@ class Chapter(Base):
     selected_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
     )
+
+    # 章节分析数据 - 预处理结果存储
+    analysis_data: Mapped[Optional[dict]] = mapped_column(JSON)
+    """
+    {
+        "metadata": {
+            "characters": ["角色名列表"],
+            "locations": ["地点列表"],
+            "items": ["物品列表"],
+            "tags": ["战斗", "对话"],
+            "tone": "情感基调",
+            "timeline_marker": "时间标记"
+        },
+        "summaries": {
+            "compressed": "100字压缩摘要",
+            "one_line": "30字一句话摘要",
+            "keywords": ["关键词"]
+        },
+        "character_states": {
+            "角色名": {
+                "location": "当前位置",
+                "status": "状态描述",
+                "changes": ["本章变化"]
+            }
+        },
+        "foreshadowing": {
+            "planted": [{"description": "...", "priority": "high"}],
+            "resolved": [{"id": "...", "resolution": "..."}],
+            "tensions": ["未解悬念"]
+        },
+        "key_events": [
+            {"type": "battle", "description": "...", "importance": "high"}
+        ]
+    }
+    """
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

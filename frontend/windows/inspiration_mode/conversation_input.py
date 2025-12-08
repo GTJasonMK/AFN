@@ -60,7 +60,7 @@ class ConversationInput(ThemeAwareWidget):
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
         # 使用 theme_manager 的书香风格便捷方法
-        serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
         bg_secondary = theme_manager.book_bg_secondary()
         text_primary = theme_manager.book_text_primary()
         text_secondary = theme_manager.book_text_secondary()
@@ -75,7 +75,7 @@ class ConversationInput(ThemeAwareWidget):
                     border: 1px solid {border_color};
                     border-radius: {theme_manager.RADIUS_SM};
                     padding: 16px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: {theme_manager.FONT_SIZE_BASE};
                     color: {text_primary};
                     line-height: {theme_manager.LINE_HEIGHT_RELAXED};
@@ -92,7 +92,7 @@ class ConversationInput(ThemeAwareWidget):
         # 字数统计
         if self.char_count:
             self.char_count.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {text_secondary};
                 font-weight: {theme_manager.FONT_WEIGHT_MEDIUM};
@@ -101,7 +101,7 @@ class ConversationInput(ThemeAwareWidget):
         # 快捷键提示
         if self.hint_label:
             self.hint_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_TERTIARY};
                 font-weight: {theme_manager.FONT_WEIGHT_NORMAL};
@@ -131,7 +131,7 @@ class ConversationInput(ThemeAwareWidget):
             # 字数过多时变色提示
             if count > 500:
                 self.char_count.setStyleSheet(f"""
-                    font-family: {theme_manager.serif_font()};
+                    font-family: {theme_manager.ui_font()};
                     font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.WARNING};
                     font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};

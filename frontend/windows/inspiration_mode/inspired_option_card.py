@@ -96,7 +96,7 @@ class InspiredOptionCard(ThemeAwareWidget):
     def _apply_theme(self):
         """更新主题样式 - 书香风格"""
         # 使用 theme_manager 的书香风格便捷方法
-        serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
         bg_primary = theme_manager.book_bg_primary()
         bg_secondary = theme_manager.book_bg_secondary()
         text_primary = theme_manager.book_text_primary()
@@ -107,8 +107,8 @@ class InspiredOptionCard(ThemeAwareWidget):
 
         # 卡片基础样式
         if self.is_disabled:
-            # 禁用状态 - 降低透明度，移除交互效果
-            disabled_bg = theme_manager.BG_TERTIARY if is_dark else "#F3F4F6"
+            # 禁用状态 - 使用 theme_manager 的颜色，避免硬编码
+            disabled_bg = theme_manager.BG_TERTIARY
 
             self.setStyleSheet(f"""
                 InspiredOptionCard {{
@@ -145,9 +145,9 @@ class InspiredOptionCard(ThemeAwareWidget):
         self.number_label.setStyleSheet(f"""
             QLabel#numberLabel {{
                 background: {accent_color};
-                color: #FFFFFF;
+                color: {theme_manager.BUTTON_TEXT};
                 border-radius: 12px;
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-weight: 600;
                 font-size: 14px;
             }}
@@ -157,7 +157,7 @@ class InspiredOptionCard(ThemeAwareWidget):
         self.title_label.setStyleSheet(f"""
             QLabel#titleLabel {{
                 color: {text_primary};
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-weight: 600;
                 font-size: 15px;
             }}
@@ -168,22 +168,22 @@ class InspiredOptionCard(ThemeAwareWidget):
             self.desc_label.setStyleSheet(f"""
                 QLabel#descLabel {{
                     color: {text_secondary};
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: 13px;
                     line-height: 1.5;
                 }}
             """)
 
-        # 标签样式 - 书香风格（优化浅色主题可读性）
+        # 标签样式 - 书香风格（使用 theme_manager 颜色）
         tag_labels = self.findChildren(QLabel, "tagLabel")
         if is_dark:
             # 深色主题：金色文字 + 深色暖色背景
             tag_text_color = accent_color
             tag_bg_color = f"{accent_color}25"  # 约15%透明度
         else:
-            # 浅色主题：深褐色文字 + 柔和暖色背景
-            tag_text_color = "#5D4037"  # 深褐色，与次要文字色一致
-            tag_bg_color = "#E8DDD4"    # 柔和的米褐色背景
+            # 浅色主题：使用 theme_manager 颜色，避免硬编码
+            tag_text_color = theme_manager.book_text_secondary()
+            tag_bg_color = theme_manager.BG_TERTIARY
 
         for tag in tag_labels:
             tag.setStyleSheet(f"""
@@ -192,7 +192,7 @@ class InspiredOptionCard(ThemeAwareWidget):
                     background: {tag_bg_color};
                     border-radius: 4px;
                     padding: 4px 8px;
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     font-size: 12px;
                     font-weight: 500;
                 }}

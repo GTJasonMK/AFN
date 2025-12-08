@@ -206,6 +206,10 @@ class WorldSettingSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）"""
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
+        serif_font = theme_manager.serif_font()
+
         # 核心规则卡片 - 带渐变左边框
         if self.rules_card:
             self.rules_card.setStyleSheet(f"""
@@ -216,11 +220,13 @@ class WorldSettingSection(ThemeAwareWidget):
                     border-radius: {dp(12)}px;
                 }}
                 #rules_title {{
+                    font-family: {ui_font};
                     font-size: {sp(16)}px;
                     font-weight: 600;
                     color: {theme_manager.PRIMARY};
                 }}
                 #rules_content {{
+                    font-family: {serif_font};
                     font-size: {sp(14)}px;
                     color: {theme_manager.TEXT_SECONDARY};
                     line-height: 1.7;
@@ -248,6 +254,7 @@ class WorldSettingSection(ThemeAwareWidget):
                 border-radius: {dp(12)}px;
             }}
             #list_title {{
+                font-family: {ui_font};
                 font-size: {sp(15)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
@@ -269,16 +276,19 @@ class WorldSettingSection(ThemeAwareWidget):
                 border-radius: {dp(8)}px;
             }}
             #item_title {{
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 500;
                 color: {theme_manager.TEXT_PRIMARY};
             }}
             #item_desc {{
+                font-family: {ui_font};
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_SECONDARY};
                 padding-left: {dp(16)}px;
             }}
             #no_data {{
+                font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_TERTIARY};
                 padding: {dp(12)}px 0;

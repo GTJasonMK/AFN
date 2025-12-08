@@ -197,7 +197,8 @@ class WDSidebar(ThemeAwareFrame):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）"""
-        # 使用书香风格字体
+        # 使用现代UI字体
+        ui_font = theme_manager.ui_font()
         serif_font = theme_manager.serif_font()
 
         # Sidebar背景
@@ -231,7 +232,7 @@ class WDSidebar(ThemeAwareFrame):
         # 蓝图标题
         if bp_title := self.findChild(QLabel, "bp_title"):
             bp_title.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_LG};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.BUTTON_TEXT};
@@ -240,7 +241,7 @@ class WDSidebar(ThemeAwareFrame):
         # 风格标签
         if self.bp_style:
             self.bp_style.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: rgba(255, 255, 255, 0.9);
                 background-color: rgba(255, 255, 255, 0.15);
@@ -261,7 +262,7 @@ class WDSidebar(ThemeAwareFrame):
         # 摘要标签
         if summary_label := self.findChild(QLabel, "summary_label"):
             summary_label.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_XS};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_SECONDARY};
@@ -282,7 +283,7 @@ class WDSidebar(ThemeAwareFrame):
         if self.expand_btn:
             self.expand_btn.setStyleSheet(f"""
                 QPushButton#expand_btn {{
-                    font-family: {serif_font};
+                    font-family: {ui_font};
                     background: transparent;
                     border: none;
                     color: {theme_manager.PRIMARY};
@@ -302,7 +303,7 @@ class WDSidebar(ThemeAwareFrame):
         # 章节列表标题
         if chapters_title := self.findChild(QLabel, "chapters_title"):
             chapters_title.setStyleSheet(f"""
-                font-family: {serif_font};
+                font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_LG};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
