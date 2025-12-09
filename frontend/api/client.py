@@ -677,6 +677,47 @@ class ArborisAPIClient:
             timeout=600
         )
 
+    def preview_chapter_prompt(
+        self,
+        project_id: str,
+        chapter_number: int,
+        writing_notes: Optional[str] = None,
+        is_retry: bool = False
+    ) -> Dict[str, Any]:
+        """
+        预览章节生成的提示词（用于测试RAG效果）
+
+        此方法只构建提示词，不调用LLM生成内容。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            writing_notes: 写作备注/优化方向（可选）
+            is_retry: 是否为重新生成模式（使用简化提示词，不含完整前情摘要）
+
+        Returns:
+            提示词预览数据，包含：
+            - system_prompt: 系统提示词
+            - user_prompt: 用户提示词
+            - rag_statistics: RAG检索统计
+            - prompt_sections: 各部分内容
+            - total_length: 总长度
+            - estimated_tokens: 估算token数
+        """
+        data = {
+            'chapter_number': chapter_number,
+            'is_retry': is_retry,
+        }
+        if writing_notes:
+            data['writing_notes'] = writing_notes
+
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/preview-prompt',
+            data,
+            timeout=120
+        )
+
     def select_chapter_version(
         self,
         project_id: str,
@@ -947,6 +988,86 @@ class ArborisAPIClient:
             {"version": "1.0", "export_time": "...", "export_type": "batch", "configs": [...]}
         """
         return self._request('GET', '/api/llm-configs/export')
+
+    # ==================== 嵌入模型配置 ====================
+
+    def get_embedding_configs(self) -> List[Dict[str, Any]]:
+        """获取嵌入模型配置列表"""
+        return self._request('GET', '/api/embedding-configs')
+
+    def get_embedding_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        获取指定嵌入模型配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            配置详情
+        """
+        return self._request('GET', f'/api/embedding-configs/{config_id}')
+
+    def create_embedding_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        创建嵌入模型配置
+
+        Args:
+            config_data: 配置数据
+
+        Returns:
+            创建的配置
+        """
+        return self._request('POST', '/api/embedding-configs', config_data)
+
+    def update_embedding_config(
+        self,
+        config_id: int,
+        config_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        更新嵌入模型配置
+
+        Args:
+            config_id: 配置ID
+            config_data: 配置数据
+
+        Returns:
+            更新后的配置
+        """
+        return self._request('PUT', f'/api/embedding-configs/{config_id}', config_data)
+
+    def delete_embedding_config(self, config_id: int) -> None:
+        """
+        删除嵌入模型配置
+
+        Args:
+            config_id: 配置ID
+        """
+        self._request('DELETE', f'/api/embedding-configs/{config_id}')
+
+    def activate_embedding_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        激活嵌入模型配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            激活后的配置
+        """
+        return self._request('POST', f'/api/embedding-configs/{config_id}/activate')
+
+    def test_embedding_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        测试嵌入模型配置连接
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            测试结果
+        """
+        return self._request('POST', f'/api/embedding-configs/{config_id}/test', timeout=60)
 
     # ==================== 异步生成接口（支持async_mode参数）====================
 

@@ -19,6 +19,7 @@ from ....core.dependencies import (
     get_novel_service,
     get_llm_service,
     get_prompt_service,
+    get_vector_store,
 )
 from ....db.session import get_session
 from ....exceptions import (
@@ -39,6 +40,7 @@ from ....schemas.user import UserInDB
 from ....repositories.chapter_repository import ChapterOutlineRepository, ChapterRepository
 from ....services.chapter_analysis_service import ChapterAnalysisService
 from ....services.chapter_ingest_service import ChapterIngestionService
+from ....services.incremental_indexer import IncrementalIndexer
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
@@ -57,6 +59,7 @@ async def import_chapter(
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
     """
     导入章节内容
@@ -76,48 +79,46 @@ async def import_chapter(
     
     # 2. 获取或创建章节记录
     chapter_repo = ChapterRepository(session)
-    chapter = await chapter_repo.get_chapter(project_id, request.chapter_number)
-    
+    chapter = await chapter_repo.get_by_project_and_number(project_id, request.chapter_number)
+
     if not chapter:
-        # 创建新章节
+        # 创建新章节（Chapter模型不包含title字段，title存储在ChapterOutline中）
         chapter = Chapter(
             project_id=project_id,
             chapter_number=request.chapter_number,
-            title=request.title,
         )
         session.add(chapter)
-        await session.commit()  # 提交以获取ID
-    
+        await session.flush()  # flush以获取ID，稍后统一commit
+
     # 3. 创建新的版本并设为选中
     from ....models.novel import ChapterVersion  # 延迟导入避免循环
-    
-    # 确定新版本号
-    new_version_number = 1
+
+    # 确定新版本标签
+    new_version_label = "v1"
     if chapter.versions:
-        new_version_number = max(v.version_number for v in chapter.versions) + 1
-        
+        # 基于现有版本数量生成新标签
+        new_version_label = f"v{len(chapter.versions) + 1}"
+
     new_version = ChapterVersion(
         chapter_id=chapter.id,
-        version_number=new_version_number,
+        version_label=new_version_label,
         content=request.content,
-        llm_model="imported",  # 标记为导入
-        prompt="imported"
+        provider="imported",  # 标记为导入
     )
     session.add(new_version)
-    await session.commit()
-    
+    await session.flush()  # flush以获取版本ID
+
     # 更新章节选中版本和字数
     chapter.selected_version_id = new_version.id
     chapter.word_count = len(request.content)
-    session.add(chapter)
     await session.commit()
 
     logger.info(
-        "用户 %s 导入项目 %s 第 %s 章内容 (版本 %d)", 
-        desktop_user.id, 
-        project_id, 
+        "用户 %s 导入项目 %s 第 %s 章内容 (版本 %s)",
+        desktop_user.id,
+        project_id,
         request.chapter_number,
-        new_version_number
+        new_version_label
     )
 
     # 4. 尝试生成摘要（异步或同步）
@@ -145,17 +146,7 @@ async def import_chapter(
     
     await session.commit()
 
-    # 5. 向量入库
-    vector_store: Optional[VectorStoreService]
-    if not settings.vector_store_enabled:
-        vector_store = None
-    else:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过章节向量更新: %s", exc)
-            vector_store = None
-
+    # 5. 向量入库（使用依赖注入的vector_store）
     if vector_store:
         ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
         await ingestion_service.ingest_chapter(
@@ -182,6 +173,7 @@ async def select_chapter_version(
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
 
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
@@ -237,6 +229,30 @@ async def select_chapter_version(
                     project_id,
                     request.chapter_number,
                 )
+
+                # 更新角色状态和伏笔索引
+                try:
+                    indexer = IncrementalIndexer(session)
+                    index_stats = await indexer.index_chapter_analysis(
+                        project_id=project_id,
+                        chapter_number=request.chapter_number,
+                        analysis_data=analysis_data,
+                    )
+                    await session.commit()
+                    logger.info(
+                        "项目 %s 第 %s 章索引更新完成: %s",
+                        project_id,
+                        request.chapter_number,
+                        index_stats,
+                    )
+                except Exception as index_exc:
+                    logger.error(
+                        "项目 %s 第 %s 章索引更新失败: %s",
+                        project_id,
+                        request.chapter_number,
+                        index_exc,
+                    )
+                    # 索引更新失败不影响主流程
         except Exception as exc:
             logger.error(
                 "项目 %s 第 %s 章分析失败，但版本选择已保存: %s",
@@ -246,17 +262,7 @@ async def select_chapter_version(
             )
             # 分析失败不影响版本选择结果，继续处理
 
-        # 选定版本后同步向量库，确保后续章节可检索到最新内容
-        vector_store: Optional[VectorStoreService]
-        if not settings.vector_store_enabled:
-            vector_store = None
-        else:
-            try:
-                vector_store = VectorStoreService()
-            except RuntimeError as exc:
-                logger.warning("向量库初始化失败，跳过章节向量同步: %s", exc)
-                vector_store = None
-
+        # 选定版本后同步向量库，确保后续章节可检索到最新内容（使用依赖注入的vector_store）
         if vector_store:
             ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
             await ingestion_service.ingest_chapter(
@@ -384,6 +390,7 @@ async def delete_chapters(
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
     if not request.chapter_numbers:
         logger.warning("项目 %s 未提供要删除的章节号", project_id)
@@ -398,17 +405,7 @@ async def delete_chapters(
     await novel_service.delete_chapters(project_id, request.chapter_numbers)
     await session.commit()
 
-    # 删除章节时同步清理向量库，避免过时内容被检索
-    vector_store: Optional[VectorStoreService]
-    if not settings.vector_store_enabled:
-        vector_store = None
-    else:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过章节向量删除: %s", exc)
-            vector_store = None
-
+    # 删除章节时同步清理向量库，避免过时内容被检索（使用依赖注入的vector_store）
     if vector_store:
         ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
         await ingestion_service.delete_chapters(project_id, request.chapter_numbers)
@@ -430,6 +427,7 @@ async def update_chapter(
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
     """
     更新章节内容（RESTful风格端点）
@@ -468,16 +466,7 @@ async def update_chapter(
             chapter.real_summary = "摘要生成失败，请稍后手动生成"
     await session.commit()
 
-    vector_store: Optional[VectorStoreService]
-    if not settings.vector_store_enabled:
-        vector_store = None
-    else:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过章节向量更新: %s", exc)
-            vector_store = None
-
+    # 同步向量库（使用依赖注入的vector_store）
     if vector_store and chapter.selected_version and chapter.selected_version.content:
         ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
         outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)

@@ -1,9 +1,9 @@
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import HTTPException, status
 from openai import (
     APIConnectionError,
     APITimeoutError,
@@ -16,6 +16,13 @@ from openai import (
 
 from ..core.config import settings
 from ..core.constants import LLMConstants
+from ..exceptions import (
+    LLMServiceError,
+    LLMConfigurationError,
+    PromptTemplateNotFoundError,
+    VectorStoreError,
+    InvalidParameterError,
+)
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..services.prompt_service import PromptService
 from ..utils.llm_tool import ChatMessage, ContentCollectMode, LLMClient
@@ -80,7 +87,7 @@ class LLMService:
             user_id: 用户ID
 
         Raises:
-            HTTPException: 如果响应无效
+            LLMServiceError: 如果响应无效
         """
         if result.finish_reason == "length":
             logger.warning(
@@ -88,7 +95,7 @@ class LLMService:
                 config.get("model"),
                 user_id,
             )
-            raise HTTPException(status_code=500, detail="AI 响应被截断，请缩短输入或调整参数")
+            raise LLMServiceError("AI 响应被截断，请缩短输入或调整参数", config.get("model"))
 
         if not result.content:
             logger.error(
@@ -97,7 +104,7 @@ class LLMService:
                 user_id,
                 result.chunk_count,
             )
-            raise HTTPException(status_code=500, detail="AI 未返回有效内容")
+            raise LLMServiceError("AI 未返回有效内容", config.get("model"))
 
     def _extract_error_detail(self, exc: InternalServerError, default_detail: str) -> str:
         """
@@ -133,7 +140,7 @@ class LLMService:
             prompt_service = PromptService(self.session)
             system_prompt = await prompt_service.get_prompt("extraction")
         if not system_prompt:
-            raise HTTPException(status_code=500, detail="未配置摘要提示词")
+            raise PromptTemplateNotFoundError("extraction")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": chapter_content},
@@ -241,7 +248,7 @@ class LLMService:
                     exc_info=exc,
                 )
                 # 内部错误不重试，直接抛出
-                raise HTTPException(status_code=503, detail=detail)
+                raise LLMServiceError(detail, config.get("model"))
 
             except (httpx.RemoteProtocolError, httpx.ReadTimeout, APIConnectionError, APITimeoutError) as exc:
                 last_error = exc
@@ -274,9 +281,9 @@ class LLMService:
 
                 # 已达到最大重试次数，抛出错误
                 retry_hint = f"（已尝试 {max_retries + 1} 次）"
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"{detail}，请稍后重试 {retry_hint}"
+                raise LLMServiceError(
+                    f"{detail}，请稍后重试 {retry_hint}",
+                    config.get("model")
                 ) from exc
 
             except Exception as exc:
@@ -291,19 +298,19 @@ class LLMService:
                     str(exc),
                     exc_info=True,
                 )
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"AI 服务发生意外错误: {type(exc).__name__}: {str(exc)}"
+                raise LLMServiceError(
+                    f"AI 服务发生意外错误: {type(exc).__name__}: {str(exc)}",
+                    config.get("model")
                 ) from exc
 
         # 理论上不应该到达这里，但为了代码完整性保留
         if last_error:
-            raise HTTPException(
-                status_code=503,
-                detail="AI 服务连接失败，请检查网络或稍后重试"
+            raise LLMServiceError(
+                "AI 服务连接失败，请检查网络或稍后重试",
+                config.get("model")
             ) from last_error
 
-        raise HTTPException(status_code=500, detail="未知错误")
+        raise LLMServiceError("未知错误")
 
     async def _resolve_llm_config(self, user_id: Optional[int], skip_daily_limit_check: bool = False) -> Dict[str, Optional[str]]:
         """
@@ -344,7 +351,7 @@ class LLMService:
         model = await self._get_config_value("llm.model")
 
         if not api_key:
-            raise HTTPException(status_code=500, detail="未配置默认 LLM API Key")
+            raise LLMConfigurationError("未配置默认 LLM API Key")
 
         return {"api_key": api_key, "base_url": base_url, "model": model}
 
@@ -354,126 +361,246 @@ class LLMService:
         *,
         user_id: Optional[int] = None,
         model: Optional[str] = None,
+        max_retries: int = 3,
     ) -> List[float]:
-        """生成文本向量，用于章节 RAG 检索，支持 openai 与 ollama 双提供方。"""
-        provider = settings.embedding_provider
-        target_model = model or (
-            settings.ollama_embedding_model if provider == "ollama" else settings.embedding_model
-        )
+        """
+        生成文本向量，用于章节 RAG 检索。
 
-        if provider == "ollama":
-            if OllamaAsyncClient is None:
-                logger.error("未安装 ollama 依赖，无法调用本地嵌入模型。")
-                raise HTTPException(status_code=500, detail="缺少 Ollama 依赖，请先安装 ollama 包。")
+        只使用数据库中激活的嵌入配置，不再回退到环境变量。
+        支持 OpenAI 兼容 API 和本地 Ollama 两种提供方。
+        对于可重试错误（网络/超时/限流），会进行最多 max_retries 次重试。
 
+        Args:
+            text: 要嵌入的文本
+            user_id: 用户ID
+            model: 可选的模型名称覆盖
+            max_retries: 最大重试次数，默认3次
+
+        Returns:
+            嵌入向量列表，失败时返回空列表
+
+        Raises:
+            LLMConfigurationError: 当没有配置激活的嵌入模型时抛出
+        """
+        # 从数据库获取激活的嵌入配置（唯一配置来源）
+        embedding_config = await self._resolve_embedding_config(user_id)
+
+        if not embedding_config:
+            logger.error("未配置嵌入模型，请在设置页面添加并激活嵌入模型配置")
+            raise LLMConfigurationError(
+                "未配置嵌入模型。请在「设置 → 嵌入模型」中添加并激活一个嵌入模型配置。"
+            )
+
+        # 使用数据库配置
+        provider = embedding_config.get("provider", "openai")
+        target_model = model or embedding_config.get("model")
+        api_key = embedding_config.get("api_key")
+        base_url = embedding_config.get("base_url")
+
+        # 重试逻辑
+        last_error: Optional[Exception] = None
+        for attempt in range(max_retries + 1):  # 0 到 max_retries，共 max_retries+1 次尝试
+            try:
+                if provider == "ollama":
+                    embedding = await self._get_ollama_embedding(
+                        text=text,
+                        target_model=target_model,
+                        base_url=base_url,
+                    )
+                else:
+                    embedding = await self._get_openai_embedding(
+                        text=text,
+                        target_model=target_model,
+                        api_key=api_key,
+                        base_url=base_url,
+                        user_id=user_id,
+                    )
+
+                if embedding:
+                    # 成功获取嵌入向量
+                    if attempt > 0:
+                        logger.info(
+                            "嵌入请求在第 %d 次重试后成功: model=%s",
+                            attempt,
+                            target_model,
+                        )
+                    return embedding
+                else:
+                    # 返回空向量（非异常情况）
+                    return []
+
+            except LLMConfigurationError:
+                # 配置错误不重试，直接抛出
+                raise
+            except Exception as exc:
+                last_error = exc
+                if not self._is_retryable_error(exc):
+                    # 不可重试的错误，直接返回空列表
+                    logger.error(
+                        "嵌入请求失败（不可重试）: model=%s error=%s",
+                        target_model,
+                        exc,
+                        exc_info=True,
+                    )
+                    return []
+
+                # 可重试错误
+                if attempt < max_retries:
+                    # 指数退避延迟：1s, 2s, 4s...
+                    delay = 2 ** attempt
+                    logger.warning(
+                        "嵌入请求失败，将在 %d 秒后重试 (%d/%d): model=%s error=%s",
+                        delay,
+                        attempt + 1,
+                        max_retries,
+                        target_model,
+                        exc,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    # 超过最大重试次数
+                    logger.error(
+                        "嵌入请求失败，已达到最大重试次数 (%d): model=%s error=%s",
+                        max_retries,
+                        target_model,
+                        exc,
+                    )
+
+        # 所有重试都失败了
+        return []
+
+    async def _get_ollama_embedding(
+        self,
+        text: str,
+        target_model: str,
+        base_url: Optional[str],
+    ) -> List[float]:
+        """调用 Ollama 生成嵌入向量（内部方法）"""
+        if OllamaAsyncClient is None:
+            logger.error("未安装 ollama 依赖，无法调用本地嵌入模型。")
+            raise LLMConfigurationError("缺少 Ollama 依赖，请先安装 ollama 包")
+
+        # Ollama base_url 回退
+        if not base_url:
             base_url_any = settings.ollama_embedding_base_url or settings.embedding_base_url
             base_url = str(base_url_any) if base_url_any else None
-            client = OllamaAsyncClient(host=base_url)
-            try:
-                response = await client.embeddings(model=target_model, prompt=text)
-            except Exception as exc:  # pragma: no cover - 本地服务调用失败
-                # 区分可重试和不可重试的错误
-                if self._is_retryable_error(exc):
-                    # 网络/超时错误：记录警告并返回空列表，允许降级
-                    logger.warning(
-                        "Ollama 嵌入请求失败（网络错误）: model=%s error=%s",
-                        target_model,
-                        exc,
-                    )
-                    return []
-                else:
-                    # 配置错误/模型不存在等：直接抛出，避免掩盖问题
-                    logger.error(
-                        "Ollama 嵌入请求失败（配置错误）: model=%s error=%s",
-                        target_model,
-                        exc,
-                        exc_info=True,
-                    )
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Ollama 嵌入服务错误: {str(exc)}"
-                    ) from exc
-            embedding: Optional[List[float]]
-            if isinstance(response, dict):
-                embedding = response.get("embedding")
-            else:
-                embedding = getattr(response, "embedding", None)
-            if not embedding:
-                logger.warning("Ollama 返回空向量: model=%s", target_model)
-                return []
-            if not isinstance(embedding, list):
-                embedding = list(embedding)
+
+        client = OllamaAsyncClient(host=base_url)
+        response = await client.embeddings(model=target_model, prompt=text)
+
+        embedding: Optional[List[float]]
+        if isinstance(response, dict):
+            embedding = response.get("embedding")
         else:
-            config = await self._resolve_llm_config(user_id)
-            api_key = settings.embedding_api_key or config["api_key"]
-            base_url_setting = settings.embedding_base_url or config.get("base_url")
-            base_url = str(base_url_setting) if base_url_setting else None
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            try:
-                response = await client.embeddings.create(
-                    input=text,
-                    model=target_model,
-                )
-            except AuthenticationError as exc:  # pragma: no cover - 认证失败
-                # 认证错误：不可重试，直接抛出
-                logger.error(
-                    "OpenAI 嵌入认证失败: model=%s user_id=%s",
-                    target_model,
-                    user_id,
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=401,
-                    detail="AI服务认证失败，请检查API密钥配置"
-                ) from exc
-            except BadRequestError as exc:  # pragma: no cover - 请求无效
-                # 请求错误（如模型不存在）：不可重试，直接抛出
-                logger.error(
-                    "OpenAI 嵌入请求无效: model=%s user_id=%s error=%s",
-                    target_model,
-                    user_id,
-                    exc,
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"嵌入请求无效: {str(exc)}"
-                ) from exc
-            except Exception as exc:  # pragma: no cover - 网络或其他错误
-                # 区分可重试和不可重试的错误
-                if self._is_retryable_error(exc):
-                    # 网络/超时/限流错误：记录警告并返回空列表，允许降级
-                    logger.warning(
-                        "OpenAI 嵌入请求失败（可重试错误）: model=%s user_id=%s error=%s",
-                        target_model,
-                        user_id,
-                        exc,
-                    )
-                    return []
-                else:
-                    # 未预期的错误：记录错误并返回空列表（保持向后兼容）
-                    logger.error(
-                        "OpenAI 嵌入请求失败（未知错误）: model=%s user_id=%s error=%s",
-                        target_model,
-                        user_id,
-                        exc,
-                        exc_info=True,
-                    )
-                    return []
-            if not response.data:
-                logger.warning("OpenAI 嵌入请求返回空数据: model=%s user_id=%s", target_model, user_id)
-                return []
-            embedding = response.data[0].embedding
+            embedding = getattr(response, "embedding", None)
+
+        if not embedding:
+            logger.warning("Ollama 返回空向量: model=%s", target_model)
+            return []
 
         if not isinstance(embedding, list):
             embedding = list(embedding)
 
+        # 缓存向量维度
         dimension = len(embedding)
-        if not dimension and settings.embedding_model_vector_size:
-            dimension = settings.embedding_model_vector_size
         if dimension:
             self._embedding_dimensions[target_model] = dimension
+
         return embedding
+
+    async def _get_openai_embedding(
+        self,
+        text: str,
+        target_model: str,
+        api_key: Optional[str],
+        base_url: Optional[str],
+        user_id: Optional[int],
+    ) -> List[float]:
+        """调用 OpenAI 兼容 API 生成嵌入向量（内部方法）"""
+        if not api_key:
+            raise LLMConfigurationError(
+                "嵌入模型配置缺少 API Key。请在「设置 → 嵌入模型」中检查配置。"
+            )
+
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+        try:
+            response = await client.embeddings.create(
+                input=text,
+                model=target_model,
+            )
+        except AuthenticationError as exc:
+            logger.error(
+                "OpenAI 嵌入认证失败: model=%s user_id=%s",
+                target_model,
+                user_id,
+                exc_info=True,
+            )
+            raise LLMConfigurationError("AI服务认证失败，请检查API密钥配置") from exc
+        except BadRequestError as exc:
+            logger.error(
+                "OpenAI 嵌入请求无效: model=%s user_id=%s error=%s",
+                target_model,
+                user_id,
+                exc,
+                exc_info=True,
+            )
+            raise InvalidParameterError(f"嵌入请求无效: {str(exc)}") from exc
+
+        if not response.data:
+            logger.warning("OpenAI 嵌入请求返回空数据: model=%s user_id=%s", target_model, user_id)
+            return []
+
+        embedding = response.data[0].embedding
+
+        if not isinstance(embedding, list):
+            embedding = list(embedding)
+
+        # 缓存向量维度
+        dimension = len(embedding)
+        if dimension:
+            self._embedding_dimensions[target_model] = dimension
+
+        return embedding
+
+    async def _resolve_embedding_config(self, user_id: Optional[int]) -> Optional[Dict[str, Any]]:
+        """
+        解析嵌入模型配置
+
+        优先从数据库获取激活的嵌入配置，如果没有则返回 None。
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            嵌入配置字典，包含 provider, model, api_key, base_url 等字段
+        """
+        if not user_id:
+            return None
+
+        try:
+            from ..repositories.embedding_config_repository import EmbeddingConfigRepository
+            from ..utils.encryption import decrypt_api_key
+
+            repo = EmbeddingConfigRepository(self.session)
+            config = await repo.get_active_config(user_id)
+
+            if not config:
+                return None
+
+            # 解密 API Key
+            decrypted_key = decrypt_api_key(config.api_key, settings.secret_key) if config.api_key else None
+
+            return {
+                "provider": config.provider or "openai",
+                "model": config.model_name,
+                "api_key": decrypted_key,
+                "base_url": config.api_base_url,
+                "vector_size": config.vector_size,
+            }
+        except Exception as exc:
+            logger.warning("获取嵌入模型配置失败，将使用环境变量配置: %s", exc)
+            return None
 
     def get_embedding_dimension(self, model: Optional[str] = None) -> Optional[int]:
         """获取嵌入向量维度，优先返回缓存结果，其次读取配置。"""

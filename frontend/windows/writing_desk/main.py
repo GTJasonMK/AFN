@@ -21,6 +21,7 @@ from .header import WDHeader
 from .sidebar import WDSidebar
 from .workspace import WDWorkspace
 from .assistant_panel import AssistantPanel
+from .prompt_preview_dialog import PromptPreviewDialog
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class WritingDesk(BasePage):
         self.edit_content_worker = None  # 用于内容编辑
         self.save_content_worker = None  # 用于保存内容
         self.generation_worker = None   # 用于章节生成
+        self.preview_worker = None  # 用于提示词预览
 
         self.setupUI()
         self.loadProject()
@@ -90,6 +92,7 @@ class WritingDesk(BasePage):
         # Workspace
         self.workspace = WDWorkspace()
         self.workspace.generateChapterRequested.connect(self.onGenerateChapter)
+        self.workspace.previewPromptRequested.connect(self.onPreviewPrompt)
         self.workspace.saveContentRequested.connect(self.onSaveContent)
         self.workspace.selectVersion.connect(self.onSelectVersion)
         self.workspace.evaluateChapter.connect(self.onEvaluateChapter)
@@ -224,6 +227,131 @@ class WritingDesk(BasePage):
 
         # 启动Worker
         self.generation_worker.start()
+
+    def onPreviewPrompt(self, chapter_number):
+        """预览章节生成的提示词（用于测试RAG效果）"""
+        from components.dialogs import TextInputDialog
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup, QPushButton, QTextEdit
+        from themes.theme_manager import theme_manager
+        from themes import ButtonStyles
+
+        # 创建选项对话框
+        options_dialog = QDialog(self)
+        options_dialog.setWindowTitle("预览提示词选项")
+        options_dialog.setMinimumWidth(dp(450))
+
+        layout = QVBoxLayout(options_dialog)
+        layout.setSpacing(dp(16))
+        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+
+        # 模式选择
+        mode_label = QLabel("选择预览模式：")
+        mode_label.setStyleSheet(f"font-weight: bold; color: {theme_manager.TEXT_PRIMARY};")
+        layout.addWidget(mode_label)
+
+        mode_group = QButtonGroup(options_dialog)
+
+        first_gen_radio = QRadioButton("首次生成 - 完整提示词（包含分层前情摘要）")
+        first_gen_radio.setChecked(True)
+        first_gen_radio.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+        mode_group.addButton(first_gen_radio, 0)
+        layout.addWidget(first_gen_radio)
+
+        retry_radio = QRadioButton("重新生成 - 简化提示词（不含完整前情摘要）")
+        retry_radio.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+        mode_group.addButton(retry_radio, 1)
+        layout.addWidget(retry_radio)
+
+        # 写作备注/优化方向
+        notes_label = QLabel("写作备注/优化方向（可选）：")
+        notes_label.setStyleSheet(f"font-weight: bold; color: {theme_manager.TEXT_PRIMARY}; margin-top: {dp(8)}px;")
+        layout.addWidget(notes_label)
+
+        notes_hint = QLabel("留空则使用默认设置，填写后会影响RAG查询和提示词内容")
+        notes_hint.setStyleSheet(f"font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};")
+        layout.addWidget(notes_hint)
+
+        notes_input = QTextEdit()
+        notes_input.setPlaceholderText("示例：增加心理描写、加快节奏、强化角色冲突...")
+        notes_input.setMaximumHeight(dp(80))
+        notes_input.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {theme_manager.BG_SECONDARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                color: {theme_manager.TEXT_PRIMARY};
+            }}
+        """)
+        layout.addWidget(notes_input)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet(ButtonStyles.secondary())
+        cancel_btn.clicked.connect(options_dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        confirm_btn = QPushButton("预览提示词")
+        confirm_btn.setStyleSheet(ButtonStyles.primary())
+        confirm_btn.clicked.connect(options_dialog.accept)
+        btn_layout.addWidget(confirm_btn)
+
+        layout.addLayout(btn_layout)
+
+        # 显示对话框
+        if options_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # 获取选项
+        is_retry = mode_group.checkedId() == 1
+        writing_notes = notes_input.toPlainText().strip() or None
+
+        # 显示加载动画
+        mode_text = "重新生成" if is_retry else "首次生成"
+        self.show_loading(f"正在构建第{chapter_number}章的提示词（{mode_text}模式）...")
+
+        # 创建异步工作线程
+        self.preview_worker = AsyncAPIWorker(
+            self.api_client.preview_chapter_prompt,
+            self.project_id,
+            chapter_number,
+            writing_notes,
+            is_retry
+        )
+        self.preview_worker.success.connect(
+            lambda result: self.onPreviewPromptSuccess(result, chapter_number, is_retry)
+        )
+        self.preview_worker.error.connect(self.onPreviewPromptError)
+
+        # 启动预览任务
+        self.preview_worker.start()
+
+    def onPreviewPromptSuccess(self, result, chapter_number, is_retry=False):
+        """提示词预览成功回调"""
+        # 隐藏加载动画
+        self.hide_loading()
+
+        # 清理工作线程引用
+        if self.preview_worker:
+            self.preview_worker = None
+
+        # 显示预览对话框
+        dialog = PromptPreviewDialog(result, chapter_number, is_retry=is_retry, parent=self)
+        dialog.exec()
+
+    def onPreviewPromptError(self, error_msg):
+        """提示词预览失败回调"""
+        # 隐藏加载动画
+        self.hide_loading()
+
+        MessageService.show_error(self, f"预览提示词失败：\n\n{error_msg}", "错误")
+
+        # 清理工作线程引用
+        if self.preview_worker:
+            self.preview_worker = None
 
     def onGenerateOutline(self):
         """跳转到项目详情的章节大纲页面"""
@@ -551,6 +679,7 @@ class WritingDesk(BasePage):
             ('edit_content_worker', self.edit_content_worker),
             ('save_content_worker', self.save_content_worker),
             ('generation_worker', self.generation_worker),
+            ('preview_worker', self.preview_worker),
         ]
 
         for name, worker in workers:
@@ -573,6 +702,9 @@ class WritingDesk(BasePage):
         self.current_worker = None
         self.select_version_worker = None
         self.edit_content_worker = None
+        self.save_content_worker = None
+        self.generation_worker = None
+        self.preview_worker = None
 
         # 隐藏加载动画（如果有）
         self.hide_loading()

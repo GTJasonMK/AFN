@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from .llm_settings_widget import LLMSettingsWidget
+from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
 
 
@@ -132,6 +133,10 @@ class SettingsView(BasePage):
         # LLM配置Tab
         self.llm_settings = LLMSettingsWidget()
         self.tab_widget.addTab(self.llm_settings, "LLM配置")
+
+        # 嵌入模型配置Tab
+        self.embedding_settings = EmbeddingSettingsWidget()
+        self.tab_widget.addTab(self.embedding_settings, "嵌入模型")
 
         # 高级配置Tab
         self.advanced_settings = AdvancedSettingsWidget()

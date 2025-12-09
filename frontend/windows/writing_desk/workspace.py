@@ -27,6 +27,7 @@ class WDWorkspace(ThemeAwareFrame):
     """主工作区 - 章节内容与版本管理"""
 
     generateChapterRequested = pyqtSignal(int)  # chapter_number
+    previewPromptRequested = pyqtSignal(int)  # chapter_number - 预览提示词
     saveContentRequested = pyqtSignal(int, str)  # chapter_number, content
     selectVersion = pyqtSignal(int)  # version_index
     evaluateChapter = pyqtSignal()  # 评审当前章节
@@ -46,6 +47,7 @@ class WDWorkspace(ThemeAwareFrame):
         self.tab_widget = None
         self.content_text = None
         self.generate_btn = None
+        self.preview_btn = None
 
         super().__init__(parent)
         self.setupUI()
@@ -909,7 +911,38 @@ class WDWorkspace(ThemeAwareFrame):
 
         header_layout.addWidget(info_widget, stretch=1)
 
-        # 右侧：生成按钮 - 紧凑版
+        # 右侧：按钮组 - 紧凑版
+        btn_widget = QWidget()
+        btn_widget.setStyleSheet("background-color: transparent;")
+        btn_layout = QHBoxLayout(btn_widget)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(dp(8))
+
+        # 预览提示词按钮
+        self.preview_btn = QPushButton("预览提示词")
+        self.preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.preview_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-family: {serif_font};
+                background-color: transparent;
+                color: {theme_manager.BUTTON_TEXT};
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: {dp(6)}px;
+                padding: {dp(8)}px {dp(12)}px;
+                font-size: {sp(12)}px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.5);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(255, 255, 255, 0.1);
+            }}
+        """)
+        self.preview_btn.clicked.connect(lambda: self.previewPromptRequested.emit(self.current_chapter))
+        btn_layout.addWidget(self.preview_btn)
+
+        # 生成章节按钮
         self.generate_btn = QPushButton("生成章节")
         self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.generate_btn.setStyleSheet(f"""
@@ -932,7 +965,9 @@ class WDWorkspace(ThemeAwareFrame):
             }}
         """)
         self.generate_btn.clicked.connect(lambda: self.generateChapterRequested.emit(self.current_chapter))
-        header_layout.addWidget(self.generate_btn)
+        btn_layout.addWidget(self.generate_btn)
+
+        header_layout.addWidget(btn_widget)
 
         layout.addWidget(header)
 

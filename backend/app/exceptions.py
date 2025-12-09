@@ -136,11 +136,15 @@ class DatabaseError(ArborisException):
 class JSONParseError(ArborisException):
     """JSON解析错误（500）"""
 
-    def __init__(self, context: str):
+    def __init__(self, context: str, detail_msg: Optional[str] = None):
+        message = f"{context}: 格式错误"
+        detail = f"JSON解析失败: {context}"
+        if detail_msg:
+            detail = f"{detail} - {detail_msg}"
         super().__init__(
-            message=f"{context}: 格式错误",
+            message=message,
             status_code=500,
-            detail=f"JSON解析失败: {context}"
+            detail=detail
         )
 
 
@@ -160,7 +164,11 @@ class GenerationCancelledError(ArborisException):
 
 
 class DailyLimitExceededError(ArborisException):
-    """超出每日限额（429）"""
+    """超出每日限额（429）
+
+    注意：此异常在桌面版中未使用（桌面版无每日限额功能）。
+    保留此定义是为了与Web版代码保持一致，便于未来可能的功能扩展。
+    """
 
     def __init__(self, limit: int, used: int):
         super().__init__(

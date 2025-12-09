@@ -6,11 +6,16 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.state_machine import ProjectStatus
 from ..core.constants import NovelConstants, LLMConstants
+from ..exceptions import (
+    ResourceNotFoundError,
+    InvalidParameterError,
+    BlueprintNotReadyError,
+    JSONParseError,
+)
 from ..models.part_outline import PartOutline
 from ..models.novel import ChapterOutline, NovelProject
 from ..utils.exception_helpers import log_exception
@@ -94,7 +99,7 @@ class PartOutlineService:
         # 获取部分大纲
         part_outline = await self.repo.get_by_part_number(project_id, part_number)
         if not part_outline:
-            raise HTTPException(status_code=404, detail=f"未找到第 {part_number} 部分的大纲")
+            raise ResourceNotFoundError("部分大纲", f"第 {part_number} 部分")
 
         # 只有正在生成的任务才能取消
         if part_outline.generation_status != "generating":
@@ -168,20 +173,21 @@ class PartOutlineService:
             NovelProject: 验证通过的项目对象
 
         抛出:
-            HTTPException: 如果验证失败
+            InvalidParameterError: 如果章节数不满足要求
+            BlueprintNotReadyError: 如果蓝图未生成
         """
         # 检查章节数是否需要分部分
         if total_chapters < NovelConstants.LONG_NOVEL_THRESHOLD:
-            raise HTTPException(
-                status_code=400,
-                detail=f"章节数为 {total_chapters}，不需要使用部分大纲功能（仅适用于{NovelConstants.LONG_NOVEL_THRESHOLD}章及以上的长篇小说）",
+            raise InvalidParameterError(
+                f"章节数为 {total_chapters}，不需要使用部分大纲功能（仅适用于{NovelConstants.LONG_NOVEL_THRESHOLD}章及以上的长篇小说）",
+                "total_chapters"
             )
 
         # 获取项目信息
         project = await self.novel_service.ensure_project_owner(project_id, user_id)
 
         if not project.blueprint:
-            raise HTTPException(status_code=400, detail="项目蓝图未生成，无法创建部分大纲")
+            raise BlueprintNotReadyError(project_id)
 
         return project
 
@@ -224,7 +230,7 @@ class PartOutlineService:
             List[Dict]: 部分大纲数据列表
 
         抛出:
-            HTTPException: 如果解析失败或数据无效
+            JSONParseError: 如果解析失败或数据无效
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
@@ -232,11 +238,11 @@ class PartOutlineService:
             result = json.loads(unwrapped)
         except json.JSONDecodeError as exc:
             logger.error("解析部分大纲JSON失败: %s", exc)
-            raise HTTPException(status_code=500, detail="LLM返回的部分大纲格式错误")
+            raise JSONParseError("部分大纲", str(exc))
 
         parts_data = result.get("parts", [])
         if not parts_data:
-            raise HTTPException(status_code=500, detail="LLM未返回有效的部分大纲")
+            raise JSONParseError("部分大纲", "LLM未返回有效的部分大纲")
 
         return parts_data
 
@@ -288,7 +294,7 @@ class PartOutlineService:
             Dict: 部分大纲数据
 
         抛出:
-            HTTPException: 如果解析失败或数据无效
+            JSONParseError: 如果解析失败或数据无效
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
@@ -296,7 +302,7 @@ class PartOutlineService:
             part_data = json.loads(unwrapped)
         except json.JSONDecodeError as exc:
             logger.error("解析部分大纲JSON失败: %s", exc)
-            raise HTTPException(status_code=500, detail="LLM返回的部分大纲格式错误")
+            raise JSONParseError("部分大纲", str(exc))
 
         # 验证part_number
         if part_data.get("part_number") != expected_part_number:
@@ -510,13 +516,13 @@ class PartOutlineService:
         # 获取部分大纲
         part_outline = await self.repo.get_by_part_number(project_id, part_number)
         if not part_outline:
-            raise HTTPException(status_code=404, detail=f"未找到第 {part_number} 部分的大纲")
+            raise ResourceNotFoundError("部分大纲", f"第 {part_number} 部分")
 
         # 获取项目信息
         project = await self.novel_service.ensure_project_owner(project_id, user_id)
 
         if not project.blueprint:
-            raise HTTPException(status_code=400, detail="项目蓝图未生成")
+            raise BlueprintNotReadyError(project_id)
 
         # 更新状态为generating
         await self.repo.update_status(part_outline, "generating", 0)
@@ -596,11 +602,11 @@ class PartOutlineService:
                     result = json.loads(unwrapped)
                 except json.JSONDecodeError as exc:
                     logger.error("解析章节大纲JSON失败: %s", exc)
-                    raise HTTPException(status_code=500, detail="LLM返回的章节大纲格式错误")
+                    raise JSONParseError("章节大纲", str(exc))
 
                 chapters_data = result.get("chapter_outline", [])
                 if not chapters_data:
-                    raise HTTPException(status_code=500, detail="LLM未返回有效的章节大纲")
+                    raise JSONParseError("章节大纲", "LLM未返回有效的章节大纲")
 
                 # 将章节大纲插入数据库
                 for chapter_data in chapters_data:

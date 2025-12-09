@@ -262,6 +262,33 @@ class RetryVersionRequest(BaseModel):
     custom_prompt: Optional[str] = Field(default=None, description="用户自定义的优化提示词")
 
 
+class PromptPreviewRequest(BaseModel):
+    """提示词预览请求"""
+    chapter_number: int
+    writing_notes: Optional[str] = Field(default=None, description="章节额外写作指令")
+    is_retry: bool = Field(default=False, description="是否为重新生成模式（使用简化提示词）")
+
+
+class RAGStatistics(BaseModel):
+    """RAG检索统计信息"""
+    chunk_count: int = Field(default=0, description="检索到的内容片段数量")
+    summary_count: int = Field(default=0, description="检索到的章节摘要数量")
+    context_length: int = Field(default=0, description="压缩后上下文长度(字符)")
+    query_main: Optional[str] = Field(default=None, description="主查询文本")
+    query_characters: List[str] = Field(default_factory=list, description="角色查询列表")
+    query_foreshadowing: List[str] = Field(default_factory=list, description="伏笔查询列表")
+
+
+class PromptPreviewResponse(BaseModel):
+    """提示词预览响应"""
+    system_prompt: str = Field(..., description="系统提示词")
+    user_prompt: str = Field(..., description="用户提示词(完整写作上下文)")
+    rag_statistics: RAGStatistics = Field(default_factory=RAGStatistics, description="RAG检索统计")
+    prompt_sections: Dict[str, str] = Field(default_factory=dict, description="提示词各部分内容")
+    total_length: int = Field(default=0, description="总提示词长度(字符)")
+    estimated_tokens: int = Field(default=0, description="估算token数量")
+
+
 class GenerateOutlineRequest(BaseModel):
     start_chapter: int
     num_chapters: int

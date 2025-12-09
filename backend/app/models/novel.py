@@ -269,3 +269,67 @@ class ChapterEvaluation(Base):
 
     chapter: Mapped[Chapter] = relationship(back_populates="evaluations")
     version: Mapped[Optional[ChapterVersion]] = relationship(back_populates="evaluations")
+
+
+class CharacterStateIndex(Base):
+    """角色状态索引表
+
+    存储每个章节结束时各角色的状态快照，用于RAG检索和状态追踪。
+    支持按角色名、章节号、项目ID进行高效查询。
+    """
+
+    __tablename__ = "character_state_index"
+    __table_args__ = (
+        UniqueConstraint("project_id", "chapter_number", "character_name", name="uq_char_state_project_chapter_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    character_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+
+    # 状态信息
+    location: Mapped[Optional[str]] = mapped_column(String(255))
+    status: Mapped[Optional[str]] = mapped_column(Text)
+    changes: Mapped[Optional[list]] = mapped_column(JSON)  # 本章发生的变化列表
+
+    # 额外元数据
+    emotional_state: Mapped[Optional[str]] = mapped_column(String(64))  # 情绪状态
+    relationships_snapshot: Mapped[Optional[dict]] = mapped_column(JSON)  # 关系快照
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ForeshadowingIndex(Base):
+    """伏笔索引表
+
+    追踪小说中埋下的伏笔及其回收状态。
+    支持按项目、状态、优先级进行查询，用于智能提醒伏笔回收。
+    """
+
+    __tablename__ = "foreshadowing_index"
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # 伏笔基本信息
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    original_text: Mapped[Optional[str]] = mapped_column(Text)  # 原文引用
+    category: Mapped[str] = mapped_column(String(64), default="plot_twist")  # character_secret/plot_twist/item_mystery/world_rule
+    priority: Mapped[str] = mapped_column(String(16), default="medium", index=True)  # high/medium/low
+
+    # 时间线信息
+    planted_chapter: Mapped[int] = mapped_column(Integer, nullable=False, index=True)  # 埋下伏笔的章节
+    resolved_chapter: Mapped[Optional[int]] = mapped_column(Integer)  # 回收伏笔的章节
+    suggested_resolve_chapter: Mapped[Optional[int]] = mapped_column(Integer)  # 建议回收的章节
+
+    # 状态
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)  # pending/resolved/abandoned
+    resolution: Mapped[Optional[str]] = mapped_column(Text)  # 回收方式描述
+
+    # 关联实体
+    related_entities: Mapped[Optional[list]] = mapped_column(JSON)  # 关联的角色/物品/地点
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

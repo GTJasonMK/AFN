@@ -6,11 +6,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.state_machine import ProjectStatus, ProjectStateMachine, InvalidStateTransitionError
+from ..exceptions import ResourceNotFoundError, PermissionDeniedError, InvalidParameterError
 from ..utils.content_normalizer import normalize_version_content
 from ..serializers.novel_serializer import NovelSerializer
 from ..models import (
@@ -232,9 +232,9 @@ class NovelService:
     async def ensure_project_owner(self, project_id: str, user_id: int) -> NovelProject:
         project = await self.repo.get_by_id(project_id)
         if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+            raise ResourceNotFoundError("项目", project_id)
         if project.user_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该项目")
+            raise PermissionDeniedError("无权访问该项目")
         return project
 
     async def get_project_schema(self, project_id: str, user_id: Optional[int] = None) -> NovelProjectSchema:
@@ -253,7 +253,7 @@ class NovelService:
         else:
             project = await self.repo.get_by_id(project_id)
             if not project:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+                raise ResourceNotFoundError("项目", project_id)
         return await NovelSerializer.serialize_project(project)
 
     async def get_section_data(
@@ -278,7 +278,7 @@ class NovelService:
         else:
             project = await self.repo.get_by_id(project_id)
             if not project:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+                raise ResourceNotFoundError("项目", project_id)
         return NovelSerializer.build_section_response(project, section)
 
     async def get_chapter_schema(
@@ -303,7 +303,7 @@ class NovelService:
         else:
             project = await self.repo.get_by_id(project_id)
             if not project:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+                raise ResourceNotFoundError("项目", project_id)
         return NovelSerializer.build_chapter_schema(project, chapter_number)
 
     async def list_projects_for_user(self, user_id: int) -> List[NovelProjectSummary]:
@@ -428,7 +428,7 @@ class NovelService:
         """
         versions = sorted(chapter.versions, key=lambda item: item.created_at)
         if not versions or version_index < 0 or version_index >= len(versions):
-            raise HTTPException(status_code=400, detail="版本索引无效")
+            raise InvalidParameterError("版本索引无效", "version_index")
 
         selected = versions[version_index]
         chapter.selected_version_id = selected.id

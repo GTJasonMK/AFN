@@ -7,7 +7,7 @@ from __future__ import annotations
 """
 
 import logging
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.config import settings
 from ..services.llm_service import LLMService
@@ -51,19 +51,45 @@ class ChapterIngestionService:
         content: str,
         summary: Optional[str],
         user_id: int,
-    ) -> None:
-        """将章节正文与摘要写入向量库，供后续 RAG 检索使用。"""
+    ) -> Dict[str, Any]:
+        """
+        将章节正文与摘要写入向量库，供后续 RAG 检索使用。
+
+        Returns:
+            包含入库统计信息的字典：
+            - success: bool, 是否成功（至少有部分数据入库）
+            - total_chunks: int, 总片段数
+            - success_chunks: int, 成功入库的片段数
+            - failed_chunks: int, 失败的片段数
+            - summary_success: bool, 摘要是否成功入库
+            - message: str, 描述性消息
+        """
+        result = {
+            "success": False,
+            "total_chunks": 0,
+            "success_chunks": 0,
+            "failed_chunks": 0,
+            "summary_success": False,
+            "message": "",
+        }
+
         if not settings.vector_store_enabled or self._vector_store is None:
-            logger.debug("向量库未启用或初始化失败，跳过章节向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
+            result["message"] = "向量库未启用或初始化失败，跳过章节向量写入"
+            logger.debug("%s: project=%s chapter=%s", result["message"], project_id, chapter_number)
+            return result
+
         if not content.strip():
-            logger.debug("章节正文为空，跳过向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
+            result["message"] = "章节正文为空，跳过向量写入"
+            logger.debug("%s: project=%s chapter=%s", result["message"], project_id, chapter_number)
+            return result
 
         chunks = self._split_into_chunks(content)
         if not chunks:
-            logger.debug("章节正文切分后为空，跳过向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
+            result["message"] = "章节正文切分后为空，跳过向量写入"
+            logger.debug("%s: project=%s chapter=%s", result["message"], project_id, chapter_number)
+            return result
+
+        result["total_chunks"] = len(chunks)
 
         logger.info(
             "开始写入章节向量: project=%s chapter=%s chunks=%d",
@@ -74,19 +100,24 @@ class ChapterIngestionService:
         await self._vector_store.delete_by_chapters(project_id, [chapter_number])
 
         chunk_records = []
+        failed_count = 0
+
         for index, chunk_text in enumerate(chunks):
             embedding = await self._llm_service.get_embedding(
                 chunk_text,
                 user_id=user_id,
             )
             if not embedding:
+                failed_count += 1
                 logger.warning(
-                    "生成章节片段向量失败，已跳过: project=%s chapter=%s chunk=%s",
+                    "生成章节片段向量失败，已跳过: project=%s chapter=%s chunk=%s/%s",
                     project_id,
                     chapter_number,
-                    index,
+                    index + 1,
+                    len(chunks),
                 )
                 continue
+
             record_id = f"{project_id}:{chapter_number}:{index}"
             chunk_records.append(
                 {
@@ -104,15 +135,20 @@ class ChapterIngestionService:
                 }
             )
 
+        result["success_chunks"] = len(chunk_records)
+        result["failed_chunks"] = failed_count
+
         if chunk_records:
             await self._vector_store.upsert_chunks(records=chunk_records)
             logger.info(
-                "章节正文向量写入完成: project=%s chapter=%s 成功片段=%d",
+                "章节正文向量写入完成: project=%s chapter=%s 成功=%d 失败=%d",
                 project_id,
                 chapter_number,
                 len(chunk_records),
+                failed_count,
             )
 
+        # 处理摘要
         if summary:
             cleaned_summary = summary.strip()
             if cleaned_summary:
@@ -134,6 +170,7 @@ class ChapterIngestionService:
                             }
                         ]
                     )
+                    result["summary_success"] = True
                     logger.info(
                         "章节摘要向量写入完成: project=%s chapter=%s",
                         project_id,
@@ -145,6 +182,39 @@ class ChapterIngestionService:
                         project_id,
                         chapter_number,
                     )
+
+        # 生成结果消息
+        if failed_count == 0 and result["success_chunks"] > 0:
+            result["success"] = True
+            result["message"] = f"向量入库成功：{result['success_chunks']} 个片段"
+            if result["summary_success"]:
+                result["message"] += "，摘要已入库"
+        elif result["success_chunks"] > 0:
+            result["success"] = True
+            fail_rate = failed_count / result["total_chunks"] * 100
+            result["message"] = (
+                f"向量入库部分成功：{result['success_chunks']}/{result['total_chunks']} 个片段 "
+                f"(失败率 {fail_rate:.0f}%)"
+            )
+            if fail_rate >= 50:
+                result["message"] += "。请检查嵌入模型配置是否正确。"
+                logger.warning(
+                    "章节向量入库失败率过高 (%.0f%%): project=%s chapter=%s",
+                    fail_rate,
+                    project_id,
+                    chapter_number,
+                )
+        else:
+            result["success"] = False
+            result["message"] = "向量入库失败：所有片段均未能成功生成向量。请检查嵌入模型配置。"
+            logger.error(
+                "章节向量入库完全失败: project=%s chapter=%s total_chunks=%d",
+                project_id,
+                chapter_number,
+                result["total_chunks"],
+            )
+
+        return result
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """从向量库中删除指定章节的所有片段与摘要。"""

@@ -1,10 +1,11 @@
 # ============================================
-# Arboris Novel PyQt 桌面版 .gitignore
+# Arboris Novel PyQt Desktop - .gitignore
+# AI辅助长篇小说创作桌面应用
 # ============================================
 
-# ----------------
+# ================
 # Python 通用
-# ----------------
+# ================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,18 +14,20 @@ __pycache__/
 *.egg-info/
 *.egg
 MANIFEST
+.pyc
 
-# ----------------
+# ================
 # 虚拟环境
-# ----------------
+# ================
 .venv/
 venv/
 env/
 ENV/
+.env/
 
-# ----------------
+# ================
 # IDE 和编辑器
-# ----------------
+# ================
 .vscode/
 .idea/
 *.swp
@@ -36,34 +39,36 @@ ENV/
 *.sublime-project
 *.sublime-workspace
 
-# ----------------
-# 环境变量文件
-# ----------------
+# ================
+# 环境配置文件
+# ================
+# 包含敏感信息（API Key、数据库密码等）
 .env
 .env.local
 .env.*.local
 backend/.env
 
-# ----------------
-# 数据库文件
-# ----------------
+# ================
+# 数据存储
+# ================
+# 运行时数据库
 *.db
 *.sqlite
 *.sqlite3
-backend/storage/*.db
-storage/*.db
 
-# ----------------
+# 存储目录（数据库、向量库、日志）
+storage/
+backend/storage/
+
+# ================
 # 日志文件
-# ----------------
+# ================
 *.log
 logs/
-backend/storage/*.log
-storage/*.log
 
-# ----------------
+# ================
 # 测试相关
-# ----------------
+# ================
 .pytest_cache/
 .coverage
 htmlcov/
@@ -74,36 +79,39 @@ coverage.xml
 .hypothesis/
 .cache
 
-# ----------------
+# ================
 # 类型检查
-# ----------------
+# ================
 .mypy_cache/
 .dmypy.json
 dmypy.json
 .pyre/
+.pytype/
 
-# ----------------
-# PyInstaller 打包
-# ----------------
+# ================
+# 打包构建
+# ================
 build/
 dist/
 *.spec
 
-# ----------------
+# ================
 # 临时文件
-# ----------------
+# ================
 *.tmp
 *.bak
 *.temp
 *~.nib
+nul
 
-# ----------------
+# ================
 # 操作系统文件
-# ----------------
+# ================
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
 
 # Windows
 Thumbs.db
@@ -112,28 +120,38 @@ Desktop.ini
 $RECYCLE.BIN/
 *.lnk
 
-# ----------------
-# 项目特定
-# ----------------
-# 存储目录（数据库、日志、配置）
-backend/storage/
-storage/
+# Linux
+*.directory
 
-# Alembic 迁移编译文件
-backend/alembic/versions/__pycache__/
-
-# 前端配置文件
-frontend/config.json
-
-# 运行脚本（本地使用）
-run_app.py
+# ================
+# 项目特定排除
+# ================
+# AI助手配置文件（包含项目私有指令）
 CLAUDE.md
 GEMINI.md
-可改进的点.txt
-# 打包相关
-ArborisNovel.spec
-ArborisNovelRelease.spec
+
+# 本地开发脚本
+run_app.py
 build.bat
 
-# 临时文档
-*.md.bak
+# 临时诊断脚本
+backend/test_embedding.py
+backend/diagnose_embedding.py
+
+# 个人笔记
+*.txt
+
+# 前端日志
+frontend/*.log
+
+# Alembic 迁移编译缓存
+backend/alembic/versions/__pycache__/
+
+# ================
+# 保留的示例文件
+# ================
+# 以下文件应该提交到仓库
+!backend/.env.example
+!*.md
+!README.md
+!docs/**/*.md

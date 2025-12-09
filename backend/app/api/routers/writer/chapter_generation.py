@@ -4,12 +4,8 @@
 处理章节内容的生成和重试操作。
 """
 
-import asyncio
-import json
 import logging
-import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,19 +23,17 @@ from ....db.session import get_session
 from ....exceptions import (
     ChapterNotGeneratedError,
     InvalidParameterError,
-    PromptTemplateNotFoundError,
     ResourceNotFoundError,
 )
-from ....models.novel import Chapter, ChapterOutline
 from ....schemas.novel import (
     GenerateChapterRequest,
     NovelProject as NovelProjectSchema,
     RetryVersionRequest,
+    PromptPreviewRequest,
+    PromptPreviewResponse,
+    RAGStatistics,
 )
 from ....schemas.user import UserInDB
-from ....repositories.chapter_repository import ChapterOutlineRepository
-from ....services.chapter_context_service import ChapterContextService
-from ....services.chapter_ingest_service import ChapterIngestionService
 from ....services.chapter_generation_service import ChapterGenerationService
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
@@ -50,7 +44,6 @@ from ....utils.json_utils import (
     unwrap_markdown_json,
     parse_llm_json_safe,
 )
-from ....utils.writer_helpers import extract_tail_excerpt
 from ....utils.prompt_helpers import ensure_prompt
 
 logger = logging.getLogger(__name__)
@@ -118,25 +111,22 @@ async def generate_chapter(
     blueprint_dict = project_schema.blueprint.model_dump()
     blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
 
-    # 4. 获取写作提示词并执行RAG检索
+    # 4. 获取写作提示词并执行增强型RAG检索
     writer_prompt = ensure_prompt(await prompt_service.get_prompt("writing"), "writing")
 
-    context_service = ChapterContextService(llm_service=llm_service, vector_store=vector_store)
-    outline_title = outline.title or f"第{outline.chapter_number}章"
-    outline_summary = outline.summary or "暂无摘要"
-    query_parts = [outline_title, outline_summary]
-    if request.writing_notes:
-        query_parts.append(request.writing_notes)
-    rag_query = "\n".join(part for part in query_parts if part)
-    rag_context = await context_service.retrieve_for_generation(
-        project_id=project_id,
-        query_text=rag_query or outline.title or outline.summary or "",
+    # 使用统一的上下文准备方法
+    gen_context = await chapter_gen_service.prepare_generation_context(
+        project=project,
+        outline=outline,
+        blueprint_dict=blueprint_dict,
+        chapter_number=request.chapter_number,
         user_id=desktop_user.id,
+        writing_notes=request.writing_notes,
+        vector_store=vector_store,
     )
 
-    chunk_count = len(rag_context.chunks) if rag_context and rag_context.chunks else 0
-    summary_count = len(rag_context.summaries) if rag_context and rag_context.summaries else 0
-    logger.info("项目 %s 第 %s 章检索到 %s 个剧情片段和 %s 条摘要", project_id, request.chapter_number, chunk_count, summary_count)
+    # 获取旧版上下文格式（用于兼容现有的build_writing_prompt）
+    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
 
     # 5. 构建完整提示词
     prompt_input = chapter_gen_service.build_writing_prompt(
@@ -209,64 +199,46 @@ async def retry_chapter_version(
     if request.version_index < 0 or request.version_index >= len(versions):
         raise InvalidParameterError("版本索引无效")
 
-    # 构建生成上下文（复用generate_chapter的逻辑）
+    # 获取大纲
     outline = await novel_service.get_outline(project_id, request.chapter_number)
     if not outline:
         raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {request.chapter_number} 章")
 
-    outlines_map = {item.chapter_number: item for item in project.outlines}
-    previous_summary_text = ""
-    previous_tail_excerpt = ""
-    latest_prev_number = -1
-
-    for existing in project.chapters:
-        if existing.chapter_number >= request.chapter_number:
-            continue
-        if existing.selected_version is None or not existing.selected_version.content:
-            continue
-        if existing.chapter_number > latest_prev_number:
-            latest_prev_number = existing.chapter_number
-            previous_summary_text = existing.real_summary or ""
-            previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
-
+    # 准备蓝图
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
     blueprint_dict = project_schema.blueprint.model_dump()
     blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
 
     writer_prompt = ensure_prompt(await prompt_service.get_prompt("writing"), "writing")
 
-    # 使用依赖注入的向量检索服务
-    context_service = ChapterContextService(llm_service=llm_service, vector_store=vector_store)
-    outline_title = outline.title or f"第{outline.chapter_number}章"
-    outline_summary = outline.summary or "暂无摘要"
-    query_parts = [outline_title, outline_summary]
-    if request.custom_prompt:
-        query_parts.append(request.custom_prompt)
-    rag_query = "\n".join(query_parts)
-    rag_context = await context_service.retrieve_for_generation(
-        project_id=project_id,
-        query_text=rag_query,
+    # 使用统一的上下文准备方法
+    gen_context = await chapter_gen_service.prepare_generation_context(
+        project=project,
+        outline=outline,
+        blueprint_dict=blueprint_dict,
+        chapter_number=request.chapter_number,
         user_id=desktop_user.id,
+        writing_notes=request.custom_prompt,
+        vector_store=vector_store,
     )
 
-    blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
-    previous_summary_text = previous_summary_text or "暂无可用摘要"
-    previous_tail_excerpt = previous_tail_excerpt or "暂无上一章结尾内容"
-    rag_chunks_text = "\n\n".join(rag_context.chunk_texts()) if rag_context.chunks else "未检索到章节片段"
-    rag_summaries_text = "\n".join(rag_context.summary_lines()) if rag_context.summaries else "未检索到章节摘要"
+    # 获取RAG上下文
+    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
 
-    # 如果用户提供了自定义提示词，添加到写作要求中
-    writing_notes = request.custom_prompt or "无额外写作指令"
+    # 使用统一的方法获取上一章信息
+    previous_summary_text, previous_tail_excerpt = chapter_gen_service.get_previous_chapter_info(
+        project, request.chapter_number
+    )
 
-    prompt_sections = [
-        ("[世界蓝图](JSON)", blueprint_text),
-        ("[上一章摘要]", previous_summary_text),
-        ("[上一章结尾]", previous_tail_excerpt),
-        ("[检索到的剧情上下文](Markdown)", rag_chunks_text),
-        ("[检索到的章节摘要]", rag_summaries_text),
-        ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
-    ]
-    prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
+    # 使用统一的方法构建提示词
+    prompt_input = chapter_gen_service.build_retry_prompt(
+        outline=outline,
+        blueprint_dict=blueprint_dict,
+        previous_summary_text=previous_summary_text,
+        previous_tail_excerpt=previous_tail_excerpt,
+        rag_context=rag_context,
+        writing_notes=request.custom_prompt,
+    )
 
     # 生成单个版本
     response = await llm_service.get_llm_response(
@@ -281,10 +253,8 @@ async def retry_chapter_version(
     cleaned = remove_think_tags(response)
     result = parse_llm_json_safe(cleaned)
     if result:
-        # JSON解析成功，直接使用
         raw_result = result
     else:
-        # JSON解析失败，包装为标准格式
         raw_result = {"content": unwrap_markdown_json(cleaned)}
 
     # 使用统一的process_generated_versions方法提取content
@@ -300,5 +270,170 @@ async def retry_chapter_version(
 
     session.expire_all()
     return await novel_service.get_project_schema(project_id, desktop_user.id)
+
+
+@router.post("/novels/{project_id}/chapters/preview-prompt", response_model=PromptPreviewResponse)
+async def preview_chapter_prompt(
+    project_id: str,
+    request: PromptPreviewRequest,
+    novel_service: NovelService = Depends(get_novel_service),
+    prompt_service: PromptService = Depends(get_prompt_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
+) -> PromptPreviewResponse:
+    """
+    预览章节生成的提示词（用于测试RAG效果）
+
+    此端点只构建提示词，不调用LLM生成内容，适用于：
+    - 测试RAG检索效果
+    - 调试提示词构建逻辑
+    - 预估token消耗
+    """
+    logger.info(
+        "用户 %s 预览项目 %s 第 %s 章的生成提示词 (is_retry=%s)",
+        desktop_user.id, project_id, request.chapter_number, request.is_retry
+    )
+
+    # 初始化服务
+    chapter_gen_service = ChapterGenerationService(session, llm_service)
+
+    # 1. 验证项目和大纲
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    outline = await novel_service.get_outline(project_id, request.chapter_number)
+    if not outline:
+        raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {request.chapter_number} 章")
+
+    # 2. 收集历史章节摘要
+    completed_chapters, previous_summary_text, previous_tail_excerpt = await chapter_gen_service.collect_chapter_summaries(
+        project=project,
+        current_chapter_number=request.chapter_number,
+        user_id=desktop_user.id,
+        project_id=project_id,
+    )
+
+    # 3. 准备蓝图数据
+    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    blueprint_dict = project_schema.blueprint.model_dump()
+    blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
+
+    # 4. 获取写作提示词并执行增强型RAG检索
+    writer_prompt = ensure_prompt(await prompt_service.get_prompt("writing"), "writing")
+
+    gen_context = await chapter_gen_service.prepare_generation_context(
+        project=project,
+        outline=outline,
+        blueprint_dict=blueprint_dict,
+        chapter_number=request.chapter_number,
+        user_id=desktop_user.id,
+        writing_notes=request.writing_notes,
+        vector_store=vector_store,
+    )
+
+    # 获取RAG上下文
+    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
+
+    # 5. 根据模式构建提示词
+    if request.is_retry:
+        # 重新生成模式：使用简化版提示词（不包含完整前情摘要）
+        # 对于重试，需要单独获取上一章信息
+        retry_previous_summary, retry_previous_tail = chapter_gen_service.get_previous_chapter_info(
+            project, request.chapter_number
+        )
+        prompt_input = chapter_gen_service.build_retry_prompt(
+            outline=outline,
+            blueprint_dict=blueprint_dict,
+            previous_summary_text=retry_previous_summary,
+            previous_tail_excerpt=retry_previous_tail,
+            rag_context=rag_context,
+            writing_notes=request.writing_notes,
+        )
+    else:
+        # 首次生成模式：使用完整版提示词（包含分层前情摘要）
+        prompt_input = chapter_gen_service.build_writing_prompt(
+            outline=outline,
+            blueprint_dict=blueprint_dict,
+            completed_chapters=completed_chapters,
+            previous_summary_text=previous_summary_text,
+            previous_tail_excerpt=previous_tail_excerpt,
+            rag_context=rag_context,
+            writing_notes=request.writing_notes,
+            chapter_number=request.chapter_number,
+        )
+
+    # 6. 构建各部分内容（用于调试）
+    import json
+    blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
+
+    outline_title = outline.title or f"第{outline.chapter_number}章"
+    outline_summary = outline.summary or "暂无摘要"
+
+    rag_chunks_text = "未检索到章节片段"
+    rag_summaries_text = "未检索到章节摘要"
+    if rag_context:
+        if rag_context.chunks:
+            rag_chunks_text = "\n\n".join(rag_context.chunk_texts())
+        if rag_context.summaries:
+            rag_summaries_text = "\n".join(rag_context.summary_lines())
+
+    # 根据模式构建不同的分段内容
+    if request.is_retry:
+        # 重新生成模式：不包含前情摘要
+        prompt_sections = {
+            "世界蓝图": blueprint_text,
+            "上一章摘要": retry_previous_summary or "暂无可用摘要",
+            "上一章结尾": retry_previous_tail or "暂无上一章结尾内容",
+            "检索到的剧情上下文": rag_chunks_text,
+            "检索到的章节摘要": rag_summaries_text,
+            "当前章节目标": f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{request.writing_notes or '无额外写作指令'}",
+        }
+    else:
+        # 首次生成模式：包含完整前情摘要
+        from ....utils.writer_helpers import build_layered_summary
+        completed_section = build_layered_summary(completed_chapters, request.chapter_number)
+        prompt_sections = {
+            "世界蓝图": blueprint_text,
+            "前情摘要": completed_section,
+            "上一章摘要": previous_summary_text or "暂无可用摘要",
+            "上一章结尾": previous_tail_excerpt or "暂无上一章结尾内容",
+            "检索到的剧情上下文": rag_chunks_text,
+            "检索到的章节摘要": rag_summaries_text,
+            "当前章节目标": f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{request.writing_notes or '无额外写作指令'}",
+        }
+
+    # 7. 构建RAG统计信息
+    rag_stats = RAGStatistics()
+    if gen_context.enhanced_rag_context:
+        enhanced_ctx = gen_context.enhanced_rag_context
+        rag_stats.chunk_count = len(rag_context.chunks) if rag_context and rag_context.chunks else 0
+        rag_stats.summary_count = len(rag_context.summaries) if rag_context and rag_context.summaries else 0
+        rag_stats.context_length = len(enhanced_ctx.compressed_context)
+
+        # 提取查询信息
+        if enhanced_ctx.enhanced_query:
+            query = enhanced_ctx.enhanced_query
+            rag_stats.query_main = query.main_query
+            rag_stats.query_characters = query.character_queries or []
+            rag_stats.query_foreshadowing = query.foreshadow_queries or []
+
+    # 8. 估算token数量（简单估算：中文约1.5字符/token）
+    total_length = len(writer_prompt) + len(prompt_input)
+    estimated_tokens = int(total_length / 1.5)
+
+    logger.info(
+        "项目 %s 第 %s 章提示词预览完成: 总长度=%d, 估算tokens=%d, RAG chunks=%d, summaries=%d",
+        project_id, request.chapter_number, total_length, estimated_tokens,
+        rag_stats.chunk_count, rag_stats.summary_count
+    )
+
+    return PromptPreviewResponse(
+        system_prompt=writer_prompt,
+        user_prompt=prompt_input,
+        rag_statistics=rag_stats,
+        prompt_sections=prompt_sections,
+        total_length=total_length,
+        estimated_tokens=estimated_tokens,
+    )
 
 

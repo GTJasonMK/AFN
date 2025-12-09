@@ -7,19 +7,35 @@
 import asyncio
 import json
 import logging
-import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..models.novel import ChapterOutline
+from ..schemas.novel import ChapterAnalysisData
 from ..utils.json_utils import remove_think_tags, unwrap_markdown_json, parse_llm_json_safe
 from ..utils.exception_helpers import log_exception
 from .llm_service import LLMService
 
+if TYPE_CHECKING:
+    from .chapter_context_service import EnhancedRAGContext
+    from .rag.context_builder import BlueprintInfo
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChapterGenerationContext:
+    """章节生成上下文，封装生成所需的所有数据"""
+    outline_dict: Dict[str, Any]
+    blueprint_info: "BlueprintInfo"
+    prev_chapter_analysis: Optional[ChapterAnalysisData]
+    pending_foreshadowing: Optional[List[Dict[str, Any]]]
+    total_chapters: int
+    enhanced_rag_context: Optional["EnhancedRAGContext"] = None
 
 
 class ChapterGenerationService:
@@ -45,6 +61,178 @@ class ChapterGenerationService:
         """
         self.session = session
         self.llm_service = llm_service
+
+    @staticmethod
+    def build_blueprint_info(blueprint_dict: Dict) -> "BlueprintInfo":
+        """
+        从蓝图字典构建BlueprintInfo对象
+
+        Args:
+            blueprint_dict: 蓝图数据字典
+
+        Returns:
+            BlueprintInfo: 构建的蓝图信息对象
+        """
+        from .rag.context_builder import BlueprintInfo
+
+        return BlueprintInfo(
+            title=blueprint_dict.get("title", ""),
+            genre=blueprint_dict.get("genre", ""),
+            style=blueprint_dict.get("writing_style", ""),
+            tone=blueprint_dict.get("tone", ""),
+            one_sentence_summary=blueprint_dict.get("one_sentence_summary", ""),
+            full_synopsis=blueprint_dict.get("synopsis", ""),
+            world_setting=blueprint_dict.get("world_setting", {}),
+            characters=blueprint_dict.get("characters", []),
+            relationships=blueprint_dict.get("relationships", []),
+        )
+
+    @staticmethod
+    def get_prev_chapter_analysis(
+        project: Any,
+        current_chapter_number: int,
+    ) -> Optional[ChapterAnalysisData]:
+        """
+        获取前一章的分析数据
+
+        Args:
+            project: 项目对象
+            current_chapter_number: 当前章节号
+
+        Returns:
+            ChapterAnalysisData: 前一章分析数据，不存在返回None
+        """
+        # 找到前一章
+        prev_chapter = None
+        for ch in project.chapters:
+            if ch.chapter_number == current_chapter_number - 1:
+                prev_chapter = ch
+                break
+
+        if not prev_chapter or not prev_chapter.analysis_data:
+            return None
+
+        try:
+            return ChapterAnalysisData.model_validate(prev_chapter.analysis_data)
+        except Exception as exc:
+            logger.warning(
+                "解析前一章分析数据失败: project=%s chapter=%d error=%s",
+                project.id,
+                current_chapter_number - 1,
+                exc,
+            )
+            return None
+
+    @staticmethod
+    def build_outline_dict(outline: ChapterOutline) -> Dict[str, Any]:
+        """
+        构建大纲字典
+
+        Args:
+            outline: 章节大纲对象
+
+        Returns:
+            Dict: 大纲字典
+        """
+        return {
+            "chapter_number": outline.chapter_number,
+            "title": outline.title or f"第{outline.chapter_number}章",
+            "summary": outline.summary or "暂无摘要",
+        }
+
+    async def prepare_generation_context(
+        self,
+        project: Any,
+        outline: ChapterOutline,
+        blueprint_dict: Dict,
+        chapter_number: int,
+        user_id: int,
+        writing_notes: Optional[str] = None,
+        vector_store: Optional[Any] = None,
+    ) -> ChapterGenerationContext:
+        """
+        准备章节生成所需的完整上下文
+
+        统一封装RAG检索、伏笔获取、蓝图构建等逻辑
+
+        Args:
+            project: 项目对象
+            outline: 章节大纲
+            blueprint_dict: 已处理的蓝图字典
+            chapter_number: 当前章节号
+            user_id: 用户ID
+            writing_notes: 写作备注
+            vector_store: 向量库服务（可选）
+
+        Returns:
+            ChapterGenerationContext: 生成上下文
+        """
+        # 导入相关服务（延迟导入避免循环依赖）
+        from .foreshadowing_service import ForeshadowingService
+        from .chapter_context_service import EnhancedChapterContextService
+
+        # 1. 构建基础数据
+        outline_dict = self.build_outline_dict(outline)
+        blueprint_info = self.build_blueprint_info(blueprint_dict)
+        prev_chapter_analysis = self.get_prev_chapter_analysis(project, chapter_number)
+        total_chapters = len(project.outlines) if project.outlines else chapter_number
+
+        # 2. 获取待回收伏笔
+        foreshadowing_service = ForeshadowingService(self.session)
+        pending_foreshadowing = await foreshadowing_service.get_pending_for_generation(
+            project_id=project.id,
+            chapter_number=chapter_number,
+            outline_summary=outline.summary,
+            limit=5,
+        )
+        logger.info(
+            "项目 %s 第 %s 章获取到 %d 个待回收伏笔",
+            project.id,
+            chapter_number,
+            len(pending_foreshadowing),
+        )
+
+        # 3. 执行增强型RAG检索
+        enhanced_rag_context = None
+        if vector_store is not None:
+            enhanced_context_service = EnhancedChapterContextService(
+                llm_service=self.llm_service,
+                vector_store=vector_store,
+            )
+
+            enhanced_rag_context = await enhanced_context_service.retrieve_enhanced_context(
+                project_id=project.id,
+                chapter_number=chapter_number,
+                total_chapters=total_chapters,
+                outline=outline_dict,
+                user_id=user_id,
+                blueprint_info=blueprint_info,
+                prev_chapter_analysis=prev_chapter_analysis,
+                pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
+                writing_notes=writing_notes,
+            )
+
+            # 获取RAG统计信息
+            rag_context = enhanced_rag_context.get_legacy_context()
+            chunk_count = len(rag_context.chunks) if rag_context and rag_context.chunks else 0
+            summary_count = len(rag_context.summaries) if rag_context and rag_context.summaries else 0
+            logger.info(
+                "项目 %s 第 %s 章增强RAG检索完成: chunks=%d summaries=%d context_len=%d",
+                project.id,
+                chapter_number,
+                chunk_count,
+                summary_count,
+                len(enhanced_rag_context.compressed_context),
+            )
+
+        return ChapterGenerationContext(
+            outline_dict=outline_dict,
+            blueprint_info=blueprint_info,
+            prev_chapter_analysis=prev_chapter_analysis,
+            pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
+            total_chapters=total_chapters,
+            enhanced_rag_context=enhanced_rag_context,
+        )
 
     def resolve_version_count(self) -> int:
         """
@@ -249,8 +437,8 @@ class ChapterGenerationService:
 
         previous_summary_text = previous_summary_text or "暂无可用摘要"
         previous_tail_excerpt = previous_tail_excerpt or "暂无上一章结尾内容"
-        rag_chunks_text = "\n\n".join(rag_context.chunk_texts()) if rag_context.chunks else "未检索到章节片段"
-        rag_summaries_text = "\n".join(rag_context.summary_lines()) if rag_context.summaries else "未检索到章节摘要"
+        rag_chunks_text = "\n\n".join(rag_context.chunk_texts()) if rag_context and rag_context.chunks else "未检索到章节片段"
+        rag_summaries_text = "\n".join(rag_context.summary_lines()) if rag_context and rag_context.summaries else "未检索到章节摘要"
         writing_notes = writing_notes or "无额外写作指令"
 
         prompt_sections = [
@@ -266,6 +454,90 @@ class ChapterGenerationService:
             ),
         ]
         return "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
+
+    def build_retry_prompt(
+        self,
+        outline: ChapterOutline,
+        blueprint_dict: Dict,
+        previous_summary_text: str,
+        previous_tail_excerpt: str,
+        rag_context: Any,
+        writing_notes: Optional[str],
+    ) -> str:
+        """
+        构建章节重试提示词（简化版，不包含完整前情摘要）
+
+        Args:
+            outline: 章节大纲
+            blueprint_dict: 蓝图字典
+            previous_summary_text: 上一章摘要
+            previous_tail_excerpt: 上一章结尾
+            rag_context: RAG检索上下文
+            writing_notes: 写作备注
+
+        Returns:
+            str: 完整的写作提示词
+        """
+        outline_title = outline.title or f"第{outline.chapter_number}章"
+        outline_summary = outline.summary or "暂无摘要"
+
+        blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
+
+        previous_summary_text = previous_summary_text or "暂无可用摘要"
+        previous_tail_excerpt = previous_tail_excerpt or "暂无上一章结尾内容"
+
+        rag_chunks_text = "未检索到章节片段"
+        rag_summaries_text = "未检索到章节摘要"
+        if rag_context:
+            if rag_context.chunks:
+                rag_chunks_text = "\n\n".join(rag_context.chunk_texts())
+            if rag_context.summaries:
+                rag_summaries_text = "\n".join(rag_context.summary_lines())
+
+        writing_notes = writing_notes or "无额外写作指令"
+
+        prompt_sections = [
+            ("[世界蓝图](JSON)", blueprint_text),
+            ("[上一章摘要]", previous_summary_text),
+            ("[上一章结尾]", previous_tail_excerpt),
+            ("[检索到的剧情上下文](Markdown)", rag_chunks_text),
+            ("[检索到的章节摘要]", rag_summaries_text),
+            (
+                "[当前章节目标]",
+                f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}",
+            ),
+        ]
+        return "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
+
+    @staticmethod
+    def get_previous_chapter_info(
+        project: Any,
+        current_chapter_number: int,
+        tail_length: int = 1000,
+    ) -> Tuple[str, str]:
+        """
+        获取上一章的摘要和结尾文本
+
+        Args:
+            project: 项目对象
+            current_chapter_number: 当前章节号
+            tail_length: 结尾文本长度（默认1000字符）
+
+        Returns:
+            Tuple[str, str]: (上一章摘要, 上一章结尾)
+        """
+        previous_summary_text = ""
+        previous_tail_excerpt = ""
+
+        for chapter in project.chapters:
+            if chapter.chapter_number == current_chapter_number - 1:
+                if chapter.selected_version and chapter.selected_version.content:
+                    previous_summary_text = chapter.real_summary or ""
+                    content = chapter.selected_version.content.strip()
+                    previous_tail_excerpt = content[-tail_length:] if len(content) > tail_length else content
+                break
+
+        return previous_summary_text, previous_tail_excerpt
 
     async def generate_chapter_versions(
         self,
