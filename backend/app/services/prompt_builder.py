@@ -157,6 +157,7 @@ class PromptBuilder:
         start_chapter: Optional[int] = None,
         num_chapters: Optional[int] = None,
         previous_chapters: Optional[List] = None,
+        relevant_summaries: Optional[List[Dict]] = None,
     ) -> str:
         """
         构建生成单个部分章节大纲的提示词（异步方法，支持串行生成）
@@ -169,6 +170,7 @@ class PromptBuilder:
             start_chapter: 起始章节号（串行模式，默认从part_outline.start_chapter开始）
             num_chapters: 要生成的章节数（串行模式，默认生成该部分的全部章节）
             previous_chapters: 前面已生成的章节大纲列表（串行模式）
+            relevant_summaries: RAG检索到的相关已完成章节摘要列表
 
         Returns:
             str: 构建好的提示词
@@ -253,6 +255,17 @@ class PromptBuilder:
             for ch in recent_chapters:
                 prompt += f"### 第 {ch.get('chapter_number', '?')} 章：{ch.get('title', '未命名')}\n"
                 prompt += f"摘要：{ch.get('summary', '')}\n\n"
+
+        # 如果有RAG检索到的相关摘要，展示出来
+        if relevant_summaries and len(relevant_summaries) > 0:
+            prompt += "\n## 语义相关的已完成章节\n\n"
+            prompt += "以下是通过语义检索找到的与待生成章节最相关的已完成章节摘要，请确保新大纲与这些已完成内容保持一致：\n\n"
+            for summary in relevant_summaries:
+                prompt += f"- 第{summary.get('chapter_number', '?')}章 {summary.get('title', '')}：{summary.get('summary', '')}"
+                if summary.get('relevance_score'):
+                    prompt += f"（相关度: {summary.get('relevance_score')}）"
+                prompt += "\n"
+            prompt += "\n"
 
         if prev_part:
             prompt += f"""

@@ -6,7 +6,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
+    get_vector_store,
 )
 from ....core.state_machine import ProjectStatus
 from ....db.session import get_session
@@ -34,6 +35,7 @@ from ....schemas.novel import (
 from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
 from ....services.part_outline_service import PartOutlineService
+from ....services.vector_store_service import VectorStoreService
 from ....repositories.chapter_repository import ChapterOutlineRepository
 
 logger = logging.getLogger(__name__)
@@ -441,16 +443,19 @@ async def generate_part_chapters(
     novel_service: NovelService = Depends(get_novel_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
     """
     为指定部分生成详细的章节大纲
+
+    使用RAG检索增强：检索已完成章节的摘要，确保新大纲与已有内容一致。
 
     基于部分大纲的主题、关键事件等信息，
     生成该部分范围内所有章节的详细大纲。
     """
     logger.info("用户 %s 请求为项目 %s 的第 %d 部分生成章节大纲", desktop_user.id, project_id, part_number)
 
-    part_service = PartOutlineService(session)
+    part_service = PartOutlineService(session, vector_store=vector_store)
 
     await part_service.generate_part_chapters(
         project_id=project_id,
@@ -468,9 +473,12 @@ async def batch_generate_part_chapters(
     request: BatchGenerateChaptersRequest,
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> PartOutlineGenerationProgress:
     """
     批量并发生成多个部分的章节大纲
+
+    使用RAG检索增强：检索已完成章节的摘要，确保新大纲与已有内容一致。
 
     支持并发生成多个部分的章节大纲，提高长篇小说大纲生成效率。
     可以指定要生成的部分编号列表，或自动生成所有待生成的部分。
@@ -482,7 +490,7 @@ async def batch_generate_part_chapters(
         request.part_numbers,
     )
 
-    part_service = PartOutlineService(session)
+    part_service = PartOutlineService(session, vector_store=vector_store)
 
     return await part_service.batch_generate_chapters(
         project_id=project_id,

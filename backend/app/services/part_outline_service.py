@@ -4,7 +4,7 @@ import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,7 @@ from .llm_service import LLMService
 from .prompt_service import PromptService
 from .novel_service import NovelService
 from .prompt_builder import PromptBuilder
+from .vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,11 @@ class GenerationCancelledException(Exception):
 class PartOutlineService:
     """部分大纲服务，负责长篇小说的分层大纲生成"""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        vector_store: Optional[VectorStoreService] = None,
+    ):
         self.session = session
         self.repo = PartOutlineRepository(session)
         self.novel_repo = NovelRepository(session)
@@ -53,6 +58,7 @@ class PartOutlineService:
         self.prompt_service = PromptService(session)
         self.novel_service = NovelService(session)  # 用于复用权限检查逻辑
         self.prompt_builder = PromptBuilder(part_outline_repo=self.repo)
+        self._vector_store = vector_store
 
     async def _check_if_cancelled(self, part_outline: PartOutline) -> bool:
         """
@@ -382,6 +388,80 @@ class PartOutlineService:
 
         return previous_chapters
 
+    async def _retrieve_relevant_context_for_part(
+        self,
+        project_id: str,
+        user_id: int,
+        start_chapter: int,
+        end_chapter: int,
+        part_summary: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        为部分章节大纲生成检索相关的已完成章节内容
+
+        Args:
+            project_id: 项目ID
+            user_id: 用户ID
+            start_chapter: 部分起始章节号
+            end_chapter: 部分结束章节号
+            part_summary: 部分大纲的摘要（用于构建查询）
+
+        Returns:
+            相关摘要列表
+        """
+        if not self._vector_store:
+            return []
+
+        try:
+            # 构建查询文本：使用部分大纲的摘要 + 章节范围描述
+            query_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{part_summary[:500]}"
+
+            # 生成查询向量
+            query_embedding = await self.llm_service.get_embedding(
+                query_text,
+                user_id=user_id,
+            )
+
+            if not query_embedding:
+                return []
+
+            # 检索相关摘要（只检索已完成章节）
+            summaries = await self._vector_store.query_summaries(
+                project_id=project_id,
+                embedding=query_embedding,
+                top_k=5,
+            )
+
+            # 过滤：只保留起始章节之前的已完成章节
+            summaries = [s for s in summaries if s.chapter_number < start_chapter]
+
+            # 格式化结果
+            result = []
+            for summary in summaries:
+                result.append({
+                    "chapter_number": summary.chapter_number,
+                    "title": summary.title,
+                    "summary": summary.summary,
+                    "relevance_score": round(summary.score, 3) if summary.score else None,
+                })
+
+            logger.info(
+                "项目 %s 部分章节大纲生成RAG检索完成: 检索到 %d 个相关摘要（第 %d-%d 章）",
+                project_id,
+                len(result),
+                start_chapter,
+                end_chapter,
+            )
+            return result
+
+        except Exception as exc:
+            logger.warning(
+                "项目 %s 部分章节大纲生成RAG检索失败: %s",
+                project_id,
+                exc,
+            )
+            return []
+
     async def generate_part_outlines(
         self,
         project_id: str,
@@ -569,19 +649,29 @@ class PartOutlineService:
                     project_id, current_chapter
                 )
 
-                # 构建提示词（包含前面已生成的章节）
+                # RAG检索：获取与当前批次相关的已完成章节摘要
+                relevant_summaries = await self._retrieve_relevant_context_for_part(
+                    project_id=project_id,
+                    user_id=user_id,
+                    start_chapter=current_chapter,
+                    end_chapter=batch_end,
+                    part_summary=part_outline.summary or "",
+                )
+
+                # 构建提示词（包含前面已生成的章节和RAG检索结果）
                 user_prompt = await self.prompt_builder.build_part_chapters_prompt(
                     part_outline=part_outline,
                     project=project,
                     start_chapter=current_chapter,
                     num_chapters=batch_count,
                     previous_chapters=previous_chapters_data,
+                    relevant_summaries=relevant_summaries,
                 )
 
                 # 调用LLM生成当前批次的章节大纲
                 logger.info(
-                    "调用LLM生成第 %d-%d 章的章节大纲",
-                    current_chapter, batch_end
+                    "调用LLM生成第 %d-%d 章的章节大纲（RAG摘要=%d）",
+                    current_chapter, batch_end, len(relevant_summaries)
                 )
                 response = await self.llm_service.get_llm_response(
                     system_prompt=system_prompt,
