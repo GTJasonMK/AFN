@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from pages.base_page import BasePage
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles, ModernEffects
 from utils.error_handler import handle_errors
@@ -38,7 +38,7 @@ class NovelDetail(BasePage):
         super().__init__(parent)
         self.project_id = project_id
 
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.project_data = None
         self.section_data = {}
         self.active_section = 'overview'

@@ -17,7 +17,7 @@ from .core.config import settings
 from .db.init_db import init_db
 from .services.prompt_service import PromptService
 from .db.session import AsyncSessionLocal
-from .exceptions import ArborisException
+from .exceptions import AFNException
 
 
 def setup_exception_hook():
@@ -129,7 +129,7 @@ from .api.routers import api_router
 # 创建模块级别的 logger 并写入启动测试日志
 logger = logging.getLogger(__name__)
 logger.info("=" * 80)
-logger.info("Arboris-Novel PyQt版 后端服务启动，logging 配置已完成")
+logger.info("AFN (Agents for Novel) 后端服务启动，logging 配置已完成")
 logger.info("日志级别: %s", settings.logging_level)
 logger.info("日志文件: backend/storage/debug.log")
 logger.info("=" * 80)
@@ -152,11 +152,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 全局异常处理器：捕获所有Arboris业务异常并转换为HTTP响应
-@app.exception_handler(ArborisException)
-async def arboris_exception_handler(request: Request, exc: ArborisException):
+# 全局异常处理器：捕获所有AFN业务异常并转换为HTTP响应
+@app.exception_handler(AFNException)
+async def afn_exception_handler(request: Request, exc: AFNException):
     """
-    统一处理所有Arboris业务异常
+    统一处理所有AFN业务异常
 
     将业务异常转换为标准的HTTP响应格式。
     日志中会记录详细错误信息（detail），用户只看到友好的message。

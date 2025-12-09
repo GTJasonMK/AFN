@@ -1,6 +1,6 @@
-# Arboris-Novel Backend (PyQt Desktop Edition)
+# AFN Backend (Agents for Novel)
 
-这是 Arboris-Novel 项目的 PyQt 桌面版后端，包含所有核心业务功能。
+这是 AFN (Agents for Novel) 项目的后端服务，包含所有核心业务功能。
 
 ## 🎯 核心特性
 
@@ -121,7 +121,7 @@ blueprint = response.json()
 
 ## 数据库
 
-默认使用 SQLite，数据存储在 `storage/arboris.db`。
+默认使用 SQLite，数据存储在 `storage/afn.db`。
 
 如需使用 MySQL，配置以下环境变量：
 ```bash
@@ -130,7 +130,7 @@ MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_USER=root
 MYSQL_PASSWORD=yourpassword
-MYSQL_DATABASE=arboris_novel
+MYSQL_DATABASE=afn
 ```
 
 ## 日志

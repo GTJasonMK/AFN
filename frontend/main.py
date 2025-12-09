@@ -3,7 +3,7 @@
 
 对应Web应用：frontend/src/main.ts
 
-启动 Arboris Novel 桌面版（1:1照抄Web应用）
+启动 AFN (Agents for Novel) 桌面版
 """
 
 import sys
@@ -177,7 +177,7 @@ def main():
     sys.excepthook = global_exception_handler
 
     logger.info("=" * 80)
-    logger.info("Arboris Novel 前端应用启动")
+    logger.info("AFN (Agents for Novel) 前端应用启动")
     logger.info("Python版本: %s", sys.version)
     logger.info("日志文件: %s", log_file)
     logger.info("faulthandler已启用，段错误将被捕获")
@@ -195,8 +195,8 @@ def main():
 
     # 创建应用
     app = QApplication(sys.argv)
-    app.setApplicationName("Arboris Novel")
-    app.setOrganizationName("Arboris")
+    app.setApplicationName("AFN")
+    app.setOrganizationName("AFN")
 
     # 初始化配置管理器
     config_manager = ConfigManager()

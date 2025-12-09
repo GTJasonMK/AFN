@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Arboris Novel - AI 长篇小说创作助手")
+        self.setWindowTitle("AFN - AI 长篇小说创作助手")
 
         # 使用DPI感知的最小窗口尺寸
         min_width, min_height = dpi_helper.min_window_size()

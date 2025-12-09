@@ -19,7 +19,7 @@ from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.formatters import count_chinese_characters
 from utils.message_service import MessageService, confirm
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from .chapter_card import ChapterCard
 from .outline_edit_dialog import OutlineEditDialog
 
@@ -38,7 +38,7 @@ class WDSidebar(ThemeAwareFrame):
         self.selected_chapter = None
         self.generating_chapter = None
         self.chapter_cards = []  # 存储所有章节卡片
-        self.api_client = ArborisAPIClient() # 初始化API客户端
+        self.api_client = AFNAPIClient() # 初始化API客户端
 
         # 保存组件引用
         self.bp_style = None

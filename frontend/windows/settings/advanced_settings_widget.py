@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QPushButton, QFrame, QFormLayout, QGroupBox
 )
 from PyQt6.QtCore import Qt
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
@@ -22,7 +22,7 @@ class AdvancedSettingsWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.config_data = {}
         self.setupUI()
         self.loadConfig()

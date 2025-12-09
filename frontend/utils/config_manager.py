@@ -13,7 +13,7 @@ class ConfigManager:
     使用QSettings保存配置到本地INI文件
     """
 
-    def __init__(self, organization="ArborisNovel", application="PyQtClient"):
+    def __init__(self, organization="AFN", application="PyQtClient"):
         """初始化配置管理器
 
         Args:

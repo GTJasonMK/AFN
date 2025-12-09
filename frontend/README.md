@@ -1,6 +1,6 @@
-# Arboris Novel - PyQt Desktop Frontend
+# AFN (Agents for Novel) - PyQt Desktop Frontend
 
-Arboris Novel 的 PyQt 桌面版前端，提供完整的小说创作界面。
+AFN 的 PyQt 桌面版前端，提供完整的小说创作界面。
 
 ## 特性
 
@@ -104,13 +104,13 @@ frontend/
 
 ## API客户端
 
-所有API调用通过 `api/client.py` 中的 `ArborisAPIClient` 类完成：
+所有API调用通过 `api/client.py` 中的 `AFNAPIClient` 类完成：
 
 ```python
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 
 # 创建客户端（无需认证）
-client = ArborisAPIClient()
+client = AFNAPIClient()
 
 # 创建项目
 project = client.create_novel(
@@ -196,7 +196,7 @@ LLM配置页面，功能：
 ### 应用无法启动
 - 检查Python版本（需要3.10+）
 - 检查虚拟环境是否正确创建
-- 查看 `arboris_novel.log` 日志文件
+- 查看 `afn_frontend.log` 日志文件
 
 ### 无法连接后端
 - 确认后端服务已启动

@@ -16,7 +16,7 @@ from components.empty_state import EmptyStateWithIllustration
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from themes.modern_effects import ModernEffects
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService
 from utils.formatters import count_chinese_characters, format_word_count
@@ -35,7 +35,7 @@ class WDWorkspace(ThemeAwareFrame):
     editContent = pyqtSignal(str)  # new_content
 
     def __init__(self, parent=None):
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.current_chapter = None
         self.project_id = None
         self.current_chapter_data = None  # 保存当前章节数据用于主题切换时重建

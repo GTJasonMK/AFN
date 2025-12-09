@@ -8,9 +8,9 @@
 from typing import Optional
 
 
-class ArborisException(Exception):
+class AFNException(Exception):
     """
-    Arboris基础异常类
+    AFN基础异常类
 
     所有业务异常的基类，会被全局异常处理器捕获。
 
@@ -35,7 +35,7 @@ class ArborisException(Exception):
 # ==================== 4xx 客户端错误 ====================
 
 
-class ResourceNotFoundError(ArborisException):
+class ResourceNotFoundError(AFNException):
     """资源不存在（404）"""
 
     def __init__(self, resource: str, identifier: str):
@@ -46,14 +46,14 @@ class ResourceNotFoundError(ArborisException):
         )
 
 
-class PermissionDeniedError(ArborisException):
+class PermissionDeniedError(AFNException):
     """权限不足（403）"""
 
     def __init__(self, message: str = "无权访问该资源"):
         super().__init__(message=message, status_code=403)
 
 
-class InvalidParameterError(ArborisException):
+class InvalidParameterError(AFNException):
     """参数错误（400）"""
 
     def __init__(self, message: str, parameter: Optional[str] = None):
@@ -65,7 +65,7 @@ class InvalidParameterError(ArborisException):
         )
 
 
-class InvalidStateTransitionError(ArborisException):
+class InvalidStateTransitionError(AFNException):
     """非法状态转换（400）"""
 
     def __init__(self, current_status: str, target_status: str, allowed: str):
@@ -78,7 +78,7 @@ class InvalidStateTransitionError(ArborisException):
         )
 
 
-class ConflictError(ArborisException):
+class ConflictError(AFNException):
     """资源冲突（409）"""
 
     def __init__(self, message: str):
@@ -88,7 +88,7 @@ class ConflictError(ArborisException):
 # ==================== 5xx 服务端错误 ====================
 
 
-class LLMServiceError(ArborisException):
+class LLMServiceError(AFNException):
     """LLM服务错误（503）"""
 
     def __init__(self, message: str, provider: Optional[str] = None):
@@ -100,7 +100,7 @@ class LLMServiceError(ArborisException):
         )
 
 
-class LLMConfigurationError(ArborisException):
+class LLMConfigurationError(AFNException):
     """LLM配置错误（500）"""
 
     def __init__(self, message: str):
@@ -111,7 +111,7 @@ class LLMConfigurationError(ArborisException):
         )
 
 
-class VectorStoreError(ArborisException):
+class VectorStoreError(AFNException):
     """向量库错误（503）"""
 
     def __init__(self, message: str):
@@ -122,7 +122,7 @@ class VectorStoreError(ArborisException):
         )
 
 
-class DatabaseError(ArborisException):
+class DatabaseError(AFNException):
     """数据库错误（500）"""
 
     def __init__(self, message: str):
@@ -133,7 +133,7 @@ class DatabaseError(ArborisException):
         )
 
 
-class JSONParseError(ArborisException):
+class JSONParseError(AFNException):
     """JSON解析错误（500）"""
 
     def __init__(self, context: str, detail_msg: Optional[str] = None):
@@ -151,7 +151,7 @@ class JSONParseError(ArborisException):
 # ==================== 业务逻辑异常 ====================
 
 
-class GenerationCancelledError(ArborisException):
+class GenerationCancelledError(AFNException):
     """生成任务被取消（400）"""
 
     def __init__(self, task_name: str, task_id: Optional[str] = None):
@@ -163,7 +163,7 @@ class GenerationCancelledError(ArborisException):
         )
 
 
-class DailyLimitExceededError(ArborisException):
+class DailyLimitExceededError(AFNException):
     """超出每日限额（429）
 
     注意：此异常在桌面版中未使用（桌面版无每日限额功能）。
@@ -178,7 +178,7 @@ class DailyLimitExceededError(ArborisException):
         )
 
 
-class BlueprintNotReadyError(ArborisException):
+class BlueprintNotReadyError(AFNException):
     """蓝图未生成（400）"""
 
     def __init__(self, project_id: str):
@@ -189,7 +189,7 @@ class BlueprintNotReadyError(ArborisException):
         )
 
 
-class ChapterNotGeneratedError(ArborisException):
+class ChapterNotGeneratedError(AFNException):
     """章节未生成（400）"""
 
     def __init__(self, project_id: str, chapter_number: int):
@@ -200,7 +200,7 @@ class ChapterNotGeneratedError(ArborisException):
         )
 
 
-class PromptTemplateNotFoundError(ArborisException):
+class PromptTemplateNotFoundError(AFNException):
     """提示词模板不存在（500）"""
 
     def __init__(self, prompt_type: str):
@@ -211,7 +211,7 @@ class PromptTemplateNotFoundError(ArborisException):
         )
 
 
-class ConversationExtractionError(ArborisException):
+class ConversationExtractionError(AFNException):
     """对话历史提取失败（400）"""
 
     def __init__(self, project_id: str, reason: str = "无法从历史对话中提取有效内容"):

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from pages.base_page import BasePage
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from themes.theme_manager import theme_manager
 from themes import ModernEffects, ButtonStyles
 from utils.message_service import MessageService, confirm
@@ -31,7 +31,7 @@ class InspirationMode(BasePage):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.project_id = None
         self.blueprint = None
         self.current_worker = None  # 异步工作线程（SSE对话）
@@ -224,7 +224,7 @@ class InspirationMode(BasePage):
     def initConversation(self):
         """初始化对话"""
         # 添加AI欢迎消息
-        welcome_msg = "你好！我是Arboris AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
+        welcome_msg = "你好！我是AFN AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
         self.addMessage(welcome_msg, is_user=False)
 
     def addMessage(self, message, is_user=True, typing_effect=False):

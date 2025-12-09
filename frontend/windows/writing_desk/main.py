@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from utils.async_worker import AsyncAPIWorker
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
@@ -33,7 +33,7 @@ class WritingDesk(BasePage):
         super().__init__(parent)
         self.project_id = project_id
 
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.project = None
         self.selected_chapter_number = None
         self.generating_chapter = None

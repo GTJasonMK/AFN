@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ================================================
-echo  Arboris-Novel PyQt Backend 安装脚本
+echo  AFN (Agents for Novel) Backend 安装脚本
 echo ================================================
 echo.
 

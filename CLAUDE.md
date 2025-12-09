@@ -5,32 +5,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 快速命令参考
 
 ```bash
-# 一键启动（推荐）
-start_all.bat
+# 一键启动（推荐）- 自动处理环境配置、依赖安装、启动服务
+python run_app.py
 
-# 分别启动
-cd backend && start.bat       # 后端 http://localhost:8123
-cd frontend && python main.py # 前端
+# 分别启动（需要先手动配置环境）
+cd backend && .venv\Scripts\activate && uvicorn app.main:app --reload --port 8123
+cd frontend && .venv\Scripts\activate && python main.py
 
-# 停止服务
-stop_all.bat  # 或在后端窗口按Ctrl+C
-
-# 依赖安装
-cd backend && .venv\Scripts\activate && pip install -r requirements.txt
-cd frontend && .venv\Scripts\activate && pip install -r requirements.txt
+# 依赖安装（run_app.py 会自动处理，通常无需手动执行）
+cd backend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+cd frontend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
 
 # 数据库迁移（修改SQLAlchemy模型后必须执行）
 cd backend && .venv\Scripts\activate && alembic revision --autogenerate -m "描述变更" && alembic upgrade head
 
 # 查看日志
-type backend\storage\debug.log
+type storage\app.log           # 统一入口日志
+type backend\storage\debug.log  # 后端详细日志
 
 # 健康检查
 curl http://localhost:8123/health
 
 # 数据库调试
-sqlite3 backend\storage\arboris.db ".tables"
-sqlite3 backend\storage\arboris.db "SELECT * FROM novels LIMIT 5;"
+sqlite3 backend\storage\afn.db ".tables"
+sqlite3 backend\storage\afn.db "SELECT * FROM novels LIMIT 5;"
+
+# 打包发布
+python run_app.py   # 先运行一次确保环境就绪
+build.bat           # 执行打包
 ```
 
 **关键文件路径**：
@@ -46,7 +48,7 @@ sqlite3 backend\storage\arboris.db "SELECT * FROM novels LIMIT 5;"
 
 ## 项目概述
 
-Arboris Novel PyQt桌面版是AI辅助长篇小说创作的单机桌面应用。核心特点：**开箱即用、无需登录、本地存储**。
+AFN (Agents for Novel) 是AI辅助长篇小说创作的单机桌面应用。核心特点：**开箱即用、无需登录、本地存储**。
 
 ## 核心技术栈
 

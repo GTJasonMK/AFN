@@ -19,7 +19,7 @@ from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 
 # 复用灵感模式的组件
 from windows.inspiration_mode.chat_bubble import ChatBubble
@@ -31,7 +31,7 @@ class AssistantPanel(ThemeAwareFrame):
     
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         
         # 状态
         self.is_loading = False

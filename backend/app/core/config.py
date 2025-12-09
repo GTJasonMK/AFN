@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     mysql_port: int = Field(default=3306, env="MYSQL_PORT", description="MySQL 端口")
     mysql_user: str = Field(default="root", env="MYSQL_USER", description="MySQL 用户名")
     mysql_password: str = Field(default="", env="MYSQL_PASSWORD", description="MySQL 密码")
-    mysql_database: str = Field(default="arboris", env="MYSQL_DATABASE", description="MySQL 数据库名称")
+    mysql_database: str = Field(default="afn", env="MYSQL_DATABASE", description="MySQL 数据库名称")
 
     # -------------------- LLM 相关配置 --------------------
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY", description="默认的 LLM API Key")
@@ -256,9 +256,9 @@ class Settings(BaseSettings):
             return normalized.render_as_string(hide_password=False)
 
         if self.db_provider == "sqlite":
-            # SQLite 固定使用 storage/arboris.db，并转换为绝对路径以避免运行目录差异
+            # SQLite 固定使用 storage/afn.db，并转换为绝对路径以避免运行目录差异
             project_root = Path(__file__).resolve().parents[2]
-            db_path = (project_root / "storage" / "arboris.db").resolve()
+            db_path = (project_root / "storage" / "afn.db").resolve()
             return f"sqlite+aiosqlite:///{db_path}"
 
         # MySQL 分支：统一对密码进行 URL 编码，避免特殊字符破坏连接串

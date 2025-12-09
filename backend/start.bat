@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo Arboris Novel Backend - PyQt Edition
+echo AFN (Agents for Novel) Backend
 echo ========================================
 echo.
 
@@ -68,7 +68,7 @@ if not exist "storage" mkdir storage
 
 echo.
 echo ========================================
-echo Starting Arboris Novel Backend...
+echo Starting AFN Backend...
 echo ========================================
 echo.
 echo API: http://127.0.0.1:8123
@@ -76,7 +76,7 @@ echo Docs: http://127.0.0.1:8123/docs
 echo Health: http://127.0.0.1:8123/health
 echo.
 echo Log: storage\debug.log
-echo Database: storage\arboris.db
+echo Database: storage\afn.db
 echo.
 echo Press Ctrl+C to stop
 echo.

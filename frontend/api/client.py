@@ -1,5 +1,5 @@
 """
-Arboris Novel API 客户端封装
+AFN (Agents for Novel) API 客户端封装
 
 提供与后端API交互的所有方法，无需认证。
 """
@@ -13,8 +13,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-class ArborisAPIClient:
-    """Arboris Novel API 客户端"""
+class AFNAPIClient:
+    """AFN API 客户端"""
 
     def __init__(self, base_url: str = "http://127.0.0.1:8123"):
         """
@@ -29,7 +29,7 @@ class ArborisAPIClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
-        logger.debug("ArborisAPIClient initialized: base_url=%s", self.base_url)
+        logger.debug("AFNAPIClient initialized: base_url=%s", self.base_url)
 
     def __del__(self):
         """析构函数，确保session被关闭"""

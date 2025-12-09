@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QRect, QPropertyAnimation, QEasingCurve, QTimer
 from PyQt6.QtGui import QFont, QColor
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from pages.base_page import BasePage
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
@@ -678,7 +678,7 @@ class NovelWorkspace(BasePage):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.projects = []
         self.card_pool = []  # 所有卡片的引用（防止被垃圾回收）
         self.available_cards = deque()  # 可用卡片队列（O(1)获取）

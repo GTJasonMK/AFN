@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QTabWidget
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
-from api.client import ArborisAPIClient
+from api.client import AFNAPIClient
 from components.base import ThemeAwareWidget
 from components.dialogs import IntInputDialog, InputDialog, LoadingDialog
 from themes.theme_manager import theme_manager
@@ -69,7 +69,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
         super().__init__(parent)
 
         # 初始化服务
-        self.api_client = ArborisAPIClient()
+        self.api_client = AFNAPIClient()
         self.async_helper = AsyncOperationHelper(self)
 
         # 初始化UI

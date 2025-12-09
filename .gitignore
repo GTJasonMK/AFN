@@ -1,5 +1,5 @@
 # ============================================
-# Arboris Novel PyQt Desktop - .gitignore
+# AFN (Agents for Novel) - .gitignore
 # AI辅助长篇小说创作桌面应用
 # ============================================
 
@@ -131,7 +131,6 @@ CLAUDE.md
 GEMINI.md
 
 # 本地开发脚本
-run_app.py
 build.bat
 
 # 临时诊断脚本

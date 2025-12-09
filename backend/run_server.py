@@ -27,7 +27,7 @@ storage_dir = WORK_DIR / "storage"
 storage_dir.mkdir(exist_ok=True)
 
 # 设置环境变量
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{storage_dir}/arboris.db"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{storage_dir}/afn.db"
 os.environ["VECTOR_DB_PATH"] = str(storage_dir / "vectors.db")
 
 # 将提示词目录添加到环境变量
@@ -41,7 +41,7 @@ def main():
     from app.main import app
 
     print("=" * 60)
-    print("Arboris Novel 后端服务启动中...")
+    print("AFN (Agents for Novel) 后端服务启动中...")
     print(f"工作目录: {WORK_DIR}")
     print(f"数据存储: {storage_dir}")
     print("=" * 60)
