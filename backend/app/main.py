@@ -4,9 +4,6 @@
 """
 
 import logging
-import sys
-import traceback
-from logging.config import dictConfig
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -14,125 +11,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .core.config import settings
+from .core.logging_config import setup_logging, setup_exception_hook, log_startup_info
 from .db.init_db import init_db
 from .services.prompt_service import PromptService
 from .db.session import AsyncSessionLocal
 from .exceptions import AFNException
 
 
-def setup_exception_hook():
-    """设置全局异常钩子，捕获未处理的异常"""
-    original_hook = sys.excepthook
-
-    def exception_hook(exc_type, exc_value, exc_traceback):
-        # 记录到日志
-        logger = logging.getLogger(__name__)
-        error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-        logger.critical(f"未捕获的异常导致程序崩溃:\n{error_msg}")
-
-        # 确保日志被写入
-        for handler in logging.root.handlers:
-            handler.flush()
-
-        # 调用原始钩子
-        original_hook(exc_type, exc_value, exc_traceback)
-
-    sys.excepthook = exception_hook
-
-
 # 重要：必须先配置 logging，再导入 api_router
 # 否则 router 模块中的 logger 会在配置完成前被创建，导致日志无法正常输出
-dictConfig(
-    {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {
-                "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-            }
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-                "stream": "ext://sys.stdout",
-            },
-            "file": {
-                "class": "logging.FileHandler",
-                "filename": "storage/debug.log",
-                "mode": "a",
-                "formatter": "default",
-                "encoding": "utf-8",
-            }
-        },
-        "loggers": {
-            "backend": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "app": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "backend.app": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "backend.api": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "backend.services": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "app.api.routers": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "app.services": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            "app.utils": {
-                "level": settings.logging_level,
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-            # 禁用 SQLAlchemy SQL 日志，避免淹没业务日志
-            "sqlalchemy.engine": {
-                "level": "WARNING",
-                "handlers": ["console", "file"],
-                "propagate": False,
-            },
-        },
-        "root": {
-            "level": "WARNING",
-            "handlers": ["console", "file"],
-        },
-    }
-)
-
-# 设置全局异常钩子
+setup_logging()
 setup_exception_hook()
 
 # 在 logging 配置完成后导入 api_router，确保所有 router 模块的 logger 都能正确配置
 from .api.routers import api_router
 
-# 创建模块级别的 logger 并写入启动测试日志
+# 输出启动信息
+log_startup_info()
 logger = logging.getLogger(__name__)
-logger.info("=" * 80)
-logger.info("AFN (Agents for Novel) 后端服务启动，logging 配置已完成")
-logger.info("日志级别: %s", settings.logging_level)
-logger.info("日志文件: backend/storage/debug.log")
-logger.info("=" * 80)
 
 
 @asynccontextmanager

@@ -19,6 +19,7 @@ from utils.worker_manager import WorkerManager
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
 from utils.dpi_utils import dp, sp
+from utils.chapter_error_formatter import format_chapter_error
 from themes.theme_manager import theme_manager
 
 from .header import WDHeader
@@ -72,26 +73,52 @@ class WritingDesk(BasePage):
 
         # Header
         self.header = WDHeader()
-        self.header.goBackClicked.connect(self.goBackToWorkspace)
-        self.header.viewDetailClicked.connect(self.openProjectDetail)
-        self.header.exportClicked.connect(self.exportNovel)
         main_layout.addWidget(self.header)
 
         # 主内容区 - 紧凑布局
         self.content_widget = QWidget()
         content_layout = QHBoxLayout(self.content_widget)
-        content_layout.setContentsMargins(16, 16, 16, 16)  # 从24减少到16
-        content_layout.setSpacing(16)  # 从24减少到16
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(16)
 
         # Sidebar
         self.sidebar = WDSidebar()
-        self.sidebar.chapterSelected.connect(self.onChapterSelected)
-        self.sidebar.generateChapter.connect(self.onGenerateChapter)
-        self.sidebar.generateOutline.connect(self.onGenerateOutline)
         content_layout.addWidget(self.sidebar)
 
         # Workspace
         self.workspace = WDWorkspace()
+        self.workspace.setProjectId(self.project_id)
+        content_layout.addWidget(self.workspace, stretch=1)
+
+        # Assistant Panel (Initially hidden)
+        self.assistant_panel = AssistantPanel(self.project_id)
+        self.assistant_panel.setVisible(False)
+        self.assistant_panel.setFixedWidth(dp(350))
+        content_layout.addWidget(self.assistant_panel)
+
+        main_layout.addWidget(self.content_widget, stretch=1)
+
+        # 统一连接所有信号
+        self._connect_signals()
+
+    def _connect_signals(self):
+        """统一管理所有信号连接
+
+        将所有信号连接集中在此方法中，便于追踪和维护。
+        按组件分类组织，提高可读性。
+        """
+        # Header 信号
+        self.header.goBackClicked.connect(self.goBackToWorkspace)
+        self.header.viewDetailClicked.connect(self.openProjectDetail)
+        self.header.exportClicked.connect(self.exportNovel)
+        self.header.toggleAssistantClicked.connect(self.toggleAssistant)
+
+        # Sidebar 信号
+        self.sidebar.chapterSelected.connect(self.onChapterSelected)
+        self.sidebar.generateChapter.connect(self.onGenerateChapter)
+        self.sidebar.generateOutline.connect(self.onGenerateOutline)
+
+        # Workspace 信号
         self.workspace.generateChapterRequested.connect(self.onGenerateChapter)
         self.workspace.previewPromptRequested.connect(self.onPreviewPrompt)
         self.workspace.saveContentRequested.connect(self.onSaveContent)
@@ -99,19 +126,6 @@ class WritingDesk(BasePage):
         self.workspace.evaluateChapter.connect(self.onEvaluateChapter)
         self.workspace.retryVersion.connect(self.onRetryVersion)
         self.workspace.editContent.connect(self.onEditContent)
-        self.workspace.setProjectId(self.project_id)
-        content_layout.addWidget(self.workspace, stretch=1)
-        
-        # Assistant Panel (Initially hidden)
-        self.assistant_panel = AssistantPanel(self.project_id)
-        self.assistant_panel.setVisible(False)
-        self.assistant_panel.setFixedWidth(dp(350)) # 固定宽度
-        content_layout.addWidget(self.assistant_panel)
-        
-        # Connect Header Signal
-        self.header.toggleAssistantClicked.connect(self.toggleAssistant)
-
-        main_layout.addWidget(self.content_widget, stretch=1)
 
     def toggleAssistant(self, show: bool):
         """切换AI助手显示状态"""
@@ -136,13 +150,23 @@ class WritingDesk(BasePage):
                 }}
             """)
 
-    @handle_errors("加载项目")
     def loadProject(self):
-        """加载项目数据"""
+        """加载项目数据（异步非阻塞）"""
         logger.info(f"WritingDesk.loadProject被调用, project_id={self.project_id}")
-        self.project = self.api_client.get_novel(self.project_id)
 
-        logger.info(f"项目数据加载成功")
+        # 使用异步worker加载项目，避免阻塞UI线程
+        worker = AsyncAPIWorker(self.api_client.get_novel, self.project_id)
+        worker.success.connect(self._onProjectLoaded)
+        worker.error.connect(self._onProjectLoadError)
+
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'load_project')
+
+    def _onProjectLoaded(self, project_data):
+        """项目数据加载成功回调"""
+        self.project = project_data
+
+        logger.info("项目数据加载成功")
         logger.info(f"项目键: {list(self.project.keys()) if isinstance(self.project, dict) else 'NOT A DICT'}")
 
         blueprint = self.project.get('blueprint', {})
@@ -157,6 +181,11 @@ class WritingDesk(BasePage):
 
         logger.info("调用 sidebar.setProject")
         self.sidebar.setProject(self.project)
+
+    def _onProjectLoadError(self, error_msg):
+        """项目数据加载失败回调"""
+        logger.error(f"项目加载失败: {error_msg}")
+        MessageService.show_error(self, f"加载项目失败：\n\n{error_msg}", "错误")
 
     def onChapterSelected(self, chapter_number):
         """章节被选中"""
@@ -259,75 +288,9 @@ class WritingDesk(BasePage):
         self._cleanup_chapter_gen_sse()
         logger.error(f"章节生成失败: {error_msg}")
 
-        # 根据错误消息内容生成更友好的提示
-        title, message = self._format_generation_error(error_msg, chapter_number)
+        # 使用工具函数格式化错误消息
+        title, message = format_chapter_error(error_msg, chapter_number)
         MessageService.show_error(self, message, title)
-
-    def _format_generation_error(self, error_msg: str, chapter_number: int) -> tuple:
-        """格式化章节生成错误消息
-
-        根据错误内容识别错误类型，提供更有用的建议。
-
-        Args:
-            error_msg: 原始错误消息
-            chapter_number: 章节号
-
-        Returns:
-            (title, message) 元组
-        """
-        error_lower = error_msg.lower() if error_msg else ""
-
-        # LLM服务相关错误
-        if any(kw in error_lower for kw in ["ai服务", "llm", "api key", "openai", "模型"]):
-            title = "AI服务错误"
-            message = (
-                f"第{chapter_number}章生成失败：AI服务暂时不可用\n\n"
-                "请检查：\n"
-                "- LLM配置是否正确\n"
-                "- API密钥是否有效\n"
-                "- 网络连接是否正常"
-            )
-        # 超时错误
-        elif any(kw in error_lower for kw in ["超时", "timeout", "timed out"]):
-            title = "生成超时"
-            message = (
-                f"第{chapter_number}章生成超时\n\n"
-                "这可能是因为：\n"
-                "- 章节内容较长，需要更多生成时间\n"
-                "- 服务器负载较高\n\n"
-                "请稍后重试。"
-            )
-        # 连接错误
-        elif any(kw in error_lower for kw in ["连接", "connection", "network"]):
-            title = "连接失败"
-            message = (
-                f"第{chapter_number}章生成失败：网络连接问题\n\n"
-                "请检查：\n"
-                "- 后端服务是否已启动\n"
-                "- 网络连接是否正常"
-            )
-        # JSON解析错误
-        elif any(kw in error_lower for kw in ["json", "解析", "格式"]):
-            title = "响应格式错误"
-            message = (
-                f"第{chapter_number}章生成失败：AI响应格式异常\n\n"
-                "这可能是由于AI模型返回了非预期的内容。\n"
-                "请重试生成。"
-            )
-        # 章节大纲相关
-        elif "大纲" in error_msg:
-            title = "大纲错误"
-            message = (
-                f"第{chapter_number}章生成失败：章节大纲问题\n\n"
-                f"{error_msg}\n\n"
-                "请检查章节大纲是否已正确生成。"
-            )
-        # 默认错误
-        else:
-            title = "生成失败"
-            message = f"第{chapter_number}章生成失败\n\n{error_msg}"
-
-        return title, message
 
     def _on_chapter_gen_cancelled(self):
         """用户取消章节生成"""

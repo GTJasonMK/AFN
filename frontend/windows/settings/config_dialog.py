@@ -126,39 +126,34 @@ class LLMConfigDialog(QDialog):
 
     def _apply_theme(self):
         """应用书籍风格主题"""
-        bg_primary = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-        serif_font = theme_manager.serif_font()
-        ui_font = theme_manager.ui_font()
+        palette = theme_manager.get_book_palette()
 
         # 对话框背景
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: {bg_primary};
+                background-color: {palette.bg_primary};
             }}
         """)
 
         # 标题样式
         self.title_label.setStyleSheet(f"""
             QLabel {{
-                font-family: {serif_font};
-                font-size: {sp(20)}px;
-                font-weight: bold;
-                color: {text_primary};
-                padding-bottom: {dp(8)}px;
+                font-family: {palette.serif_font};
+                font-size: {sp(24)}px;
+                font-weight: 700;
+                color: {palette.text_primary};
+                padding-bottom: {dp(12)}px;
+                border-bottom: 1px solid {palette.border_color};
             }}
         """)
 
         # 标签样式
         label_style = f"""
             QLabel {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_secondary};
+                font-family: {palette.ui_font};
+                font-size: {sp(14)}px;
+                color: {palette.text_secondary};
+                font-weight: 500;
             }}
         """
         self.name_label.setStyleSheet(label_style)
@@ -169,30 +164,31 @@ class LLMConfigDialog(QDialog):
         if hasattr(self, 'key_hint'):
             self.key_hint.setStyleSheet(f"""
                 QLabel {{
-                    font-family: {ui_font};
-                    font-size: {sp(11)}px;
-                    color: {text_secondary};
+                    font-family: {palette.ui_font};
+                    font-size: {sp(12)}px;
+                    color: {palette.text_tertiary};
                     font-style: italic;
+                    margin-top: {dp(4)}px;
                 }}
             """)
 
         # 输入框样式
         input_style = f"""
             QLineEdit {{
-                font-family: {ui_font};
-                background-color: {bg_secondary};
-                color: {text_primary};
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_secondary};
+                color: {palette.text_primary};
                 padding: {dp(10)}px {dp(14)}px;
-                border: 1px solid {border_color};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
-                font-size: {sp(13)}px;
+                font-size: {sp(14)}px;
             }}
             QLineEdit:focus {{
-                border-color: {accent_color};
-                border-width: 2px;
+                border: 1px solid {palette.accent_color};
+                background-color: {palette.bg_primary};
             }}
             QLineEdit::placeholder {{
-                color: {text_secondary};
+                color: {palette.text_tertiary};
             }}
         """
         self.name_input.setStyleSheet(input_style)
@@ -203,36 +199,40 @@ class LLMConfigDialog(QDialog):
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 background-color: transparent;
-                color: {text_secondary};
-                border: 1px solid {border_color};
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
                 padding: {dp(10)}px {dp(24)}px;
-                font-size: {sp(13)}px;
+                font-size: {sp(14)}px;
                 min-width: {dp(80)}px;
             }}
             QPushButton:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_secondary};
             }}
         """)
 
         # 保存按钮样式
         self.save_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
-                background-color: {accent_color};
-                color: {bg_primary};
+                font-family: {palette.ui_font};
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
                 border: none;
                 border-radius: {dp(6)}px;
                 padding: {dp(10)}px {dp(24)}px;
-                font-size: {sp(13)}px;
-                font-weight: 500;
+                font-size: {sp(14)}px;
+                font-weight: 600;
                 min-width: {dp(80)}px;
             }}
             QPushButton:hover {{
-                background-color: {text_primary};
+                background-color: {palette.text_primary};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.accent_light};
             }}
         """)
 

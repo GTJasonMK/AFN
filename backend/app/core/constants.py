@@ -4,6 +4,26 @@
 集中管理应用中使用的所有常量，提升代码可维护性和可读性。
 """
 
+from enum import Enum
+
+
+class GenerationStatus(str, Enum):
+    """生成任务状态枚举
+
+    用于统一管理部分大纲、章节等生成任务的状态，消除魔术字符串。
+    继承str使其可以直接与字符串比较，保持向后兼容。
+    """
+    PENDING = "pending"          # 等待生成
+    GENERATING = "generating"    # 正在生成
+    CANCELLING = "cancelling"    # 请求取消中
+    COMPLETED = "completed"      # 生成完成
+    FAILED = "failed"           # 生成失败
+    PARTIAL = "partial"         # 部分完成
+
+
+# ProjectStatus 定义在 state_machine.py 中，避免循环导入
+# 使用时请从 app.core.state_machine 导入
+
 
 class NovelConstants:
     """小说创作相关常量"""

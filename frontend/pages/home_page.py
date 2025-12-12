@@ -7,10 +7,10 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGraphicsOpacityEffect, QScrollArea, QFrame, QSizePolicy,
-    QStackedWidget, QButtonGroup
+    QStackedWidget, QButtonGroup, QMenu
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup
-from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform, QFont, QFontDatabase
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform, QFont, QFontDatabase, QAction
 
 
 # 创作箴言集 - 富有文学气息的启发性标语
@@ -237,13 +237,18 @@ class ParticleBackground(QWidget):
 class RecentProjectCard(ThemeAwareFrame):
     """最近项目卡片 - 继承主题感知基类，自动管理主题信号"""
 
-    def __init__(self, project_data: dict, parent=None):
+    # 定义信号
+    deleteRequested = pyqtSignal(str, str)  # project_id, title
+
+    def __init__(self, project_data: dict, parent=None, show_delete: bool = False):
         self.project_data = project_data
         self.project_id = project_data.get('id')
+        self._show_delete = show_delete  # 是否显示删除按钮
         # 预先声明UI组件
         self.title_label = None
         self.status_label = None
         self.time_label = None
+        self.delete_btn = None
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(dp(80))
@@ -254,10 +259,24 @@ class RecentProjectCard(ThemeAwareFrame):
         layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
         layout.setSpacing(dp(6))
 
-        # 标题
+        # 标题行（标题 + 删除按钮）
+        title_row = QHBoxLayout()
+        title_row.setSpacing(dp(8))
+
         self.title_label = QLabel(self.project_data.get('title', '未命名项目'))
         self.title_label.setWordWrap(True)
-        layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label, 1)
+
+        # 删除按钮（仅在启用时创建，默认隐藏，hover时显示）
+        if self._show_delete:
+            self.delete_btn = QPushButton("删除")
+            self.delete_btn.setFixedSize(dp(48), dp(24))
+            self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.delete_btn.setVisible(False)
+            self.delete_btn.clicked.connect(self._on_delete_clicked)
+            title_row.addWidget(self.delete_btn)
+
+        layout.addLayout(title_row)
 
         # 底部信息：状态 + 更新时间
         info_layout = QHBoxLayout()
@@ -360,9 +379,49 @@ class RecentProjectCard(ThemeAwareFrame):
             }}
         """)
 
+        # 删除按钮样式
+        if self.delete_btn:
+            self.delete_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(4)}px;
+                    font-family: {ui_font};
+                    font-size: {dp(11)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: #e74c3c;
+                    color: white;
+                    border-color: #e74c3c;
+                }}
+            """)
+
+    def enterEvent(self, event):
+        """鼠标进入时显示删除按钮"""
+        if self.delete_btn:
+            self.delete_btn.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """鼠标离开时隐藏删除按钮"""
+        if self.delete_btn:
+            self.delete_btn.setVisible(False)
+        super().leaveEvent(event)
+
+    def _on_delete_clicked(self):
+        """删除按钮点击处理"""
+        title = self.project_data.get('title', '未命名项目')
+        self.deleteRequested.emit(self.project_id, title)
+
     def mousePressEvent(self, event):
-        """点击卡片时通知父组件"""
+        """点击卡片时通知父组件（排除删除按钮区域）"""
         if event.button() == Qt.MouseButton.LeftButton:
+            # 检查点击位置是否在删除按钮上
+            if self.delete_btn and self.delete_btn.isVisible():
+                btn_rect = self.delete_btn.geometry()
+                if btn_rect.contains(event.pos()):
+                    return  # 让删除按钮处理点击
             # 查找HomePage父组件
             parent = self.parent()
             while parent and not isinstance(parent, HomePage):
@@ -538,11 +597,13 @@ class HomePage(BasePage):
         # 中文主标语
         self.quote_label = QLabel(self._current_quote[0])
         self.quote_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.quote_label.setWordWrap(True)  # 允许自动换行
         quote_layout.addWidget(self.quote_label)
 
         # 英文副标语（更小、更淡）
         self.quote_sub_label = QLabel(self._current_quote[1])
         self.quote_sub_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.quote_sub_label.setWordWrap(True)  # 允许自动换行，防止长英文被截断
         quote_layout.addWidget(self.quote_sub_label)
 
         left_layout.addWidget(self.quote_container)
@@ -714,6 +775,7 @@ class HomePage(BasePage):
                 font-style: italic;
                 color: {quote_color};
                 letter-spacing: {dp(3)}px;
+                line-height: 1.5;
                 background: transparent;
             }}
         """)
@@ -726,6 +788,7 @@ class HomePage(BasePage):
                 font-style: italic;
                 color: {border_color};
                 letter-spacing: {dp(1)}px;
+                line-height: 1.4;
                 background: transparent;
             }}
         """)
@@ -890,9 +953,18 @@ class HomePage(BasePage):
         self.projects_stack.setCurrentIndex(index)
 
     def _load_recent_projects(self):
-        """加载项目数据（最近项目 + 全部项目）"""
-        try:
-            projects = self.api_client.get_novels()
+        """加载项目数据（最近项目 + 全部项目）
+
+        使用AsyncWorker在后台线程执行API调用，避免UI线程阻塞。
+        """
+        from utils.async_worker import AsyncWorker
+
+        def fetch_projects():
+            """后台线程执行的API调用"""
+            return self.api_client.get_novels()
+
+        def on_success(projects):
+            """API调用成功回调（在主线程执行）"""
             if projects:
                 # 最近项目：按更新时间排序，取前10个
                 sorted_by_time = sorted(
@@ -912,11 +984,35 @@ class HomePage(BasePage):
                 self.all_projects = []
 
             self._update_projects_ui()
-        except Exception as e:
-            logger.error("加载项目失败: %s", e, exc_info=True)
+
+        def on_error(error):
+            """API调用失败回调（在主线程执行）"""
+            logger.error("加载项目失败: %s", error, exc_info=True)
             self.recent_projects = []
             self.all_projects = []
             self._update_projects_ui()
+
+        # 创建并启动异步工作线程
+        worker = AsyncWorker(fetch_projects)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+
+        # 保持worker引用，防止被垃圾回收
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        # 清理已完成的worker（安全检查，避免访问已删除的C++对象）
+        valid_workers = []
+        for w in self._workers:
+            try:
+                if w.isRunning():
+                    valid_workers.append(w)
+            except RuntimeError:
+                # C++ 对象已被删除，跳过
+                pass
+        self._workers = valid_workers
+        self._workers.append(worker)
+
+        worker.start()
 
     def _clear_layout(self, layout, preserve_widgets=None):
         """清空布局中的所有组件（可选保留指定widget）
@@ -944,11 +1040,11 @@ class HomePage(BasePage):
         self._clear_layout(self.recent_layout, preserve_widgets=[self.recent_empty_label])
         self._clear_layout(self.all_layout, preserve_widgets=[self.all_empty_label])
 
-        # ===== 更新最近项目Tab =====
+        # ===== 更新最近项目Tab（不显示删除按钮） =====
         if self.recent_projects:
             self.recent_empty_label.hide()
             for project in self.recent_projects:
-                card = RecentProjectCard(project, self.recent_container)
+                card = RecentProjectCard(project, self.recent_container, show_delete=False)
                 self.recent_layout.addWidget(card)
             self.recent_layout.addStretch()
         else:
@@ -956,11 +1052,12 @@ class HomePage(BasePage):
             self.recent_empty_label.show()
             self.recent_layout.addStretch()
 
-        # ===== 更新全部项目Tab（按首字母排序，不显示分组标题） =====
+        # ===== 更新全部项目Tab（显示删除按钮） =====
         if self.all_projects:
             self.all_empty_label.hide()
             for project in self.all_projects:
-                card = RecentProjectCard(project, self.all_container)
+                card = RecentProjectCard(project, self.all_container, show_delete=True)
+                card.deleteRequested.connect(self._on_delete_project)
                 self.all_layout.addWidget(card)
             self.all_layout.addStretch()
         else:
@@ -991,6 +1088,41 @@ class HomePage(BasePage):
         """页面隐藏时停止动画"""
         if hasattr(self, 'particle_bg'):
             self.particle_bg.stop()
+
+    def _on_delete_project(self, project_id: str, title: str):
+        """删除项目处理"""
+        from utils.message_service import confirm, MessageService
+        from utils.async_worker import AsyncWorker
+
+        # 确认删除
+        if not confirm(
+            self,
+            f"确定要删除项目「{title}」吗？\n\n此操作不可恢复，所有章节内容将被永久删除。",
+            "确认删除"
+        ):
+            return
+
+        def do_delete():
+            return self.api_client.delete_novels([project_id])
+
+        def on_success(result):
+            MessageService.show_success(self, f"项目「{title}」已删除")
+            # 刷新项目列表
+            self._load_recent_projects()
+
+        def on_error(error_msg):
+            MessageService.show_error(self, f"删除失败：{error_msg}", "错误")
+
+        # 异步执行删除
+        worker = AsyncWorker(do_delete)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+
+        # 保持worker引用
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(worker)
+        worker.start()
 
     def closeEvent(self, event):
         """窗口关闭时清理资源"""

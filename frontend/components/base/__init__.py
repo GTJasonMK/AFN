@@ -3,5 +3,6 @@
 """
 
 from .theme_aware_widget import ThemeAwareWidget, ThemeAwareFrame, ThemeAwareButton
+from .animated_stacked_widget import AnimatedStackedWidget
 
-__all__ = ['ThemeAwareWidget', 'ThemeAwareFrame', 'ThemeAwareButton']
+__all__ = ['ThemeAwareWidget', 'ThemeAwareFrame', 'ThemeAwareButton', 'AnimatedStackedWidget']

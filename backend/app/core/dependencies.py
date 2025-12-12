@@ -153,6 +153,38 @@ async def get_prompt_service(
     return PromptService(session)
 
 
+async def get_conversation_service(
+    session: AsyncSession = Depends(get_session),
+) -> "ConversationService":
+    """
+    获取ConversationService实例（依赖注入）
+
+    统一Service获取方式，避免在每个路由函数中重复初始化。
+
+    Returns:
+        ConversationService实例
+    """
+    from ..services.conversation_service import ConversationService
+    return ConversationService(session)
+
+
+async def get_inspiration_service(
+    session: AsyncSession = Depends(get_session),
+    llm_service: "LLMService" = Depends(get_llm_service),
+    prompt_service: "PromptService" = Depends(get_prompt_service),
+) -> "InspirationService":
+    """
+    获取InspirationService实例（依赖注入）
+
+    统一Service获取方式，封装灵感对话的业务逻辑。
+
+    Returns:
+        InspirationService实例
+    """
+    from ..services.inspiration_service import InspirationService
+    return InspirationService(session, llm_service, prompt_service)
+
+
 async def get_vector_ingestion_service(
     llm_service: "LLMService" = Depends(get_llm_service),
     vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
@@ -187,4 +219,80 @@ async def get_vector_ingestion_service(
         llm_service=llm_service,
         vector_store=vector_store
     )
+
+
+async def get_part_outline_service(
+    session: AsyncSession = Depends(get_session),
+    llm_service: "LLMService" = Depends(get_llm_service),
+    prompt_service: "PromptService" = Depends(get_prompt_service),
+    novel_service: "NovelService" = Depends(get_novel_service),
+    vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
+) -> "PartOutlineService":
+    """
+    获取PartOutlineService实例（依赖注入）
+
+    统一Service获取方式，所有依赖通过参数注入，便于测试和解耦。
+
+    Returns:
+        PartOutlineService实例
+
+    Example:
+        ```python
+        @router.post("/parts/generate")
+        async def generate_parts(
+            part_service: PartOutlineService = Depends(get_part_outline_service),
+        ):
+            return await part_service.generate_part_outlines(...)
+        ```
+    """
+    from ..services.part_outline import PartOutlineService
+    return PartOutlineService(
+        session=session,
+        llm_service=llm_service,
+        prompt_service=prompt_service,
+        novel_service=novel_service,
+        vector_store=vector_store,
+    )
+
+
+async def get_chapter_generation_service(
+    session: AsyncSession = Depends(get_session),
+    llm_service: "LLMService" = Depends(get_llm_service),
+) -> "ChapterGenerationService":
+    """
+    获取ChapterGenerationService实例（依赖注入）
+
+    统一Service获取方式，所有依赖通过参数注入。
+
+    Returns:
+        ChapterGenerationService实例
+    """
+    from ..services.chapter_generation import ChapterGenerationService
+    return ChapterGenerationService(session, llm_service)
+
+
+async def get_avatar_service(
+    session: AsyncSession = Depends(get_session),
+    llm_service: "LLMService" = Depends(get_llm_service),
+    prompt_service: "PromptService" = Depends(get_prompt_service),
+) -> "AvatarService":
+    """
+    获取AvatarService实例（依赖注入）
+
+    统一Service获取方式，所有依赖通过参数注入。
+
+    Returns:
+        AvatarService实例
+
+    Example:
+        ```python
+        @router.post("/avatar/generate")
+        async def generate_avatar(
+            avatar_service: AvatarService = Depends(get_avatar_service),
+        ):
+            return await avatar_service.generate_avatar(...)
+        ```
+    """
+    from ..services.avatar_service import AvatarService
+    return AvatarService(session, llm_service, prompt_service)
 

@@ -49,6 +49,7 @@ from ....services.blueprint_service import BlueprintService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
 from ....services.chapter_ingest_service import ChapterIngestionService
+from ....services.avatar_service import AvatarService
 from ....utils.json_utils import (
     remove_think_tags,
     parse_llm_json_or_fail,
@@ -439,3 +440,61 @@ async def patch_blueprint(
     await session.commit()
     logger.info("项目 %s 局部更新蓝图字段：%s", project_id, list(update_data.keys()))
     return await novel_service.get_project_schema(project_id, desktop_user.id)
+
+
+@router.post("/{project_id}/avatar/generate")
+async def generate_avatar(
+    project_id: str,
+    novel_service: NovelService = Depends(get_novel_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    prompt_service: PromptService = Depends(get_prompt_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """为小说生成SVG动物头像
+
+    根据小说的类型、风格、氛围，使用LLM生成一个匹配的小动物SVG图标。
+
+    Returns:
+        dict: {
+            "avatar_svg": "<svg>...</svg>",  # 完整SVG代码
+            "animal": "fox",                  # 动物英文名
+            "animal_cn": "狐狸"               # 动物中文名
+        }
+    """
+    # 验证项目所有权
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    # 创建AvatarService并生成头像
+    avatar_service = AvatarService(
+        session=session,
+        llm_service=llm_service,
+        prompt_service=prompt_service,
+    )
+
+    result = await avatar_service.generate_avatar(project_id, desktop_user.id)
+    logger.info("项目 %s 头像生成成功: %s", project_id, result.get("animal"))
+
+    return result
+
+
+@router.delete("/{project_id}/avatar")
+async def delete_avatar(
+    project_id: str,
+    novel_service: NovelService = Depends(get_novel_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """删除小说的头像
+
+    Returns:
+        dict: {"success": True}
+    """
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    avatar_service = AvatarService(session=session)
+    success = await avatar_service.delete_avatar(project_id)
+    await session.commit()
+
+    logger.info("项目 %s 头像删除: success=%s", project_id, success)
+    return {"success": success}

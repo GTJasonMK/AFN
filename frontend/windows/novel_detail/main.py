@@ -7,10 +7,12 @@
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget,
-    QScrollArea, QStackedWidget, QFileDialog, QGraphicsDropShadowEffect
+    QScrollArea, QStackedWidget, QFileDialog, QGraphicsDropShadowEffect,
+    QToolTip
 )
-from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import pyqtSignal, Qt, QByteArray
+from PyQt6.QtGui import QColor, QCursor
+from PyQt6.QtSvgWidgets import QSvgWidget
 from pages.base_page import BasePage
 from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
@@ -115,20 +117,32 @@ class NovelDetail(BasePage):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(dp(16))
 
-        # 项目图标（书本图标）
-        icon_container = QFrame()
-        icon_container.setFixedSize(dp(64), dp(64))
-        icon_container.setObjectName("project_icon")
-        icon_layout = QVBoxLayout(icon_container)
+        # 项目图标（支持SVG头像或默认占位符）
+        self.icon_container = QFrame()
+        self.icon_container.setFixedSize(dp(64), dp(64))
+        self.icon_container.setObjectName("project_icon")
+        self.icon_container.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.icon_container.setToolTip("点击生成小说头像")
+        icon_layout = QVBoxLayout(self.icon_container)
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_label = QLabel("B")  # 使用字母代替emoji
-        icon_label.setStyleSheet(f"font-size: {sp(28)}px; font-weight: bold;")
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_layout.addWidget(icon_label)
+        # SVG头像显示组件
+        self.avatar_svg_widget = QSvgWidget()
+        self.avatar_svg_widget.setFixedSize(dp(60), dp(60))
+        self.avatar_svg_widget.setVisible(False)
+        icon_layout.addWidget(self.avatar_svg_widget)
 
-        left_layout.addWidget(icon_container)
+        # 默认占位符（字母B）
+        self.icon_placeholder = QLabel("B")
+        self.icon_placeholder.setStyleSheet(f"font-size: {sp(28)}px; font-weight: bold;")
+        self.icon_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_layout.addWidget(self.icon_placeholder)
+
+        # 为icon_container添加点击事件
+        self.icon_container.mousePressEvent = self._onIconClicked
+
+        left_layout.addWidget(self.icon_container)
 
         # 项目信息
         info_container = QWidget()
@@ -469,6 +483,11 @@ class NovelDetail(BasePage):
             # 根据section_id创建对应组件
             if section_id == 'overview':
                 blueprint = self._safe_get_blueprint()
+                logger.info(
+                    f"创建OverviewSection: blueprint类型={type(blueprint).__name__}, "
+                    f"blueprint键={list(blueprint.keys()) if isinstance(blueprint, dict) else 'N/A'}, "
+                    f"one_sentence_summary={blueprint.get('one_sentence_summary', 'MISSING') if isinstance(blueprint, dict) else 'NOT_DICT'}"
+                )
                 section = OverviewSection(data=blueprint, editable=True)
                 section.editRequested.connect(self.onEditRequested)
             elif section_id == 'world_setting':
@@ -557,13 +576,27 @@ class NovelDetail(BasePage):
             return default
         return data.get(key, default)
 
-    @handle_errors("加载项目")
     def loadProjectBasicInfo(self):
-        """加载项目基本信息"""
+        """加载项目基本信息（异步非阻塞）"""
         import logging
         logger = logging.getLogger(__name__)
 
-        response = self.api_client.get_novel(self.project_id)
+        # 使用异步worker加载项目，避免阻塞UI线程
+        worker = AsyncAPIWorker(self.api_client.get_novel, self.project_id)
+        worker.success.connect(self._onProjectBasicInfoLoaded)
+        worker.error.connect(self._onProjectBasicInfoError)
+
+        # 保持worker引用，防止被垃圾回收
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(worker)
+        worker.start()
+
+    def _onProjectBasicInfoLoaded(self, response):
+        """项目基本信息加载成功回调"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         self.project_data = response
 
         # 调试日志：检查API返回的数据
@@ -589,6 +622,26 @@ class NovelDetail(BasePage):
         # 根据状态更新状态标签样式
         self._updateStatusTagStyle(status)
 
+        # 加载头像（如果有）
+        blueprint = self.project_data.get('blueprint', {})
+        avatar_svg = blueprint.get('avatar_svg') if blueprint else None
+        self._loadAvatar(avatar_svg)
+
+        # 刷新当前显示的section（因为初始加载时project_data还是空的）
+        if self.active_section in self.section_widgets:
+            # 删除旧的section，重新创建
+            old_widget = self.section_widgets.pop(self.active_section)
+            self.content_stack.removeWidget(old_widget)
+            old_widget.deleteLater()
+        self.loadSection(self.active_section)
+
+    def _onProjectBasicInfoError(self, error_msg):
+        """项目基本信息加载失败回调"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"加载项目基本信息失败: {error_msg}")
+        MessageService.show_error(self, f"加载项目失败：\n\n{error_msg}", "错误")
+
     def _updateStatusTagStyle(self, status):
         """根据状态更新状态标签样式"""
         if status == 'completed':
@@ -612,6 +665,133 @@ class NovelDetail(BasePage):
             font-size: {sp(12)}px;
             font-weight: 500;
         """)
+
+    def _loadAvatar(self, avatar_svg: str = None):
+        """加载并显示头像SVG
+
+        Args:
+            avatar_svg: SVG字符串，为None时显示占位符
+        """
+        if avatar_svg:
+            # 显示SVG头像
+            svg_bytes = QByteArray(avatar_svg.encode('utf-8'))
+            self.avatar_svg_widget.load(svg_bytes)
+            self.avatar_svg_widget.setVisible(True)
+            self.icon_placeholder.setVisible(False)
+            self.icon_container.setToolTip("点击重新生成头像")
+        else:
+            # 显示占位符
+            self.avatar_svg_widget.setVisible(False)
+            self.icon_placeholder.setVisible(True)
+            # 使用项目标题首字作为占位符
+            if self.project_data:
+                title = self.project_data.get('title', 'B')
+                first_char = title[0] if title else 'B'
+                self.icon_placeholder.setText(first_char)
+            self.icon_container.setToolTip("点击生成小说头像")
+
+    def _onIconClicked(self, event):
+        """点击头像图标时触发生成"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 检查是否有蓝图
+        if not self.project_data or not self.project_data.get('blueprint'):
+            MessageService.show_warning(self, "请先生成蓝图后再生成头像", "提示")
+            return
+
+        # 确认生成
+        blueprint = self.project_data.get('blueprint', {})
+        has_avatar = blueprint.get('avatar_svg') is not None
+
+        if has_avatar:
+            if not confirm(self, "确定要重新生成头像吗？\n当前头像将被替换。", "重新生成头像"):
+                return
+
+        logger.info(f"开始生成头像: project_id={self.project_id}")
+        self._generateAvatar()
+
+    def _generateAvatar(self):
+        """执行头像生成（异步）"""
+        from components.dialogs import LoadingDialog
+
+        # 创建加载对话框
+        self._avatar_loading_dialog = LoadingDialog(
+            parent=self,
+            title="请稍候",
+            message="正在生成小说头像...",
+            cancelable=True
+        )
+        self._avatar_loading_dialog.show()
+
+        # 创建异步worker
+        self._avatar_worker = AsyncAPIWorker(
+            self.api_client.generate_avatar,
+            self.project_id
+        )
+
+        self._avatar_worker.success.connect(self._onAvatarGenerated)
+        self._avatar_worker.error.connect(self._onAvatarGenerateError)
+        self._avatar_loading_dialog.rejected.connect(self._onAvatarGenerateCancelled)
+
+        # 保持worker引用
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(self._avatar_worker)
+
+        self._avatar_worker.start()
+
+    def _onAvatarGenerated(self, result):
+        """头像生成成功回调"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 关闭加载对话框
+        if hasattr(self, '_avatar_loading_dialog') and self._avatar_loading_dialog:
+            self._avatar_loading_dialog.close()
+
+        avatar_svg = result.get('avatar_svg')
+        animal_cn = result.get('animal_cn', '小动物')
+
+        logger.info(f"头像生成成功: animal={result.get('animal')}, animal_cn={animal_cn}")
+
+        # 更新显示
+        self._loadAvatar(avatar_svg)
+
+        # 更新本地缓存的项目数据
+        if self.project_data and self.project_data.get('blueprint'):
+            self.project_data['blueprint']['avatar_svg'] = avatar_svg
+            self.project_data['blueprint']['avatar_animal'] = result.get('animal')
+
+        MessageService.show_success(self, f"已生成{animal_cn}头像")
+
+    def _onAvatarGenerateError(self, error_msg):
+        """头像生成失败回调"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 关闭加载对话框
+        if hasattr(self, '_avatar_loading_dialog') and self._avatar_loading_dialog:
+            self._avatar_loading_dialog.close()
+
+        logger.error(f"头像生成失败: {error_msg}")
+        MessageService.show_api_error(self, error_msg, "生成头像")
+
+    def _onAvatarGenerateCancelled(self):
+        """头像生成取消回调"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if hasattr(self, '_avatar_worker') and self._avatar_worker:
+            try:
+                if self._avatar_worker.isRunning():
+                    self._avatar_worker.cancel()
+                    self._avatar_worker.quit()
+                    self._avatar_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass
+
+        logger.info("头像生成已取消")
 
     def refreshProject(self):
         """刷新项目数据"""

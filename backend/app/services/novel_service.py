@@ -1,63 +1,66 @@
+"""
+小说项目服务
+
+负责项目级别的CRUD、状态机管理和数据查询。
+章节版本管理委托给ChapterVersionService，遵循单一职责原则。
+"""
+
 from __future__ import annotations
 
-import json
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.state_machine import ProjectStatus, ProjectStateMachine, InvalidStateTransitionError
+from ..core.state_machine import ProjectStatus, ProjectStateMachine
 from ..exceptions import ResourceNotFoundError, PermissionDeniedError, InvalidParameterError
-from ..utils.content_normalizer import normalize_version_content
 from ..serializers.novel_serializer import NovelSerializer
-from ..models import (
-    Chapter,
-    ChapterEvaluation,
-    ChapterOutline,
-    ChapterVersion,
-    NovelBlueprint,
-    NovelProject,
-)
-from ..models.novel import CharacterStateIndex, ForeshadowingIndex
+from ..models import Chapter, ChapterOutline, ChapterVersion, NovelBlueprint, NovelProject
 from ..repositories.novel_repository import NovelRepository
-from ..repositories.chapter_repository import (
-    ChapterRepository,
-    ChapterVersionRepository,
-    ChapterEvaluationRepository,
-    ChapterOutlineRepository,
-)
+from ..repositories.chapter_repository import ChapterOutlineRepository
 from ..schemas.novel import (
     Chapter as ChapterSchema,
-    ChapterGenerationStatus,
-    ChapterOutline as ChapterOutlineSchema,
     NovelProject as NovelProjectSchema,
     NovelProjectSummary,
     NovelSectionResponse,
     NovelSectionType,
-    PartOutline as PartOutlineSchema,
 )
+from ..services.chapter_version_service import ChapterVersionService
 
 logger = logging.getLogger(__name__)
 
 
 class NovelService:
-    """小说项目服务，基于拆表后的结构提供聚合与业务操作。"""
+    """
+    小说项目服务
+
+    负责：
+    - 项目CRUD（创建、查询、删除）
+    - 状态机管理（状态转换、回退清理）
+    - 权限验证（确保项目归属）
+    - 数据查询（项目、区段、章节Schema）
+
+    章节版本管理委托给ChapterVersionService。
+    """
 
     def __init__(self, session: AsyncSession):
+        """
+        初始化NovelService
+
+        Args:
+            session: 数据库会话
+        """
         self.session = session
         self.repo = NovelRepository(session)
-        # 初始化章节相关Repository
-        self.chapter_repo = ChapterRepository(session)
-        self.chapter_version_repo = ChapterVersionRepository(session)
-        self.chapter_evaluation_repo = ChapterEvaluationRepository(session)
         self.chapter_outline_repo = ChapterOutlineRepository(session)
+        # 组合ChapterVersionService，委托章节版本管理
+        self._chapter_version_service = ChapterVersionService(session)
 
     # ------------------------------------------------------------------
     # 状态机管理
     # ------------------------------------------------------------------
+
     async def transition_project_status(
         self,
         project: NovelProject,
@@ -75,7 +78,6 @@ class NovelService:
         Raises:
             InvalidStateTransitionError: 非法状态转换
         """
-        # 记录状态转换上下文（project_id, user_id, 当前状态, 目标状态）
         logger.info(
             "开始状态转换: project_id=%s user_id=%s title='%s' %s -> %s%s",
             project.id,
@@ -99,7 +101,6 @@ class NovelService:
         project.status = state_machine.transition_to(new_status, force=force)
         await self.session.commit()
 
-        # 记录转换成功
         logger.info(
             "状态转换成功: project_id=%s 新状态=%s",
             project.id,
@@ -107,22 +108,7 @@ class NovelService:
         )
 
     def _is_backward_transition(self, current_status: str, new_status: str) -> bool:
-        """
-        判断是否为回退转换
-
-        回退规则：状态机允许的反向转换
-        - writing -> chapter_outlines_ready（回退修改大纲）
-        - chapter_outlines_ready -> blueprint_ready/part_outlines_ready（回退重新规划）
-        - blueprint_ready -> draft（回退重新对话）
-
-        Args:
-            current_status: 当前状态
-            new_status: 目标状态
-
-        Returns:
-            bool: 是否为回退转换
-        """
-        # 定义回退映射：当前状态 -> 被认为是回退的目标状态列表
+        """判断是否为回退转换"""
         backward_transitions = {
             ProjectStatus.WRITING: [ProjectStatus.CHAPTER_OUTLINES_READY],
             ProjectStatus.CHAPTER_OUTLINES_READY: [
@@ -131,7 +117,6 @@ class NovelService:
             ],
             ProjectStatus.BLUEPRINT_READY: [ProjectStatus.DRAFT],
         }
-
         return new_status in backward_transitions.get(current_status, [])
 
     async def _cleanup_data_for_backward_transition(
@@ -139,20 +124,11 @@ class NovelService:
         project: NovelProject,
         new_status: str
     ) -> None:
-        """
-        清理回退转换时的相关数据
-
-        注意：此方法不commit，由transition_project_status统一commit
-
-        Args:
-            project: 项目实例
-            new_status: 目标状态
-        """
+        """清理回退转换时的相关数据"""
         project_id = project.id
         current_status = project.status
 
-        # 场景1：writing -> chapter_outlines_ready
-        # 清理：删除所有已生成的章节（因为要重新调整大纲）
+        # writing -> chapter_outlines_ready：删除所有已生成的章节
         if (
             current_status == ProjectStatus.WRITING
             and new_status == ProjectStatus.CHAPTER_OUTLINES_READY
@@ -163,60 +139,35 @@ class NovelService:
             )
             if project.chapters:
                 chapter_numbers = [ch.chapter_number for ch in project.chapters]
-                await self.delete_chapters(project_id, chapter_numbers)
-                logger.info(
-                    "项目 %s 回退时删除了 %d 个章节",
-                    project_id,
-                    len(chapter_numbers)
-                )
+                await self._chapter_version_service.delete_chapters(project_id, chapter_numbers)
+                logger.info("项目 %s 回退时删除了 %d 个章节", project_id, len(chapter_numbers))
 
-        # 场景2：chapter_outlines_ready -> blueprint_ready/part_outlines_ready
-        # 清理：删除所有章节大纲（因为要重新规划结构）
+        # chapter_outlines_ready -> blueprint_ready/part_outlines_ready：删除所有章节大纲
         elif (
             current_status == ProjectStatus.CHAPTER_OUTLINES_READY
             and new_status in [ProjectStatus.BLUEPRINT_READY, ProjectStatus.PART_OUTLINES_READY]
         ):
-            logger.warning(
-                "项目 %s 从大纲状态回退，将删除所有章节大纲",
-                project_id
-            )
-            outline_count = await self.chapter_outline_repo.count_by_project(project_id)
-            if outline_count > 0:
-                await self.chapter_outline_repo.delete_by_project(project_id)
-                logger.info(
-                    "项目 %s 回退时删除了 %d 个章节大纲",
-                    project_id,
-                    outline_count
-                )
+            logger.warning("项目 %s 从大纲状态回退，将删除所有章节大纲", project_id)
+            count = await self._chapter_version_service.delete_chapter_outlines(project_id)
+            if count > 0:
+                logger.info("项目 %s 回退时删除了 %d 个章节大纲", project_id, count)
 
-        # 场景3：blueprint_ready -> draft
-        # 清理：由BlueprintService.cleanup_old_blueprint_data处理
-        # 这里不需要额外处理，因为重新生成蓝图时会自动清理
+        # blueprint_ready -> draft：由BlueprintService处理
         elif (
             current_status == ProjectStatus.BLUEPRINT_READY
             and new_status == ProjectStatus.DRAFT
         ):
-            logger.info(
-                "项目 %s 回退到草稿状态，蓝图数据将在重新生成时清理",
-                project_id
-            )
+            logger.info("项目 %s 回退到草稿状态，蓝图数据将在重新生成时清理", project_id)
 
     # ------------------------------------------------------------------
-    # 项目与摘要
+    # 项目CRUD
     # ------------------------------------------------------------------
+
     async def create_project(self, user_id: int, title: str, initial_prompt: str) -> NovelProject:
         """
         创建新项目
 
         注意：此方法不commit，调用方需要在适当时候commit
-
-        Args:
-            user_id: 用户ID
-            title: 项目标题
-            initial_prompt: 初始提示词
-
-        Returns:
-            NovelProject: 创建的项目对象
         """
         project = NovelProject(
             id=str(uuid.uuid4()),
@@ -226,11 +177,35 @@ class NovelService:
         )
         blueprint = NovelBlueprint(project=project)
         self.session.add_all([project, blueprint])
-        await self.session.flush()  # 刷新到数据库以获取ID，但不提交事务
+        await self.session.flush()
         await self.session.refresh(project)
         return project
 
+    async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
+        """
+        删除项目（批量）
+
+        注意：此方法不commit，调用方需要在适当时候commit
+        """
+        from sqlalchemy import delete
+
+        for pid in project_ids:
+            await self.ensure_project_owner(pid, user_id)
+
+        await self.session.execute(
+            delete(NovelProject).where(NovelProject.id.in_(project_ids))
+        )
+
+    async def count_projects(self) -> int:
+        """统计所有项目数量"""
+        return await self.repo.count_all()
+
+    # ------------------------------------------------------------------
+    # 权限验证
+    # ------------------------------------------------------------------
+
     async def ensure_project_owner(self, project_id: str, user_id: int) -> NovelProject:
+        """确保项目归属于指定用户"""
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise ResourceNotFoundError("项目", project_id)
@@ -243,26 +218,8 @@ class NovelService:
         project_id: str,
         user_id: int,
         require_total_chapters: bool = False,
-    ) -> Tuple[NovelProject, "NovelProjectSchema"]:
-        """
-        确保项目蓝图已就绪
-
-        业务验证逻辑统一入口，避免在Router层重复验证。
-
-        Args:
-            project_id: 项目ID
-            user_id: 用户ID
-            require_total_chapters: 是否要求蓝图中设置了总章节数
-
-        Returns:
-            Tuple[NovelProject, NovelProjectSchema]: (项目模型, 项目Schema)
-
-        Raises:
-            ResourceNotFoundError: 项目不存在
-            PermissionDeniedError: 无权访问
-            BlueprintNotReadyError: 蓝图未生成
-            InvalidParameterError: 蓝图未设置总章节数（当require_total_chapters=True）
-        """
+    ) -> Tuple[NovelProject, NovelProjectSchema]:
+        """确保项目蓝图已就绪"""
         from ..exceptions import BlueprintNotReadyError
 
         project = await self.ensure_project_owner(project_id, user_id)
@@ -282,25 +239,8 @@ class NovelService:
         self,
         project_id: str,
         user_id: int,
-    ) -> Tuple[NovelProject, "NovelProjectSchema"]:
-        """
-        确保项目符合部分大纲操作条件
-
-        验证项目是否需要部分大纲功能（长篇小说）。
-
-        Args:
-            project_id: 项目ID
-            user_id: 用户ID
-
-        Returns:
-            Tuple[NovelProject, NovelProjectSchema]: (项目模型, 项目Schema)
-
-        Raises:
-            ResourceNotFoundError: 项目不存在
-            PermissionDeniedError: 无权访问
-            BlueprintNotReadyError: 蓝图未生成
-            InvalidParameterError: 项目不需要部分大纲
-        """
+    ) -> Tuple[NovelProject, NovelProjectSchema]:
+        """确保项目符合部分大纲操作条件"""
         project, project_schema = await self.ensure_blueprint_ready(project_id, user_id)
 
         if not project_schema.blueprint.needs_part_outlines:
@@ -311,17 +251,16 @@ class NovelService:
 
         return project, project_schema
 
-    async def get_project_schema(self, project_id: str, user_id: Optional[int] = None) -> NovelProjectSchema:
-        """
-        获取项目Schema
+    # ------------------------------------------------------------------
+    # 数据查询
+    # ------------------------------------------------------------------
 
-        Args:
-            project_id: 项目ID
-            user_id: 用户ID，如果提供则检查权限，否则为管理员模式
-
-        Returns:
-            NovelProjectSchema: 项目Schema
-        """
+    async def get_project_schema(
+        self,
+        project_id: str,
+        user_id: Optional[int] = None
+    ) -> NovelProjectSchema:
+        """获取项目Schema"""
         if user_id is not None:
             project = await self.ensure_project_owner(project_id, user_id)
         else:
@@ -336,17 +275,7 @@ class NovelService:
         section: NovelSectionType,
         user_id: Optional[int] = None,
     ) -> NovelSectionResponse:
-        """
-        获取项目的某个section数据
-
-        Args:
-            project_id: 项目ID
-            section: Section类型
-            user_id: 用户ID，如果提供则检查权限，否则为管理员模式
-
-        Returns:
-            NovelSectionResponse: Section响应数据
-        """
+        """获取项目的某个section数据"""
         if user_id is not None:
             project = await self.ensure_project_owner(project_id, user_id)
         else:
@@ -361,17 +290,7 @@ class NovelService:
         chapter_number: int,
         user_id: Optional[int] = None,
     ) -> ChapterSchema:
-        """
-        获取章节Schema
-
-        Args:
-            project_id: 项目ID
-            chapter_number: 章节号
-            user_id: 用户ID，如果提供则检查权限，否则为管理员模式
-
-        Returns:
-            ChapterSchema: 章节Schema
-        """
+        """获取章节Schema"""
         if user_id is not None:
             project = await self.ensure_project_owner(project_id, user_id)
         else:
@@ -386,19 +305,10 @@ class NovelService:
         page: int = 1,
         page_size: int = 20,
     ) -> Tuple[List[NovelProjectSummary], int]:
-        """
-        分页获取用户的项目摘要列表
-
-        Args:
-            user_id: 用户ID
-            page: 页码（从1开始）
-            page_size: 每页数量
-
-        Returns:
-            Tuple[List[NovelProjectSummary], int]: (项目摘要列表, 总数)
-        """
+        """分页获取用户的项目摘要列表"""
         projects, total = await self.repo.list_by_user(user_id, page, page_size)
         summaries: List[NovelProjectSummary] = []
+
         for project in projects:
             blueprint = project.blueprint
             genre = blueprint.genre if blueprint and blueprint.genre else "未知"
@@ -417,236 +327,67 @@ class NovelService:
                     status=project.status,
                 )
             )
+
         return summaries, total
 
-    async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
-        """
-        删除项目（批量）
-
-        注意：此方法不commit，调用方需要在适当时候commit
-
-        使用SQL级别的DELETE语句确保删除操作执行，
-        依赖数据库外键CASCADE自动清理关联数据。
-
-        Args:
-            project_ids: 要删除的项目ID列表
-            user_id: 用户ID（用于权限验证）
-        """
-        from sqlalchemy import delete
-
-        # 先验证所有项目的所有权
-        for pid in project_ids:
-            await self.ensure_project_owner(pid, user_id)
-
-        # 使用SQL DELETE直接删除（外键CASCADE会自动删除子记录）
-        await self.session.execute(
-            delete(NovelProject).where(NovelProject.id.in_(project_ids))
-        )
-
-    async def count_projects(self) -> int:
-        """统计所有项目数量"""
-        return await self.repo.count_all()
-
     # ------------------------------------------------------------------
-    # 章节与版本
+    # 章节版本管理（委托给ChapterVersionService）
     # ------------------------------------------------------------------
+
     async def get_outline(self, project_id: str, chapter_number: int) -> Optional[ChapterOutline]:
-        """
-        获取章节大纲
-
-        Args:
-            project_id: 项目ID
-            chapter_number: 章节号
-
-        Returns:
-            章节大纲实例，不存在返回None
-        """
-        return await self.chapter_outline_repo.get_by_project_and_number(project_id, chapter_number)
+        """获取章节大纲"""
+        return await self._chapter_version_service.get_outline(project_id, chapter_number)
 
     async def count_chapter_outlines(self, project_id: str) -> int:
-        """
-        统计项目的章节大纲数量
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            章节大纲数量
-        """
-        return await self.chapter_outline_repo.count_by_project(project_id)
+        """统计项目的章节大纲数量"""
+        return await self._chapter_version_service.count_chapter_outlines(project_id)
 
     async def get_or_create_chapter(self, project_id: str, chapter_number: int) -> Chapter:
-        """
-        获取或创建章节
+        """获取或创建章节"""
+        return await self._chapter_version_service.get_or_create_chapter(project_id, chapter_number)
 
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        chapter = await self.chapter_repo.get_or_create(project_id, chapter_number)
-        return chapter
-
-    async def replace_chapter_versions(self, chapter: Chapter, contents: List[str], metadata: Optional[List[Dict]] = None) -> List[ChapterVersion]:
-        """
-        替换章节的所有版本
-
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        # 准备版本数据
-        versions_data = []
-        for index, content in enumerate(contents):
-            extra = metadata[index] if metadata and index < len(metadata) else None
-            text_content = normalize_version_content(content, extra)
-            versions_data.append({
-                "content": text_content,
-                "metadata": None,
-                "version_label": f"v{index+1}",
-            })
-
-        # 使用Repository替换所有版本
-        versions = await self.chapter_version_repo.replace_all(chapter.id, versions_data)
-
-        # 更新章节状态
-        # 注意：不要调用 refresh()，因为还没有 commit，
-        # refresh 会从数据库重新加载数据，覆盖我们刚设置的值！
-        chapter.status = ChapterGenerationStatus.WAITING_FOR_CONFIRM.value
-        await self.session.flush()
-        await self._touch_project(chapter.project_id)
-        return versions
+    async def replace_chapter_versions(
+        self,
+        chapter: Chapter,
+        contents: List[str],
+        metadata: Optional[List[Dict]] = None
+    ) -> List[ChapterVersion]:
+        """替换章节的所有版本"""
+        return await self._chapter_version_service.replace_chapter_versions(chapter, contents, metadata)
 
     async def select_chapter_version(self, chapter: Chapter, version_index: int) -> ChapterVersion:
-        """
-        选择章节版本
+        """选择章节版本"""
+        return await self._chapter_version_service.select_chapter_version(chapter, version_index)
 
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        versions = sorted(chapter.versions, key=lambda item: item.created_at)
-        if not versions or version_index < 0 or version_index >= len(versions):
-            raise InvalidParameterError("版本索引无效", "version_index")
-
-        selected = versions[version_index]
-        chapter.selected_version_id = selected.id
-        chapter.selected_version = selected
-        chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
-        chapter.word_count = len(selected.content or "")
-
-        # 注意：不要在这里调用 refresh()，因为还没有 commit，
-        # refresh 会从数据库重新加载数据，覆盖我们刚设置的值！
-        await self._touch_project(chapter.project_id)
-        return selected
-
-    async def add_chapter_evaluation(self, chapter: Chapter, version: Optional[ChapterVersion], feedback: str, decision: Optional[str] = None) -> None:
-        """
-        添加章节评价
-
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        evaluation = ChapterEvaluation(
-            chapter_id=chapter.id,
-            version_id=version.id if version else None,
-            feedback=feedback,
-            decision=decision,
-        )
-        self.session.add(evaluation)  # 这里保留直接添加，因为是临时对象
-        # 注意：不要调用 refresh()，因为还没有 commit，
-        # refresh 会从数据库重新加载数据，覆盖我们刚设置的值！
-        chapter.status = ChapterGenerationStatus.WAITING_FOR_CONFIRM.value
-        await self.session.flush()
-        await self._touch_project(chapter.project_id)
+    async def add_chapter_evaluation(
+        self,
+        chapter: Chapter,
+        version: Optional[ChapterVersion],
+        feedback: str,
+        decision: Optional[str] = None
+    ) -> None:
+        """添加章节评价"""
+        await self._chapter_version_service.add_chapter_evaluation(chapter, version, feedback, decision)
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Iterable[int]) -> None:
-        """
-        删除章节
-
-        同时清理关联的索引数据（CharacterStateIndex、ForeshadowingIndex）。
-
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        chapter_numbers_list = list(chapter_numbers)
-
-        # 1. 删除章节记录
-        await self.session.execute(
-            delete(Chapter).where(
-                Chapter.project_id == project_id,
-                Chapter.chapter_number.in_(chapter_numbers_list),
-            )
-        )
-
-        # 2. 删除章节大纲
-        await self.session.execute(
-            delete(ChapterOutline).where(
-                ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number.in_(chapter_numbers_list),
-            )
-        )
-
-        # 3. 清理角色状态索引
-        await self.session.execute(
-            delete(CharacterStateIndex).where(
-                CharacterStateIndex.project_id == project_id,
-                CharacterStateIndex.chapter_number.in_(chapter_numbers_list),
-            )
-        )
-
-        # 4. 清理伏笔索引
-        # 4.1 删除在这些章节埋下的伏笔
-        await self.session.execute(
-            delete(ForeshadowingIndex).where(
-                ForeshadowingIndex.project_id == project_id,
-                ForeshadowingIndex.planted_chapter.in_(chapter_numbers_list),
-            )
-        )
-
-        # 4.2 重置在这些章节回收的伏笔状态（改为pending，而不是删除）
-        from sqlalchemy import select
-        result = await self.session.execute(
-            select(ForeshadowingIndex).where(
-                ForeshadowingIndex.project_id == project_id,
-                ForeshadowingIndex.resolved_chapter.in_(chapter_numbers_list),
-            )
-        )
-        for fs in result.scalars().all():
-            fs.status = "pending"
-            fs.resolved_chapter = None
-            fs.resolution = None
-
-        await self._touch_project(project_id)
-
-    async def _touch_project(self, project_id: str) -> None:
-        """
-        更新项目的updated_at时间戳
-
-        注意：此方法不commit，调用方需要在适当时候commit
-        """
-        await self.session.execute(
-            update(NovelProject)
-            .where(NovelProject.id == project_id)
-            .values(updated_at=datetime.now(timezone.utc))
-        )
+        """删除章节"""
+        await self._chapter_version_service.delete_chapters(project_id, chapter_numbers)
 
     # ------------------------------------------------------------------
-    # 项目状态管理
+    # 项目状态检查
     # ------------------------------------------------------------------
+
     async def check_and_update_completion_status(self, project_id: str, user_id: int) -> None:
-        """
-        检查项目是否完成，如果所有章节都已选择版本，更新状态为completed
-
-        Args:
-            project_id: 项目ID
-            user_id: 用户ID（用于权限验证）
-        """
-        # 获取项目完整信息
+        """检查项目是否完成，如果所有章节都已选择版本，更新状态为completed"""
         project_schema = await self.get_project_schema(project_id, user_id)
         project = await self.repo.get_by_id(project_id)
 
-        # 检查蓝图是否存在并且有total_chapters
         if not project_schema.blueprint or not project_schema.blueprint.total_chapters:
             return
 
         total_chapters = project_schema.blueprint.total_chapters
-
-        # 统计已完成的章节数（有选中版本的章节）
         completed_chapters = sum(1 for ch in project_schema.chapters if ch.selected_version)
 
-        # 如果所有章节都完成了，且当前状态是writing，则更新为completed
         if completed_chapters == total_chapters and project.status == ProjectStatus.WRITING.value:
             await self.transition_project_status(project, ProjectStatus.COMPLETED.value)
             logger.info("项目 %s 所有章节完成，状态更新为 %s", project_id, ProjectStatus.COMPLETED.value)

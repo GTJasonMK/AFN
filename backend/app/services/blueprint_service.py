@@ -194,22 +194,26 @@ class BlueprintService:
                     )
                     await ingestion_service.delete_chapters(project_id, chapter_numbers)
                     logger.info("项目 %s 已从向量库移除 %d 个章节", project_id, len(chapter_numbers))
-                except Exception as exc:
-                    # 区分向量库不可用和其他错误
-                    error_msg = str(exc)
-                    if "not enabled" in error_msg.lower() or "not configured" in error_msg.lower():
-                        logger.info("向量库未启用，跳过向量数据清理")
-                    else:
-                        # 向量库删除失败不应阻止主流程，记录详细警告
-                        log_exception(
-                            exc,
-                            "清理向量库数据",
-                            level="warning",
-                            include_traceback=True,
-                            project_id=project_id,
-                            chapter_count=len(chapter_numbers),
-                            note="数据库记录已删除，但向量数据可能残留，建议手动清理"
-                        )
+                except RuntimeError as exc:
+                    # 向量库依赖缺失或配置问题，不阻塞主流程
+                    logger.info("向量库未配置或不可用，跳过向量数据清理: %s", exc)
+                except (OSError, IOError) as exc:
+                    # 向量库连接或文件访问错误
+                    log_exception(
+                        exc,
+                        "清理向量库数据（连接错误）",
+                        level="warning",
+                        project_id=project_id,
+                        chapter_count=len(chapter_numbers),
+                    )
+                except ValueError as exc:
+                    # 数据格式错误
+                    log_exception(
+                        exc,
+                        "清理向量库数据（数据格式错误）",
+                        level="warning",
+                        project_id=project_id,
+                    )
 
         # 3. 删除所有章节大纲（可能存在大纲但没有章节内容的情况）
         try:

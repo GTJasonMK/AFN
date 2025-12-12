@@ -208,15 +208,10 @@ class OverviewSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        # 使用 theme_manager 的书香风格便捷方法
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        text_tertiary = theme_manager.book_text_tertiary()  # 使用 theme_manager 的三级文字色
-        border_color = theme_manager.book_border_color()
-        highlight_color = theme_manager.book_accent_color()
+        # 使用 get_book_palette() 一次性获取所有常用颜色和字体
+        palette = theme_manager.get_book_palette()
+        text_tertiary = palette.text_tertiary
         bg_card = "transparent"
-        ui_font = theme_manager.ui_font()
-        serif_font = theme_manager.serif_font()
 
         # 核心摘要卡片 - 简约风格
         if self.summary_card:
@@ -224,18 +219,18 @@ class OverviewSection(ThemeAwareWidget):
                 #summary_card {{
                     background-color: {bg_card};
                     border: none;
-                    border-bottom: 1px solid {border_color};
+                    border-bottom: 1px solid {palette.border_color};
                 }}
                 #summary_title {{
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(18)}px;
                     font-weight: bold;
-                    color: {highlight_color};
+                    color: {palette.accent_color};
                 }}
                 #summary_content {{
-                    font-family: {serif_font};
+                    font-family: {palette.serif_font};
                     font-size: {sp(20)}px;
-                    color: {text_primary};
+                    color: {palette.text_primary};
                     line-height: 1.6;
                     min-height: {dp(48)}px;
                     font-style: italic;
@@ -243,13 +238,13 @@ class OverviewSection(ThemeAwareWidget):
                 #edit_btn {{
                     background: transparent;
                     border: none;
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(12)}px;
                     color: {text_tertiary};
                     text-decoration: underline;
                 }}
                 #edit_btn:hover {{
-                    color: {highlight_color};
+                    color: {palette.accent_color};
                 }}
             """)
 
@@ -257,31 +252,31 @@ class OverviewSection(ThemeAwareWidget):
         field_card_style = f"""
             #field_card {{
                 background-color: {bg_card};
-                border: 1px solid {border_color};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(4)}px;
             }}
             #field_label {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 font-size: {sp(13)}px;
                 font-weight: bold;
-                color: {text_secondary};
+                color: {palette.text_secondary};
             }}
             #field_value {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 font-size: {sp(15)}px;
-                color: {text_primary};
+                color: {palette.text_primary};
                 min-height: {dp(24)}px;
             }}
             #field_edit_btn {{
                 background: transparent;
                 border: none;
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 font-size: {sp(11)}px;
                 color: {text_tertiary};
                 text-decoration: underline;
             }}
             #field_edit_btn:hover {{
-                color: {highlight_color};
+                color: {palette.accent_color};
             }}
         """
 
@@ -294,30 +289,30 @@ class OverviewSection(ThemeAwareWidget):
                 #synopsis_card {{
                     background-color: {bg_card};
                     border: none;
-                    border-top: 1px solid {border_color};
+                    border-top: 1px solid {palette.border_color};
                 }}
                 #synopsis_title {{
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(18)}px;
                     font-weight: bold;
-                    color: {text_primary};
+                    color: {palette.text_primary};
                 }}
                 #synopsis_content {{
-                    font-family: {serif_font};
+                    font-family: {palette.serif_font};
                     font-size: {sp(16)}px;
-                    color: {text_secondary};
+                    color: {palette.text_secondary};
                     line-height: 1.8;
                 }}
                 #edit_btn {{
                     background: transparent;
                     border: none;
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(12)}px;
                     color: {text_tertiary};
                     text-decoration: underline;
                 }}
                 #edit_btn:hover {{
-                    color: {highlight_color};
+                    color: {palette.accent_color};
                 }}
             """)
 

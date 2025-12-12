@@ -118,108 +118,131 @@ class LLMSettingsWidget(QWidget):
 
     def _apply_styles(self):
         """应用书籍风格主题"""
-        bg_primary = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-        ui_font = theme_manager.ui_font()
+        palette = theme_manager.get_book_palette()
 
-        # 主要按钮样式（新增配置）
+        # 通用按钮样式工厂
+        def get_btn_style(bg_color, text_color, border_color, is_primary=False):
+            font_weight = "600" if is_primary else "500"
+            border = "none" if is_primary else f"1px solid {border_color}"
+            return f"""
+                QPushButton {{
+                    font-family: {palette.ui_font};
+                    background-color: {bg_color};
+                    color: {text_color};
+                    border: {border};
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(16)}px;
+                    font-size: {sp(13)}px;
+                    font-weight: {font_weight};
+                }}
+                QPushButton:hover {{
+                    background-color: {palette.accent_color if not is_primary else palette.text_primary};
+                    color: {palette.bg_primary if not is_primary else text_color};
+                    border-color: {palette.accent_color};
+                }}
+                QPushButton:disabled {{
+                    background-color: transparent;
+                    color: {palette.border_color};
+                    border-color: {palette.border_color};
+                }}
+            """
+
+        # 主要按钮（新增配置）
         self.add_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
-                background-color: {accent_color};
-                color: {bg_primary};
+                font-family: {palette.ui_font};
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
                 border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(20)}px;
-                font-size: {sp(13)}px;
-                font-weight: 500;
+                border-radius: {dp(8)}px;
+                padding: {dp(10)}px {dp(24)}px;
+                font-size: {sp(14)}px;
+                font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {text_primary};
+                background-color: {palette.text_primary};
             }}
-            QPushButton:disabled {{
-                background-color: {border_color};
-                color: {text_secondary};
+            QPushButton:pressed {{
+                background-color: {palette.accent_light};
             }}
         """)
 
         # 次要按钮样式
-        secondary_btn_style = f"""
+        secondary_style = f"""
             QPushButton {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 background-color: transparent;
-                color: {text_secondary};
-                border: 1px solid {border_color};
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(16)}px;
+                padding: {dp(8)}px {dp(16)}px;
                 font-size: {sp(13)}px;
+                font-weight: 500;
             }}
             QPushButton:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_primary};
             }}
             QPushButton:disabled {{
-                color: {border_color};
-                border-color: {border_color};
+                color: {palette.border_color};
+                border-color: {palette.border_color};
             }}
         """
-        self.import_btn.setStyleSheet(secondary_btn_style)
-        self.export_all_btn.setStyleSheet(secondary_btn_style)
-        self.test_btn.setStyleSheet(secondary_btn_style)
-        self.activate_btn.setStyleSheet(secondary_btn_style)
-        self.edit_btn.setStyleSheet(secondary_btn_style)
-        self.export_btn.setStyleSheet(secondary_btn_style)
+        
+        for btn in [self.import_btn, self.export_all_btn, self.test_btn, 
+                   self.activate_btn, self.edit_btn, self.export_btn]:
+            btn.setStyleSheet(secondary_style)
 
         # 删除按钮样式（危险操作）
         self.delete_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 background-color: transparent;
-                color: #D32F2F;
-                border: 1px solid #D32F2F;
+                color: {theme_manager.ERROR};
+                border: 1px solid {theme_manager.ERROR_LIGHT};
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(16)}px;
+                padding: {dp(8)}px {dp(16)}px;
                 font-size: {sp(13)}px;
+                font-weight: 500;
             }}
             QPushButton:hover {{
-                background-color: #D32F2F;
+                background-color: {theme_manager.ERROR};
                 color: white;
+                border-color: {theme_manager.ERROR};
             }}
             QPushButton:disabled {{
-                color: {border_color};
-                border-color: {border_color};
+                color: {palette.border_color};
+                border-color: {palette.border_color};
             }}
         """)
 
-        # 配置列表样式
+        # 配置列表样式 - 优化质感
         self.config_list.setStyleSheet(f"""
             QListWidget {{
-                font-family: {ui_font};
-                background-color: {bg_primary};
-                border: 1px solid {border_color};
-                border-radius: {dp(8)}px;
-                padding: {dp(8)}px;
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_primary};
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(12)}px;
+                padding: {dp(12)}px;
                 outline: none;
             }}
             QListWidget::item {{
-                background-color: {bg_secondary};
+                background-color: {palette.bg_secondary};
                 border: 1px solid transparent;
-                border-radius: {dp(6)}px;
-                padding: {dp(12)}px {dp(16)}px;
-                margin: {dp(4)}px {dp(2)}px;
-                color: {text_primary};
-                line-height: 1.5;
+                border-radius: {dp(8)}px;
+                padding: {dp(16)}px;
+                margin-bottom: {dp(8)}px;
+                color: {palette.text_primary};
             }}
             QListWidget::item:hover {{
-                border-color: {border_color};
+                background-color: {palette.bg_primary};
+                border-color: {palette.accent_color};
             }}
             QListWidget::item:selected {{
-                background-color: {bg_secondary};
-                border-color: {accent_color};
+                background-color: {palette.bg_secondary};
+                border: 1px solid {palette.accent_color};
+                color: {palette.accent_color};
             }}
             QScrollBar:vertical {{
                 background-color: transparent;
@@ -227,12 +250,12 @@ class LLMSettingsWidget(QWidget):
                 margin: 0;
             }}
             QScrollBar::handle:vertical {{
-                background-color: {border_color};
+                background-color: {palette.border_color};
                 border-radius: {dp(3)}px;
                 min-height: {dp(30)}px;
             }}
             QScrollBar::handle:vertical:hover {{
-                background-color: {text_secondary};
+                background-color: {palette.text_secondary};
             }}
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {{

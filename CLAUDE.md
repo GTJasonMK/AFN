@@ -31,6 +31,10 @@ curl http://localhost:8123/health
 sqlite3 backend\storage\afn.db ".tables"
 sqlite3 backend\storage\afn.db "SELECT * FROM novels LIMIT 5;"
 
+# 依赖管理
+cd backend && .venv\Scripts\activate && pip install -r requirements.txt
+cd frontend && .venv\Scripts\activate && pip install -r requirements.txt
+
 # 打包发布
 build.bat
 ```
@@ -273,6 +277,14 @@ class NovelRepository(BaseRepository[Novel]):
 # await repo.count_by_field(field_name, value)   # 按字段计数
 ```
 
+## 嵌入服务配置
+
+支持两种嵌入服务：
+- **OpenAI兼容接口**：使用远程API（如OpenAI、中转站服务）
+- **Ollama本地模型**：使用本地部署的嵌入模型
+
+配置在设置页面的"嵌入配置"中完成，支持动态切换。
+
 ## 项目约定
 
 1. **不使用emoji**：代码、注释、日志中避免emoji，防止编码错误
@@ -336,3 +348,14 @@ class NovelRepository(BaseRepository[Novel]):
 - `docs/FEATURES.md` - 功能特性和完整API列表
 - `docs/SSE_STREAMING_IMPLEMENTATION.md` - SSE流式输出实现
 - `backend/docs/RAG_OPTIMIZATION_PLAN.md` - RAG系统优化计划
+
+## 支持的LLM服务
+
+- OpenAI (GPT-3.5, GPT-4, GPT-4o)
+- 通义千问
+- 智谱 ChatGLM
+- 百度文心一言
+- Moonshot (Kimi)
+- DeepSeek
+- Ollama（本地部署）
+- 所有 OpenAI 兼容接口（如2API、API2D等中转服务）

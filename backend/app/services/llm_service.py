@@ -156,7 +156,7 @@ class LLMService:
                 user_id,
                 exc,
             )
-            raise LLMServiceError(f"流式响应失败: {exc}", config.get("model"))
+            raise LLMServiceError(f"流式响应失败: {exc}", config.get("model")) from exc
 
     async def get_summary(
         self,
@@ -423,9 +423,10 @@ class LLMService:
         if user_id:
             try:
                 config = await self.llm_repo.get_active_config(user_id)
-            except Exception as exc:
-                log_exception(exc, "查询用户LLM配置", user_id=user_id)
-                raise
+            except (OSError, asyncio.TimeoutError) as exc:
+                # 数据库连接或超时错误
+                log_exception(exc, "查询用户LLM配置（数据库连接问题）", user_id=user_id)
+                raise LLMConfigurationError(f"数据库访问失败: {type(exc).__name__}") from exc
 
             if config and config.llm_provider_api_key:
                 decrypted_key = decrypt_api_key(config.llm_provider_api_key, settings.secret_key)
@@ -436,9 +437,6 @@ class LLMService:
                         "base_url": config.llm_provider_url,
                         "model": config.llm_provider_model,
                     }
-
-        if user_id and not skip_daily_limit_check:
-            await self.enforce_daily_limit(user_id)
 
         api_key = await self._get_config_value("llm.api_key")
         base_url = await self._get_config_value("llm.base_url")
@@ -461,21 +459,6 @@ class LLMService:
         """从环境变量读取配置"""
         env_key = key.upper().replace(".", "_")
         return os.getenv(env_key)
-
-    # ------------------------------------------------------------------
-    # 每日限额管理（预留接口，桌面版无需实现）
-    # ------------------------------------------------------------------
-    async def enforce_daily_limit(self, user_id: int) -> None:
-        """
-        执行每日限额检查
-
-        桌面版为单用户本地应用，无需限流。
-        此接口为未来SaaS多租户版本预留，届时可实现：
-        - Redis计数器限流
-        - 用户配额管理
-        - 按量计费统计
-        """
-        # 桌面版直接通过，不做限制
 
     # ------------------------------------------------------------------
     # 嵌入向量功能（委托给 EmbeddingService）

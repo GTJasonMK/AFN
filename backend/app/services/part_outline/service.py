@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.state_machine import ProjectStatus
-from ...core.constants import NovelConstants, LLMConstants
+from ...core.constants import NovelConstants, LLMConstants, GenerationStatus
 from ...exceptions import (
     ResourceNotFoundError,
     InvalidParameterError,
@@ -38,16 +38,16 @@ from ..vector_store_service import VectorStoreService
 from .parser import PartOutlineParser, get_part_outline_parser
 from .model_factory import PartOutlineModelFactory, get_part_outline_factory
 from .context_retriever import PartOutlineContextRetriever
+from .chapter_outline_workflow import (
+    ChapterOutlineWorkflow,
+    GenerationCancelledException,
+    get_chapter_outline_workflow,
+)
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-
-
-class GenerationCancelledException(Exception):
-    """生成被用户取消的异常"""
-    pass
 
 
 class PartOutlineService:
@@ -58,20 +58,43 @@ class PartOutlineService:
     - parser: LLM响应解析
     - model_factory: 模型创建
     - context_retriever: 上下文检索
+
+    依赖注入说明：
+    - 所有外部服务通过构造函数注入，便于测试和解耦
+    - 使用 dependencies.get_part_outline_service() 获取实例
     """
 
     def __init__(
         self,
         session: AsyncSession,
+        llm_service: Optional[LLMService] = None,
+        prompt_service: Optional[PromptService] = None,
+        novel_service: Optional[NovelService] = None,
         vector_store: Optional[VectorStoreService] = None,
     ):
+        """
+        初始化部分大纲服务
+
+        Args:
+            session: 数据库会话
+            llm_service: LLM服务（可选，未提供则内部创建）
+            prompt_service: 提示词服务（可选，未提供则内部创建）
+            novel_service: 小说服务（可选，未提供则内部创建）
+            vector_store: 向量库服务（可选）
+
+        Note:
+            为保持向后兼容，未传入的服务会在内部创建。
+            推荐通过依赖注入传入所有服务。
+        """
         self.session = session
         self.repo = PartOutlineRepository(session)
         self.novel_repo = NovelRepository(session)
         self.chapter_outline_repo = ChapterOutlineRepository(session)
-        self.llm_service = LLMService(session)
-        self.prompt_service = PromptService(session)
-        self.novel_service = NovelService(session)
+
+        # 依赖注入：优先使用传入的服务，否则内部创建
+        self.llm_service = llm_service or LLMService(session)
+        self.prompt_service = prompt_service or PromptService(session)
+        self.novel_service = novel_service or NovelService(session)
         self.prompt_builder = PromptBuilder(part_outline_repo=self.repo)
         self._vector_store = vector_store
 
@@ -82,6 +105,16 @@ class PartOutlineService:
             chapter_outline_repo=self.chapter_outline_repo,
             llm_service=self.llm_service,
             vector_store=vector_store,
+        )
+        self._chapter_outline_workflow = get_chapter_outline_workflow(
+            session=session,
+            llm_service=self.llm_service,
+            prompt_service=self.prompt_service,
+            prompt_builder=self.prompt_builder,
+            parser=self._parser,
+            context_retriever=self._context_retriever,
+            part_repo=self.repo,
+            chapter_outline_repo=self.chapter_outline_repo,
         )
 
     async def _check_if_cancelled(self, part_outline: PartOutline) -> bool:
@@ -99,7 +132,7 @@ class PartOutlineService:
         """
         await self.session.refresh(part_outline)
 
-        if part_outline.generation_status == "cancelling":
+        if part_outline.generation_status == GenerationStatus.CANCELLING:
             logger.info("检测到第 %d 部分被请求取消生成", part_outline.part_number)
             raise GenerationCancelledException(f"第 {part_outline.part_number} 部分的生成已被取消")
 
@@ -128,7 +161,7 @@ class PartOutlineService:
         if not part_outline:
             raise ResourceNotFoundError("部分大纲", f"第 {part_number} 部分")
 
-        if part_outline.generation_status != "generating":
+        if part_outline.generation_status != GenerationStatus.GENERATING:
             logger.warning(
                 "第 %d 部分当前状态为 %s，无法取消",
                 part_number,
@@ -136,7 +169,7 @@ class PartOutlineService:
             )
             return False
 
-        await self.repo.update_status(part_outline, "cancelling", part_outline.progress)
+        await self.repo.update_status(part_outline, GenerationStatus.CANCELLING, part_outline.progress)
         await self.session.commit()
 
         logger.info("第 %d 部分已设置为取消中状态", part_number)
@@ -162,14 +195,14 @@ class PartOutlineService:
         cleaned_count = 0
 
         for part in all_parts:
-            if part.generation_status == "generating":
+            if part.generation_status == GenerationStatus.GENERATING:
                 if part.updated_at is None or part.updated_at < timeout_threshold:
                     logger.warning(
                         "检测到第 %d 部分超时（超过%d分钟未更新），将状态改为failed",
                         part.part_number,
                         timeout_minutes,
                     )
-                    await self.repo.update_status(part, "failed", 0)
+                    await self.repo.update_status(part, GenerationStatus.FAILED, 0)
                     cleaned_count += 1
 
         if cleaned_count > 0:
@@ -371,114 +404,29 @@ class PartOutlineService:
         if not project.blueprint:
             raise BlueprintNotReadyError(project_id)
 
-        await self.repo.update_status(part_outline, "generating", 0)
+        await self.repo.update_status(part_outline, GenerationStatus.GENERATING, 0)
         await self.session.commit()
 
         generation_successful = False
-        all_generated_chapters = []
+        result_chapters: List[ChapterOutlineSchema] = []
 
         try:
-            await self._check_if_cancelled(part_outline)
-
-            start_chapter = part_outline.start_chapter
-            end_chapter = part_outline.end_chapter
-            total_chapters = end_chapter - start_chapter + 1
-
-            logger.info(
-                "第 %d 部分需要生成 %d 章（第 %d-%d 章）",
-                part_number, total_chapters, start_chapter, end_chapter
+            result_chapters = await self._chapter_outline_workflow.execute(
+                project=project,
+                part_outline=part_outline,
+                user_id=user_id,
+                regenerate=regenerate,
+                chapters_per_batch=chapters_per_batch,
+                cancellation_checker=self._check_if_cancelled,
             )
-
-            system_prompt = await self.prompt_service.get_prompt("screenwriting")
-            current_chapter = start_chapter
-
-            while current_chapter <= end_chapter:
-                await self._check_if_cancelled(part_outline)
-
-                batch_end = min(current_chapter + chapters_per_batch - 1, end_chapter)
-                batch_count = batch_end - current_chapter + 1
-
-                logger.info("开始生成第 %d-%d 章", current_chapter, batch_end)
-
-                previous_chapters_data = await self._context_retriever.get_previous_chapters(
-                    project_id, current_chapter
-                )
-
-                relevant_summaries = await self._context_retriever.retrieve_relevant_summaries(
-                    project_id=project_id,
-                    user_id=user_id,
-                    start_chapter=current_chapter,
-                    end_chapter=batch_end,
-                    part_summary=part_outline.summary or "",
-                )
-
-                user_prompt = await self.prompt_builder.build_part_chapters_prompt(
-                    part_outline=part_outline,
-                    project=project,
-                    start_chapter=current_chapter,
-                    num_chapters=batch_count,
-                    previous_chapters=previous_chapters_data,
-                    relevant_summaries=relevant_summaries,
-                )
-
-                response = await self.llm_service.get_llm_response(
-                    system_prompt=system_prompt,
-                    conversation_history=[{"role": "user", "content": user_prompt}],
-                    temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
-                    user_id=user_id,
-                    response_format="json_object",
-                    timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
-                )
-
-                await self._check_if_cancelled(part_outline)
-
-                chapters_data = self._parser.parse_chapter_outlines(response)
-
-                for chapter_data in chapters_data:
-                    chapter_number = chapter_data.get("chapter_number")
-                    if not chapter_number:
-                        continue
-
-                    if not regenerate:
-                        existing = next(
-                            (o for o in project.outlines if o.chapter_number == chapter_number),
-                            None,
-                        )
-                        if existing:
-                            logger.info("章节 %d 大纲已存在，跳过", chapter_number)
-                            continue
-
-                    await self.chapter_outline_repo.upsert_outline(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        title=chapter_data.get("title", ""),
-                        summary=chapter_data.get("summary", "")
-                    )
-                    all_generated_chapters.append(chapter_data)
-
-                logger.info("成功生成第 %d-%d 章大纲", current_chapter, batch_end)
-
-                progress = int((current_chapter - start_chapter + batch_count) / total_chapters * 100)
-                await self.repo.update_status(part_outline, "generating", progress)
-                await self.session.commit()
-
-                current_chapter = batch_end + 1
-
             generation_successful = True
             logger.info("串行生成完成，第 %d 部分共生成 %d 个章节大纲",
-                       part_number, len(all_generated_chapters))
-
-            return [
-                ChapterOutlineSchema(
-                    chapter_number=c.get("chapter_number"),
-                    title=c.get("title", ""),
-                    summary=c.get("summary", ""),
-                )
-                for c in all_generated_chapters
-            ]
+                       part_number, len(result_chapters))
+            return result_chapters
 
         except GenerationCancelledException as exc:
             logger.info("第 %d 部分生成已被用户取消: %s", part_number, exc)
+            return result_chapters
 
         except Exception as exc:
             log_exception(
@@ -491,30 +439,47 @@ class PartOutlineService:
             raise
 
         finally:
-            try:
-                await self.session.refresh(part_outline)
+            await self._finalize_generation_status(
+                part_outline, part_number, generation_successful
+            )
 
-                if generation_successful:
-                    await self.repo.update_status(part_outline, "completed", 100)
-                    status_desc = "completed"
-                elif part_outline.generation_status == "cancelling":
-                    await self.repo.update_status(part_outline, "cancelled", part_outline.progress)
-                    status_desc = "cancelled"
-                else:
-                    await self.repo.update_status(part_outline, "failed", 0)
-                    status_desc = "failed"
+    async def _finalize_generation_status(
+        self,
+        part_outline: PartOutline,
+        part_number: int,
+        generation_successful: bool,
+    ) -> None:
+        """
+        完成生成后更新状态
 
-                await self.session.commit()
-                logger.info("第 %d 部分状态已更新: %s", part_number, status_desc)
+        Args:
+            part_outline: 部分大纲对象
+            part_number: 部分编号
+            generation_successful: 是否生成成功
+        """
+        try:
+            await self.session.refresh(part_outline)
 
-            except Exception as status_update_error:
-                log_exception(
-                    status_update_error,
-                    "更新部分状态",
-                    level="error",
-                    project_id=project_id,
-                    part_number=part_number,
-                )
+            if generation_successful:
+                await self.repo.update_status(part_outline, GenerationStatus.COMPLETED, 100)
+                status_desc = "completed"
+            elif part_outline.generation_status == GenerationStatus.CANCELLING:
+                await self.repo.update_status(part_outline, "cancelled", part_outline.progress)
+                status_desc = "cancelled"
+            else:
+                await self.repo.update_status(part_outline, GenerationStatus.FAILED, 0)
+                status_desc = "failed"
+
+            await self.session.commit()
+            logger.info("第 %d 部分状态已更新: %s", part_number, status_desc)
+
+        except Exception as status_update_error:
+            log_exception(
+                status_update_error,
+                "更新部分状态",
+                level="error",
+                part_number=part_number,
+            )
 
     async def batch_generate_chapters(
         self,
@@ -586,7 +551,7 @@ class PartOutlineService:
 
         all_parts = await self.repo.get_by_project_id(project_id)
 
-        all_completed = all(p.generation_status == "completed" for p in all_parts)
+        all_completed = all(p.generation_status == GenerationStatus.COMPLETED for p in all_parts)
         if all_completed and completed > 0:
             project = await self.novel_repo.get(project_id)
             if project:
@@ -599,8 +564,8 @@ class PartOutlineService:
         return PartOutlineGenerationProgress(
             parts=[self._to_schema(p) for p in all_parts],
             total_parts=len(all_parts),
-            completed_parts=sum(1 for p in all_parts if p.generation_status == "completed"),
-            status="completed" if failed == 0 else "partial",
+            completed_parts=sum(1 for p in all_parts if p.generation_status == GenerationStatus.COMPLETED),
+            status=GenerationStatus.COMPLETED if failed == 0 else GenerationStatus.PARTIAL,
         )
 
     async def regenerate_single_part_outline(
@@ -681,13 +646,13 @@ class PartOutlineService:
             PartOutlineGenerationProgress: 进度信息
         """
         all_parts = await self.repo.get_by_project_id(project_id)
-        completed_count = sum(1 for p in all_parts if p.generation_status == "completed")
+        completed_count = sum(1 for p in all_parts if p.generation_status == GenerationStatus.COMPLETED)
 
         return PartOutlineGenerationProgress(
             parts=[self._to_schema(p) for p in all_parts],
             total_parts=len(all_parts),
             completed_parts=completed_count,
-            status="completed" if completed_count == len(all_parts) else "partial",
+            status=GenerationStatus.COMPLETED if completed_count == len(all_parts) else GenerationStatus.PARTIAL,
         )
 
 

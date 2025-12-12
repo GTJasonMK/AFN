@@ -526,7 +526,8 @@ class AFNAPIClient:
     def generate_blueprint(
         self,
         project_id: str,
-        force_regenerate: bool = False
+        force_regenerate: bool = False,
+        async_mode: bool = False
     ) -> Dict[str, Any]:
         """
         生成蓝图
@@ -534,15 +535,23 @@ class AFNAPIClient:
         Args:
             project_id: 项目ID
             force_regenerate: 是否强制重新生成
+            async_mode: 是否使用异步模式（默认False）
 
         Returns:
-            蓝图数据
+            同步模式：完整蓝图数据
+            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
         """
+        params = {
+            'force_regenerate': force_regenerate,
+            'async_mode': async_mode
+        }
+        # 异步模式只需等待任务启动，同步模式需要等待完整生成
+        timeout = 30 if async_mode else 480
         return self._request(
             'POST',
             f'/api/novels/{project_id}/blueprint/generate',
-            params={'force_regenerate': force_regenerate},
-            timeout=480
+            params=params,
+            timeout=timeout
         )
 
     def update_blueprint(
@@ -589,6 +598,46 @@ class AFNAPIClient:
             {'refinement_instruction': refinement_instruction},
             params={'force': force},
             timeout=480
+        )
+
+    # ==================== 小说头像 ====================
+
+    def generate_avatar(self, project_id: str) -> Dict[str, Any]:
+        """
+        为小说生成SVG头像
+
+        根据小说的类型、风格、氛围，使用LLM生成一个匹配的小动物SVG图标。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            头像数据：
+            {
+                "avatar_svg": "<svg>...</svg>",  # 完整SVG代码
+                "animal": "fox",                  # 动物英文名
+                "animal_cn": "狐狸"               # 动物中文名
+            }
+        """
+        return self._request(
+            'POST',
+            f'/api/novels/{project_id}/avatar/generate',
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    def delete_avatar(self, project_id: str) -> Dict[str, Any]:
+        """
+        删除小说的头像
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            {"success": True}
+        """
+        return self._request(
+            'DELETE',
+            f'/api/novels/{project_id}/avatar'
         )
 
     # ==================== 章节大纲 ====================
@@ -861,7 +910,9 @@ class AFNAPIClient:
     def generate_chapter(
         self,
         project_id: str,
-        chapter_number: int
+        chapter_number: int,
+        writing_notes: Optional[str] = None,
+        async_mode: bool = False
     ) -> Dict[str, Any]:
         """
         生成章节
@@ -869,15 +920,26 @@ class AFNAPIClient:
         Args:
             project_id: 项目ID
             chapter_number: 章节号
+            writing_notes: 写作指令（可选）
+            async_mode: 是否使用异步模式（默认False）
 
         Returns:
-            生成结果（包含多个版本）
+            同步模式：生成结果（包含多个版本）
+            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
         """
+        data = {
+            'chapter_number': chapter_number,
+            'writing_notes': writing_notes or ''
+        }
+        params = {'async_mode': async_mode}
+        # 同步模式需要较长超时，异步模式只需等待任务启动
+        timeout = 30 if async_mode else 600
         return self._request(
             'POST',
             f'/api/writer/novels/{project_id}/chapters/generate',
-            {'chapter_number': chapter_number},
-            timeout=600
+            data,
+            params=params,
+            timeout=timeout
         )
 
     def preview_chapter_prompt(
@@ -1272,95 +1334,34 @@ class AFNAPIClient:
         """
         return self._request('POST', f'/api/embedding-configs/{config_id}/test', timeout=60)
 
-    # ==================== 异步生成接口（支持async_mode参数）====================
+    # ==================== 章节大纲批量生成 ====================
 
-    def generate_blueprint_async(
+    def generate_all_chapter_outlines(
         self,
         project_id: str,
-        force_regenerate: bool = False,
-        async_mode: bool = True
+        async_mode: bool = False
     ) -> Dict[str, Any]:
         """
-        异步生成蓝图
-
-        Args:
-            project_id: 项目ID
-            force_regenerate: 是否强制重新生成
-            async_mode: 是否使用异步模式（默认True）
-
-        Returns:
-            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
-            同步模式：完整蓝图数据
-        """
-        params = {
-            'force_regenerate': force_regenerate,
-            'async_mode': async_mode
-        }
-        return self._request(
-            'POST',
-            f'/api/novels/{project_id}/blueprint/generate',
-            params=params,
-            timeout=600 if not async_mode else 30
-        )
-
-    def generate_all_chapter_outlines_async(
-        self,
-        project_id: str,
-        async_mode: bool = True
-    ) -> Dict[str, Any]:
-        """
-        异步生成所有章节大纲（首次生成/短篇小说）
+        生成所有章节大纲（首次生成/短篇小说）
 
         用于项目初始化阶段一次性生成全部章节大纲，
-        适合短篇小说（章节数≤50）。
+        适合短篇小说（章节数<=50）。
 
         Args:
             project_id: 项目ID
-            async_mode: 是否使用异步模式（默认True）
+            async_mode: 是否使用异步模式（默认False）
 
         Returns:
-            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
             同步模式：完整大纲数据
+            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
         """
         params = {'async_mode': async_mode}
+        timeout = 30 if async_mode else 400
         return self._request(
             'POST',
             f'/api/novels/{project_id}/chapter-outlines/generate',
             params=params,
-            timeout=400 if not async_mode else 30
-        )
-
-    def generate_chapter_async(
-        self,
-        project_id: str,
-        chapter_number: int,
-        writing_notes: Optional[str] = None,
-        async_mode: bool = False
-    ) -> Dict[str, Any]:
-        """
-        异步生成章节
-
-        Args:
-            project_id: 项目ID
-            chapter_number: 章节号
-            writing_notes: 写作指令（可选）
-            async_mode: 是否使用异步模式（默认False，因为章节生成复杂度较高）
-
-        Returns:
-            异步模式：{"task_id": "...", "status": "pending", "message": "..."}
-            同步模式：完整项目数据（包含生成的章节）
-        """
-        data = {
-            'chapter_number': chapter_number,
-            'writing_notes': writing_notes or ''
-        }
-        params = {'async_mode': async_mode}
-        return self._request(
-            'POST',
-            f'/api/writer/novels/{project_id}/chapters/generate',
-            data=data,
-            params=params,
-            timeout=900 if not async_mode else 30
+            timeout=timeout
         )
 
     # ==================== 高级配置管理 ====================

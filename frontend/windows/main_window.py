@@ -562,48 +562,26 @@ class MainWindow(QMainWindow):
     def createPage(self, page_type: str, params: dict):
         """创建页面实例
 
+        使用PageRegistry模式，解耦页面创建逻辑。
+        新增页面只需在page_registry.py中注册，无需修改此方法。
+
         Args:
             page_type: 页面类型
             params: 页面参数
 
         Returns:
-            新创建的页面widget
+            新创建的页面widget，页面类型未注册则返回 None
         """
+        from utils.page_registry import create_page, is_page_registered
+
+        if not is_page_registered(page_type):
+            logger.error("未注册的页面类型: %s", page_type)
+            return None
+
         try:
-            if page_type == 'HOME':
-                from pages.home_page import HomePage
-                return HomePage(self)
-
-            elif page_type == 'INSPIRATION':
-                from windows.inspiration_mode import InspirationMode
-                return InspirationMode(self)
-
-            elif page_type == 'DETAIL':
-                from windows.novel_detail import NovelDetail
-                project_id = params.get('project_id')
-                if not project_id:
-                    logger.error("DETAIL页面缺少project_id参数")
-                    return None
-                return NovelDetail(project_id, self)
-
-            elif page_type == 'WRITING_DESK':
-                from windows.writing_desk import WritingDesk
-                project_id = params.get('project_id')
-                if not project_id:
-                    logger.error("WRITING_DESK页面缺少project_id参数")
-                    return None
-                return WritingDesk(project_id, self)
-
-            elif page_type == 'SETTINGS':
-                from windows.settings import SettingsView
-                return SettingsView(self)
-
-            else:
-                logger.error(f"未知页面类型 {page_type}")
-                return None
-
+            return create_page(page_type, self, **params)
         except Exception as e:
-            logger.exception(f"创建页面 {page_type} 失败: {e}")
+            logger.exception("创建页面 %s 失败: %s", page_type, e)
             return None
 
     def onNavigateRequested(self, page_type: str, params: dict):

@@ -177,6 +177,8 @@ class NovelSerializer:
                     )
                     for part in sorted(project.part_outlines, key=lambda p: p.part_number)
                 ],
+                avatar_svg=blueprint_obj.avatar_svg,
+                avatar_animal=blueprint_obj.avatar_animal,
             )
 
         # 返回空蓝图

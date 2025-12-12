@@ -153,42 +153,40 @@ class AdvancedSettingsWidget(QWidget):
 
     def _apply_styles(self):
         """应用书籍风格主题"""
-        bg_primary = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-        ui_font = theme_manager.ui_font()
+        palette = theme_manager.get_book_palette()
 
         # 说明文字样式
         self.desc_label.setStyleSheet(f"""
             QLabel {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_secondary};
-                padding: {dp(4)}px 0;
+                font-family: {palette.ui_font};
+                font-size: {sp(14)}px;
+                color: {palette.text_secondary};
+                padding-bottom: {dp(12)}px;
+                border-bottom: 1px solid {palette.border_color};
             }}
         """)
 
-        # GroupBox样式
+        # GroupBox样式 - 恢复边框，使用书香风格
         group_style = f"""
             QGroupBox {{
-                font-family: {ui_font};
-                font-size: {sp(15)}px;
-                font-weight: 600;
-                color: {text_primary};
-                background-color: {bg_primary};
-                border: 1px solid {border_color};
+                font-family: {palette.serif_font};
+                font-size: {sp(16)}px;
+                font-weight: 700;
+                color: {palette.text_primary};
+                background-color: {palette.bg_secondary}; /* 使用次级背景色区分 */
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(8)}px;
-                margin-top: {dp(8)}px;
-                padding-top: {dp(12)}px;
+                margin-top: {dp(24)}px;
+                padding-top: {dp(24)}px; /* 为标题留出空间 */
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
+                subcontrol-position: top left;
                 left: {dp(16)}px;
+                top: {dp(8)}px; /* 稍微下移 */
                 padding: 0 {dp(8)}px;
-                background-color: {bg_primary};
+                background-color: {palette.bg_secondary}; /* 遮挡边框 */
+                color: {palette.accent_color};
             }}
         """
         self.chapter_group.setStyleSheet(group_style)
@@ -197,10 +195,10 @@ class AdvancedSettingsWidget(QWidget):
         # 标签样式
         label_style = f"""
             QLabel {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                font-weight: 500;
-                color: {text_primary};
+                font-family: {palette.ui_font};
+                font-size: {sp(14)}px;
+                font-weight: 600;
+                color: {palette.text_primary};
                 background: transparent;
             }}
         """
@@ -210,45 +208,41 @@ class AdvancedSettingsWidget(QWidget):
         # 帮助文字样式
         help_style = f"""
             QLabel {{
-                font-family: {ui_font};
-                font-size: {sp(12)}px;
-                color: {text_secondary};
+                font-family: {palette.ui_font};
+                font-size: {sp(13)}px;
+                color: {palette.text_tertiary};
                 background: transparent;
+                font-style: italic;
             }}
         """
         self.version_help.setStyleSheet(help_style)
         self.parallel_help.setStyleSheet(help_style)
         self.threshold_help.setStyleSheet(help_style)
 
-        # SpinBox样式
+        # SpinBox样式 - 温暖质感
         spinbox_style = f"""
             QSpinBox {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 padding: {dp(8)}px {dp(12)}px;
-                border: 1px solid {border_color};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
-                background-color: {bg_secondary};
-                color: {text_primary};
-                font-size: {sp(13)}px;
+                background-color: {palette.bg_primary};
+                color: {palette.text_primary};
+                font-size: {sp(14)}px;
+                font-weight: 500;
             }}
             QSpinBox:focus {{
-                border: 2px solid {accent_color};
+                border: 1px solid {palette.accent_color};
+                background-color: {palette.bg_secondary};
             }}
             QSpinBox::up-button, QSpinBox::down-button {{
-                width: {dp(20)}px;
-                background-color: {bg_secondary};
+                width: {dp(24)}px;
+                background-color: transparent;
                 border: none;
+                border-radius: {dp(4)}px;
             }}
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
-                background-color: {accent_color};
-            }}
-            QSpinBox::up-arrow {{
-                width: {dp(10)}px;
-                height: {dp(10)}px;
-            }}
-            QSpinBox::down-arrow {{
-                width: {dp(10)}px;
-                height: {dp(10)}px;
+                background-color: {palette.border_color};
             }}
         """
         self.version_count_spinbox.setStyleSheet(spinbox_style)
@@ -257,59 +251,64 @@ class AdvancedSettingsWidget(QWidget):
         # CheckBox样式
         self.parallel_checkbox.setStyleSheet(f"""
             QCheckBox {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_primary};
+                font-family: {palette.ui_font};
+                font-size: {sp(14)}px;
+                color: {palette.text_primary};
                 spacing: {dp(8)}px;
                 background: transparent;
             }}
             QCheckBox::indicator {{
-                width: {dp(18)}px;
-                height: {dp(18)}px;
-                border: 2px solid {border_color};
+                width: {dp(20)}px;
+                height: {dp(20)}px;
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(4)}px;
-                background-color: {bg_secondary};
+                background-color: {palette.bg_primary};
             }}
             QCheckBox::indicator:hover {{
-                border-color: {accent_color};
+                border-color: {palette.accent_color};
             }}
             QCheckBox::indicator:checked {{
-                background-color: {accent_color};
-                border-color: {accent_color};
+                background-color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                /* image: url(resources/icons/check_white.svg); 暂时注释掉图标 */
             }}
         """)
 
         # 重置按钮样式
         self.reset_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 background-color: transparent;
-                color: {text_secondary};
-                border: 1px solid {border_color};
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
                 padding: {dp(10)}px {dp(20)}px;
-                font-size: {sp(13)}px;
+                font-size: {sp(14)}px;
             }}
             QPushButton:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_primary};
             }}
         """)
 
         # 保存按钮样式
         self.save_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
-                background-color: {accent_color};
-                color: {bg_primary};
+                font-family: {palette.ui_font};
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
                 border: none;
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(20)}px;
-                font-size: {sp(13)}px;
-                font-weight: 500;
+                padding: {dp(10)}px {dp(24)}px;
+                font-size: {sp(14)}px;
+                font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {text_primary};
+                background-color: {palette.text_primary};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.accent_light};
             }}
         """)
 

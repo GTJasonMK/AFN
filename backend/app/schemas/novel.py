@@ -174,6 +174,9 @@ class Blueprint(BaseModel):
     total_chapters: Optional[int] = None  # 总章节数
     chapters_per_part: Optional[int] = NovelConstants.CHAPTERS_PER_PART  # 每部分章节数
     part_outlines: List[PartOutline] = []  # 部分大纲列表
+    # 小说头像（SVG格式）
+    avatar_svg: Optional[str] = Field(default=None, description="小说头像SVG代码")
+    avatar_animal: Optional[str] = Field(default=None, description="头像动物类型（如fox、owl）")
 
 
 class NovelProject(BaseModel):

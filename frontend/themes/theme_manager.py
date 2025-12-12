@@ -7,11 +7,25 @@
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from .modern_effects import ModernEffects
 
 if TYPE_CHECKING:
     from utils.config_manager import ConfigManager
+
+
+class BookPalette(NamedTuple):
+    """书香风格调色板 - 用于减少组件中重复的颜色获取代码"""
+    bg_primary: str
+    bg_secondary: str
+    text_primary: str
+    text_secondary: str
+    text_tertiary: str
+    accent_color: str
+    accent_light: str
+    border_color: str
+    serif_font: str
+    ui_font: str
 
 
 class ThemeMode(Enum):
@@ -1308,6 +1322,35 @@ class ThemeManager(QObject):
         if vertical:
             return f"border-left: 1px solid {border};"
         return f"border-top: 1px solid {border};"
+
+    def get_book_palette(self) -> BookPalette:
+        """获取书香风格完整调色板
+
+        返回一个命名元组，包含所有常用的书香风格颜色和字体，
+        用于在组件的 _apply_theme 方法中一次性获取所有颜色，
+        减少重复代码。
+
+        Returns:
+            BookPalette: 包含所有常用颜色和字体的命名元组
+
+        Example:
+            def _apply_theme(self):
+                palette = theme_manager.get_book_palette()
+                self.title_label.setStyleSheet(f"color: {palette.text_primary};")
+                self.content.setStyleSheet(f"background: {palette.bg_primary};")
+        """
+        return BookPalette(
+            bg_primary=self.book_bg_primary(),
+            bg_secondary=self.book_bg_secondary(),
+            text_primary=self.book_text_primary(),
+            text_secondary=self.book_text_secondary(),
+            text_tertiary=self.book_text_tertiary(),
+            accent_color=self.book_accent_color(),
+            accent_light=self.book_accent_light(),
+            border_color=self.book_border_color(),
+            serif_font=self.serif_font(),
+            ui_font=self.ui_font(),
+        )
 
 
 # 全局主题管理器实例

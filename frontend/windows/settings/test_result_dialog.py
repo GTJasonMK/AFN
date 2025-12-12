@@ -120,24 +120,18 @@ class TestResultDialog(QDialog):
 
     def _apply_theme(self):
         """应用书籍风格主题"""
-        bg_primary = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-        ui_font = theme_manager.ui_font()
+        palette = theme_manager.get_book_palette()
 
-        # 成功/失败颜色
-        success_color = "#4CAF50"
-        success_bg = "#E8F5E9"
-        error_color = "#D32F2F"
-        error_bg = "#FFEBEE"
+        # 成功/失败颜色 - 使用主题定义的颜色
+        success_color = theme_manager.SUCCESS
+        success_bg = theme_manager.SUCCESS_BG
+        error_color = theme_manager.ERROR
+        error_bg = theme_manager.ERROR_BG
 
         # 对话框背景
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: {bg_primary};
+                background-color: {palette.bg_primary};
             }}
         """)
 
@@ -146,7 +140,7 @@ class TestResultDialog(QDialog):
         icon_color = success_color if self.success else error_color
         self.icon_label.setStyleSheet(f"""
             QLabel {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 background-color: {icon_bg};
                 color: {icon_color};
                 border-radius: {dp(32)}px;
@@ -158,19 +152,19 @@ class TestResultDialog(QDialog):
         # 标题样式
         self.title_label.setStyleSheet(f"""
             QLabel {{
-                font-family: {ui_font};
-                font-size: {sp(18)}px;
+                font-family: {palette.serif_font};
+                font-size: {sp(20)}px;
                 font-weight: 700;
-                color: {text_primary};
+                color: {palette.text_primary};
             }}
         """)
 
         # 消息样式
         self.message_label.setStyleSheet(f"""
             QLabel {{
-                font-family: {ui_font};
+                font-family: {palette.ui_font};
                 font-size: {sp(14)}px;
-                color: {text_secondary};
+                color: {palette.text_secondary};
             }}
         """)
 
@@ -178,8 +172,8 @@ class TestResultDialog(QDialog):
         if self.details_frame:
             self.details_frame.setStyleSheet(f"""
                 QFrame {{
-                    background-color: {bg_secondary};
-                    border: 1px solid {border_color};
+                    background-color: {palette.bg_secondary};
+                    border: 1px solid {palette.border_color};
                     border-radius: {dp(8)}px;
                 }}
             """)
@@ -187,17 +181,17 @@ class TestResultDialog(QDialog):
             # 标签样式
             label_style = f"""
                 QLabel {{
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(13)}px;
-                    color: {text_secondary};
+                    color: {palette.text_secondary};
                 }}
             """
             value_style = f"""
                 QLabel {{
-                    font-family: {ui_font};
+                    font-family: {palette.ui_font};
                     font-size: {sp(13)}px;
                     font-weight: 600;
-                    color: {text_primary};
+                    color: {palette.text_primary};
                 }}
             """
 
@@ -214,17 +208,20 @@ class TestResultDialog(QDialog):
         # 关闭按钮样式
         self.close_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: {ui_font};
-                background-color: {accent_color};
-                color: {bg_primary};
+                font-family: {palette.ui_font};
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
                 border: none;
                 border-radius: {dp(6)}px;
                 padding: {dp(10)}px {dp(32)}px;
-                font-size: {sp(13)}px;
-                font-weight: 500;
+                font-size: {sp(14)}px;
+                font-weight: 600;
                 min-width: {dp(100)}px;
             }}
             QPushButton:hover {{
-                background-color: {text_primary};
+                background-color: {palette.text_primary};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.accent_light};
             }}
         """)

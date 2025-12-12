@@ -100,6 +100,11 @@ class NovelBlueprint(Base):
     needs_part_outlines: Mapped[bool] = mapped_column(Boolean, default=False)
     total_chapters: Mapped[Optional[int]] = mapped_column(Integer)
     chapters_per_part: Mapped[int] = mapped_column(Integer, default=25)
+
+    # 小说头像（SVG格式，由LLM生成的小动物图标）
+    avatar_svg: Mapped[Optional[str]] = mapped_column(Text)
+    avatar_animal: Mapped[Optional[str]] = mapped_column(String(64))  # 动物类型，如"fox", "owl"
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
