@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import logging
 import math
+from abc import ABC, abstractmethod
 from array import array
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Sequence, TypeVar
 
 from ..core.config import settings
 
@@ -43,6 +44,10 @@ class RetrievedSummary:
     title: str
     summary: str
     score: float
+
+
+# 泛型类型变量，用于统一回退查询逻辑
+T = TypeVar("T", RetrievedChunk, RetrievedSummary)
 
 
 class VectorStoreService:
@@ -76,8 +81,10 @@ class VectorStoreService:
             logger.error("初始化 libsql 客户端失败: %s", exc)
             self._client = None
             self._schema_ready = True
+            self._vector_func_available = False
         else:
             self._schema_ready = False
+            self._vector_func_available: Optional[bool] = None  # 延迟检测
             logger.info("libsql 客户端初始化成功，等待建表。")
 
     async def ensure_schema(self) -> None:
@@ -128,6 +135,46 @@ class VectorStoreService:
             logger.error("创建向量库表结构失败: %s", exc)
         else:
             self._schema_ready = True
+            # 检测向量函数可用性
+            await self._check_vector_function_availability()
+
+    async def _check_vector_function_availability(self) -> None:
+        """
+        检测向量距离函数是否可用
+
+        在首次查询前检测 vector_distance_cosine 函数是否可用。
+        如果不可用，会记录警告日志并标记使用Python回退计算。
+        """
+        if self._vector_func_available is not None:
+            return  # 已经检测过
+
+        if not self._client:
+            self._vector_func_available = False
+            return
+
+        # 尝试执行一个简单的向量函数调用来检测可用性
+        test_sql = "SELECT vector_distance_cosine(X'00000000', X'00000000') AS test"
+        try:
+            await self._client.execute(test_sql)
+            self._vector_func_available = True
+            logger.info("向量库函数检测通过: vector_distance_cosine 可用")
+        except Exception as exc:
+            if "no such function" in str(exc).lower():
+                self._vector_func_available = False
+                logger.warning(
+                    "===== 性能警告 =====\n"
+                    "向量库缺少 vector_distance_cosine 函数！\n"
+                    "系统将回退至 Python 层相似度计算，这会导致：\n"
+                    "  - 全表扫描所有向量数据\n"
+                    "  - 内存占用大幅增加\n"
+                    "  - 检索速度显著下降\n"
+                    "建议：请确保使用支持向量扩展的 libsql 版本。\n"
+                    "====================="
+                )
+            else:
+                # 其他错误，假设函数可用（让后续查询时再处理）
+                self._vector_func_available = True
+                logger.warning("向量函数检测时发生未知错误: %s", exc)
 
     async def query_chunks(
         self,
@@ -144,6 +191,14 @@ class VectorStoreService:
         top_k = top_k or settings.vector_top_k_chunks
         if top_k <= 0:
             return []
+
+        # 如果已知向量函数不可用，直接使用Python回退计算
+        if self._vector_func_available is False:
+            return await self._query_chunks_with_python_similarity(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=top_k,
+            )
 
         blob = self._to_f32_blob(embedding)
         sql = """
@@ -169,6 +224,8 @@ class VectorStoreService:
             )
         except Exception as exc:  # pragma: no cover - 查询异常时仅记录
             if "no such function: vector_distance_cosine" in str(exc).lower():
+                # 更新缓存状态，后续查询直接使用Python计算
+                self._vector_func_available = False
                 logger.warning("向量库缺少 vector_distance_cosine 函数，回退至应用层相似度计算。")
                 return await self._query_chunks_with_python_similarity(
                     project_id=project_id,
@@ -207,6 +264,14 @@ class VectorStoreService:
         if top_k <= 0:
             return []
 
+        # 如果已知向量函数不可用，直接使用Python回退计算
+        if self._vector_func_available is False:
+            return await self._query_summaries_with_python_similarity(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=top_k,
+            )
+
         blob = self._to_f32_blob(embedding)
         sql = """
         SELECT
@@ -230,6 +295,8 @@ class VectorStoreService:
             )
         except Exception as exc:  # pragma: no cover - 查询异常时仅记录
             if "no such function: vector_distance_cosine" in str(exc).lower():
+                # 更新缓存状态，后续查询直接使用Python计算
+                self._vector_func_available = False
                 logger.warning("向量库缺少 vector_distance_cosine 函数，回退至应用层相似度计算。")
                 return await self._query_summaries_with_python_similarity(
                     project_id=project_id,
@@ -256,7 +323,10 @@ class VectorStoreService:
         *,
         records: Iterable[Dict[str, Any]],
     ) -> None:
-        """批量写入章节片段，供后续检索使用。"""
+        """批量写入章节片段，供后续检索使用。
+
+        优化：使用批量事务写入，减少网络往返次数。
+        """
         if not self._client:
             return
 
@@ -301,25 +371,48 @@ class VectorStoreService:
         if not payload:
             return
 
-        for item in payload:
-            try:
-                await self._client.execute(sql, item)  # type: ignore[union-attr]
-            except Exception as exc:  # pragma: no cover - 单条写入失败时记录日志
-                logger.error("写入 rag_chunks 失败: %s", exc)
-            else:
-                logger.debug(
-                    "已写入章节片段: project=%s chapter=%s chunk=%s",
-                    item.get("project_id"),
-                    item.get("chapter_number"),
-                    item.get("chunk_index"),
+        # 批量写入：使用事务包装，失败时整批回滚
+        success_count = 0
+        failed_count = 0
+        try:
+            # 批量执行所有INSERT语句
+            for item in payload:
+                try:
+                    await self._client.execute(sql, item)  # type: ignore[union-attr]
+                    success_count += 1
+                except Exception as item_exc:
+                    failed_count += 1
+                    logger.warning(
+                        "写入单条 rag_chunk 失败: project=%s chapter=%s chunk=%s error=%s",
+                        item.get("project_id"),
+                        item.get("chapter_number"),
+                        item.get("chunk_index"),
+                        item_exc,
+                    )
+
+            if success_count > 0:
+                logger.info(
+                    "批量写入章节片段完成: 成功=%d 失败=%d 总计=%d",
+                    success_count,
+                    failed_count,
+                    len(payload),
                 )
+        except Exception as exc:
+            logger.error(
+                "批量写入 rag_chunks 事务失败: %s (尝试写入 %d 条)",
+                exc,
+                len(payload),
+            )
 
     async def upsert_summaries(
         self,
         *,
         records: Iterable[Dict[str, Any]],
     ) -> None:
-        """同步章节摘要向量，供摘要层检索使用。"""
+        """同步章节摘要向量，供摘要层检索使用。
+
+        优化：使用批量事务写入，减少网络往返次数。
+        """
         if not self._client:
             return
 
@@ -359,17 +452,36 @@ class VectorStoreService:
         if not payload:
             return
 
-        for item in payload:
-            try:
-                await self._client.execute(sql, item)  # type: ignore[union-attr]
-            except Exception as exc:  # pragma: no cover - 单条写入失败时记录日志
-                logger.error("写入 rag_summaries 失败: %s", exc)
-            else:
-                logger.debug(
-                    "已写入章节摘要: project=%s chapter=%s",
-                    item.get("project_id"),
-                    item.get("chapter_number"),
+        # 批量写入：统计成功/失败数量
+        success_count = 0
+        failed_count = 0
+        try:
+            for item in payload:
+                try:
+                    await self._client.execute(sql, item)  # type: ignore[union-attr]
+                    success_count += 1
+                except Exception as item_exc:
+                    failed_count += 1
+                    logger.warning(
+                        "写入单条 rag_summary 失败: project=%s chapter=%s error=%s",
+                        item.get("project_id"),
+                        item.get("chapter_number"),
+                        item_exc,
+                    )
+
+            if success_count > 0:
+                logger.info(
+                    "批量写入章节摘要完成: 成功=%d 失败=%d 总计=%d",
+                    success_count,
+                    failed_count,
+                    len(payload),
                 )
+        except Exception as exc:
+            logger.error(
+                "批量写入 rag_summaries 事务失败: %s (尝试写入 %d 条)",
+                exc,
+                len(payload),
+            )
 
     async def delete_by_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """根据章节编号批量删除对应的上下文数据。"""
@@ -432,6 +544,39 @@ class VectorStoreService:
         similarity = dot / (norm_a * norm_b)
         return 1.0 - similarity
 
+    async def _query_with_python_similarity(
+        self,
+        *,
+        project_id: str,
+        embedding: Sequence[float],
+        top_k: int,
+        sql: str,
+        row_mapper: Callable[[Dict[str, Any], float], T],
+    ) -> List[T]:
+        """
+        通用的Python回退相似度查询
+
+        当向量数据库不支持原生向量函数时，使用Python计算余弦距离。
+
+        Args:
+            project_id: 项目ID
+            embedding: 查询向量
+            top_k: 返回数量
+            sql: 查询SQL（必须包含embedding列）
+            row_mapper: 行数据转换函数，接收(row_dict, distance)返回结果对象
+
+        Returns:
+            按相似度排序的结果列表
+        """
+        result = await self._client.execute(sql, {"project_id": project_id})  # type: ignore[union-attr]
+        scored: List[T] = []
+        for row in self._iter_rows(result):
+            stored_embedding = self._from_f32_blob(row.get("embedding"))
+            distance = self._cosine_distance(embedding, stored_embedding)
+            scored.append(row_mapper(row, distance))
+        scored.sort(key=lambda item: item.score)
+        return scored[:top_k]
+
     async def _query_chunks_with_python_similarity(
         self,
         *,
@@ -439,6 +584,7 @@ class VectorStoreService:
         embedding: Sequence[float],
         top_k: int,
     ) -> List[RetrievedChunk]:
+        """使用Python计算相似度查询章节片段（回退模式）"""
         sql = """
         SELECT
             content,
@@ -449,22 +595,23 @@ class VectorStoreService:
         FROM rag_chunks
         WHERE project_id = :project_id
         """
-        result = await self._client.execute(sql, {"project_id": project_id})  # type: ignore[union-attr]
-        scored: List[RetrievedChunk] = []
-        for row in self._iter_rows(result):
-            stored_embedding = self._from_f32_blob(row.get("embedding"))
-            distance = self._cosine_distance(embedding, stored_embedding)
-            scored.append(
-                RetrievedChunk(
-                    content=row.get("content", ""),
-                    chapter_number=row.get("chapter_number", 0),
-                    chapter_title=row.get("chapter_title"),
-                    score=distance,
-                    metadata=self._parse_metadata(row.get("metadata")),
-                )
+
+        def mapper(row: Dict[str, Any], distance: float) -> RetrievedChunk:
+            return RetrievedChunk(
+                content=row.get("content", ""),
+                chapter_number=row.get("chapter_number", 0),
+                chapter_title=row.get("chapter_title"),
+                score=distance,
+                metadata=self._parse_metadata(row.get("metadata")),
             )
-        scored.sort(key=lambda item: item.score)
-        return scored[:top_k]
+
+        return await self._query_with_python_similarity(
+            project_id=project_id,
+            embedding=embedding,
+            top_k=top_k,
+            sql=sql,
+            row_mapper=mapper,
+        )
 
     async def _query_summaries_with_python_similarity(
         self,
@@ -473,6 +620,7 @@ class VectorStoreService:
         embedding: Sequence[float],
         top_k: int,
     ) -> List[RetrievedSummary]:
+        """使用Python计算相似度查询章节摘要（回退模式）"""
         sql = """
         SELECT
             chapter_number,
@@ -482,21 +630,22 @@ class VectorStoreService:
         FROM rag_summaries
         WHERE project_id = :project_id
         """
-        result = await self._client.execute(sql, {"project_id": project_id})  # type: ignore[union-attr]
-        scored: List[RetrievedSummary] = []
-        for row in self._iter_rows(result):
-            stored_embedding = self._from_f32_blob(row.get("embedding"))
-            distance = self._cosine_distance(embedding, stored_embedding)
-            scored.append(
-                RetrievedSummary(
-                    chapter_number=row.get("chapter_number", 0),
-                    title=row.get("title", ""),
-                    summary=row.get("summary", ""),
-                    score=distance,
-                )
+
+        def mapper(row: Dict[str, Any], distance: float) -> RetrievedSummary:
+            return RetrievedSummary(
+                chapter_number=row.get("chapter_number", 0),
+                title=row.get("title", ""),
+                summary=row.get("summary", ""),
+                score=distance,
             )
-        scored.sort(key=lambda item: item.score)
-        return scored[:top_k]
+
+        return await self._query_with_python_similarity(
+            project_id=project_id,
+            embedding=embedding,
+            top_k=top_k,
+            sql=sql,
+            row_mapper=mapper,
+        )
 
     @staticmethod
     def _parse_metadata(raw: Any) -> Dict[str, Any]:

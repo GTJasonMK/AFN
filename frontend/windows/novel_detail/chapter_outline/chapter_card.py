@@ -143,3 +143,10 @@ class ChapterOutlineCard(QFrame):
         self.title_label.setText(chapter.get('title', f"第{self.chapter_number}章"))
         self.num_tag.setText(f"#{self.chapter_number}")
         self.summary_label.setText(chapter.get('summary', '暂无摘要'))
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

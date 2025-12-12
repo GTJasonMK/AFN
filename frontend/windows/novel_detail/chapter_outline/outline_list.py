@@ -128,3 +128,10 @@ class OutlineListView(QWidget):
     def get_item_count(self) -> int:
         """获取当前项数量"""
         return len(self.items)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

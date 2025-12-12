@@ -20,7 +20,59 @@ class ThemeMode(Enum):
     DARK = "dark"    # 深色主题
 
 
-class LightTheme:
+class DesignSystemConstants:
+    """设计系统共享常量基类
+
+    包含所有主题共享的设计规范，确保亮色/深色主题间的一致性。
+    子类只需定义颜色相关属性。
+    """
+
+    # ==================== 圆角规范 - 方正风格（微圆角设计）====================
+    RADIUS_XS = "2px"    # 超小元素（几乎直角）
+    RADIUS_SM = "4px"    # 小元素：按钮、标签、小卡片
+    RADIUS_MD = "6px"    # 中等元素：卡片、输入框
+    RADIUS_LG = "8px"    # 大元素：大型容器
+    RADIUS_XL = "10px"   # 超大元素：模态框
+    RADIUS_ROUND = "50%"  # 圆形：头像、图标按钮
+
+    # ==================== 间距规范 - 8px网格系统 ====================
+    SPACING_XS = "8px"
+    SPACING_SM = "16px"
+    SPACING_MD = "24px"
+    SPACING_LG = "32px"
+    SPACING_XL = "40px"
+    SPACING_XXL = "48px"
+
+    # ==================== 字体大小规范 ====================
+    FONT_SIZE_XS = "12px"
+    FONT_SIZE_SM = "13px"
+    FONT_SIZE_BASE = "14px"
+    FONT_SIZE_MD = "16px"
+    FONT_SIZE_LG = "18px"
+    FONT_SIZE_XL = "20px"
+    FONT_SIZE_2XL = "24px"
+    FONT_SIZE_3XL = "32px"
+
+    # ==================== 字体粗细规范 ====================
+    FONT_WEIGHT_NORMAL = "400"
+    FONT_WEIGHT_MEDIUM = "500"
+    FONT_WEIGHT_SEMIBOLD = "600"
+    FONT_WEIGHT_BOLD = "700"
+
+    # ==================== 行高规范 ====================
+    LINE_HEIGHT_TIGHT = "1.2"
+    LINE_HEIGHT_NORMAL = "1.5"
+    LINE_HEIGHT_RELAXED = "1.6"
+    LINE_HEIGHT_LOOSE = "1.8"
+
+    # ==================== 字母间距规范 ====================
+    LETTER_SPACING_TIGHT = "-0.02em"
+    LETTER_SPACING_NORMAL = "0"
+    LETTER_SPACING_WIDE = "0.05em"
+    LETTER_SPACING_WIDER = "0.1em"
+
+
+class LightTheme(DesignSystemConstants):
     """亮色主题 - Claude晨曦风格 (Morning Theme)
 
     设计理念：
@@ -31,51 +83,6 @@ class LightTheme:
 
     灵感来源：Claude AI品牌色彩体系
     """
-
-    # ==================== 设计系统常量 ====================
-    # 圆角规范 - 方正风格（微圆角设计）
-    RADIUS_XS = "2px"    # 超小元素（几乎直角）
-    RADIUS_SM = "4px"    # 小元素：按钮、标签、小卡片
-    RADIUS_MD = "6px"    # 中等元素：卡片、输入框
-    RADIUS_LG = "8px"    # 大元素：大型容器
-    RADIUS_XL = "10px"   # 超大元素：模态框
-    RADIUS_ROUND = "50%" # 圆形：头像、图标按钮
-
-    # 间距规范 - 8px网格系统
-    SPACING_XS = "8px"
-    SPACING_SM = "16px"
-    SPACING_MD = "24px"
-    SPACING_LG = "32px"
-    SPACING_XL = "40px"
-    SPACING_XXL = "48px"
-
-    # 字体大小规范
-    FONT_SIZE_XS = "12px"
-    FONT_SIZE_SM = "13px"
-    FONT_SIZE_BASE = "14px"
-    FONT_SIZE_MD = "16px"
-    FONT_SIZE_LG = "18px"
-    FONT_SIZE_XL = "20px"
-    FONT_SIZE_2XL = "24px"
-    FONT_SIZE_3XL = "32px"
-
-    # 字体粗细规范
-    FONT_WEIGHT_NORMAL = "400"
-    FONT_WEIGHT_MEDIUM = "500"
-    FONT_WEIGHT_SEMIBOLD = "600"
-    FONT_WEIGHT_BOLD = "700"
-
-    # 行高规范
-    LINE_HEIGHT_TIGHT = "1.2"
-    LINE_HEIGHT_NORMAL = "1.5"
-    LINE_HEIGHT_RELAXED = "1.6"
-    LINE_HEIGHT_LOOSE = "1.8"
-
-    # 字母间距规范
-    LETTER_SPACING_TIGHT = "-0.02em"
-    LETTER_SPACING_NORMAL = "0"
-    LETTER_SPACING_WIDE = "0.05em"
-    LETTER_SPACING_WIDER = "0.1em"
 
     # ==================== 色彩系统 - Claude晨曦风格 ====================
     # 主色调 - 温暖赭红色（Claude品牌色）
@@ -150,7 +157,7 @@ class LightTheme:
     BUTTON_TEXT_SECONDARY = "#2c2621"  # 深棕文字（在浅色按钮上）
 
 
-class DarkTheme:
+class DarkTheme(DesignSystemConstants):
     """深色主题 - 暖夜书香风格 (2025 Modern Design)
 
     设计理念：
@@ -159,51 +166,6 @@ class DarkTheme:
     - 高亮度文字（清晰可读）
     - 温暖典雅的文学气质
     """
-
-    # ==================== 设计系统常量 ====================
-    # 圆角规范 - 方正风格（微圆角设计，与亮色主题保持一致）
-    RADIUS_XS = "2px"
-    RADIUS_SM = "4px"
-    RADIUS_MD = "6px"
-    RADIUS_LG = "8px"
-    RADIUS_XL = "10px"
-    RADIUS_ROUND = "50%"
-
-    # 间距规范 - 与亮色主题保持一致
-    SPACING_XS = "8px"
-    SPACING_SM = "16px"
-    SPACING_MD = "24px"
-    SPACING_LG = "32px"
-    SPACING_XL = "40px"
-    SPACING_XXL = "48px"
-
-    # 字体大小规范 - 与亮色主题保持一致
-    FONT_SIZE_XS = "12px"
-    FONT_SIZE_SM = "13px"
-    FONT_SIZE_BASE = "14px"
-    FONT_SIZE_MD = "16px"
-    FONT_SIZE_LG = "18px"
-    FONT_SIZE_XL = "20px"
-    FONT_SIZE_2XL = "24px"
-    FONT_SIZE_3XL = "32px"
-
-    # 字体粗细规范 - 与亮色主题保��一致
-    FONT_WEIGHT_NORMAL = "400"
-    FONT_WEIGHT_MEDIUM = "500"
-    FONT_WEIGHT_SEMIBOLD = "600"
-    FONT_WEIGHT_BOLD = "700"
-
-    # 行高规范 - 与亮色主题保持一致
-    LINE_HEIGHT_TIGHT = "1.2"
-    LINE_HEIGHT_NORMAL = "1.5"
-    LINE_HEIGHT_RELAXED = "1.6"
-    LINE_HEIGHT_LOOSE = "1.8"
-
-    # 字母间距规范 - 与亮色主题保持一致
-    LETTER_SPACING_TIGHT = "-0.02em"
-    LETTER_SPACING_NORMAL = "0"
-    LETTER_SPACING_WIDE = "0.05em"
-    LETTER_SPACING_WIDER = "0.1em"
 
     # ==================== 色彩系统 - 暖夜书香风格 ====================
     # 主色调 - 暖琥珀金（与亮色主题赭红呼应，温暖典雅）
@@ -700,14 +662,67 @@ class ThemeManager(QObject):
     def LETTER_SPACING_WIDER(self):
         return self._current_theme.LETTER_SPACING_WIDER
 
+    # ==================== 按钮样式工厂方法 ====================
+
+    def _solid_button_style(
+        self,
+        bg_color: str,
+        bg_hover: str,
+        bg_pressed: str,
+        text_color: str = None,
+        border: str = "none",
+        padding: str = "10px 24px",
+        min_height: str = "36px"
+    ) -> str:
+        """实心按钮样式工厂方法
+
+        Args:
+            bg_color: 背景颜色
+            bg_hover: 悬停时背景颜色
+            bg_pressed: 按下时背景颜色
+            text_color: 文字颜色（默认为 BUTTON_TEXT）
+            border: 边框样式（默认为 none）
+            padding: 内边距
+            min_height: 最小高度
+
+        Returns:
+            QPushButton 样式表字符串
+        """
+        ui_font = self.ui_font()
+        text = text_color or self.BUTTON_TEXT
+        return f"""
+            QPushButton {{
+                background-color: {bg_color};
+                color: {text};
+                border: {border};
+                border-radius: {self.RADIUS_SM};
+                padding: {padding};
+                font-family: {ui_font};
+                font-size: {self.FONT_SIZE_SM};
+                font-weight: {self.FONT_WEIGHT_SEMIBOLD};
+                min-height: {min_height};
+            }}
+            QPushButton:hover {{
+                background-color: {bg_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {bg_pressed};
+            }}
+            QPushButton:disabled {{
+                background-color: {self.BG_TERTIARY};
+                color: {self.TEXT_DISABLED};
+            }}
+        """
 
     def button_primary(self):
         """主要按钮样式 - 渐变背景"""
         gradient_colors = self.PRIMARY_GRADIENT
         gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+        hover_gradient = ModernEffects.linear_gradient([self.PRIMARY_LIGHT, self.PRIMARY], 135)
         ui_font = self.ui_font()
 
         # 注意：Qt StyleSheet 不支持 box-shadow、transform 等 CSS3 属性
+        # 渐变按钮需要特殊处理，不能使用工厂方法
         return f"""
             QPushButton {{
                 background: {gradient_style};
@@ -721,7 +736,7 @@ class ThemeManager(QObject):
                 min-height: 36px;
             }}
             QPushButton:hover {{
-                background: {ModernEffects.linear_gradient([self.PRIMARY_LIGHT, self.PRIMARY], 135)};
+                background: {hover_gradient};
             }}
             QPushButton:pressed {{
                 background: {self.PRIMARY_DARK};
@@ -768,6 +783,8 @@ class ThemeManager(QObject):
         """强调按钮样式 - 活力渐变"""
         gradient_colors = self.ACCENT_GRADIENT
         gradient_style = ModernEffects.linear_gradient(gradient_colors, 135)
+        hover_gradient = ModernEffects.linear_gradient([self.ACCENT_LIGHT, self.ACCENT], 135)
+        accent_dark = self.ACCENT_DARK if hasattr(self, 'ACCENT_DARK') else self.ACCENT
         ui_font = self.ui_font()
 
         return f"""
@@ -783,13 +800,17 @@ class ThemeManager(QObject):
                 min-height: 36px;
             }}
             QPushButton:hover {{
-                background: {ModernEffects.linear_gradient([self.ACCENT_LIGHT, self.ACCENT], 135)};
+                background: {hover_gradient};
             }}
             QPushButton:pressed {{
-                background: {self.ACCENT_DARK if hasattr(self, 'ACCENT_DARK') else self.ACCENT};
+                background: {accent_dark};
+            }}
+            QPushButton:disabled {{
+                background: {self.BG_TERTIARY};
+                color: {self.TEXT_DISABLED};
             }}
         """
-    
+
     def button_text(self):
         """文本按钮样式 - 纯文本无边框"""
         ui_font = self.ui_font()
@@ -816,6 +837,31 @@ class ThemeManager(QObject):
                 color: {self.TEXT_DISABLED};
             }}
         """
+
+    def button_danger(self):
+        """危险按钮样式 - 红色警告"""
+        return self._solid_button_style(
+            bg_color=self.ERROR,
+            bg_hover=self.ERROR_DARK,
+            bg_pressed=self.ERROR_DARK
+        )
+
+    def button_warning(self):
+        """警告按钮样式 - 橙色提醒"""
+        return self._solid_button_style(
+            bg_color=self.WARNING,
+            bg_hover=self.WARNING_DARK,
+            bg_pressed=self.WARNING_DARK
+        )
+
+    def button_success(self):
+        """成功按钮样式 - 绿色确认"""
+        return self._solid_button_style(
+            bg_color=self.SUCCESS,
+            bg_hover=self.SUCCESS_DARK,
+            bg_pressed=self.SUCCESS_DARK
+        )
+
     # ==================== 现代化样式方法 ====================
 
     def card_style(self, elevated: bool = False) -> str:

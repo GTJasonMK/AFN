@@ -219,6 +219,71 @@ class MessageService:
             message += f"\n{details}"
         MessageService.show_success(parent, message, title="操作成功")
 
+    @staticmethod
+    def show_exception_error(
+        parent: Optional[QWidget],
+        exception: Exception,
+        operation: str = "操作"
+    ) -> None:
+        """
+        根据异常类型显示错误消息
+
+        此方法会根据异常类型提供不同的错误消息和建议操作，
+        为用户提供更有用的错误反馈。
+
+        Args:
+            parent: 父窗口
+            exception: 异常对象
+            operation: 操作名称（如"加载项目"、"生成章节"）
+        """
+        from api.exceptions import (
+            APIError,
+            LLMServiceError,
+            BlueprintNotReadyError,
+            ChapterNotGeneratedError,
+            InvalidStateTransitionError,
+            ConversationExtractionError,
+            GenerationCancelledError,
+            ConnectionError as APIConnectionError,
+            TimeoutError as APITimeoutError,
+        )
+
+        # 根据异常类型生成消息
+        if isinstance(exception, LLMServiceError):
+            title = "AI服务错误"
+            message = f"{operation}失败：AI服务暂时不可用\n\n请检查：\n- LLM配置是否正确\n- API密钥是否有效\n- 网络连接是否正常"
+        elif isinstance(exception, BlueprintNotReadyError):
+            title = "蓝图未就绪"
+            message = f"{operation}失败：项目蓝图尚未生成\n\n请先完成灵感对话，生成项目蓝图后再进行此操作。"
+        elif isinstance(exception, ChapterNotGeneratedError):
+            title = "章节未生成"
+            message = f"{operation}失败：该章节尚未生成内容\n\n请先生成章节内容后再进行此操作。"
+        elif isinstance(exception, InvalidStateTransitionError):
+            title = "状态错误"
+            message = f"{operation}失败：当前项目状态不允许此操作\n\n{str(exception)}"
+        elif isinstance(exception, ConversationExtractionError):
+            title = "对话错误"
+            message = f"{operation}失败：对话历史格式异常\n\n建议重新开始灵感对话。"
+        elif isinstance(exception, GenerationCancelledError):
+            title = "已取消"
+            message = f"{operation}已被取消"
+        elif isinstance(exception, APIConnectionError):
+            title = "连接失败"
+            message = f"{operation}失败：无法连接到后端服务\n\n请检查：\n- 后端服务是否已启动\n- 网络连接是否正常"
+        elif isinstance(exception, APITimeoutError):
+            title = "请求超时"
+            message = f"{operation}失败：服务器响应超时\n\n这可能是因为：\n- 生成内容较长，需要更多时间\n- 服务器负载较高\n\n请稍后重试。"
+        elif isinstance(exception, APIError):
+            # 通用API错误
+            title = f"{operation}失败"
+            message = f"{operation}失败：{exception.message}"
+        else:
+            # 未知异常
+            title = "发生错误"
+            message = f"{operation}时发生未知错误：{str(exception)}"
+
+        MessageService.show_error(parent, message, title=title)
+
 
 # 便捷函数
 def show_api_error(parent: Optional[QWidget], error_msg: str, operation: str = "操作") -> None:
@@ -244,3 +309,20 @@ def confirm_danger(
 ) -> bool:
     """便捷函数：危险操作确认对话框"""
     return MessageService.confirm_danger(parent, message, title)
+
+
+def show_exception_error(
+    parent: Optional[QWidget],
+    exception: Exception,
+    operation: str = "操作"
+) -> None:
+    """便捷函数：根据异常类型显示错误消息
+
+    此函数会根据异常类型提供不同的错误消息和建议操作。
+
+    Args:
+        parent: 父窗口
+        exception: 异常对象
+        operation: 操作名称（如"加载项目"、"生成章节"）
+    """
+    MessageService.show_exception_error(parent, exception, operation)

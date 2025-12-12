@@ -14,6 +14,7 @@ from ...schemas.novel import (
     CharacterState,
     ForeshadowingData,
 )
+from .utils import extract_involved_characters, truncate_text, build_outline_text
 
 
 @dataclass
@@ -357,24 +358,11 @@ class SmartContextBuilder:
         blueprint_characters: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """提取涉及的角色详细信息"""
-        outline_text = " ".join([
-            outline.get("title", ""),
-            outline.get("summary", ""),
-        ])
-
-        involved = []
-        for char in blueprint_characters:
-            char_name = char.get("name", "")
-            if char_name and char_name in outline_text:
-                # 只保留关键字段
-                involved.append({
-                    "name": char_name,
-                    "identity": char.get("identity", ""),
-                    "personality": char.get("personality", ""),
-                    "goals": char.get("goals", ""),
-                })
-
-        return involved
+        return extract_involved_characters(
+            outline=outline,
+            blueprint_characters=blueprint_characters,
+            include_details=True,
+        )
 
     def _get_relevant_relationships(
         self,
@@ -401,11 +389,7 @@ class SmartContextBuilder:
 
     def _truncate(self, text: str, max_length: int) -> str:
         """截断文本到指定长度"""
-        if not text:
-            return ""
-        if len(text) <= max_length:
-            return text
-        return text[:max_length - 3] + "..."
+        return truncate_text(text, max_length)
 
     def format_context_for_prompt(
         self,

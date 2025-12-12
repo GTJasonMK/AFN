@@ -2,12 +2,17 @@
 异步工作线程工具
 
 提供QThread包装器，用于在后台执行耗时的API调用，避免UI冻结
+
+线程安全设计：
+- 使用 threading.Event 实现线程安全的取消机制
+- 信号发射前检查取消状态
+- 自动在线程完成后清理资源
 """
 
 import logging
-import sys
+import threading
 import traceback
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Dict
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -18,16 +23,23 @@ logger = logging.getLogger(__name__)
 class AsyncAPIWorker(QThread):
     """异步API调用工作线程
 
+    线程安全设计：
+    - 使用 threading.Event 实现线程安全的取消机制
+    - 信号发射前检查取消状态
+    - 自动在线程完成后清理资源
+
     用法:
         worker = AsyncAPIWorker(api_client.generate_chapter, project_id, chapter_number)
         worker.success.connect(self.onSuccess)
         worker.error.connect(self.onError)
+        worker.error_detail.connect(self.onErrorDetail)  # 可选：获取详细错误信息
         worker.start()
     """
 
     # 信号
-    success = pyqtSignal(object)  # 成功时发射结果
-    error = pyqtSignal(str)       # 失败时发射错误信息
+    success = pyqtSignal(object)       # 成功时发射结果
+    error = pyqtSignal(str)            # 失败时发射错误信息（向后兼容）
+    error_detail = pyqtSignal(dict)    # 失败时发射详细错误信息
 
     def __init__(self, func: Callable, *args, **kwargs):
         """初始化工作线程
@@ -41,19 +53,21 @@ class AsyncAPIWorker(QThread):
         self.func = func
         self.args = args
         self.kwargs = kwargs
-        self._is_cancelled = False
         self._func_name = getattr(func, '__name__', str(func))
 
+        # 线程安全的取消事件
+        self._cancel_event = threading.Event()
+
         logger.debug(
-            "AsyncAPIWorker created: func=%s, args=%s, kwargs_keys=%s",
-            self._func_name, self.args, list(self.kwargs.keys())
+            "AsyncAPIWorker created: func=%s, args=%s",
+            self._func_name, self.args
         )
 
         # 线程完成后自动删除，防止内存泄漏
-        self.finished.connect(self._safe_delete_later)
+        self.finished.connect(self._on_finished)
 
-    def _safe_delete_later(self):
-        """安全地延迟删除"""
+    def _on_finished(self):
+        """线程完成时的清理"""
         try:
             self.deleteLater()
         except RuntimeError:
@@ -61,62 +75,101 @@ class AsyncAPIWorker(QThread):
 
     def run(self):
         """线程执行入口"""
-        logger.info(
-            "AsyncAPIWorker.run() started: func=%s, thread_id=%s",
-            self._func_name, int(QThread.currentThreadId())
-        )
-        sys.stdout.flush()
+        logger.info("AsyncAPIWorker started: func=%s", self._func_name)
 
         try:
-            if self._is_cancelled:
+            # 检查是否已取消
+            if self._cancel_event.is_set():
                 logger.info("AsyncAPIWorker cancelled before execution: func=%s", self._func_name)
                 return
 
-            logger.info("AsyncAPIWorker calling func: %s", self._func_name)
-            sys.stdout.flush()
-
+            # 执行函数
             result = self.func(*self.args, **self.kwargs)
 
-            logger.info(
+            logger.debug(
                 "AsyncAPIWorker func returned: func=%s, result_type=%s",
                 self._func_name, type(result).__name__
             )
-            sys.stdout.flush()
 
-            if not self._is_cancelled:
-                logger.info("AsyncAPIWorker emitting success signal: func=%s", self._func_name)
-                sys.stdout.flush()
+            # 发射成功信号（检查取消状态）
+            if not self._cancel_event.is_set():
                 self.success.emit(result)
-                logger.info("AsyncAPIWorker success signal emitted: func=%s", self._func_name)
-                sys.stdout.flush()
 
         except Exception as e:
-            logger.error(
-                "AsyncAPIWorker exception: func=%s, error_type=%s, error=%s",
-                self._func_name, type(e).__name__, str(e),
-                exc_info=True
-            )
-            sys.stdout.flush()
+            self._handle_exception(e)
 
-            if not self._is_cancelled:
-                error_msg = f"{str(e)}\n\n详细信息:\n{traceback.format_exc()}"
-                logger.info("AsyncAPIWorker emitting error signal: func=%s", self._func_name)
-                sys.stdout.flush()
-                self.error.emit(error_msg)
-        except BaseException as e:
-            # 捕获所有异常，包括SystemExit, KeyboardInterrupt等
-            logger.critical(
-                "AsyncAPIWorker BaseException: func=%s, error_type=%s, error=%s",
-                self._func_name, type(e).__name__, str(e),
-                exc_info=True
-            )
-            sys.stdout.flush()
-            raise
-        finally:
-            logger.info("AsyncAPIWorker.run() finished: func=%s", self._func_name)
-            sys.stdout.flush()
+    def _handle_exception(self, e: Exception):
+        """处理异常并发射错误信号"""
+        logger.error(
+            "AsyncAPIWorker exception: func=%s, error_type=%s, error=%s",
+            self._func_name, type(e).__name__, str(e),
+            exc_info=True
+        )
+
+        # 如果已取消，不发射错误信号
+        if self._cancel_event.is_set():
+            return
+
+        # 构建错误详情
+        error_detail = self._build_error_detail(e)
+
+        # 发射信号
+        self.error.emit(error_detail.get('message', str(e)))
+        self.error_detail.emit(error_detail)
+
+    def _build_error_detail(self, e: Exception) -> Dict[str, Any]:
+        """构建详细错误信息
+
+        Args:
+            e: 异常对象
+
+        Returns:
+            包含错误详情的字典
+        """
+        detail = {
+            'type': type(e).__name__,
+            'message': str(e),
+            'traceback': traceback.format_exc(),
+            'func_name': self._func_name,
+        }
+
+        # 处理 requests 库的 HTTP 错误
+        if hasattr(e, 'response') and e.response is not None:
+            response = e.response
+            detail['status_code'] = getattr(response, 'status_code', None)
+            detail['response_text'] = getattr(response, 'text', None)
+
+            # 尝试解析JSON错误响应
+            try:
+                json_error = response.json()
+                detail['response_json'] = json_error
+                # 提取常见的错误字段
+                if 'detail' in json_error:
+                    detail['message'] = json_error['detail']
+                elif 'message' in json_error:
+                    detail['message'] = json_error['message']
+            except (ValueError, AttributeError):
+                pass
+
+        # 处理自定义异常的额外属性
+        for attr in ['code', 'status_code', 'detail', 'reason']:
+            if hasattr(e, attr):
+                detail[attr] = getattr(e, attr)
+
+        return detail
 
     def cancel(self):
-        """取消任务（注意：无法中断已经开始的API调用）"""
+        """取消任务（线程安全）
+
+        注意：无法中断已经开始的API调用，只能阻止信号发射
+        """
         logger.info("AsyncAPIWorker.cancel() called: func=%s", self._func_name)
-        self._is_cancelled = True
+        self._cancel_event.set()
+
+    def is_cancelled(self) -> bool:
+        """检查是否已取消（线程安全）"""
+        return self._cancel_event.is_set()
+
+
+# 向后兼容的别名
+AsyncWorker = AsyncAPIWorker

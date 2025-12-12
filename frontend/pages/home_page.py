@@ -1,54 +1,96 @@
 """
-首页 - 现代化设计 (2025)
-添加渐变背景、玻璃态卡片、动画效果、浮动粒子
+首页 - VS风格欢迎页面
+左侧：创建小说、打开项目入口
+右侧：Tab切换（最近项目 / 全部项目）
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsOpacityEffect
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QGraphicsOpacityEffect, QScrollArea, QFrame, QSizePolicy,
+    QStackedWidget, QButtonGroup
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup
-from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform
+from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform, QFont, QFontDatabase
+
+
+# 创作箴言集 - 富有文学气息的启发性标语
+# 格式：(中文主标语, 英文副标语/出处)
+CREATIVE_QUOTES = [
+    # ========== 原创箴言 ==========
+    ("落笔成章，灵感无疆", "Let words flow, let imagination soar"),
+    ("一念成世界，字里藏山河", "A thought becomes a world"),
+    ("以墨为舟，载梦远航", "Sail your dreams with ink"),
+    ("每个故事，都值得被讲述", "Every story deserves to be told"),
+    ("笔墨之间，万千世界", "Infinite worlds between the lines"),
+    ("让灵感落地，让想象生长", "Ground your inspiration, grow your vision"),
+    ("文字有灵，故事不朽", "Words have soul, stories live forever"),
+
+    # ========== 中国古典诗词 ==========
+    ("文章千古事，得失寸心知", "— 杜甫《偶题》"),
+    ("文章本天成，妙手偶得之", "— 陆游《文章》"),
+    ("看似寻常最奇崛，成如容易却艰辛", "— 王安石"),
+    ("我手写我口，古岂能拘牵", "— 黄遵宪《杂感》"),
+    ("须教自我胸中出，切忌随人脚后行", "— 戴复古《论诗》"),
+    ("天籁自鸣天趣足，好诗不过近人情", "— 张问陶"),
+    ("山重水复疑无路，柳暗花明又一村", "— 陆游《游山西村》"),
+    ("落红不是无情物，化作春泥更护花", "— 龚自珍《己亥杂诗》"),
+
+    # ========== 中国现当代作家 ==========
+    ("有一分热，发一分光", "— 鲁迅"),
+    ("我之所以写作，不是我有才华，而是我有感情", "— 巴金"),
+    ("世事犹如书籍，一页页被翻过去", "— 莫言"),
+    ("文学最大的用处，也许就是它没有用处", "— 莫言"),
+
+    # ========== 西方文学名言 ==========
+    ("心中若有未讲的故事，便是最大的痛苦", "There is no greater agony than bearing an untold story — Maya Angelou"),
+    ("想读却还未被写出的书，你必须亲自去写", "If there's a book you want to read but hasn't been written yet, write it — Toni Morrison"),
+    ("初稿不过是你讲给自己听的故事", "The first draft is just you telling yourself the story — Terry Pratchett"),
+    ("一个词接着一个词，便是力量", "A word after a word after a word is power — Margaret Atwood"),
+    ("故事是我们除了食物与栖身之外最需要的东西", "After nourishment and shelter, stories are what we need most — Philip Pullman"),
+    ("小说是一种谎言，却能道出真实", "Fiction is a lie that tells us true things — Neil Gaiman"),
+    ("童话不只告诉我们恶龙存在，更告诉我们恶龙可以被打败", "Fairy tales tell us dragons can be beaten — Neil Gaiman"),
+    ("故事不是被创造的，而是被发现的", "Stories are found things — Stephen King"),
+    ("好作家与常人的区别：每天走过千种故事，作家能看见其中五六种", "Good writers see five or six story ideas where others see none — Orson Scott Card"),
+    ("信任你的梦，信任你的心，信任你的故事", "Trust dreams. Trust your heart. Trust your story — Neil Gaiman"),
+
+    # ========== 关于想象力与创造 ==========
+    ("想象力比知识更重要", "Imagination is more important than knowledge — Einstein"),
+    ("精神的浩瀚、想象的活跃、心灵的勤奋：这便是天才", "— 狄德罗"),
+    ("世界对于有想象力的人来说，只是一块画布", "The world is but a canvas to imagination — Thoreau"),
+    ("只要我们能梦想，我们就能实现", "If we can dream it, we can do it"),
+]
 from .base_page import BasePage
+from components.base import ThemeAwareFrame, ThemeAwareButton
 from themes.theme_manager import theme_manager
-from themes.modern_effects import ModernEffects
+from api.manager import APIClientManager
 from utils.dpi_utils import dp, sp
+from utils.formatters import get_project_status_text, format_word_count
+import logging
 import random
-import math
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
-class BreathingLabel(QLabel):
-    """支持缩放动画的Label"""
+def get_title_sort_key(title: str) -> str:
+    """
+    获取标题的排序键（用于首字母分组）
 
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self._scale = 1.0
-
-    @pyqtProperty(float)
-    def scale(self):
-        """获取缩放值"""
-        return self._scale
-
-    @scale.setter
-    def scale(self, value):
-        """设置缩放值并更新显示"""
-        self._scale = value
-        # 使用QTransform实现缩放（硬件加速，性能最优）
-        transform = QTransform()
-        transform.scale(value, value)
-        self.setTransform(transform)
-
-    def setTransform(self, transform):
-        """应用变换矩阵"""
-        # 保存原始尺寸提示
-        hint = self.sizeHint()
-        # 清除之前的变换
-        self.setStyleSheet(self.styleSheet())
-        # 应用新的变换（通过调整字体大小模拟）
-        # 由于QLabel不直接支持transform，我们通过动态调整字体大小实现
-        font = self.font()
-        base_size = int(theme_manager.FONT_SIZE_3XL.replace('px', ''))
-        font.setPointSize(int(base_size * self._scale * 0.75))  # 0.75是px到pt的转换系数
-        self.setFont(font)
+    规则：
+    - 英文字母开头：返回大写字母（A-Z）
+    - 数字开头：返回 "#"
+    - 中文或其他字符：返回该字符本身
+    """
+    if not title:
+        return "#"
+    first_char = title[0].upper()
+    if first_char.isascii() and first_char.isalpha():
+        return first_char
+    elif first_char.isdigit():
+        return "#"
+    else:
+        # 中文或其他字符，返回字符本身作为分组键
+        return first_char
 
 
 class FloatingParticle:
@@ -56,8 +98,8 @@ class FloatingParticle:
     def __init__(self, x, y, vx, vy, size, color):
         self.x = x
         self.y = y
-        self.vx = vx  # x方向速度
-        self.vy = vy  # y方向速度
+        self.vx = vx
+        self.vy = vy
         self.size = size
         self.color = color
         self.opacity = random.uniform(0.3, 0.7)
@@ -66,8 +108,6 @@ class FloatingParticle:
         """更新粒子位置"""
         self.x += self.vx
         self.y += self.vy
-
-        # 边界检测和反弹
         if self.x <= 0 or self.x >= width:
             self.vx = -self.vx
         if self.y <= 0 or self.y >= height:
@@ -75,196 +115,545 @@ class FloatingParticle:
 
 
 class ParticleBackground(QWidget):
-    """浮动粒子背景"""
+    """浮动粒子背景
+
+    特性：
+    - 支持 pause/resume 控制动画生命周期
+    - 安全的主题信号管理（不依赖 __del__）
+    - 页面切换时自动暂停/恢复以节省资源
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.particles = []
-        self.init_particles()
+        self._theme_connected = False
+        self._init_particles()
 
-        # 启动更新定时器
+        # 动画定时器
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_particles)
-        self.timer.start(50)  # 50ms更新一次
+        self.timer.timeout.connect(self._update_particles)
 
-        # 连接主题切换信号
-        theme_manager.theme_changed.connect(self._on_theme_changed)
+        # 连接主题信号
+        self._connect_theme_signal()
+
+    def _connect_theme_signal(self):
+        """连接主题信号（安全方式）"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self._on_theme_changed)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self._on_theme_changed)
+            except (TypeError, RuntimeError):
+                pass  # 信号可能已断开
+            self._theme_connected = False
 
     def _on_theme_changed(self, theme_mode):
-        """主题切换时更新粒子颜色"""
+        """主题改变时刷新粒子颜色"""
         self._refresh_particle_colors()
 
     def _refresh_particle_colors(self):
-        """刷新所有粒子的颜色以适应当前主题"""
+        """刷新粒子颜色"""
         is_dark = theme_manager.is_dark_mode()
         accent = theme_manager.book_accent_color()
         text_secondary = theme_manager.book_text_secondary()
-
         if is_dark:
-            colors = [
-                QColor(accent),        # 暗金
-                QColor("#8B7E66"),     # 灰褐
-                QColor("#C4B093"),     # 羊皮纸色
-            ]
+            colors = [QColor(accent), QColor("#8B7E66"), QColor("#C4B093")]
         else:
-            colors = [
-                QColor(text_secondary), # 深褐
-                QColor(accent),         # 赭石
-                QColor("#2C3E50"),      # 墨蓝
-            ]
-
-        # 更新现有粒子的颜色
+            colors = [QColor(text_secondary), QColor(accent), QColor("#2C3E50")]
         for particle in self.particles:
             color = random.choice(colors)
             color.setAlpha(int(random.uniform(15, 50)))
             particle.color = color
+        self.update()
 
-        self.update()  # 触发重绘
-
-    def init_particles(self):
-        """初始化粒子 - 调整为书香风格的墨点/尘埃"""
+    def _init_particles(self):
+        """初始化粒子"""
         is_dark = theme_manager.is_dark_mode()
         accent = theme_manager.book_accent_color()
         text_secondary = theme_manager.book_text_secondary()
-
         if is_dark:
-            colors = [
-                QColor(accent),        # 暗金
-                QColor("#8B7E66"),     # 灰褐
-                QColor("#C4B093"),     # 羊皮纸色
-            ]
+            colors = [QColor(accent), QColor("#8B7E66"), QColor("#C4B093")]
         else:
-            colors = [
-                QColor(text_secondary), # 深褐
-                QColor(accent),         # 赭石
-                QColor("#2C3E50"),      # 墨蓝
-            ]
-
-        # 创建30个粒子
+            colors = [QColor(text_secondary), QColor(accent), QColor("#2C3E50")]
         for _ in range(30):
             x = random.randint(0, 1000)
             y = random.randint(0, 800)
-            vx = random.uniform(-0.2, 0.2)  # 减慢速度，更优雅
+            vx = random.uniform(-0.2, 0.2)
             vy = random.uniform(-0.2, 0.2)
-            size = random.randint(2, 5)     # 减小尺寸
-
+            size = random.randint(2, 5)
             color = random.choice(colors)
-            color.setAlpha(int(random.uniform(15, 50))) # 降低透明度
-
+            color.setAlpha(int(random.uniform(15, 50)))
             self.particles.append(FloatingParticle(x, y, vx, vy, size, color))
 
-    def update_particles(self):
+    def _update_particles(self):
         """更新粒子位置"""
         for particle in self.particles:
             particle.update(self.width(), self.height())
-        self.update()  # 触发重绘
+        self.update()
 
     def paintEvent(self, event):
         """绘制粒子"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
         for particle in self.particles:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(particle.color))
-            painter.drawEllipse(
-                QPointF(particle.x, particle.y),
-                particle.size,
-                particle.size
-            )
+            painter.drawEllipse(QPointF(particle.x, particle.y), particle.size, particle.size)
+
+    def start(self):
+        """启动粒子动画"""
+        if not self.timer.isActive():
+            self.timer.start(50)
+
+    def stop(self):
+        """停止粒子动画"""
+        if self.timer.isActive():
+            self.timer.stop()
+
+    def is_running(self) -> bool:
+        """检查动画是否正在运行"""
+        return self.timer.isActive()
+
+    def cleanup(self):
+        """清理资源（显式调用）
+
+        在父组件销毁前应调用此方法，确保：
+        - 停止定时器
+        - 断开主题信号
+        """
+        self.stop()
+        self._disconnect_theme_signal()
+
+    def deleteLater(self):
+        """删除前清理"""
+        self.cleanup()
+        super().deleteLater()
+
+
+class RecentProjectCard(ThemeAwareFrame):
+    """最近项目卡片 - 继承主题感知基类，自动管理主题信号"""
+
+    def __init__(self, project_data: dict, parent=None):
+        self.project_data = project_data
+        self.project_id = project_data.get('id')
+        # 预先声明UI组件
+        self.title_label = None
+        self.status_label = None
+        self.time_label = None
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(dp(80))
+        self.setupUI()
+
+    def _create_ui_structure(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
+        layout.setSpacing(dp(6))
+
+        # 标题
+        self.title_label = QLabel(self.project_data.get('title', '未命名项目'))
+        self.title_label.setWordWrap(True)
+        layout.addWidget(self.title_label)
+
+        # 底部信息：状态 + 更新时间
+        info_layout = QHBoxLayout()
+        info_layout.setSpacing(dp(12))
+
+        # 状态
+        status = self.project_data.get('status', 'draft')
+        status_text = get_project_status_text(status)
+        self.status_label = QLabel(status_text)
+        info_layout.addWidget(self.status_label)
+
+        info_layout.addStretch()
+
+        # 更新时间
+        updated_at = self.project_data.get('updated_at', '')
+        time_text = self._format_time(updated_at)
+        self.time_label = QLabel(time_text)
+        info_layout.addWidget(self.time_label)
+
+        layout.addLayout(info_layout)
+
+    def _format_time(self, time_str: str) -> str:
+        """格式化时间为友好显示"""
+        if not time_str:
+            return ""
+        try:
+            # 解析ISO格式时间
+            if 'T' in time_str:
+                dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+            else:
+                dt = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+
+            now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+            diff = now - dt
+
+            if diff.days == 0:
+                if diff.seconds < 3600:
+                    return f"{diff.seconds // 60}分钟前"
+                else:
+                    return f"{diff.seconds // 3600}小时前"
+            elif diff.days == 1:
+                return "昨天"
+            elif diff.days < 7:
+                return f"{diff.days}天前"
+            else:
+                return dt.strftime('%m-%d')
+        except (ValueError, TypeError, AttributeError):
+            # ValueError: 日期格式解析失败
+            # TypeError: 类型不匹配
+            # AttributeError: 属性访问失败
+            return time_str[:10] if len(time_str) >= 10 else time_str
+
+    def _apply_theme(self):
+        bg_color = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        accent_color = theme_manager.book_accent_color()
+        ui_font = theme_manager.ui_font()
+
+        self.setStyleSheet(f"""
+            RecentProjectCard {{
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: {dp(8)}px;
+            }}
+            RecentProjectCard:hover {{
+                border-color: {accent_color};
+                background-color: {theme_manager.book_bg_primary()};
+            }}
+        """)
+
+        # 注意：这些属性在_create_ui_structure中创建，
+        # setupUI保证_create_ui_structure在_apply_theme之前调用
+        self.title_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {dp(15)}px;
+                font-weight: 500;
+                color: {text_primary};
+                background: transparent;
+            }}
+        """)
+
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {dp(12)}px;
+                color: {accent_color};
+                background: transparent;
+            }}
+        """)
+
+        self.time_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {dp(12)}px;
+                color: {text_secondary};
+                background: transparent;
+            }}
+        """)
+
+    def mousePressEvent(self, event):
+        """点击卡片时通知父组件"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 查找HomePage父组件
+            parent = self.parent()
+            while parent and not isinstance(parent, HomePage):
+                parent = parent.parent()
+            if parent and hasattr(parent, '_on_project_clicked'):
+                parent._on_project_clicked(self.project_data)
+
+
+class TabButton(ThemeAwareButton):
+    """Tab切换按钮 - 继承主题感知基类，自动管理主题信号"""
+
+    def __init__(self, text: str, parent=None):
+        self._is_active = False
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setCheckable(True)
+        self.setupUI()
+
+    def setActive(self, active: bool):
+        """设置激活状态"""
+        self._is_active = active
+        self.setChecked(active)
+        self._apply_theme()
+
+    def _apply_theme(self):
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        accent_color = theme_manager.book_accent_color()
+        border_color = theme_manager.book_border_color()
+        bg_secondary = theme_manager.book_bg_secondary()
+        ui_font = theme_manager.ui_font()
+
+        if self._is_active:
+            # 激活状态
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {accent_color};
+                    color: {theme_manager.BUTTON_TEXT};
+                    border: none;
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(20)}px;
+                    font-family: {ui_font};
+                    font-size: {dp(14)}px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {text_primary};
+                }}
+            """)
+        else:
+            # 非激活状态
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(20)}px;
+                    font-family: {ui_font};
+                    font-size: {dp(14)}px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    color: {accent_color};
+                    border-color: {accent_color};
+                }}
+            """)
+
+
+class TabBar(ThemeAwareFrame):
+    """Tab栏组件 - 继承主题感知基类，自动管理主题信号"""
+
+    def __init__(self, parent=None):
+        self.buttons = []
+        self.recent_btn = None
+        self.all_btn = None
+        super().__init__(parent)
+        self.setupUI()
+
+    def _create_ui_structure(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, dp(12))
+        layout.setSpacing(dp(12))
+
+        # 最近项目Tab
+        self.recent_btn = TabButton("最近项目")
+        self.recent_btn.setActive(True)
+        layout.addWidget(self.recent_btn)
+
+        # 全部项目Tab
+        self.all_btn = TabButton("全部项目")
+        layout.addWidget(self.all_btn)
+
+        layout.addStretch()
+
+        self.buttons = [self.recent_btn, self.all_btn]
+
+    def setCurrentIndex(self, index: int):
+        """设置当前激活的Tab"""
+        for i, btn in enumerate(self.buttons):
+            btn.setActive(i == index)
+
+    def _apply_theme(self):
+        self.setStyleSheet("background: transparent;")
 
 
 class HomePage(BasePage):
-    """首页 - 现代化设计，渐变背景，动画效果"""
+    """首页 - VS风格欢迎页面"""
 
     def __init__(self, parent=None):
+        self.api_client = APIClientManager.get_client()
+        self.recent_projects = []  # 最近项目（按时间排序，最多10个）
+        self.all_projects = []  # 全部项目（按首字母排序）
         super().__init__(parent)
         self.setupUI()
 
     def setupUI(self):
-        """初始化现代化UI"""
-        # 检查是否已有布局
         if not self.layout():
             self._create_ui_structure()
         self._apply_theme()
-        # 启动入场动画
         QTimer.singleShot(100, self._animate_entrance)
 
     def _create_ui_structure(self):
-        """创建UI结构（只调用一次）"""
         # 主布局
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(40), dp(40), dp(40), dp(40))
-        layout.setSpacing(dp(30))
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # 添加浮动粒子背景
         self.particle_bg = ParticleBackground(self)
-        self.particle_bg.lower()  # 放到最底层
+        self.particle_bg.lower()
         self.particle_bg.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        # ========== 左侧区域 ==========
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(dp(400))
+        left_widget.setMaximumWidth(dp(500))
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(dp(60), dp(60), dp(40), dp(60))
+        left_layout.setSpacing(dp(20))
 
         # 右上角设置按钮
         header_layout = QHBoxLayout()
         header_layout.addStretch()
-
         self.settings_btn = QPushButton("设置")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.setFixedSize(dp(80), dp(36))
+        self.settings_btn.setFixedSize(dp(60), dp(32))
         self.settings_btn.clicked.connect(lambda: self.navigateTo('SETTINGS'))
         header_layout.addWidget(self.settings_btn)
+        left_layout.addLayout(header_layout)
 
-        layout.addLayout(header_layout)
+        left_layout.addSpacing(dp(40))
 
-        # 添加垂直间距 (增加留白)
-        layout.addSpacing(dp(60))
-
-        # 主标题 - 使用BreathingLabel支持动画
-        self.title = BreathingLabel("拯救小说家")
-        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.title)
-
-        # 装饰性分隔线
-        line_container = QWidget()
-        line_layout = QHBoxLayout(line_container)
-        line_layout.addStretch()
-        self.divider = QLabel()
-        self.divider.setFixedSize(dp(60), dp(4)) 
-        line_layout.addWidget(self.divider)
-        line_layout.addStretch()
-        layout.addWidget(line_container)
+        # 主标题
+        self.title = QLabel("AFN")
+        self.title.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        left_layout.addWidget(self.title)
 
         # 副标题
         self.subtitle = QLabel("AI 驱动的长篇小说创作助手")
-        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.subtitle)
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        left_layout.addWidget(self.subtitle)
 
-        # 添加间距
-        layout.addSpacing(dp(50))
+        # 创作箴言 - 艺术气息的启发性标语
+        self.quote_container = QWidget()
+        quote_layout = QVBoxLayout(self.quote_container)
+        quote_layout.setContentsMargins(0, dp(16), 0, 0)
+        quote_layout.setSpacing(dp(4))
 
-        # 主要功能按钮容器
+        # 随机选择一句箴言
+        self._current_quote = random.choice(CREATIVE_QUOTES)
+
+        # 中文主标语
+        self.quote_label = QLabel(self._current_quote[0])
+        self.quote_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        quote_layout.addWidget(self.quote_label)
+
+        # 英文副标语（更小、更淡）
+        self.quote_sub_label = QLabel(self._current_quote[1])
+        self.quote_sub_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        quote_layout.addWidget(self.quote_sub_label)
+
+        left_layout.addWidget(self.quote_container)
+
+        # 为引言添加透明度效果
+        self.quote_opacity = QGraphicsOpacityEffect()
+        self.quote_container.setGraphicsEffect(self.quote_opacity)
+
+        left_layout.addSpacing(dp(50))
+
+        # 操作按钮区域
         buttons_widget = QWidget()
-        buttons_widget.setMaximumWidth(dp(400)) # 略微收窄
         buttons_layout = QVBoxLayout(buttons_widget)
-        buttons_layout.setSpacing(dp(20))
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(dp(16))
 
-        # 灵感涌现按钮（主要按钮）
-        self.inspiration_btn = QPushButton("✨ 灵感涌现")
-        self.inspiration_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.inspiration_btn.setMinimumHeight(dp(52))
-        self.inspiration_btn.clicked.connect(lambda: self.navigateTo('INSPIRATION'))
-        buttons_layout.addWidget(self.inspiration_btn)
+        # 创建小说按钮（主要）
+        self.create_btn = QPushButton("创建小说")
+        self.create_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.create_btn.setMinimumHeight(dp(48))
+        self.create_btn.clicked.connect(self._on_create_novel)
+        buttons_layout.addWidget(self.create_btn)
 
-        # 创作工作台按钮（次要按钮）
-        self.workspace_btn = QPushButton("📚 创作工作台")
-        self.workspace_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.workspace_btn.setMinimumHeight(dp(52))
-        self.workspace_btn.clicked.connect(lambda: self.navigateTo('WORKSPACE'))
-        buttons_layout.addWidget(self.workspace_btn)
+        # 打开现有项目按钮（次要）- 切换到全部项目Tab
+        self.open_btn = QPushButton("查看全部项目")
+        self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_btn.setMinimumHeight(dp(48))
+        self.open_btn.clicked.connect(lambda: self._switch_tab(1))
+        buttons_layout.addWidget(self.open_btn)
 
-        layout.addWidget(buttons_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(buttons_widget)
+        left_layout.addStretch()
 
-        # 添加弹性空间
-        layout.addStretch()
+        main_layout.addWidget(left_widget)
+
+        # ========== 右侧区域（Tab切换：最近项目 / 全部项目） ==========
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(dp(40), dp(60), dp(60), dp(60))
+        right_layout.setSpacing(0)
+
+        # Tab栏
+        self.tab_bar = TabBar()
+        self.tab_bar.recent_btn.clicked.connect(lambda: self._switch_tab(0))
+        self.tab_bar.all_btn.clicked.connect(lambda: self._switch_tab(1))
+        right_layout.addWidget(self.tab_bar)
+
+        # 堆叠页面（用于Tab切换）
+        self.projects_stack = QStackedWidget()
+
+        # ===== Tab 0: 最近项目页面 =====
+        self.recent_page = QWidget()
+        recent_page_layout = QVBoxLayout(self.recent_page)
+        recent_page_layout.setContentsMargins(0, 0, 0, 0)
+        recent_page_layout.setSpacing(0)
+
+        self.recent_scroll = QScrollArea()
+        self.recent_scroll.setWidgetResizable(True)
+        self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.recent_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.recent_scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        self.recent_container = QWidget()
+        self.recent_layout = QVBoxLayout(self.recent_container)
+        self.recent_layout.setContentsMargins(0, 0, dp(8), 0)
+        self.recent_layout.setSpacing(dp(8))
+        self.recent_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # 最近项目空状态提示
+        self.recent_empty_label = QLabel("暂无最近项目\n点击\"创建小说\"开始您的创作之旅")
+        self.recent_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.recent_empty_label.setWordWrap(True)
+        self.recent_layout.addWidget(self.recent_empty_label)
+        self.recent_layout.addStretch()
+
+        self.recent_scroll.setWidget(self.recent_container)
+        recent_page_layout.addWidget(self.recent_scroll)
+        self.projects_stack.addWidget(self.recent_page)
+
+        # ===== Tab 1: 全部项目页面 =====
+        self.all_page = QWidget()
+        all_page_layout = QVBoxLayout(self.all_page)
+        all_page_layout.setContentsMargins(0, 0, 0, 0)
+        all_page_layout.setSpacing(0)
+
+        self.all_scroll = QScrollArea()
+        self.all_scroll.setWidgetResizable(True)
+        self.all_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.all_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.all_scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        self.all_container = QWidget()
+        self.all_layout = QVBoxLayout(self.all_container)
+        self.all_layout.setContentsMargins(0, 0, dp(8), 0)
+        self.all_layout.setSpacing(dp(8))
+        self.all_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # 全部项目空状态提示
+        self.all_empty_label = QLabel("暂无项目\n点击\"创建小说\"开始您的创作之旅")
+        self.all_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.all_empty_label.setWordWrap(True)
+        self.all_layout.addWidget(self.all_empty_label)
+        self.all_layout.addStretch()
+
+        self.all_scroll.setWidget(self.all_container)
+        all_page_layout.addWidget(self.all_scroll)
+        self.projects_stack.addWidget(self.all_page)
+
+        right_layout.addWidget(self.projects_stack, 1)
+
+        main_layout.addWidget(right_widget, 1)  # 右侧占据剩余空间
 
         # 为动画准备透明度效果
         self.title_opacity = QGraphicsOpacityEffect()
@@ -272,191 +661,340 @@ class HomePage(BasePage):
         self.subtitle_opacity = QGraphicsOpacityEffect()
         self.subtitle.setGraphicsEffect(self.subtitle_opacity)
 
-    def resizeEvent(self, event):
-        """窗口大小改变时，调整粒子背景大小"""
-        super().resizeEvent(event)
-        if hasattr(self, 'particle_bg'):
-            self.particle_bg.setGeometry(self.rect())
-
     def _apply_theme(self):
-        """应用主题样式（可多次调用） - 书香风格"""
-        # 使用 theme_manager 的书香风格便捷方法
         bg_color = theme_manager.book_bg_primary()
+        bg_secondary = theme_manager.book_bg_secondary()
         text_primary = theme_manager.book_text_primary()
         text_secondary = theme_manager.book_text_secondary()
         accent_color = theme_manager.book_accent_color()
         border_color = theme_manager.book_border_color()
-        btn_bg = theme_manager.book_bg_secondary()
         serif_font = theme_manager.serif_font()
         ui_font = theme_manager.ui_font()
 
-        # 设置背景
         self.setStyleSheet(f"""
             HomePage {{
                 background-color: {bg_color};
             }}
         """)
 
-        # 主标题样式
-        if hasattr(self, 'title'):
-            self.title.setStyleSheet(f"""
-                QLabel {{
-                    font-family: {serif_font};
-                    font-size: {dp(48)}px;
-                    font-weight: bold;
-                    color: {text_primary};
-                    letter-spacing: {dp(4)}px;
-                    margin: 0;
-                    padding: 0;
-                }}
-            """)
+        # 注意：以下属性都在_create_ui_structure中创建，
+        # setupUI保证_create_ui_structure在_apply_theme之前调用
 
-        # 分隔线样式
-        if hasattr(self, 'divider'):
-            self.divider.setStyleSheet(f"""
-                background-color: {accent_color};
-                border-radius: {dp(2)}px;
-            """)
+        self.title.setStyleSheet(f"""
+            QLabel {{
+                font-family: {serif_font};
+                font-size: {dp(56)}px;
+                font-weight: bold;
+                color: {text_primary};
+                letter-spacing: {dp(2)}px;
+            }}
+        """)
 
-        # 副标题样式
-        if hasattr(self, 'subtitle'):
-            self.subtitle.setStyleSheet(f"""
-                QLabel {{
-                    font-family: {ui_font};
-                    font-size: {dp(18)}px;
-                    font-weight: normal;
-                    color: {text_secondary};
-                    letter-spacing: {dp(1)}px;
-                    margin: 0;
-                    padding: 0;
-                }}
-            """)
+        self.subtitle.setStyleSheet(f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {dp(16)}px;
+                color: {text_secondary};
+                letter-spacing: {dp(1)}px;
+            }}
+        """)
 
-        # 设置按钮 - 简约线条风格
-        if hasattr(self, 'settings_btn'):
-            self.settings_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: {text_secondary};
-                    border: 1px solid transparent;
-                    border-radius: {dp(4)}px;
-                    padding: {dp(4)}px {dp(8)}px;
-                    font-family: {ui_font};
-                }}
-                QPushButton:hover {{
-                    color: {accent_color};
-                    border-color: {border_color};
-                }}
-            """)
+        # 创作箴言样式 - 艺术字体，斜体，淡雅
+        # 计算一个介于 text_secondary 和 accent_color 之间的淡雅颜色
+        quote_color = text_secondary  # 使用次要文字颜色
+        quote_accent = accent_color  # 用于英文
 
-        # 通用大按钮样式
-        btn_style = f"""
+        self.quote_container.setStyleSheet("background: transparent;")
+
+        # 中文箴言 - 使用衬线字体，营造文学气息
+        self.quote_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {serif_font};
+                font-size: {dp(15)}px;
+                font-style: italic;
+                color: {quote_color};
+                letter-spacing: {dp(3)}px;
+                background: transparent;
+            }}
+        """)
+
+        # 英文副标语 - 更小、更淡，作为点缀
+        self.quote_sub_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: "Georgia", "Times New Roman", {serif_font};
+                font-size: {dp(11)}px;
+                font-style: italic;
+                color: {border_color};
+                letter-spacing: {dp(1)}px;
+                background: transparent;
+            }}
+        """)
+
+        self.settings_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {btn_bg};
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid transparent;
+                border-radius: {dp(4)}px;
+                font-family: {ui_font};
+                font-size: {dp(13)}px;
+            }}
+            QPushButton:hover {{
+                color: {accent_color};
+                border-color: {border_color};
+            }}
+        """)
+
+        # 创建按钮样式（主要按钮）
+        self.create_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {accent_color};
+                color: {bg_color};
+                border: none;
+                border-radius: {dp(8)}px;
+                padding: {dp(12)}px {dp(24)}px;
+                font-family: {ui_font};
+                font-size: {dp(16)}px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {text_primary};
+            }}
+            QPushButton:pressed {{
+                background-color: {text_secondary};
+            }}
+        """)
+
+        # 打开按钮样式（次要按钮）
+        self.open_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg_secondary};
                 color: {text_primary};
                 border: 1px solid {border_color};
                 border-radius: {dp(8)}px;
                 padding: {dp(12)}px {dp(24)}px;
                 font-family: {ui_font};
-                font-size: {dp(18)}px;
-                letter-spacing: {dp(1)}px;
+                font-size: {dp(16)}px;
             }}
             QPushButton:hover {{
                 border-color: {accent_color};
-                background-color: {bg_color};
                 color: {accent_color};
             }}
             QPushButton:pressed {{
-                background-color: {theme_manager.BG_SECONDARY};
+                background-color: {bg_color};
+            }}
+        """)
+
+        # 滚动区域样式
+        scroll_style = f"""
+            QScrollArea {{
+                background-color: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background-color: transparent;
+                width: {dp(6)}px;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {border_color};
+                border-radius: {dp(3)}px;
+                min-height: {dp(30)}px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {text_secondary};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
             }}
         """
 
-        if hasattr(self, 'inspiration_btn'):
-            self.inspiration_btn.setStyleSheet(btn_style)
+        self.recent_scroll.setStyleSheet(scroll_style)
+        self.all_scroll.setStyleSheet(scroll_style)
 
-        if hasattr(self, 'workspace_btn'):
-            self.workspace_btn.setStyleSheet(btn_style)
+        # 容器透明背景
+        for container_name in ['recent_container', 'all_container', 'recent_page', 'all_page']:
+            container = getattr(self, container_name, None)
+            if container:
+                container.setStyleSheet("background-color: transparent;")
+
+        # 堆叠页面透明背景
+        self.projects_stack.setStyleSheet("background-color: transparent;")
+
+        # 空状态标签样式
+        empty_label_style = f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {dp(14)}px;
+                color: {text_secondary};
+                padding: {dp(40)}px;
+            }}
+        """
+
+        self.recent_empty_label.setStyleSheet(empty_label_style)
+        self.all_empty_label.setStyleSheet(empty_label_style)
 
     def _animate_entrance(self):
-        """入场动画 - 淡入效果和呼吸动画"""
-        # 标题淡入动画
+        """入场动画"""
         title_anim = QPropertyAnimation(self.title_opacity, b"opacity")
-        title_anim.setDuration(800)
+        title_anim.setDuration(600)
         title_anim.setStartValue(0.0)
         title_anim.setEndValue(1.0)
         title_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         title_anim.start()
-
-        # 保存动画引用防止被垃圾回收
         self.title_animation = title_anim
 
-        # 副标题淡入动画（延迟200ms）
         subtitle_anim = QPropertyAnimation(self.subtitle_opacity, b"opacity")
-        subtitle_anim.setDuration(800)
+        subtitle_anim.setDuration(600)
         subtitle_anim.setStartValue(0.0)
         subtitle_anim.setEndValue(1.0)
         subtitle_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        # 延迟启动
-        QTimer.singleShot(200, subtitle_anim.start)
-
-        # 保存动画引用
+        QTimer.singleShot(150, subtitle_anim.start)
         self.subtitle_animation = subtitle_anim
 
-        # 标题呼吸动画（延迟1000ms后启动循环）
-        QTimer.singleShot(1000, self._start_breathing_animation)
+        # 引言淡入动画 - 延迟更久，更缓慢地出现，增加诗意感
+        quote_anim = QPropertyAnimation(self.quote_opacity, b"opacity")
+        quote_anim.setDuration(800)
+        quote_anim.setStartValue(0.0)
+        quote_anim.setEndValue(0.85)  # 不完全不透明，保持淡雅
+        quote_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        QTimer.singleShot(400, quote_anim.start)
+        self.quote_animation = quote_anim
 
-    def _start_breathing_animation(self):
-        """启动标题呼吸动画 - 使用QPropertyAnimation替代QTimer"""
-        # 创建缩放动画（从1.0到1.03，循环播放）
-        self.breathing_anim = QPropertyAnimation(self.title, b"scale")
-        self.breathing_anim.setDuration(3000)  # 3秒一个周期
-        self.breathing_anim.setStartValue(1.0)
-        self.breathing_anim.setEndValue(1.03)
-        self.breathing_anim.setEasingCurve(QEasingCurve.Type.InOutSine)  # 平滑的正弦曲线
-        self.breathing_anim.setLoopCount(-1)  # 无限循环
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'particle_bg'):
+            self.particle_bg.setGeometry(self.rect())
 
-        # 使用QSequentialAnimationGroup实现往返动画
-        self.breathing_group = QSequentialAnimationGroup()
+    def _on_create_novel(self):
+        """创建小说 - 直接进入灵感对话模式"""
+        self.navigateTo('INSPIRATION')
 
-        # 放大动画
-        scale_up = QPropertyAnimation(self.title, b"scale")
-        scale_up.setDuration(1500)  # 1.5秒放大
-        scale_up.setStartValue(1.0)
-        scale_up.setEndValue(1.03)
-        scale_up.setEasingCurve(QEasingCurve.Type.InOutSine)
+    def _on_project_clicked(self, project_data: dict):
+        """点击项目卡片"""
+        project_id = project_data.get('id')
+        status = project_data.get('status', 'draft')
 
-        # 缩小动画
-        scale_down = QPropertyAnimation(self.title, b"scale")
-        scale_down.setDuration(1500)  # 1.5秒缩小
-        scale_down.setStartValue(1.03)
-        scale_down.setEndValue(1.0)
-        scale_down.setEasingCurve(QEasingCurve.Type.InOutSine)
+        # 根据状态决定导航目标
+        if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:
+            # 已有蓝图，导航到详情页
+            self.navigateTo('DETAIL', project_id=project_id)
+        else:
+            # 未完成蓝图（draft状态），导航回灵感对话继续
+            self.navigateTo('INSPIRATION', project_id=project_id)
 
-        self.breathing_group.addAnimation(scale_up)
-        self.breathing_group.addAnimation(scale_down)
-        self.breathing_group.setLoopCount(-1)  # 无限循环
-        self.breathing_group.start()
+    def _switch_tab(self, index: int):
+        """切换Tab页面"""
+        self.tab_bar.setCurrentIndex(index)
+        self.projects_stack.setCurrentIndex(index)
+
+    def _load_recent_projects(self):
+        """加载项目数据（最近项目 + 全部项目）"""
+        try:
+            projects = self.api_client.get_novels()
+            if projects:
+                # 最近项目：按更新时间排序，取前10个
+                sorted_by_time = sorted(
+                    projects,
+                    key=lambda x: x.get('updated_at', ''),
+                    reverse=True
+                )
+                self.recent_projects = sorted_by_time[:10]
+
+                # 全部项目：按首字母排序
+                self.all_projects = sorted(
+                    projects,
+                    key=lambda x: (get_title_sort_key(x.get('title', '')), x.get('title', '').lower())
+                )
+            else:
+                self.recent_projects = []
+                self.all_projects = []
+
+            self._update_projects_ui()
+        except Exception as e:
+            logger.error("加载项目失败: %s", e, exc_info=True)
+            self.recent_projects = []
+            self.all_projects = []
+            self._update_projects_ui()
+
+    def _clear_layout(self, layout, preserve_widgets=None):
+        """清空布局中的所有组件（可选保留指定widget）
+
+        Args:
+            layout: 要清空的布局
+            preserve_widgets: 要保留的widget列表（不删除，只从布局中移除）
+        """
+        if preserve_widgets is None:
+            preserve_widgets = []
+
+        while layout.count() > 0:
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                # 如果是要保留的widget，只从布局中移除，不删除
+                if widget in preserve_widgets:
+                    continue
+                # 使用 deleteLater() 删除，ThemeAware 基类会自动断开信号
+                widget.deleteLater()
+
+    def _update_projects_ui(self):
+        """更新项目列表UI（最近项目Tab + 全部项目Tab）"""
+        # 清空现有内容（保留empty_label不被删除）
+        self._clear_layout(self.recent_layout, preserve_widgets=[self.recent_empty_label])
+        self._clear_layout(self.all_layout, preserve_widgets=[self.all_empty_label])
+
+        # ===== 更新最近项目Tab =====
+        if self.recent_projects:
+            self.recent_empty_label.hide()
+            for project in self.recent_projects:
+                card = RecentProjectCard(project, self.recent_container)
+                self.recent_layout.addWidget(card)
+            self.recent_layout.addStretch()
+        else:
+            self.recent_layout.addWidget(self.recent_empty_label)
+            self.recent_empty_label.show()
+            self.recent_layout.addStretch()
+
+        # ===== 更新全部项目Tab（按首字母排序，不显示分组标题） =====
+        if self.all_projects:
+            self.all_empty_label.hide()
+            for project in self.all_projects:
+                card = RecentProjectCard(project, self.all_container)
+                self.all_layout.addWidget(card)
+            self.all_layout.addStretch()
+        else:
+            self.all_layout.addWidget(self.all_empty_label)
+            self.all_empty_label.show()
+            self.all_layout.addStretch()
+
+    def refresh(self, **params):
+        """刷新页面"""
+        self._load_recent_projects()
 
     def onShow(self):
-        """页面显示时启动动画"""
-        # 启动粒子动画
-        if hasattr(self, 'particle_bg') and hasattr(self.particle_bg, 'timer'):
-            if not self.particle_bg.timer.isActive():
-                self.particle_bg.timer.start(50)
+        """页面显示时"""
+        # 随机更换箴言，每次返回首页时显示不同的启发性标语
+        if hasattr(self, 'quote_label') and hasattr(self, 'quote_sub_label'):
+            self._current_quote = random.choice(CREATIVE_QUOTES)
+            self.quote_label.setText(self._current_quote[0])
+            self.quote_sub_label.setText(self._current_quote[1])
 
-        # 启动呼吸动画
-        if hasattr(self, 'breathing_group'):
-            if self.breathing_group.state() != QSequentialAnimationGroup.State.Running:
-                self.breathing_group.start()
+        # 加载最近项目
+        self._load_recent_projects()
+
+        # 启动粒子动画
+        if hasattr(self, 'particle_bg'):
+            self.particle_bg.start()
 
     def onHide(self):
-        """页面隐藏时停止动画以节省CPU"""
-        # 停止粒子动画
-        if hasattr(self, 'particle_bg') and hasattr(self.particle_bg, 'timer'):
-            self.particle_bg.timer.stop()
+        """页面隐藏时停止动画"""
+        if hasattr(self, 'particle_bg'):
+            self.particle_bg.stop()
 
-        # 停止呼吸动画
-        if hasattr(self, 'breathing_group'):
-            self.breathing_group.pause()
-
+    def closeEvent(self, event):
+        """窗口关闭时清理资源"""
+        # 清理粒子背景资源
+        if hasattr(self, 'particle_bg'):
+            self.particle_bg.cleanup()
+        super().closeEvent(event)

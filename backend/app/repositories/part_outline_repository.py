@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from .base import BaseRepository
 from ..models.part_outline import PartOutline
@@ -30,11 +30,7 @@ class PartOutlineRepository(BaseRepository[PartOutline]):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    async def delete_by_project_id(self, project_id: str) -> None:
-        """删除指定项目的所有部分大纲"""
-        stmt = delete(PartOutline).where(PartOutline.project_id == project_id)
-        await self.session.execute(stmt)
-        await self.session.flush()
+    # delete_by_project_id 已在 BaseRepository 中实现，无需重复定义
 
     async def delete_from_part(self, project_id: str, from_part: int) -> int:
         """
@@ -50,7 +46,6 @@ class PartOutlineRepository(BaseRepository[PartOutline]):
             int: 删除的部分数量
         """
         # 先统计要删除的数量
-        from sqlalchemy import func
         count_stmt = (
             select(func.count(PartOutline.id))
             .where(PartOutline.project_id == project_id)
@@ -71,9 +66,7 @@ class PartOutlineRepository(BaseRepository[PartOutline]):
 
     async def batch_create(self, part_outlines: List[PartOutline]) -> List[PartOutline]:
         """批量创建部分大纲"""
-        self.session.add_all(part_outlines)
-        await self.session.flush()
-        return part_outlines
+        return await self.bulk_add(part_outlines)
 
     async def update_status(
         self, part_outline: PartOutline, status: str, progress: int

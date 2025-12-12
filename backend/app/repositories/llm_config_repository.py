@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 
 from .base import BaseRepository
 from ..models import LLMConfig
@@ -38,14 +38,21 @@ class LLMConfigRepository(BaseRepository[LLMConfig]):
         return result.scalars().first()
 
     async def activate_config(self, config_id: int, user_id: int) -> None:
-        """激活指定配置，同时取消该用户的其他配置的激活状态。"""
-        # 先将该用户的所有配置设为未激活
+        """激活指定配置，同时取消该用户的其他配置的激活状态。
+
+        使用单条UPDATE语句的CASE表达式实现原子操作，避免竞态条件：
+        - 旧实现：两条UPDATE（先全部设为False，再指定设为True）存在竞态窗口
+        - 新实现：单条UPDATE通过CASE实现条件赋值，确保原子性
+        """
         await self.session.execute(
-            update(LLMConfig).where(LLMConfig.user_id == user_id).values(is_active=False)
-        )
-        # 再激活指定配置
-        await self.session.execute(
-            update(LLMConfig).where(LLMConfig.id == config_id, LLMConfig.user_id == user_id).values(is_active=True)
+            update(LLMConfig)
+            .where(LLMConfig.user_id == user_id)
+            .values(
+                is_active=case(
+                    (LLMConfig.id == config_id, True),
+                    else_=False,
+                )
+            )
         )
         await self.session.flush()
 

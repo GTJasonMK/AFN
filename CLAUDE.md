@@ -12,12 +12,13 @@ python run_app.py
 cd backend && .venv\Scripts\activate && uvicorn app.main:app --reload --port 8123
 cd frontend && .venv\Scripts\activate && python main.py
 
-# 依赖安装（run_app.py 会自动处理，通常无需手动执行）
-cd backend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
-cd frontend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
-
 # 数据库迁移（修改SQLAlchemy模型后必须执行）
 cd backend && .venv\Scripts\activate && alembic revision --autogenerate -m "描述变更" && alembic upgrade head
+
+# 测试
+cd backend && .venv\Scripts\activate && pytest tests/ -v                    # 运行所有测试
+cd backend && .venv\Scripts\activate && pytest tests/test_novel.py -v       # 运行单个文件
+cd backend && .venv\Scripts\activate && pytest tests/test_novel.py::test_create -v  # 运行单个测试
 
 # 查看日志
 type storage\app.log           # 统一入口日志
@@ -31,37 +32,38 @@ sqlite3 backend\storage\afn.db ".tables"
 sqlite3 backend\storage\afn.db "SELECT * FROM novels LIMIT 5;"
 
 # 打包发布
-python run_app.py   # 先运行一次确保环境就绪
-build.bat           # 执行打包
+build.bat
 ```
-
-**关键文件路径**：
-- 后端入口：`backend/app/main.py`
-- 前端入口：`frontend/main.py`
-- API客户端：`frontend/api/client.py`
-- 默认用户依赖：`backend/app/core/dependencies.py`
-- 项目状态机：`backend/app/core/state_machine.py`
-- 提示词模板：`backend/prompts/`
-- 自定义异常：`backend/app/exceptions.py`
-- 主题管理：`frontend/themes/theme_manager.py`
-- RAG模块：`backend/app/services/rag/`
 
 ## 项目概述
 
 AFN (Agents for Novel) 是AI辅助长篇小说创作的单机桌面应用。核心特点：**开箱即用、无需登录、本地存储**。
 
-## 核心技术栈
-
-- **后端**: Python 3.10+ + FastAPI 0.110.0 + SQLAlchemy 2.0 (异步) + aiosqlite
-- **前端**: PyQt6 6.6.1 (桌面GUI应用)
-- **数据库**: SQLite (本地存储于 `backend/storage/`)
-- **LLM集成**: OpenAI API兼容接口
-- **通信**: HTTP REST API (端口固定 8123)
+**技术栈**：
+- 后端: Python 3.10+ / FastAPI 0.110.0 / SQLAlchemy 2.0 (异步) / aiosqlite
+- 前端: PyQt6 6.6.1
+- 数据库: SQLite (`backend/storage/afn.db`)
+- 通信: HTTP REST API (端口 8123)
 
 **架构特点**：
 - 后端全异步：所有数据库操作和LLM调用使用 `async/await`
 - 前端异步处理：使用 `AsyncWorker` 和 `QThread` 避免UI冻结
 - 无认证系统：使用固定默认用户 `desktop_user`
+- 嵌入服务：支持 OpenAI 兼容接口和 Ollama 本地模型
+
+## 关键文件路径
+
+| 类别 | 路径 | 说明 |
+|------|------|------|
+| 后端入口 | `backend/app/main.py` | FastAPI应用 |
+| 前端入口 | `frontend/main.py` | PyQt6应用 |
+| API客户端 | `frontend/api/client.py` | 前端HTTP封装 |
+| 依赖注入 | `backend/app/core/dependencies.py` | get_session, get_*_service |
+| 状态机 | `backend/app/core/state_machine.py` | 项目状态流转 |
+| 异常定义 | `backend/app/exceptions.py` | 统一异常体系 |
+| 提示词模板 | `backend/prompts/` | inspiration.md, writing.md等 |
+| 主题管理 | `frontend/themes/theme_manager.py` | 深色/亮色主题 |
+| 主题基类 | `frontend/components/base/theme_aware_widget.py` | UI组件主题感知 |
 
 ## 后端架构
 
@@ -69,85 +71,80 @@ AFN (Agents for Novel) 是AI辅助长篇小说创作的单机桌面应用。核�
 
 ```
 backend/app/
-├── api/routers/          # API路由
-│   ├── novels/           # 小说项目路由（灵感对话、蓝图、大纲、导出）
-│   ├── writer/           # 写作阶段路由（章节生成、版本管理）
-│   ├── llm_config.py     # LLM配置管理
-│   └── settings.py       # 应用设置
-├── core/
-│   ├── dependencies.py   # 依赖注入（get_default_user, get_session, get_*_service）
-│   ├── state_machine.py  # 项目状态机
-│   └── config.py         # 配置管理
-├── models/               # SQLAlchemy ORM模型
-├── schemas/              # Pydantic数据模型
-├── repositories/         # 数据访问层（继承BaseRepository）
-├── services/             # 业务逻辑层
-│   ├── novel_service.py           # 项目管理、灵感对话、蓝图生成
-│   ├── llm_service.py             # LLM调用（支持流式和非流式）
-│   ├── chapter_context_service.py # 增强型章节上下文（RAG检索）
-│   ├── chapter_generation_service.py  # 章节生成核心逻辑
-│   ├── chapter_analysis_service.py    # 章节分析（LLM提取元数据）
-│   ├── chapter_ingest_service.py      # 章节入库（向量化）
-│   ├── foreshadowing_service.py       # 伏笔追踪管理
-│   ├── incremental_indexer.py         # 增量索引（角色状态/伏笔）
-│   └── rag/                           # RAG增强模块
-│       ├── query_builder.py           # 多维查询构建
-│       ├── temporal_retriever.py      # 时序感知检索
-│       ├── context_builder.py         # 分层上下文构建
-│       └── context_compressor.py      # 上下文压缩
+├── api/routers/
+│   ├── novels/              # 项目管理路由（灵感对话、蓝图、大纲）
+│   └── writer/              # 写作阶段路由（章节生成、版本管理）
+├── services/
+│   ├── novel_service.py     # 项目管理、灵感对话
+│   ├── llm_service.py       # LLM调用（流式/非流式）
+│   ├── chapter_generation/  # 章节生成模块
+│   │   ├── service.py       # 生成服务入口
+│   │   ├── workflow.py      # 生成工作流
+│   │   └── context.py       # 上下文构建
+│   ├── part_outline/        # 分部大纲模块
+│   │   ├── service.py       # 大纲服务入口
+│   │   └── workflow.py      # 生成工作流
+│   ├── rag/                 # RAG增强模块
+│   │   ├── query_builder.py # 多维查询构建
+│   │   ├── context_builder.py   # 分层上下文
+│   │   ├── context_compressor.py # 上下文压缩
+│   │   └── temporal_retriever.py # 时序感知检索
+│   ├── embedding_service.py # 嵌入服务（OpenAI兼容/Ollama）
+│   └── incremental_indexer.py # 增量索引
+├── repositories/            # 数据访问层（继承BaseRepository）
+├── models/                  # SQLAlchemy ORM模型
+├── schemas/                 # Pydantic数据模型
 └── utils/
-    ├── exception_helpers.py  # 统一异常处理工具
-    └── json_utils.py         # JSON处理
+    ├── json_utils.py        # LLM响应JSON解析
+    └── sse_helpers.py       # SSE事件工具
 ```
 
-## 前端架构（PyQt6单页面应用）
+## 前端架构
 
-基于QStackedWidget的导航系统：
+基于QStackedWidget的单页面导航：
 
 ```
 frontend/
-├── main.py               # 应用入口
-├── windows/              # 页面窗口
-│   ├── main_window.py        # 主窗口（导航容器）
-│   ├── inspiration_mode/     # 灵感对话模块
-│   ├── novel_detail/         # 项目详情模块
-│   └── writing_desk/         # 写作台模块
-├── pages/home_page.py    # 首页（项目卡片网格）
-├── components/           # UI组件库
-├── themes/               # 主题系统
-├── api/client.py         # API客户端
+├── windows/
+│   ├── main_window.py       # 主窗口（导航容器）
+│   ├── inspiration_mode/    # 灵感对话模块
+│   ├── novel_detail/        # 项目详情模块
+│   └── writing_desk/        # 写作台模块
+├── pages/home_page.py       # 首页（项目卡片）
+├── components/              # UI组件库
+├── themes/                  # 主题系统
 └── utils/
-    ├── async_worker.py       # 异步任务
-    ├── sse_worker.py         # SSE流式响应处理
-    ├── error_handler.py      # @handle_errors装饰器
-    ├── message_service.py    # 消息显示服务
-    └── formatters.py         # 状态/字数格式化
+    ├── async_worker.py      # 异步任务
+    └── sse_worker.py        # SSE流式响应
 ```
 
 **页面导航**：`MainWindow.navigateTo(page_type, params)` / `goBack()`
 **页面类型**：`HOME`, `INSPIRATION`, `WORKSPACE`, `DETAIL`, `WRITING_DESK`, `SETTINGS`
 **生命周期钩子**：`refresh(**params)`, `onShow()`, `onHide()`
 
-## 核心开发约定
+## 项目状态机
 
-### 1. 项目状态机
 ```
 DRAFT -> BLUEPRINT_READY -> [PART_OUTLINES_READY] -> CHAPTER_OUTLINES_READY -> WRITING -> COMPLETED
 ```
 - 长篇（>=50章）：先生成分部大纲（每25章一部分），再生成章节大纲
 - 短篇（<50章）：直接生成章节大纲
 
-### 2. 前端异步操作
+## 核心开发模式
+
+### 前端异步操作
 ```python
 from utils.async_worker import AsyncWorker
 
 worker = AsyncWorker(lambda: client.generate_blueprint(project_id))
-worker.finished.connect(on_success)
-worker.error.connect(on_error)
+worker.success.connect(on_success)       # 成功信号
+worker.error.connect(on_error)           # 错误信息（字符串）
+worker.error_detail.connect(on_detail)   # 详细错误（包含status_code, response_json等）
 worker.start()
+# 取消任务：worker.cancel()
 ```
 
-### 3. 前端SSE流式响应
+### 前端SSE流式响应
 ```python
 from utils.sse_worker import SSEWorker
 
@@ -158,7 +155,19 @@ worker.error.connect(on_error)
 worker.start()
 ```
 
-### 4. 后端流式响应
+**SSE事件类型**（后端 -> 前端）：
+- `token`: 流式文本 `{"token": "字符"}`
+- `complete`: 完成 `{"ui_control": {...}, "is_complete": bool}`
+- `error`: 错误 `{"message": "错误描述"}`
+
+**后端SSE工具**（`backend/app/utils/sse_helpers.py`）：
+```python
+from app.utils.sse_helpers import sse_event
+yield sse_event("token", {"token": char})
+yield sse_event("complete", {"is_complete": True})
+```
+
+### 后端LLM调用
 ```python
 # 非流式
 response = await llm_service.get_llm_response(user_id, system_prompt, user_prompt, payload)
@@ -168,8 +177,22 @@ async for chunk in llm_service.get_llm_response_stream(user_id, system_prompt, u
     yield chunk
 ```
 
-### 5. 主题系统
-继承 `ThemeAwareWidget` 实现主题感知组件：
+### JSON解析工具
+```python
+from app.utils.json_utils import parse_llm_json_or_fail, parse_llm_json_safe, extract_llm_content
+
+# Router层：解析失败抛HTTPException
+blueprint_data = parse_llm_json_or_fail(llm_response, "蓝图生成失败")
+
+# Service层：解析失败返回None，不中断
+data = parse_llm_json_safe(record.content)
+
+# 提取内容和元数据
+content, metadata = extract_llm_content(llm_response, content_key="content")
+```
+自动处理：`<think>`标签移除、Markdown代码块提取、中文引号替换
+
+### 主题感知组件
 ```python
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
@@ -190,20 +213,31 @@ class MyComponent(ThemeAwareWidget):
             self.my_label.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
 ```
 
-### 6. 事务管理
-**标准模式**：Service层用 `flush()` 不commit，Route层统一 `commit()`
-**例外**：状态管理方法、长任务状态跟踪、配置CRUD可以commit
-
-### 7. 异常处理
+### 异常处理
+后端使用统一异常体系（`backend/app/exceptions.py`），所有异常继承自 `AFNException`：
 ```python
-from app.utils.exception_helpers import log_exception
-from app.exceptions import ResourceNotFoundError
-
-if not project:
-    raise ResourceNotFoundError("项目", project_id)
+from app.exceptions import (
+    # 4xx 客户端错误
+    ResourceNotFoundError,        # 404 - 资源不存在
+    PermissionDeniedError,        # 403 - 权限不足
+    InvalidParameterError,        # 400 - 参数错误
+    InvalidStateTransitionError,  # 400 - 非法状态转换
+    ConflictError,               # 409 - 资源冲突
+    # 5xx 服务端错误
+    LLMServiceError,             # 503 - LLM服务错误
+    LLMConfigurationError,       # 500 - LLM配置错误
+    VectorStoreError,            # 503 - 向量库错误
+    DatabaseError,               # 500 - 数据库错误
+    JSONParseError,              # 500 - JSON解析错误
+    # 业务逻辑异常
+    BlueprintNotReadyError,      # 400 - 蓝图未生成
+    ChapterNotGeneratedError,    # 400 - 章节未生成
+    GenerationCancelledError,    # 400 - 生成任务被取消
+    PromptTemplateNotFoundError, # 500 - 提示词模板不存在
+)
 ```
 
-### 8. 前端错误处理
+前端错误处理：
 ```python
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
@@ -211,99 +245,94 @@ from utils.message_service import MessageService, confirm
 @handle_errors("加载项目")
 def loadProject(self):
     self.project = self.api_client.get_novel(self.project_id)
-
-MessageService.show_success(self, "操作成功")
-
-if confirm(self, "确定要删除吗？", "确认删除"):
-    self.delete()
 ```
 
-## 项目特殊约定
+### 事务管理
+**标准模式**：Service层用 `flush()` 不commit，Route层统一 `commit()`
+**例外**：状态管理方法、长任务状态跟踪、配置CRUD可以commit
+
+### Repository模式
+所有Repository继承`BaseRepository`，已封装常见CRUD操作：
+```python
+from app.repositories.base import BaseRepository
+
+class NovelRepository(BaseRepository[Novel]):
+    model = Novel
+
+# 基类提供的方法：
+# await repo.get(id=novel_id)                    # 单条查询
+# await repo.list(filters={"user_id": user_id}) # 条件查询
+# await repo.list_all()                          # 全部查询
+# await repo.add(instance)                       # 添加（自动flush）
+# await repo.delete(instance)                    # 删除
+# await repo.update_fields(instance, **values)   # 更新字段
+# await repo.bulk_add(instances)                 # 批量添加
+# await repo.bulk_delete_by_ids(ids)             # 批量删除
+# await repo.delete_by_project_id(project_id)    # 按项目ID级联删除
+# await repo.delete_by_field(field_name, value)  # 按字段删除
+# await repo.count_by_field(field_name, value)   # 按字段计数
+```
+
+## 项目约定
 
 1. **不使用emoji**：代码、注释、日志中避免emoji，防止编码错误
 2. **中文注释**：所有代码注释和文档使用中文
-3. **同步更新**：修改API时必须同步更新前后端
+3. **同步更新**：修改API时必须同步更新前后端（schemas、路由、API客户端）
 4. **灵感对话术语**：使用"灵感对话"(inspiration)而非"概念对话"(concept)
-5. **禁止通配符导入**：`from PyQt6.QtWidgets import *` 不允许
-6. **端口配置**：后端固定端口 `8123`，修改需同步更改：`start_all.bat`、`frontend/api/client.py`、`backend/start.bat`
+5. **禁止通配符导入**：禁止 `from PyQt6.QtWidgets import *`
+6. **端口配置**：后端固定端口 `8123`，修改需同步更改 `run_app.py` 和 `frontend/api/client.py`
+7. **复用优先**：新建文件或服务前，先搜索是否已有可复用的组件
+8. **API文档**：运行后可访问 `http://localhost:8123/docs` 查看完整API文档
 
 ## RAG增强系统
 
 章节生成时使用增强型RAG检索，确保故事连贯性：
 
 ```
-章节生成请求
-    |
-查询构建（QueryBuilder）
-├── 主查询：章节标题+摘要+写作要点
-├── 角色查询：提取涉及角色的历史
-├── 伏笔查询：待回收伏笔的相关内容
-└── 场景查询：场景历史事件
-    |
-时序感知检索（TemporalRetriever）
-├── 向量相似度检索
-├── 时序权重加成（临近章节优先）
-└── 综合得分排序
-    |
-上下文构建（ContextBuilder）
-├── 必需层：蓝图核心、角色名、当前大纲、前章结尾
-├── 重要层：涉及角色详情、高优先级伏笔、RAG摘要
-└── 参考层：世界观、检索片段、其他伏笔
-    |
-上下文压缩（ContextCompressor）
-└── 按优先级截断，确保不超token限制
-    |
-LLM生成章节
+章节生成请求 -> QueryBuilder（多维查询）-> TemporalRetriever（时序检索）
+    -> ContextBuilder（分层构建）-> ContextCompressor（压缩）-> LLM生成
 ```
 
-**关键数据流**：
-- 章节选择版本 -> `chapter_ingest_service`（文本切分、向量化） -> `rag_chunks`表
-- 章节选择版本 -> `chapter_analysis_service`（LLM分析） -> `analysis_data`字段
-- 分析完成 -> `incremental_indexer`（更新索引） -> `character_state_index` + `foreshadowing_index`
+**上下文分层**：
+- 必需层：蓝图核心、角色名、当前大纲、前章结尾
+- 重要层：涉及角色详情、高优先级伏笔、RAG摘要
+- 参考层：世界观、检索片段、其他伏笔
+
+**数据流**：
+- 章节选择版本 -> `chapter_ingest_service`（向量化）-> `rag_chunks`表
+- 章节选择版本 -> `chapter_analysis_service`（LLM分析）-> `analysis_data`字段
+- 分析完成 -> `incremental_indexer` -> `character_state_index` + `foreshadowing_index`
 
 ## 常用API端点
 
-```bash
-# 项目管理
-POST   /api/novels                           # 创建项目
-GET    /api/novels                           # 项目列表
-GET    /api/novels/{id}                      # 项目详情
-DELETE /api/novels/{id}                      # 删除项目
+| 功能 | 端点 |
+|------|------|
+| 项目CRUD | `GET/POST /api/novels`, `DELETE /api/novels/{id}` |
+| 灵感对话(流式) | `POST /api/novels/{id}/inspiration/converse-stream` |
+| 生成蓝图 | `POST /api/novels/{id}/blueprint/generate` |
+| 章节大纲 | `POST /api/novels/{id}/chapter-outlines/generate` |
+| 分部大纲 | `POST /api/writer/novels/{id}/parts/generate` |
+| 增量大纲 | `POST /api/writer/novels/{id}/chapter-outlines/generate-by-count` |
+| 生成章节 | `POST /api/writer/novels/{id}/chapters/{num}/generate` |
+| 选择版本 | `POST /api/writer/novels/{id}/chapters/select` |
+| LLM配置 | `GET/POST /api/llm-configs`, `POST /api/llm-configs/{id}/activate` |
 
-# 灵感对话与蓝图
-POST   /api/novels/{id}/inspiration/converse # 灵感对话
-POST   /api/novels/{id}/blueprint/generate   # 生成蓝图
-GET    /api/novels/{id}/blueprint            # 获取蓝图
+完整API列表见 `docs/FEATURES.md`
 
-# 大纲生成
-POST   /api/novels/{id}/chapter-outlines/generate              # 短篇章节大纲
-POST   /api/writer/novels/{id}/parts/generate                  # 长篇部分大纲
-POST   /api/writer/novels/{id}/chapter-outlines/generate-by-count  # 增量章节大纲
+## 数据库核心表
 
-# 章节写作
-POST   /api/writer/novels/{id}/chapters/{num}/generate  # 生成章节版本
-POST   /api/writer/novels/{id}/chapters/select          # 选择版本
-GET    /api/writer/novels/{id}/chapters                 # 章节列表
-
-# LLM配置
-GET    /api/llm-configs                      # 配置列表
-POST   /api/llm-configs                      # 创建配置
-POST   /api/llm-configs/{id}/activate        # 激活配置
-POST   /api/llm-configs/test                 # 测试连接
-```
-
-## 数据库Schema
-
-核心表：`users`、`novels`、`novel_conversations`、`novel_blueprints`、`part_outlines`、`chapters`、`chapter_versions`、`llm_configs`、`prompts`、`rag_chunks`、`rag_summaries`、`character_state_index`、`foreshadowing_index`
+`novels`, `novel_conversations`, `novel_blueprints`, `part_outlines`, `chapters`, `chapter_versions`, `llm_configs`, `prompts`, `rag_chunks`, `character_state_index`, `foreshadowing_index`
 
 ## 故障排查
 
 | 问题 | 排查步骤 |
 |------|----------|
-| 后端启动失败 | 检查虚拟环境、重新安装依赖、检查端口占用、查看日志 |
-| 前端无法连接 | 确认后端启动、检查端口配置、查看防火墙 |
-| LLM调用失败 | 在设置页测试连接、检查API Key、查看后端日志 |
+| 后端启动失败 | 检查虚拟环境、端口8123占用、查看 `backend/storage/debug.log` |
+| 前端无法连接 | 确认后端启动、检查端口配置 |
+| LLM调用失败 | 设置页测试连接、检查API Key |
 
 ## 相关文档
 
-- `backend/docs/RAG_OPTIMIZATION_PLAN.md` - RAG系统优化计划（包含Phase 1-2已实现的架构）
+- `docs/FEATURES.md` - 功能特性和完整API列表
+- `docs/SSE_STREAMING_IMPLEMENTATION.md` - SSE流式输出实现
+- `backend/docs/RAG_OPTIMIZATION_PLAN.md` - RAG系统优化计划

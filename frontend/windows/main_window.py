@@ -9,6 +9,7 @@
 - DPI感知和响应式布局
 """
 
+import json
 import logging
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout, QVBoxLayout
 from PyQt6.QtCore import Qt, QSize
@@ -19,6 +20,7 @@ from themes.theme_manager import theme_manager, ThemeMode
 from themes.modern_effects import ModernEffects
 from themes.svg_icons import SVGIcons
 from utils.dpi_utils import dpi_helper, dp, sp
+from api.manager import APIClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,24 @@ class MainWindow(QMainWindow):
     # 缓存配置
     MAX_CACHED_PAGES = 10  # 最多缓存10个页面
     IMPORTANT_PAGES = {'HOME', 'SETTINGS'}  # 重要页面永不淘汰
+
+    @staticmethod
+    def _make_nav_key(page_type: str, params: dict) -> str:
+        """生成导航历史的比较键
+
+        将页面类型和参数序列化为字符串，确保相同的导航目标
+        产生相同的键，用于避免重复的历史记录。
+
+        Args:
+            page_type: 页面类型
+            params: 页面参数字典
+
+        Returns:
+            序列化后的导航键字符串
+        """
+        # 使用 sort_keys 确保相同内容的 dict 产生相同的序列化结果
+        params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        return f"{page_type}:{params_str}"
 
     def __init__(self):
         super().__init__()
@@ -233,60 +253,48 @@ class MainWindow(QMainWindow):
         self.central_widget.setObjectName("centralWidget")
 
     def on_theme_changed(self, mode: str):
-        """主题改变时的处理"""
+        """主题改变时的处理
+
+        优化说明：
+        - 各组件已通过 ThemeAware 基类自动响应主题信号
+        - 此处只需更新主窗口自身的样式和浮动工具栏
+        - 不再遍历整棵组件树，提升性能
+        """
         # 应用窗口主题
         self.apply_window_theme()
 
         # 更新按钮样式
         self.update_theme_button()
 
-        # 使用QTimer延迟执行样式刷新，确保在所有组件的主题信号处理完成后执行
-        # 使用50ms延迟以确保任何异步样式更新都已完成
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(50, self._force_style_refresh_all)
+        # 强制刷新主窗口的样式缓存（仅顶层）
+        self._refresh_top_level_style()
 
-        # 注意：不要在这里调用page.refresh()
-        # 因为refresh()是用于刷新页面数据的（如导航时）
-        # 主题切换已通过各页面自己的on_theme_changed()信号处理
+    def _refresh_top_level_style(self):
+        """刷新顶层组件的样式（轻量级刷新）
 
-    def _force_style_refresh_all(self):
-        """强制刷新所有组件的样式"""
-        self._force_style_refresh(self)
-
-    def _force_style_refresh(self, widget):
-        """递归强制刷新组件及其所有子组件的样式
-
-        解决Qt样式表缓存问题：当主题切换时，某些组件的样式可能没有完全更新。
-
-        策略：
-        1. 对有 _apply_theme 方法的组件，调用该方法重新生成样式表
-        2. 对有 update_theme 方法的组件，调用该方法更新主题
-        3. 调用 style().unpolish() 和 style().polish() 强制Qt重新应用样式
-        4. 调用 update() 触发重绘
+        只刷新主窗口和浮动工具栏，不遍历整棵组件树。
+        各子组件通过主题信号自行处理。
         """
-        from PyQt6.QtWidgets import QWidget
+        try:
+            # 刷新主窗口
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()
 
-        # 收集所有需要刷新的组件（包括自身和所有子组件）
-        all_widgets = [widget] + widget.findChildren(QWidget)
+            # 刷新中心容器
+            self.central_widget.style().unpolish(self.central_widget)
+            self.central_widget.style().polish(self.central_widget)
+            self.central_widget.update()
 
-        for w in all_widgets:
-            try:
-                # 先尝试调用 _apply_theme 重新生成样式
-                if hasattr(w, '_apply_theme') and callable(getattr(w, '_apply_theme')):
-                    w._apply_theme()
-                # 或者调用 update_theme
-                elif hasattr(w, 'update_theme') and callable(getattr(w, 'update_theme')):
-                    w.update_theme()
+            # 刷新浮动工具栏
+            if hasattr(self, 'floating_widget'):
+                self.floating_widget.style().unpolish(self.floating_widget)
+                self.floating_widget.style().polish(self.floating_widget)
+                self.floating_widget.update()
 
-                # 然后强制Qt重新应用样式
-                w.style().unpolish(w)
-                w.style().polish(w)
-                w.update()
-            except RuntimeError:
-                # 组件可能已被删除，跳过
-                pass
-            except Exception as e:
-                logger.debug(f"刷新组件样式时出错: {e}")
+        except RuntimeError:
+            # 组件可能已被删除，跳过
+            pass
 
     def showEvent(self, event):
         """窗口显示时，确保浮动工具栏位置正确"""
@@ -308,7 +316,7 @@ class MainWindow(QMainWindow):
         """导航到指定页面
 
         Args:
-            page_type: 页面类型（HOME, INSPIRATION, WORKSPACE, DETAIL, WRITING_DESK, SETTINGS）
+            page_type: 页面类型（HOME, INSPIRATION, DETAIL, WRITING_DESK, SETTINGS）
             params: 页面参数（如project_id等）
         """
         if params is None:
@@ -320,7 +328,10 @@ class MainWindow(QMainWindow):
         page = self.getOrCreatePage(page_type, params)
 
         if page is None:
-            logger.error(f"无法创建页面 {page_type}")
+            logger.error(
+                "无法创建页面: page_type=%s, params=%s (可能缺少必需参数)",
+                page_type, params
+            )
             return
 
         logger.info("Page created/retrieved successfully: %s", type(page).__name__)
@@ -337,8 +348,10 @@ class MainWindow(QMainWindow):
         if hasattr(page, 'onShow'):
             page.onShow()
 
-        # 添加到导航历史（避免重复）
-        if not self.navigation_history or self.navigation_history[-1] != (page_type, params):
+        # 添加到导航历史（使用序列化键比较避免重复）
+        current_nav_key = self._make_nav_key(page_type, params)
+        last_nav_key = self._make_nav_key(*self.navigation_history[-1]) if self.navigation_history else None
+        if current_nav_key != last_nav_key:
             self.navigation_history.append((page_type, params))
             logger.info("Navigation history updated: %s", [(p, dict(pr) if pr else {}) for p, pr in self.navigation_history[-3:]])
 
@@ -396,7 +409,10 @@ class MainWindow(QMainWindow):
         if page_type in ['DETAIL', 'WRITING_DESK']:
             project_id = params.get('project_id')
             if not project_id:
-                logger.warning(f"页面{page_type}缺少project_id参数")
+                logger.error(
+                    "页面 %s 缺少必需的 project_id 参数，params=%s",
+                    page_type, params
+                )
                 return None
             cache_key = f"{page_type}_{project_id}"
 
@@ -463,32 +479,57 @@ class MainWindow(QMainWindow):
         oldest_key = candidates[0]
         oldest_page = self.pages.pop(oldest_key)
 
-        # 安全地调用页面的清理钩子
-        try:
-            if hasattr(oldest_page, 'onHide'):
-                oldest_page.onHide()
-        except RuntimeError:
-            logger.debug(f"页面 {oldest_key} 已被删除，跳过onHide")
-        except Exception as e:
-            logger.warning(f"调用页面 {oldest_key} 的onHide时出错: {e}")
+        # 使用统一的页面清理方法
+        self._safe_cleanup_page(oldest_page, oldest_key)
 
-        # 安全地从堆栈中移除
-        try:
-            self.page_stack.removeWidget(oldest_page)
-        except RuntimeError:
-            logger.debug(f"页面 {oldest_key} 已被删除，跳过removeWidget")
-        except Exception as e:
-            logger.warning(f"移除页面 {oldest_key} 时出错: {e}")
+        logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
 
-        # 延迟删除widget
+    def _safe_cleanup_page(self, page, page_key: str):
+        """安全地清理单个页面
+
+        按顺序执行清理操作，确保所有资源被正确释放：
+        1. 调用 onHide() - 通知页面即将隐藏
+        2. 调用 cleanup() - 清理内部资源（Timer、Worker等）
+        3. 从堆栈移除
+        4. 调用 deleteLater() - 延迟删除
+
+        Args:
+            page: 要清理的页面widget
+            page_key: 页面缓存键（用于日志）
+        """
+        # 1. 调用页面的隐藏钩子
         try:
-            oldest_page.deleteLater()
+            if hasattr(page, 'onHide'):
+                page.onHide()
+        except RuntimeError:
+            logger.debug(f"页面 {page_key} 已被删除，跳过onHide")
+        except Exception as e:
+            logger.warning(f"调用页面 {page_key} 的onHide时出错: {e}")
+
+        # 2. 调用页面的清理方法（释放Timer、Worker等内部资源）
+        try:
+            if hasattr(page, 'cleanup'):
+                page.cleanup()
+        except RuntimeError:
+            logger.debug(f"页面 {page_key} 已被删除，跳过cleanup")
+        except Exception as e:
+            logger.warning(f"调用页面 {page_key} 的cleanup时出错: {e}")
+
+        # 3. 从堆栈中移除
+        try:
+            self.page_stack.removeWidget(page)
+        except RuntimeError:
+            logger.debug(f"页面 {page_key} 已被删除，跳过removeWidget")
+        except Exception as e:
+            logger.warning(f"移除页面 {page_key} 时出错: {e}")
+
+        # 4. 延迟删除widget
+        try:
+            page.deleteLater()
         except RuntimeError:
             pass  # 对象已被删除
         except Exception as e:
-            logger.warning(f"删除页面 {oldest_key} 时出错: {e}")
-
-        logger.info(f"LRU淘汰页面: {oldest_key} (缓存大小: {len(self.pages)}/{self.MAX_CACHED_PAGES})")
+            logger.warning(f"删除页面 {page_key} 时出错: {e}")
 
     def clearCache(self, exclude_current=True):
         """手动清空页面缓存
@@ -514,31 +555,7 @@ class MainWindow(QMainWindow):
         # 执行删除
         for key in keys_to_remove:
             page = self.pages.pop(key)
-
-            # 安全地调用清理钩子
-            try:
-                if hasattr(page, 'onHide'):
-                    page.onHide()
-            except RuntimeError:
-                logger.debug(f"页面 {key} 已被删除，跳过onHide")
-            except Exception as e:
-                logger.warning(f"调用页面 {key} 的onHide时出错: {e}")
-
-            # 安全地从堆栈移除
-            try:
-                self.page_stack.removeWidget(page)
-            except RuntimeError:
-                logger.debug(f"页面 {key} 已被删除，跳过removeWidget")
-            except Exception as e:
-                logger.warning(f"移除页面 {key} 时出错: {e}")
-
-            # 安全地删除widget
-            try:
-                page.deleteLater()
-            except RuntimeError:
-                pass  # 对象已被删除
-            except Exception as e:
-                logger.warning(f"删除页面 {key} 时出错: {e}")
+            self._safe_cleanup_page(page, key)
 
         logger.info(f"清理了 {len(keys_to_remove)} 个页面，剩余 {len(self.pages)} 个")
 
@@ -560,10 +577,6 @@ class MainWindow(QMainWindow):
             elif page_type == 'INSPIRATION':
                 from windows.inspiration_mode import InspirationMode
                 return InspirationMode(self)
-
-            elif page_type == 'WORKSPACE':
-                from windows.novel_workspace import NovelWorkspace
-                return NovelWorkspace(self)
 
             elif page_type == 'DETAIL':
                 from windows.novel_detail import NovelDetail
@@ -634,16 +647,13 @@ class MainWindow(QMainWindow):
         # 断开主题信号
         self._disconnect_theme_signal()
 
-        # 清理所有缓存的页面
+        # 清理所有缓存的页面（使用统一的清理方法）
         for cache_key, page in list(self.pages.items()):
-            try:
-                if hasattr(page, 'onHide'):
-                    page.onHide()
-                self.page_stack.removeWidget(page)
-                page.deleteLater()
-            except Exception as e:
-                logger.warning(f"清理页面 {cache_key} 时出错: {e}")
+            self._safe_cleanup_page(page, cache_key)
 
         self.pages.clear()
+
+        # 关闭 API 客户端单例
+        APIClientManager.shutdown()
 
         super().closeEvent(event)

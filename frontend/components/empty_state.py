@@ -1,14 +1,15 @@
-#"空状态组件 - 禅意风格
+"""
+空状态组件 - 禅意风格
 
-#提供友好、有指引性的空状态显示
-#符合2025年UX最佳实践
+提供友好、有指引性的空状态显示
+符合2025年UX最佳实践
 
-#特点：
-#- 清晰的视觉层次
-#- 明确的行动指引
-#- 情感化设计（图标/插画）
-#- 可自定义内容
-#"
+特点：
+- 清晰的视觉层次
+- 明确的行动指引
+- 情感化设计（图标/插画）
+- 可自定义内容
+"""
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -259,96 +260,3 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
                     background-color: {theme_manager.WARNING};
                 }}
             """)
-
-
-class EmptyStatePresets:
-    """空状态预设模板"""
-
-    @staticmethod
-    def no_projects(parent=None):
-        """无项目"""
-        return EmptyStateWithIllustration(
-            illustration_char='*',
-            title='还没有创作项目',
-            description='开始你的第一个小说创作，\n让AI助手帮助你构建完整的故事世界。',
-            action_text='创建新项目',
-            secondary_action_text='查看示例',
-            parent=parent
-        )
-
-    @staticmethod
-    def no_chapters(parent=None):
-        """无章节"""
-        return EmptyState(
-            icon='*',
-            title='还未生成章节',
-            description='点击下方按钮开始生成你的第一个章节',
-            action_text='生成章节',
-            parent=parent
-        )
-
-    @staticmethod
-    def no_search_results(parent=None):
-        """无搜索结果"""
-        return EmptyState(
-            icon='*',
-            title='未找到匹配结果',
-            description='请尝试使用其他关键词搜索',
-            action_text='清除搜索',
-            parent=parent
-        )
-
-    @staticmethod
-    def no_data(parent=None):
-        """无数据（通用）"""
-        return EmptyState(
-            icon='*',
-            title='暂无数据',
-            description='',
-            action_text='',
-            parent=parent
-        )
-
-    @staticmethod
-    def error_state(parent=None):
-        """错误状态"""
-        return EmptyState(
-            icon='!',
-            title='加载失败',
-            description='数据加载出现问题，请稍后重试',
-            action_text='重新加载',
-            parent=parent
-        )
-
-    @staticmethod
-    def connection_error(parent=None):
-        """连接错误"""
-        return EmptyStateWithIllustration(
-            illustration_char='x',
-            title='无法连接服务器',
-            description='请检查网络连接后重试',
-            action_text='重新连接',
-            parent=parent
-        )
-
-    @staticmethod
-    def permission_denied(parent=None):
-        """权限不足"""
-        return EmptyState(
-            icon='#',
-            title='权限不足',
-            description='你没有权限访问此内容',
-            action_text='',
-            parent=parent
-        )
-
-    @staticmethod
-    def coming_soon(parent=None):
-        """即将推出"""
-        return EmptyStateWithIllustration(
-            illustration_char='>',
-            title='即将推出',
-            description='这个功能正在开发中，敬请期待',
-            action_text='',
-            parent=parent
-        )

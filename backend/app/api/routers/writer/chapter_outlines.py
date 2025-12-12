@@ -6,9 +6,11 @@
 
 import json
 import logging
+import math
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
@@ -38,90 +40,17 @@ from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
+from ....services.rag import get_outline_rag_retriever
 from ....utils.json_utils import remove_think_tags, parse_llm_json_or_fail
 from ....utils.prompt_helpers import ensure_prompt
+from ....utils.sse_helpers import sse_event, create_sse_response
+from ....utils.exception_helpers import get_safe_error_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _retrieve_relevant_context_for_outline(
-    vector_store: Optional[VectorStoreService],
-    llm_service: LLMService,
-    project_id: str,
-    user_id: int,
-    start_chapter: int,
-    end_chapter: int,
-    blueprint_dict: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    """
-    为章节大纲生成检索相关的已完成章节内容
-
-    Args:
-        vector_store: 向量库服务
-        llm_service: LLM服务
-        project_id: 项目ID
-        user_id: 用户ID
-        start_chapter: 起始章节号
-        end_chapter: 结束章节号
-        blueprint_dict: 蓝图字典（用于构建查询）
-
-    Returns:
-        相关摘要列表
-    """
-    if not vector_store:
-        return []
-
-    try:
-        # 构建查询文本：使用蓝图的故事梗概 + 章节范围描述
-        synopsis = blueprint_dict.get("full_synopsis", "") or blueprint_dict.get("synopsis", "")
-        query_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{synopsis[:500]}"
-
-        # 生成查询向量
-        query_embedding = await llm_service.get_embedding(
-            query_text,
-            user_id=user_id,
-        )
-
-        if not query_embedding:
-            return []
-
-        # 检索相关摘要（只检索已完成章节）
-        summaries = await vector_store.query_summaries(
-            project_id=project_id,
-            embedding=query_embedding,
-            top_k=5,
-        )
-
-        # 过滤：只保留起始章节之前的已完成章节
-        summaries = [s for s in summaries if s.chapter_number < start_chapter]
-
-        # 格式化结果
-        result = []
-        for summary in summaries:
-            result.append({
-                "chapter_number": summary.chapter_number,
-                "title": summary.title,
-                "summary": summary.summary,
-                "relevance_score": round(summary.score, 3) if summary.score else None,
-            })
-
-        logger.info(
-            "项目 %s 章节大纲生成RAG检索完成: 检索到 %d 个相关摘要",
-            project_id,
-            len(result),
-        )
-        return result
-
-    except Exception as exc:
-        logger.warning(
-            "项目 %s 章节大纲生成RAG检索失败: %s",
-            project_id,
-            exc,
-        )
-        return []
-
-@router.post("/novels/{project_id}/chapter-outlines/generate-by-count", response_model=Dict[str, Any])
+@router.post("/novels/{project_id}/chapter-outlines/generate-by-count")
 async def generate_chapter_outlines_by_count(
     project_id: str,
     request: GenerateChapterOutlinesByCountRequest,
@@ -131,22 +60,26 @@ async def generate_chapter_outlines_by_count(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
-) -> Dict[str, Any]:
+) -> StreamingResponse:
     """
-    生成指定数量的章节大纲（增量生成，串行批量模式）
+    生成指定数量的章节大纲（增量生成，串行批量模式，SSE流式返回进度）
 
     使用RAG检索增强：检索已完成章节的摘要，确保新大纲与已有内容一致。
+
+    事件类型：
+    - progress: 批次进度 {"current_batch", "total_batches", "generated_count", "total_count", "current_range"}
+    - complete: 完成 {"message", "generated_chapters", "total_chapters"}
+    - error: 错误 {"message"}
 
     Args:
         project_id: 项目ID
         request: 包含count（要生成的数量）和start_from（起始章节号，可选）
 
     Returns:
-        包含生成结果的字典，包括生成的章节号列表和总章节数
+        StreamingResponse with text/event-stream
     """
+    # 在生成器外部预先获取所有需要的数据
     await novel_service.ensure_project_owner(project_id, desktop_user.id)
-
-    # 使用Repository获取当前最大章节号
     chapter_outline_repo = ChapterOutlineRepository(session)
     all_outlines = await chapter_outline_repo.list_by_project(project_id)
 
@@ -161,13 +94,14 @@ async def generate_chapter_outlines_by_count(
             start_chapter = 1
 
     end_chapter = start_chapter + request.count - 1
+    total_count = request.count
 
     logger.info(
         "用户 %s 请求为项目 %s 增量串行生成章节大纲，起始章节 %s，数量 %s（第 %s-%s 章）",
         desktop_user.id,
         project_id,
         start_chapter,
-        request.count,
+        total_count,
         start_chapter,
         end_chapter,
     )
@@ -179,123 +113,173 @@ async def generate_chapter_outlines_by_count(
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
     blueprint_dict = project_schema.blueprint.model_dump()
 
-    # RAG检索：获取与即将生成章节相关的已完成章节摘要
-    relevant_summaries = await _retrieve_relevant_context_for_outline(
-        vector_store=vector_store,
-        llm_service=llm_service,
-        project_id=project_id,
-        user_id=desktop_user.id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        blueprint_dict=blueprint_dict,
-    )
-
-    # 串行批量生成章节大纲
-    CHAPTERS_PER_BATCH = 5
-    all_generated_chapters = []
-    current_chapter = start_chapter
-
-    while current_chapter <= end_chapter:
-        # 计算当前批次的章节范围
-        batch_end = min(current_chapter + CHAPTERS_PER_BATCH - 1, end_chapter)
-        batch_count = batch_end - current_chapter + 1
-
-        logger.info(
-            "开始生成第 %d-%d 章（共 %d 章，批次 %d/%d）",
-            current_chapter, batch_end, batch_count,
-            (current_chapter - start_chapter) // CHAPTERS_PER_BATCH + 1,
-            (request.count + CHAPTERS_PER_BATCH - 1) // CHAPTERS_PER_BATCH
-        )
-
-        # 获取前面已生成的章节（包括本次生成前已存在的 + 本次已生成的）
-        fresh_outlines = await chapter_outline_repo.list_by_project(project_id)
-        previous_chapters = [
-            {
-                "chapter_number": outline.chapter_number,
-                "title": outline.title,
-                "summary": outline.summary,
-            }
-            for outline in fresh_outlines
-            if outline.chapter_number < current_chapter
-        ]
-        previous_chapters.sort(key=lambda x: x["chapter_number"])
-
-        # 准备LLM请求payload
-        payload = {
-            "novel_blueprint": blueprint_dict,
-            "wait_to_generate": {
-                "start_chapter": current_chapter,
-                "num_chapters": batch_count,
-            },
-        }
-
-        # 如果有前面的章节，加入上下文
-        if previous_chapters:
-            payload["previous_chapters"] = previous_chapters
-            payload["context_note"] = f"前面已生成 {len(previous_chapters)} 章，请确保与前文保持连贯、设定一致、剧情承接自然。"
-
-        # 添加RAG检索结果（如果有）
-        if relevant_summaries:
-            payload["relevant_completed_chapters"] = {
-                "description": "以下是通过语义检索找到的与即将生成章节最相关的已完成章节摘要，请确保新大纲与这些已完成内容保持一致",
-                "summaries": relevant_summaries,
-            }
-
-        # 调用LLM生成当前批次的大纲
-        logger.info("调用LLM生成第 %d-%d 章的章节大纲（RAG摘要=%d）", current_chapter, batch_end, len(relevant_summaries))
-        response = await llm_service.get_llm_response(
-            system_prompt=outline_prompt,
-            conversation_history=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-            temperature=settings.llm_temp_outline,
+    # 使用统一的RAG检索器获取相关摘要
+    rag_retriever = await get_outline_rag_retriever(vector_store, llm_service)
+    relevant_summaries = []
+    if rag_retriever:
+        synopsis = blueprint_dict.get("full_synopsis", "") or blueprint_dict.get("synopsis", "")
+        relevant_summaries = await rag_retriever.retrieve_for_chapter_outline(
+            project_id=project_id,
             user_id=desktop_user.id,
-            timeout=360.0,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            context_text=synopsis,
         )
 
-        # 解析LLM响应
-        response_cleaned = remove_think_tags(response)
-        data = parse_llm_json_or_fail(
-            response_cleaned,
-            f"项目{project_id}第{current_chapter}-{batch_end}章的章节大纲生成失败"
-        )
+    # 计算总批次数
+    CHAPTERS_PER_BATCH = 5
+    total_batches = math.ceil(total_count / CHAPTERS_PER_BATCH)
 
-        # 保存当前批次的章节大纲
-        batch_chapters = data.get("chapters", [])
-        if not batch_chapters:
-            raise LLMServiceError("LLM未返回有效的章节大纲")
+    async def event_generator():
+        try:
+            all_generated_chapters = []
+            current_chapter = start_chapter
+            current_batch = 0
 
-        for item in batch_chapters:
-            chapter_number = item.get("chapter_number")
-            if not chapter_number:
-                continue
+            # 发送开始事件
+            yield sse_event("progress", {
+                "current_batch": 0,
+                "total_batches": total_batches,
+                "generated_count": 0,
+                "total_count": total_count,
+                "current_range": f"准备生成第{start_chapter}-{end_chapter}章",
+                "status": "starting"
+            })
 
-            await chapter_outline_repo.upsert_outline(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                title=item.get("title", ""),
-                summary=item.get("summary", ""),
-            )
-            all_generated_chapters.append(chapter_number)
+            while current_chapter <= end_chapter:
+                current_batch += 1
+                # 计算当前批次的章节范围
+                batch_end = min(current_chapter + CHAPTERS_PER_BATCH - 1, end_chapter)
+                batch_count = batch_end - current_chapter + 1
 
-        logger.info(
-            "成功生成第 %d-%d 章大纲（本批 %d 章）",
-            current_chapter, batch_end, len(batch_chapters)
-        )
+                logger.info(
+                    "开始生成第 %d-%d 章（共 %d 章，批次 %d/%d）",
+                    current_chapter, batch_end, batch_count,
+                    current_batch, total_batches
+                )
 
-        # 移动到下一批
-        current_chapter = batch_end + 1
+                # 发送批次开始进度
+                yield sse_event("progress", {
+                    "current_batch": current_batch,
+                    "total_batches": total_batches,
+                    "generated_count": len(all_generated_chapters),
+                    "total_count": total_count,
+                    "current_range": f"正在生成第{current_chapter}-{batch_end}章",
+                    "status": "generating"
+                })
 
-    # 提交所有章节
-    await session.commit()
-    logger.info("项目 %s 串行增量生成完成，共生成 %d 章大纲", project_id, len(all_generated_chapters))
+                # 获取前面已生成的章节
+                fresh_outlines = await chapter_outline_repo.list_by_project(project_id)
+                previous_chapters = [
+                    {
+                        "chapter_number": outline.chapter_number,
+                        "title": outline.title,
+                        "summary": outline.summary,
+                    }
+                    for outline in fresh_outlines
+                    if outline.chapter_number < current_chapter
+                ]
+                previous_chapters.sort(key=lambda x: x["chapter_number"])
 
-    # 使用Repository获取当前总章节数
-    total_chapters = await chapter_outline_repo.count_by_project(project_id)
+                # 准备LLM请求payload
+                payload = {
+                    "novel_blueprint": blueprint_dict,
+                    "wait_to_generate": {
+                        "start_chapter": current_chapter,
+                        "num_chapters": batch_count,
+                    },
+                }
 
-    return {
-        "message": f"成功生成{len(all_generated_chapters)}章大纲",
-        "generated_chapters": all_generated_chapters,
-        "total_chapters": total_chapters,
-    }
+                if previous_chapters:
+                    payload["previous_chapters"] = previous_chapters
+                    payload["context_note"] = f"前面已生成 {len(previous_chapters)} 章，请确保与前文保持连贯、设定一致、剧情承接自然。"
+
+                if relevant_summaries:
+                    payload["relevant_completed_chapters"] = {
+                        "description": "以下是通过语义检索找到的与即将生成章节最相关的已完成章节摘要，请确保新大纲与这些已完成内容保持一致",
+                        "summaries": relevant_summaries,
+                    }
+
+                # 调用LLM生成当前批次的大纲
+                logger.info("调用LLM生成第 %d-%d 章的章节大纲（RAG摘要=%d）", current_chapter, batch_end, len(relevant_summaries))
+                response = await llm_service.get_llm_response(
+                    system_prompt=outline_prompt,
+                    conversation_history=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                    temperature=settings.llm_temp_outline,
+                    user_id=desktop_user.id,
+                    timeout=360.0,
+                )
+
+                # 解析LLM响应
+                response_cleaned = remove_think_tags(response)
+                data = parse_llm_json_or_fail(
+                    response_cleaned,
+                    f"项目{project_id}第{current_chapter}-{batch_end}章的章节大纲生成失败"
+                )
+
+                # 保存当前批次的章节大纲
+                batch_chapters = data.get("chapters", [])
+                if not batch_chapters:
+                    raise LLMServiceError("LLM未返回有效的章节大纲")
+
+                for item in batch_chapters:
+                    chapter_number = item.get("chapter_number")
+                    if not chapter_number:
+                        continue
+
+                    await chapter_outline_repo.upsert_outline(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        title=item.get("title", ""),
+                        summary=item.get("summary", ""),
+                    )
+                    all_generated_chapters.append(chapter_number)
+
+                logger.info(
+                    "成功生成第 %d-%d 章大纲（本批 %d 章）",
+                    current_chapter, batch_end, len(batch_chapters)
+                )
+
+                # 增量提交：每批次完成后立即持久化，避免后续批次失败导致数据丢失
+                await session.commit()
+
+                # 发送批次完成进度
+                yield sse_event("progress", {
+                    "current_batch": current_batch,
+                    "total_batches": total_batches,
+                    "generated_count": len(all_generated_chapters),
+                    "total_count": total_count,
+                    "current_range": f"已完成第{current_chapter}-{batch_end}章",
+                    "status": "batch_done"
+                })
+
+                # 移动到下一批
+                current_chapter = batch_end + 1
+
+            # 所有批次已在循环中增量提交，无需再次commit
+            logger.info("项目 %s 串行增量生成完成，共生成 %d 章大纲", project_id, len(all_generated_chapters))
+
+            # 获取当前总章节数
+            total_chapters = await chapter_outline_repo.count_by_project(project_id)
+
+            # 发送完成事件
+            yield sse_event("complete", {
+                "message": f"成功生成{len(all_generated_chapters)}章大纲",
+                "generated_chapters": all_generated_chapters,
+                "total_chapters": total_chapters,
+            })
+
+        except Exception as exc:
+            logger.exception("章节大纲生成失败: %s", exc)
+            # 使用安全的错误消息过滤，避免泄露敏感信息（如数据库连接串、API密钥等）
+            safe_message = get_safe_error_message(exc, "章节大纲生成失败，请稍后重试")
+            yield sse_event("error", {
+                "message": safe_message,
+                "saved_chapters": all_generated_chapters,  # 已成功保存的章节号列表
+                "saved_count": len(all_generated_chapters),  # 已成功保存的数量
+            })
+
+    return create_sse_response(event_generator())
 
 
 @router.delete("/novels/{project_id}/chapter-outlines/delete-latest", response_model=Dict[str, Any])
@@ -511,16 +495,18 @@ async def regenerate_chapter_outline(
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
     blueprint_dict = project_schema.blueprint.model_dump()
 
-    # RAG检索：获取与待重新生成章节相关的已完成章节摘要
-    relevant_summaries = await _retrieve_relevant_context_for_outline(
-        vector_store=vector_store,
-        llm_service=llm_service,
-        project_id=project_id,
-        user_id=desktop_user.id,
-        start_chapter=chapter_number,
-        end_chapter=chapter_number,
-        blueprint_dict=blueprint_dict,
-    )
+    # 使用统一的RAG检索器获取相关摘要
+    rag_retriever = await get_outline_rag_retriever(vector_store, llm_service)
+    relevant_summaries = []
+    if rag_retriever:
+        synopsis = blueprint_dict.get("full_synopsis", "") or blueprint_dict.get("synopsis", "")
+        relevant_summaries = await rag_retriever.retrieve_for_chapter_outline(
+            project_id=project_id,
+            user_id=desktop_user.id,
+            start_chapter=chapter_number,
+            end_chapter=chapter_number,
+            context_text=synopsis,
+        )
 
     # 准备LLM请求payload
     payload = {

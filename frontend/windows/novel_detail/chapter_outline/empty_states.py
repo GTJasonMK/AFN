@@ -107,3 +107,10 @@ class ShortNovelEmptyState(OutlineEmptyState):
         self.desc_label.setStyleSheet(
             f"font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt
 from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
+from utils.constants import WorkerTimeouts
 import logging
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class AsyncOperationHelper:
             if worker.isRunning():
                 worker.cancel()
                 worker.quit()
-                worker.wait(1000)
+                worker.wait(WorkerTimeouts.DEFAULT_MS)
             self._remove_worker(worker)
             loading_dialog.close()
 
@@ -107,7 +108,7 @@ class AsyncOperationHelper:
                 if worker.isRunning():
                     worker.cancel()
                     worker.quit()
-                    worker.wait(1000)
+                    worker.wait(WorkerTimeouts.DEFAULT_MS)
                 logger.debug(f"停止异步Worker: {worker}")
             except Exception as e:
                 logger.debug(f"停止异步Worker时出错: {e}")

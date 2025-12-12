@@ -9,6 +9,8 @@ import traceback
 from typing import Optional, Type
 from fastapi import HTTPException
 
+from ..exceptions import AFNException
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,3 +188,45 @@ def format_exception_chain(exc: Exception, max_depth: int = 5) -> str:
         chain.append("... (异常链过长，已截断)")
 
     return " -> ".join(chain)
+
+
+def get_safe_error_message(exc: Exception, default_message: str = "服务内部错误，请稍后重试") -> str:
+    """
+    获取安全的用户端错误消息，过滤敏感信息
+
+    此函数用于SSE流式响应等场景，确保不向客户端暴露敏感信息（如数据库连接串、API密钥、文件路径等）。
+
+    过滤规则：
+    1. AFNException: 使用其已清洗的 message 属性
+    2. HTTPException: 使用其 detail 属性（通常已清洗）
+    3. 其他异常: 返回通用错误消息，避免泄露内部细节
+
+    Args:
+        exc: 异常对象
+        default_message: 未知异常时返回的默认消息
+
+    Returns:
+        str: 安全的用户端错误消息
+
+    Example:
+        try:
+            await some_operation()
+        except Exception as exc:
+            yield sse_event("error", {"message": get_safe_error_message(exc)})
+    """
+    # AFNException 及其子类已经设计了用户友好的 message 属性
+    if isinstance(exc, AFNException):
+        return exc.message
+
+    # HTTPException 的 detail 通常是安全的
+    if isinstance(exc, HTTPException):
+        return str(exc.detail) if exc.detail else default_message
+
+    # 对于已知的、消息本身安全的标准异常类型
+    if isinstance(exc, (ValueError, TypeError)):
+        # 这些异常的消息可能包含变量名，但通常不包含敏感信息
+        # 但为了安全起见，仍然返回通用消息
+        return default_message
+
+    # 其他所有异常返回通用消息，避免泄露敏感信息
+    return default_message

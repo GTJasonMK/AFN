@@ -10,9 +10,9 @@
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, status
+from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import get_default_user, get_novel_service
@@ -60,10 +60,20 @@ async def create_novel(
 async def list_novels(
     novel_service: NovelService = Depends(get_novel_service),
     desktop_user: UserInDB = Depends(get_default_user),
+    page: int = Query(1, ge=1, description="页码（从1开始）"),
+    page_size: int = Query(100, ge=1, le=100, description="每页数量（默认100，最大100）"),
 ) -> List[NovelProjectSummary]:
-    """列出用户的全部小说项目摘要信息"""
-    projects = await novel_service.list_projects_for_user(desktop_user.id)
-    logger.info("用户 %s 获取项目列表，共 %s 个", desktop_user.id, len(projects))
+    """
+    列出用户的全部小说项目摘要信息
+
+    支持分页，默认返回前100条。桌面应用通常项目数量较少，
+    使用默认参数即可获取所有项目。
+    """
+    projects, total = await novel_service.list_projects_for_user(
+        desktop_user.id, page, page_size
+    )
+    logger.info("用户 %s 获取项目列表，页码=%d，返回 %d/%d 个",
+                desktop_user.id, page, len(projects), total)
     return projects
 
 

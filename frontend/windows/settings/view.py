@@ -1,5 +1,5 @@
 """
-设置页面主视图
+设置页面主视图 - 书籍风格
 """
 
 from PyQt6.QtWidgets import (
@@ -9,130 +9,73 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
+from utils.dpi_utils import dp, sp
 from .llm_settings_widget import LLMSettingsWidget
 from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
 
 
 class SettingsView(BasePage):
-    """设置页面 - 禅意风格（对应SettingsView.vue）"""
+    """设置页面 - 书籍风格"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setupUI()
+        self._create_ui_structure()
+        self._apply_theme()
+        theme_manager.theme_changed.connect(lambda _: self._apply_theme())
 
-    def setupUI(self):
-        """初始化UI"""
-        # 清空现有布局
-        existing_layout = self.layout()
-        if existing_layout is not None:
-            while existing_layout.count():
-                item = existing_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-                elif item.layout():
-                    self._clear_sublayout(item.layout())
-            main_layout = existing_layout
-        else:
-            main_layout = QVBoxLayout(self)
-
+    def _create_ui_structure(self):
+        """创建UI结构"""
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 主容器（禅意风格渐变背景 - 与首页一致）
-        main_container = QWidget()
-        main_container.setStyleSheet(f"""
-            QWidget {{
-                background-color: {theme_manager.BG_PRIMARY};
-            }}
-        """)
+        # 主容器
+        self.main_container = QWidget()
+        container_layout = QVBoxLayout(self.main_container)
+        container_layout.setContentsMargins(dp(60), dp(40), dp(60), dp(40))
+        container_layout.setSpacing(dp(24))
 
-        container_layout = QVBoxLayout(main_container)
-        container_layout.setContentsMargins(48, 20, 48, 20)
-        container_layout.setSpacing(16)
-
-        # 使用现代UI字体
-        ui_font = theme_manager.ui_font()
+        # 顶部导航栏
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(dp(16))
 
         # 返回按钮
-        back_btn = QPushButton("← 返回")
-        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {ui_font};
-                background-color: {theme_manager.BG_CARD};
-                color: {theme_manager.TEXT_SECONDARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {theme_manager.RADIUS_SM};
-                padding: 10px 20px;
-                font-size: 14px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: {theme_manager.BG_TERTIARY};
-                color: {theme_manager.ACCENT_PRIMARY};
-                border-color: {theme_manager.ACCENT_PRIMARY};
-            }}
-        """)
-        back_btn.setFixedWidth(120)
-        back_btn.clicked.connect(self.goBack)
-        container_layout.addWidget(back_btn)
+        self.back_btn = QPushButton("< 返回")
+        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.back_btn.setFixedHeight(dp(36))
+        self.back_btn.clicked.connect(self.goBack)
+        header_layout.addWidget(self.back_btn)
 
-        # 主内容区
-        content_layout = QVBoxLayout()
-        content_layout.setSpacing(16)
+        header_layout.addStretch()
+        container_layout.addLayout(header_layout)
 
-        # 顶部标题
-        title_layout = QHBoxLayout()
-        title_layout.setContentsMargins(0, 0, 0, 16)
+        # 页面标题区
+        title_section = QVBoxLayout()
+        title_section.setSpacing(dp(8))
 
-        title_label = QLabel("系统设置")
-        title_label.setStyleSheet(f"""
-            font-family: {ui_font};
-            font-size: 24px;
-            font-weight: 700;
-            color: {theme_manager.TEXT_PRIMARY};
-        """)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
+        self.title_label = QLabel("系统设置")
+        title_section.addWidget(self.title_label)
 
-        content_layout.addLayout(title_layout)
+        self.subtitle_label = QLabel("配置LLM服务、嵌入模型和系统参数")
+        title_section.addWidget(self.subtitle_label)
+
+        container_layout.addLayout(title_section)
+
+        # 内容区域 - 使用卡片式Tab
+        content_card = QFrame()
+        content_card.setObjectName("content_card")
+        card_layout = QVBoxLayout(content_card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(0)
 
         # Tab控件
         self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {theme_manager.RADIUS_SM};
-                background-color: {theme_manager.BG_CARD};
-                padding: 16px;
-            }}
-            QTabBar::tab {{
-                font-family: {ui_font};
-                background-color: {theme_manager.BG_SECONDARY};
-                color: {theme_manager.TEXT_SECONDARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-bottom: none;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: {theme_manager.RADIUS_SM};
-                border-top-right-radius: {theme_manager.RADIUS_SM};
-                font-size: 14px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: {theme_manager.BG_CARD};
-                color: {theme_manager.ACCENT_PRIMARY};
-                border-bottom: 2px solid {theme_manager.ACCENT_PRIMARY};
-                font-weight: 600;
-            }}
-            QTabBar::tab:hover {{
-                background-color: {theme_manager.BG_TERTIARY};
-            }}
-        """)
+        self.tab_widget.setDocumentMode(True)
 
         # LLM配置Tab
         self.llm_settings = LLMSettingsWidget()
-        self.tab_widget.addTab(self.llm_settings, "LLM配置")
+        self.tab_widget.addTab(self.llm_settings, "LLM 配置")
 
         # 嵌入模型配置Tab
         self.embedding_settings = EmbeddingSettingsWidget()
@@ -142,23 +85,116 @@ class SettingsView(BasePage):
         self.advanced_settings = AdvancedSettingsWidget()
         self.tab_widget.addTab(self.advanced_settings, "高级配置")
 
-        content_layout.addWidget(self.tab_widget, stretch=1)
+        card_layout.addWidget(self.tab_widget)
+        container_layout.addWidget(content_card, stretch=1)
 
-        container_layout.addLayout(content_layout, stretch=1)
+        main_layout.addWidget(self.main_container)
 
-        # 添加主容器到主布局
-        main_layout.addWidget(main_container)
+    def _apply_theme(self):
+        """应用书籍风格主题"""
+        bg_primary = theme_manager.book_bg_primary()
+        bg_secondary = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        accent_color = theme_manager.book_accent_color()
+        border_color = theme_manager.book_border_color()
+        serif_font = theme_manager.serif_font()
+        ui_font = theme_manager.ui_font()
 
-    def _clear_sublayout(self, layout):
-        """递归清空子布局"""
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                self._clear_sublayout(item.layout())
+        # 主容器背景
+        self.main_container.setStyleSheet(f"""
+            QWidget {{
+                background-color: {bg_primary};
+            }}
+        """)
+
+        # 返回按钮
+        self.back_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-family: {ui_font};
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                border-radius: {dp(6)}px;
+                padding: {dp(8)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+            }}
+            QPushButton:hover {{
+                color: {accent_color};
+                border-color: {accent_color};
+                background-color: {bg_secondary};
+            }}
+        """)
+
+        # 页面标题
+        self.title_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {serif_font};
+                font-size: {sp(32)}px;
+                font-weight: bold;
+                color: {text_primary};
+                letter-spacing: {dp(1)}px;
+            }}
+        """)
+
+        # 副标题
+        self.subtitle_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {ui_font};
+                font-size: {sp(14)}px;
+                color: {text_secondary};
+            }}
+        """)
+
+        # 内容卡片
+        self.findChild(QFrame, "content_card").setStyleSheet(f"""
+            QFrame#content_card {{
+                background-color: {bg_secondary};
+                border: 1px solid {border_color};
+                border-radius: {dp(12)}px;
+            }}
+        """)
+
+        # Tab控件样式
+        self.tab_widget.setStyleSheet(f"""
+            QTabWidget {{
+                background-color: transparent;
+            }}
+            QTabWidget::pane {{
+                border: none;
+                background-color: transparent;
+                padding: {dp(20)}px;
+            }}
+            QTabBar {{
+                background-color: transparent;
+            }}
+            QTabBar::tab {{
+                font-family: {ui_font};
+                background-color: transparent;
+                color: {text_secondary};
+                border: none;
+                border-bottom: 2px solid transparent;
+                padding: {dp(12)}px {dp(24)}px;
+                margin-right: {dp(8)}px;
+                font-size: {sp(14)}px;
+                font-weight: 500;
+            }}
+            QTabBar::tab:selected {{
+                color: {accent_color};
+                border-bottom: 2px solid {accent_color};
+            }}
+            QTabBar::tab:hover:!selected {{
+                color: {text_primary};
+                background-color: rgba(0, 0, 0, 0.03);
+            }}
+        """)
 
     def refresh(self, **params):
         """刷新页面"""
-        # 主题切换后重建UI以应用新主题样式
-        self.setupUI()
+        # 刷新子组件
+        if hasattr(self, 'llm_settings'):
+            self.llm_settings.loadConfigs()
+        if hasattr(self, 'embedding_settings'):
+            self.embedding_settings.loadConfigs()
+        if hasattr(self, 'advanced_settings'):
+            self.advanced_settings.loadConfig()

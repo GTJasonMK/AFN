@@ -4,7 +4,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from ..models import (
     NovelBlueprint,
     NovelProject,
 )
+from ..models.novel import CharacterStateIndex, ForeshadowingIndex
 from ..repositories.novel_repository import NovelRepository
 from ..repositories.chapter_repository import (
     ChapterRepository,
@@ -237,6 +238,79 @@ class NovelService:
             raise PermissionDeniedError("无权访问该项目")
         return project
 
+    async def ensure_blueprint_ready(
+        self,
+        project_id: str,
+        user_id: int,
+        require_total_chapters: bool = False,
+    ) -> Tuple[NovelProject, "NovelProjectSchema"]:
+        """
+        确保项目蓝图已就绪
+
+        业务验证逻辑统一入口，避免在Router层重复验证。
+
+        Args:
+            project_id: 项目ID
+            user_id: 用户ID
+            require_total_chapters: 是否要求蓝图中设置了总章节数
+
+        Returns:
+            Tuple[NovelProject, NovelProjectSchema]: (项目模型, 项目Schema)
+
+        Raises:
+            ResourceNotFoundError: 项目不存在
+            PermissionDeniedError: 无权访问
+            BlueprintNotReadyError: 蓝图未生成
+            InvalidParameterError: 蓝图未设置总章节数（当require_total_chapters=True）
+        """
+        from ..exceptions import BlueprintNotReadyError
+
+        project = await self.ensure_project_owner(project_id, user_id)
+        project_schema = await NovelSerializer.serialize_project(project)
+
+        if not project_schema.blueprint:
+            raise BlueprintNotReadyError(project_id)
+
+        if require_total_chapters:
+            total_chapters = project_schema.blueprint.total_chapters or 0
+            if total_chapters == 0:
+                raise InvalidParameterError("蓝图未设置总章节数", "total_chapters")
+
+        return project, project_schema
+
+    async def ensure_part_outline_eligible(
+        self,
+        project_id: str,
+        user_id: int,
+    ) -> Tuple[NovelProject, "NovelProjectSchema"]:
+        """
+        确保项目符合部分大纲操作条件
+
+        验证项目是否需要部分大纲功能（长篇小说）。
+
+        Args:
+            project_id: 项目ID
+            user_id: 用户ID
+
+        Returns:
+            Tuple[NovelProject, NovelProjectSchema]: (项目模型, 项目Schema)
+
+        Raises:
+            ResourceNotFoundError: 项目不存在
+            PermissionDeniedError: 无权访问
+            BlueprintNotReadyError: 蓝图未生成
+            InvalidParameterError: 项目不需要部分大纲
+        """
+        project, project_schema = await self.ensure_blueprint_ready(project_id, user_id)
+
+        if not project_schema.blueprint.needs_part_outlines:
+            raise InvalidParameterError(
+                "该项目不需要部分大纲（章节数未超过阈值）",
+                "needs_part_outlines"
+            )
+
+        return project, project_schema
+
     async def get_project_schema(self, project_id: str, user_id: Optional[int] = None) -> NovelProjectSchema:
         """
         获取项目Schema
@@ -306,15 +380,31 @@ class NovelService:
                 raise ResourceNotFoundError("项目", project_id)
         return NovelSerializer.build_chapter_schema(project, chapter_number)
 
-    async def list_projects_for_user(self, user_id: int) -> List[NovelProjectSummary]:
-        projects = await self.repo.list_by_user(user_id)
+    async def list_projects_for_user(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[NovelProjectSummary], int]:
+        """
+        分页获取用户的项目摘要列表
+
+        Args:
+            user_id: 用户ID
+            page: 页码（从1开始）
+            page_size: 每页数量
+
+        Returns:
+            Tuple[List[NovelProjectSummary], int]: (项目摘要列表, 总数)
+        """
+        projects, total = await self.repo.list_by_user(user_id, page, page_size)
         summaries: List[NovelProjectSummary] = []
         for project in projects:
             blueprint = project.blueprint
             genre = blueprint.genre if blueprint and blueprint.genre else "未知"
             outlines = project.outlines
             chapters = project.chapters
-            total = len(outlines) or len(chapters)
+            total_chapters = len(outlines) or len(chapters)
             completed = sum(1 for chapter in chapters if chapter.selected_version_id)
             summaries.append(
                 NovelProjectSummary(
@@ -323,11 +413,11 @@ class NovelService:
                     genre=genre,
                     last_edited=project.updated_at.isoformat() if project.updated_at else "未知",
                     completed_chapters=completed,
-                    total_chapters=total,
-                    status=project.status,  # 添加状态字段
+                    total_chapters=total_chapters,
+                    status=project.status,
                 )
             )
-        return summaries
+        return summaries, total
 
     async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
         """
@@ -415,8 +505,10 @@ class NovelService:
         versions = await self.chapter_version_repo.replace_all(chapter.id, versions_data)
 
         # 更新章节状态
+        # 注意：不要调用 refresh()，因为还没有 commit，
+        # refresh 会从数据库重新加载数据，覆盖我们刚设置的值！
         chapter.status = ChapterGenerationStatus.WAITING_FOR_CONFIRM.value
-        await self.session.refresh(chapter)
+        await self.session.flush()
         await self._touch_project(chapter.project_id)
         return versions
 
@@ -454,28 +546,68 @@ class NovelService:
             decision=decision,
         )
         self.session.add(evaluation)  # 这里保留直接添加，因为是临时对象
+        # 注意：不要调用 refresh()，因为还没有 commit，
+        # refresh 会从数据库重新加载数据，覆盖我们刚设置的值！
         chapter.status = ChapterGenerationStatus.WAITING_FOR_CONFIRM.value
-        await self.session.refresh(chapter)
+        await self.session.flush()
         await self._touch_project(chapter.project_id)
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Iterable[int]) -> None:
         """
         删除章节
 
+        同时清理关联的索引数据（CharacterStateIndex、ForeshadowingIndex）。
+
         注意：此方法不commit，调用方需要在适当时候commit
         """
+        chapter_numbers_list = list(chapter_numbers)
+
+        # 1. 删除章节记录
         await self.session.execute(
             delete(Chapter).where(
                 Chapter.project_id == project_id,
-                Chapter.chapter_number.in_(list(chapter_numbers)),
+                Chapter.chapter_number.in_(chapter_numbers_list),
             )
         )
+
+        # 2. 删除章节大纲
         await self.session.execute(
             delete(ChapterOutline).where(
                 ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number.in_(list(chapter_numbers)),
+                ChapterOutline.chapter_number.in_(chapter_numbers_list),
             )
         )
+
+        # 3. 清理角色状态索引
+        await self.session.execute(
+            delete(CharacterStateIndex).where(
+                CharacterStateIndex.project_id == project_id,
+                CharacterStateIndex.chapter_number.in_(chapter_numbers_list),
+            )
+        )
+
+        # 4. 清理伏笔索引
+        # 4.1 删除在这些章节埋下的伏笔
+        await self.session.execute(
+            delete(ForeshadowingIndex).where(
+                ForeshadowingIndex.project_id == project_id,
+                ForeshadowingIndex.planted_chapter.in_(chapter_numbers_list),
+            )
+        )
+
+        # 4.2 重置在这些章节回收的伏笔状态（改为pending，而不是删除）
+        from sqlalchemy import select
+        result = await self.session.execute(
+            select(ForeshadowingIndex).where(
+                ForeshadowingIndex.project_id == project_id,
+                ForeshadowingIndex.resolved_chapter.in_(chapter_numbers_list),
+            )
+        )
+        for fs in result.scalars().all():
+            fs.status = "pending"
+            fs.resolved_chapter = None
+            fs.resolution = None
+
         await self._touch_project(project_id)
 
     async def _touch_project(self, project_id: str) -> None:
@@ -501,9 +633,6 @@ class NovelService:
             project_id: 项目ID
             user_id: 用户ID（用于权限验证）
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         # 获取项目完整信息
         project_schema = await self.get_project_schema(project_id, user_id)
         project = await self.repo.get_by_id(project_id)

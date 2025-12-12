@@ -19,23 +19,27 @@ class CircularSpinner(ThemeAwareWidget):
     """
 
     def __init__(self, size=40, color=None, parent=None):
-        super().__init__(parent)
         self.size = size
         self._custom_color = color  # 自定义颜色（可选）
         self.angle = 0
+        self.timer = None
+        super().__init__(parent)
+        self.setupUI()
 
-        self.setFixedSize(size, size)
+    def _create_ui_structure(self):
+        """创建UI结构"""
+        self.setFixedSize(self.size, self.size)
 
         # 使用QTimer实现动画
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.rotate)
+        self.timer.timeout.connect(self._rotate)
         self.timer.start(16)  # 约60 FPS
 
-    def update_theme(self):
-        """主题更新时重新绘制"""
+    def _apply_theme(self):
+        """应用主题样式（重绘时使用主题色）"""
         self.update()
 
-    def rotate(self):
+    def _rotate(self):
         """旋转动画"""
         self.angle = (self.angle + 6) % 360
         self.update()
@@ -58,12 +62,18 @@ class CircularSpinner(ThemeAwareWidget):
 
     def stop(self):
         """停止动画"""
-        self.timer.stop()
+        if self.timer:
+            self.timer.stop()
 
     def start(self):
         """启动动画"""
-        if not self.timer.isActive():
+        if self.timer and not self.timer.isActive():
             self.timer.start(16)
+
+    def cleanup(self):
+        """清理资源"""
+        self.stop()
+        super().cleanup()
 
 
 class DotsSpinner(ThemeAwareWidget):
@@ -73,22 +83,26 @@ class DotsSpinner(ThemeAwareWidget):
     """
 
     def __init__(self, color=None, parent=None):
-        super().__init__(parent)
         self._custom_color = color  # 自定义颜色（可选）
         self.step = 0
+        self.timer = None
+        super().__init__(parent)
+        self.setupUI()
 
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setFixedSize(60, 20)
 
         # 动画定时器
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.animate)
+        self.timer.timeout.connect(self._animate)
         self.timer.start(200)  # 每200ms切换一次
 
-    def update_theme(self):
-        """主题更新时重新绘制"""
+    def _apply_theme(self):
+        """应用主题样式（重绘时使用主题色）"""
         self.update()
 
-    def animate(self):
+    def _animate(self):
         """切换动画状态"""
         self.step = (self.step + 1) % 4
         self.update()
@@ -125,12 +139,18 @@ class DotsSpinner(ThemeAwareWidget):
 
     def stop(self):
         """停止动画"""
-        self.timer.stop()
+        if self.timer:
+            self.timer.stop()
 
     def start(self):
         """启动动画"""
-        if not self.timer.isActive():
+        if self.timer and not self.timer.isActive():
             self.timer.start(200)
+
+    def cleanup(self):
+        """清理资源"""
+        self.stop()
+        super().cleanup()
 
 
 class LoadingOverlay(ThemeAwareWidget):
@@ -140,16 +160,15 @@ class LoadingOverlay(ThemeAwareWidget):
     """
 
     def __init__(self, text="加载中...", spinner_type="circular", parent=None):
-        super().__init__(parent)
         self.text = text
         self.spinner_type = spinner_type
+        self.spinner = None
+        self.label = None
+        super().__init__(parent)
         self.setupUI()
 
-    def setupUI(self):
-        """初始化UI"""
-        # 应用主题样式
-        self._apply_theme()
-
+    def _create_ui_structure(self):
+        """创建UI结构"""
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(16)
@@ -171,10 +190,6 @@ class LoadingOverlay(ThemeAwareWidget):
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label)
 
-    def update_theme(self):
-        """主题更新"""
-        self._apply_theme()
-
     def _apply_theme(self):
         """应用主题样式"""
         # 使用主题背景色
@@ -189,7 +204,7 @@ class LoadingOverlay(ThemeAwareWidget):
         """)
 
         # 更新文字样式
-        if hasattr(self, 'label'):
+        if self.label:
             self.label.setStyleSheet(f"""
                 font-family: {ui_font};
                 font-size: 15px;
@@ -199,73 +214,23 @@ class LoadingOverlay(ThemeAwareWidget):
 
     def setText(self, text):
         """更新显示文字"""
-        self.label.setText(text)
+        if self.label:
+            self.label.setText(text)
 
     def show(self):
         """显示遮罩"""
         super().show()
-        self.spinner.start()
+        if self.spinner:
+            self.spinner.start()
 
     def hide(self):
         """隐藏遮罩"""
-        self.spinner.stop()
+        if self.spinner:
+            self.spinner.stop()
         super().hide()
 
-
-class InlineSpinner(ThemeAwareWidget):
-    """内联加载动画
-
-    用于按钮或行内显示的小型加载指示器
-    """
-
-    def __init__(self, text="处理中...", size=16, parent=None):
-        super().__init__(parent)
-        self.text = text
-        self.size = size
-        self.setupUI()
-
-    def setupUI(self):
-        """初始化UI"""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # 小型spinner（使用次要文字颜色）
-        self.spinner = CircularSpinner(size=self.size)
-        layout.addWidget(self.spinner)
-
-        # 文字
-        self.label = QLabel(self.text)
-        layout.addWidget(self.label)
-
-        # 应用主题
-        self._apply_theme()
-
-    def update_theme(self):
-        """主题更新"""
-        self._apply_theme()
-
-    def _apply_theme(self):
-        """应用主题样式"""
-        if hasattr(self, 'label'):
-            # 使用现代UI字体
-            ui_font = theme_manager.ui_font()
-            self.label.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: 13px;
-                color: {theme_manager.TEXT_SECONDARY};
-            """)
-
-    def setText(self, text):
-        """更新文字"""
-        self.label.setText(text)
-
-    def show(self):
-        """显示"""
-        super().show()
-        self.spinner.start()
-
-    def hide(self):
-        """隐藏"""
-        self.spinner.stop()
-        super().hide()
+    def cleanup(self):
+        """清理资源"""
+        if self.spinner:
+            self.spinner.cleanup()
+        super().cleanup()

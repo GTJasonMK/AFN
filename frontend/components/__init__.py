@@ -5,8 +5,7 @@
 from .loading_spinner import (
     CircularSpinner,
     DotsSpinner,
-    LoadingOverlay,
-    InlineSpinner
+    LoadingOverlay
 )
 
 from .writing_desk_modals import (
@@ -24,20 +23,9 @@ from .dialogs import (
     LoadingDialog
 )
 
-from .skeleton import (
-    SkeletonLine,
-    SkeletonCircle,
-    SkeletonCard,
-    SkeletonList,
-    SkeletonTable,
-    SkeletonDetailPage,
-    SkeletonPresets
-)
-
 from .empty_state import (
     EmptyState,
-    EmptyStateWithIllustration,
-    EmptyStatePresets
+    EmptyStateWithIllustration
 )
 
 from .base import (
@@ -49,7 +37,6 @@ __all__ = [
     'CircularSpinner',
     'DotsSpinner',
     'LoadingOverlay',
-    'InlineSpinner',
     'WDEvaluationDetailModal',
     'WDVersionDetailModal',
     'WDGenerateOutlineModal',
@@ -59,16 +46,8 @@ __all__ = [
     'TextInputDialog',
     'IntInputDialog',
     'LoadingDialog',
-    'SkeletonLine',
-    'SkeletonCircle',
-    'SkeletonCard',
-    'SkeletonList',
-    'SkeletonTable',
-    'SkeletonDetailPage',
-    'SkeletonPresets',
     'EmptyState',
     'EmptyStateWithIllustration',
-    'EmptyStatePresets',
     'ThemeAwareWidget',
     'ThemeAwareFrame'
 ]

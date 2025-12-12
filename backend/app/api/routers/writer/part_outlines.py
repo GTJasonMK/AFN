@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import (
@@ -34,9 +35,10 @@ from ....schemas.novel import (
 )
 from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
-from ....services.part_outline_service import PartOutlineService
+from ....services.part_outline import PartOutlineService, PartOutlineWorkflow
 from ....services.vector_store_service import VectorStoreService
 from ....repositories.chapter_repository import ChapterOutlineRepository
+from ....utils.sse_helpers import sse_event, create_sse_response
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,16 +76,9 @@ async def regenerate_part_outlines(
     part_service = PartOutlineService(session)
     chapter_outline_repo = ChapterOutlineRepository(session)
 
-    # 获取项目信息
-    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # 使用Service层统一验证蓝图和部分大纲资格
+    _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
     blueprint = project_schema.blueprint
-
-    if not blueprint:
-        raise BlueprintNotReadyError(project_id)
-
-    # 检查是否需要部分大纲
-    if not blueprint.needs_part_outlines:
-        raise InvalidParameterError("该项目不需要部分大纲（章节数未超过阈值）")
 
     # 获取当前配置
     total_chapters = blueprint.total_chapters or 0
@@ -146,16 +141,9 @@ async def regenerate_last_part_outline(
     part_service = PartOutlineService(session)
     chapter_outline_repo = ChapterOutlineRepository(session)
 
-    # 获取项目信息
-    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # 使用Service层统一验证蓝图和部分大纲资格
+    _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
     blueprint = project_schema.blueprint
-
-    if not blueprint:
-        raise BlueprintNotReadyError(project_id)
-
-    # 检查是否需要部分大纲
-    if not blueprint.needs_part_outlines:
-        raise InvalidParameterError("该项目不需要部分大纲（章节数未超过阈值）")
 
     # 获取所有部分大纲
     all_parts = await part_service.repo.get_by_project_id(project_id)
@@ -184,56 +172,26 @@ async def regenerate_last_part_outline(
     # 获取前面的部分（用于串行生成上下文）
     previous_parts = [p for p in all_parts if p.part_number < last_part_number]
 
-    # 重新生成最后一个部分
-    from ....core.constants import LLMConstants
-    system_prompt = await part_service.prompt_service.get_prompt("part_outline")
-
-    world_setting, full_synopsis, characters = part_service._prepare_blueprint_data(
-        await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    )
-
+    # 使用Service方法重新生成
     total_chapters = blueprint.total_chapters or 0
     chapters_per_part = blueprint.chapters_per_part or 25
-    total_parts = len(all_parts)
 
-    user_prompt = part_service.prompt_builder.build_part_outline_prompt(
+    await part_service.regenerate_single_part_outline(
+        project_id=project_id,
+        user_id=desktop_user.id,
+        part_number=last_part_number,
+        total_parts=len(all_parts),
         total_chapters=total_chapters,
         chapters_per_part=chapters_per_part,
-        total_parts=total_parts,
-        world_setting=world_setting,
-        characters=characters,
-        full_synopsis=full_synopsis,
-        current_part_number=last_part_number,
         previous_parts=previous_parts,
         optimization_prompt=request.prompt,
     )
 
-    response = await part_service.llm_service.get_llm_response(
-        system_prompt=system_prompt,
-        conversation_history=[{"role": "user", "content": user_prompt}],
-        temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
-        user_id=desktop_user.id,
-        response_format="json_object",
-        timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
-    )
-
-    # 解析并保存新的最后一个部分
-    part_data = part_service._parse_single_part_outline(response, last_part_number)
-    new_part = part_service._create_single_part_outline_model(project_id, part_data)
-    await part_service.repo.add(new_part)
-
     await session.commit()
-
     logger.info("项目 %s 最后一个部分大纲重新生成完成", project_id)
 
     # 返回更新后的进度
-    updated_parts = await part_service.repo.get_by_project_id(project_id)
-    return PartOutlineGenerationProgress(
-        parts=[part_service._to_schema(p) for p in updated_parts],
-        total_parts=len(updated_parts),
-        completed_parts=len(updated_parts),
-        status="completed",
-    )
+    return await part_service.get_regenerate_progress(project_id)
 
 
 @router.post("/novels/{project_id}/part-outlines/{part_number}/regenerate", response_model=PartOutlineGenerationProgress)
@@ -275,16 +233,9 @@ async def regenerate_specific_part_outline(
     part_service = PartOutlineService(session)
     chapter_outline_repo = ChapterOutlineRepository(session)
 
-    # 获取项目信息
-    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # 使用Service层统一验证蓝图和部分大纲资格
+    _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
     blueprint = project_schema.blueprint
-
-    if not blueprint:
-        raise BlueprintNotReadyError(project_id)
-
-    # 检查是否需要部分大纲
-    if not blueprint.needs_part_outlines:
-        raise InvalidParameterError("该项目不需要部分大纲（章节数未超过阈值）")
 
     # 获取所有部分大纲
     all_parts = await part_service.repo.get_by_project_id(project_id)
@@ -301,11 +252,9 @@ async def regenerate_specific_part_outline(
 
     # 串行生成原则检查
     cascade_deleted_parts_count = 0
-    cascade_deleted_chapters_count = 0
 
     if part_number < max_part_number:
         if not request.cascade_delete:
-            # 不是最后一个部分且没有设置级联删除，返回错误
             raise InvalidParameterError(
                 f"串行生成原则：只能重新生成最后一个部分（当前最后一个部分为第{max_part_number}部分）。"
                 f"如需重新生成第{part_number}部分，请设置cascade_delete=True以级联删除第{part_number}部分之后的所有部分大纲和章节大纲。"
@@ -319,7 +268,6 @@ async def regenerate_specific_part_outline(
 
             # 删除后续部分对应的章节大纲（从当前部分的起始章节开始）
             await chapter_outline_repo.delete_from_chapter(project_id, target_part.start_chapter)
-            cascade_deleted_chapters_count = "所有后续章节"  # 实际数量难以统计，暂用描述
 
             # 删除后续部分大纲（包括当前部分）
             cascade_deleted_parts_count = await part_service.repo.delete_from_part(
@@ -336,71 +284,35 @@ async def regenerate_specific_part_outline(
         await part_service.repo.delete(target_part)
 
     # 获取前面的部分（用于串行生成上下文）
-    # 注意：如果刚进行了级联删除，需要重新获取
     all_parts_fresh = await part_service.repo.get_by_project_id(project_id)
     previous_parts = [p for p in all_parts_fresh if p.part_number < part_number]
 
-    # 重新生成指定部分
-    from ....core.constants import LLMConstants
-    system_prompt = await part_service.prompt_service.get_prompt("part_outline")
-
-    world_setting, full_synopsis, characters = part_service._prepare_blueprint_data(
-        await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    )
-
+    # 使用Service方法重新生成
     total_chapters = blueprint.total_chapters or 0
     chapters_per_part = blueprint.chapters_per_part or 25
-    # 总部分数应该是删除后剩余的部分数 + 1（当前要重新生成的）
-    total_parts = len(previous_parts) + 1
 
-    user_prompt = part_service.prompt_builder.build_part_outline_prompt(
+    await part_service.regenerate_single_part_outline(
+        project_id=project_id,
+        user_id=desktop_user.id,
+        part_number=part_number,
+        total_parts=max_part_number,  # 使用原始的总部分数
         total_chapters=total_chapters,
         chapters_per_part=chapters_per_part,
-        total_parts=max_part_number,  # 使用原始的总部分数
-        world_setting=world_setting,
-        characters=characters,
-        full_synopsis=full_synopsis,
-        current_part_number=part_number,
         previous_parts=previous_parts,
         optimization_prompt=request.prompt,
     )
 
-    response = await part_service.llm_service.get_llm_response(
-        system_prompt=system_prompt,
-        conversation_history=[{"role": "user", "content": user_prompt}],
-        temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
-        user_id=desktop_user.id,
-        response_format="json_object",
-        timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
-    )
-
-    # 解析并保存新的部分
-    part_data = part_service._parse_single_part_outline(response, part_number)
-    new_part = part_service._create_single_part_outline_model(project_id, part_data)
-    await part_service.repo.add(new_part)
-
     await session.commit()
-
     logger.info("项目 %s 第 %d 部分大纲重新生成完成", project_id, part_number)
 
-    # 返回更新后的进度
-    updated_parts = await part_service.repo.get_by_project_id(project_id)
-
-    result = PartOutlineGenerationProgress(
-        parts=[part_service._to_schema(p) for p in updated_parts],
-        total_parts=len(updated_parts),
-        completed_parts=len(updated_parts),
-        status="completed",
-    )
-
-    # 如果有级联删除，添加额外信息到响应（通过修改parts中的某个字段或日志）
     if cascade_deleted_parts_count > 0:
         logger.info(
             "级联删除信息：删除了第 %d-%d 部分（共 %d 个）及对应的章节大纲",
             part_number + 1, max_part_number, cascade_deleted_parts_count
         )
 
-    return result
+    # 返回更新后的进度
+    return await part_service.get_regenerate_progress(project_id)
 
 
 # ------------------------------------------------------------------
@@ -433,6 +345,91 @@ async def generate_part_outlines(
     )
     await session.commit()
     return result
+
+
+@router.post("/novels/{project_id}/parts/generate-stream")
+async def generate_part_outlines_stream(
+    project_id: str,
+    request: GeneratePartOutlinesRequest,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> StreamingResponse:
+    """
+    生成部分大纲（SSE流式进度）
+
+    事件类型：
+    - progress: 进度更新 {"current_part", "total_parts", "message"}
+    - complete: 完成 {"message", "total_parts"}
+    - error: 错误 {"message", "saved_parts", "saved_count"}
+    """
+    logger.info("用户 %s 请求为项目 %s 生成部分大纲（SSE模式）", desktop_user.id, project_id)
+
+    async def event_generator():
+        workflow = PartOutlineWorkflow(
+            session=session,
+            project_id=project_id,
+            user_id=desktop_user.id,
+            total_chapters=request.total_chapters,
+            chapters_per_part=request.chapters_per_part,
+            continue_mode=False,
+        )
+
+        async for progress in workflow.execute_with_progress():
+            status = progress.get("status", "unknown")
+            if status == "complete":
+                yield sse_event("complete", progress)
+            elif status == "error":
+                yield sse_event("error", progress)
+            else:
+                yield sse_event("progress", progress)
+
+    return create_sse_response(event_generator())
+
+
+@router.post("/novels/{project_id}/parts/continue-stream")
+async def continue_part_outlines_stream(
+    project_id: str,
+    request: GeneratePartOutlinesRequest,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> StreamingResponse:
+    """
+    继续生成部分大纲（SSE流式进度）- 增量模式
+
+    从现有部分大纲的最后一个开始继续生成，不会删除已有的部分大纲。
+    支持通过 count 参数指定要生成的数量。
+
+    事件类型：
+    - progress: 进度更新 {"current_part", "total_parts", "message"}
+    - complete: 完成 {"message", "total_parts", "new_parts_count"}
+    - error: 错误 {"message", "saved_parts", "saved_count"}
+    """
+    logger.info(
+        "用户 %s 请求为项目 %s 继续生成部分大纲（SSE增量模式），count=%s",
+        desktop_user.id, project_id, request.count
+    )
+
+    async def event_generator():
+        workflow = PartOutlineWorkflow(
+            session=session,
+            project_id=project_id,
+            user_id=desktop_user.id,
+            total_chapters=request.total_chapters,
+            chapters_per_part=request.chapters_per_part,
+            continue_mode=True,
+            count=request.count,
+        )
+
+        async for progress in workflow.execute_with_progress():
+            status = progress.get("status", "unknown")
+            if status == "complete":
+                yield sse_event("complete", progress)
+            elif status == "error":
+                yield sse_event("error", progress)
+            else:
+                yield sse_event("progress", progress)
+
+    return create_sse_response(event_generator())
 
 
 @router.post("/novels/{project_id}/parts/{part_number}/chapters", response_model=NovelProjectSchema)

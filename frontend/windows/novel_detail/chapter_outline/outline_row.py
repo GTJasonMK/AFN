@@ -208,3 +208,10 @@ class OutlineRow(QFrame):
             summary = data.get('summary', '')
             display_summary = summary[:60] + "..." if len(summary) > 60 else summary
             self.summary_label.setText(display_summary)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

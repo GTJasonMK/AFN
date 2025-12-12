@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from pages.base_page import BasePage
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles, ModernEffects
 from utils.error_handler import handle_errors
@@ -20,6 +20,7 @@ from utils.message_service import MessageService, confirm
 from utils.formatters import get_project_status_text
 from utils.dpi_utils import dp, sp
 from utils.async_worker import AsyncAPIWorker
+from utils.constants import WorkerTimeouts
 
 from .overview_section import OverviewSection
 from .world_setting_section import WorldSettingSection
@@ -38,7 +39,7 @@ class NovelDetail(BasePage):
         super().__init__(parent)
         self.project_id = project_id
 
-        self.api_client = AFNAPIClient()
+        self.api_client = APIClientManager.get_client()
         self.project_data = None
         self.section_data = {}
         self.active_section = 'overview'
@@ -683,15 +684,15 @@ class NovelDetail(BasePage):
         self.navigateTo('WRITING_DESK', project_id=self.project_id)
 
     def goBackToWorkspace(self):
-        """返回项目列表"""
-        self.navigateTo('WORKSPACE')
+        """返回首页"""
+        self.navigateTo('HOME')
 
     def goToWorkspace(self):
-        """返回项目工作台"""
+        """返回首页"""
         import logging
         logger = logging.getLogger(__name__)
-        logger.info("goToWorkspace called, navigating to WORKSPACE")
-        self.navigateTo('WORKSPACE')
+        logger.info("goToWorkspace called, navigating to HOME")
+        self.navigateTo('HOME')
 
     def onEditRequested(self, field, label, value):
         """处理编辑请求"""
@@ -854,7 +855,7 @@ class NovelDetail(BasePage):
                 if self.refine_worker.isRunning():
                     self.refine_worker.cancel()
                     self.refine_worker.quit()
-                    self.refine_worker.wait(1000)
+                    self.refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
             except RuntimeError:
                 # Worker已被删除，忽略
                 pass
@@ -913,7 +914,7 @@ class NovelDetail(BasePage):
             if self.refine_worker and self.refine_worker.isRunning():
                 self.refine_worker.cancel()
                 self.refine_worker.quit()
-                self.refine_worker.wait(1000)
+                self.refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
             # 恢复按钮状态
             if hasattr(self, 'refine_btn') and self.refine_btn:
                 self.refine_btn.setEnabled(True)
@@ -948,7 +949,7 @@ class NovelDetail(BasePage):
             if self.refine_worker and self.refine_worker.isRunning():
                 self.refine_worker.cancel()
                 self.refine_worker.quit()
-                self.refine_worker.wait(1000)
+                self.refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
         except RuntimeError:
             pass  # C++对象已被删除，忽略
         except Exception as e:
@@ -956,20 +957,23 @@ class NovelDetail(BasePage):
         finally:
             self.refine_worker = None
 
-        # 安全地清理section widgets
+        # 安全地清理所有section widgets
         try:
-            if 'chapter_outline' in self.section_widgets:
-                section = self.section_widgets['chapter_outline']
+            for section_id, section in self.section_widgets.items():
                 try:
-                    # 检查对象是否仍然有效
-                    if section is not None and hasattr(section, 'stopAllTasks'):
-                        section.stopAllTasks()
+                    if section is not None and hasattr(section, 'cleanup'):
+                        section.cleanup()
                 except RuntimeError:
                     # C++对象已被删除
-                    logger.debug("chapter_outline section已被删除，跳过清理")
+                    logger.debug("%s section已被删除，跳过清理", section_id)
                 except Exception as e:
-                    logger.warning("清理chapter_outline section时出错: %s", str(e))
+                    logger.warning("清理%s section时出错: %s", section_id, str(e))
         except Exception as e:
             logger.warning("访问section_widgets时出错: %s", str(e))
 
         logger.debug("NovelDetail.onHide() completed")
+
+    def closeEvent(self, event):
+        """窗口关闭时清理资源"""
+        self.onHide()
+        super().closeEvent(event)

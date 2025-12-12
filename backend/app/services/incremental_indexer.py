@@ -218,8 +218,17 @@ class IncrementalIndexer:
 
         Returns:
             int: 回收的伏笔数量
+
+        优化说明:
+            使用批量IN查询替代循环内的单条查询，将N+1问题优化为2次查询。
         """
-        resolved_count = 0
+        if not resolved:
+            return 0
+
+        # 第一步：收集并分类所有待回收的伏笔信息
+        int_id_map: Dict[int, str] = {}  # {int_id: resolution}
+        desc_match_items: List[tuple] = []  # [(desc_fragment, resolution), ...]
+
         for item in resolved:
             # 处理不同的格式
             if hasattr(item, "id"):
@@ -234,27 +243,41 @@ class IncrementalIndexer:
             if not fs_id:
                 continue
 
-            # 尝试通过ID查找伏笔
+            # 分类：整数ID vs 需要描述匹配的
             try:
                 fs_id_int = int(fs_id)
-                result = await self.session.execute(
-                    select(ForeshadowingIndex).where(
-                        ForeshadowingIndex.id == fs_id_int,
-                        ForeshadowingIndex.project_id == project_id,
-                    )
-                )
-                fs_record = result.scalar_one_or_none()
+                int_id_map[fs_id_int] = resolution
             except (ValueError, TypeError):
-                # 如果ID不是整数，尝试通过描述匹配
-                result = await self.session.execute(
-                    select(ForeshadowingIndex).where(
-                        ForeshadowingIndex.project_id == project_id,
-                        ForeshadowingIndex.status == "pending",
-                        ForeshadowingIndex.description.contains(str(fs_id)[:50]),
-                    )
-                )
-                fs_record = result.scalar_one_or_none()
+                # 非整数ID，需要描述匹配
+                desc_match_items.append((str(fs_id)[:50], resolution))
 
+        resolved_count = 0
+
+        # 第二步：批量查询整数ID的伏笔（一次IN查询替代N次查询）
+        if int_id_map:
+            result = await self.session.execute(
+                select(ForeshadowingIndex).where(
+                    ForeshadowingIndex.id.in_(int_id_map.keys()),
+                    ForeshadowingIndex.project_id == project_id,
+                )
+            )
+            for fs_record in result.scalars().all():
+                resolution = int_id_map.get(fs_record.id, "")
+                fs_record.status = "resolved"
+                fs_record.resolved_chapter = chapter_number
+                fs_record.resolution = resolution
+                resolved_count += 1
+
+        # 第三步：处理需要描述匹配的伏笔（这类情况较少，无法批量）
+        for desc_fragment, resolution in desc_match_items:
+            result = await self.session.execute(
+                select(ForeshadowingIndex).where(
+                    ForeshadowingIndex.project_id == project_id,
+                    ForeshadowingIndex.status == "pending",
+                    ForeshadowingIndex.description.contains(desc_fragment),
+                )
+            )
+            fs_record = result.scalar_one_or_none()
             if fs_record:
                 fs_record.status = "resolved"
                 fs_record.resolved_chapter = chapter_number

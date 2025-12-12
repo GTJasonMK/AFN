@@ -9,10 +9,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from components.base import ThemeAwareWidget
-from themes.theme_manager import theme_manager
-from utils.dpi_utils import dp, sp
+from utils.dpi_utils import dp
 
 from .relationship_row import RelationshipRow
+from .section_styles import SectionStyles
 
 
 class RelationshipsSection(ThemeAwareWidget):
@@ -135,67 +135,10 @@ class RelationshipsSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
-        # 使用现代UI字体
-        ui_font = theme_manager.ui_font()
-
-        self.setStyleSheet(f"""
-            #section_title {{
-                font-family: {ui_font};
-                font-size: {sp(18)}px;
-                font-weight: 700;
-                color: {theme_manager.TEXT_PRIMARY};
-            }}
-            #count_label {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {theme_manager.TEXT_TERTIARY};
-                background-color: {theme_manager.BG_TERTIARY};
-                padding: {dp(4)}px {dp(12)}px;
-                border-radius: {dp(12)}px;
-            }}
-            #edit_btn {{
-                font-family: {ui_font};
-                background: transparent;
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-                font-size: {sp(13)}px;
-                color: {theme_manager.TEXT_SECONDARY};
-            }}
-            #edit_btn:hover {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                border-color: {theme_manager.PRIMARY};
-                color: {theme_manager.PRIMARY};
-            }}
-            #empty_state {{
-                background-color: {theme_manager.BG_SECONDARY};
-                border: 2px dashed {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(12)}px;
-                padding: {dp(40)}px;
-            }}
-            #empty_text {{
-                font-family: {ui_font};
-                font-size: {sp(16)}px;
-                font-weight: 600;
-                color: {theme_manager.TEXT_SECONDARY};
-            }}
-            #empty_hint {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {theme_manager.TEXT_TERTIARY};
-            }}
-        """)
-
-        # 滚动区域样式
-        self.scroll_area.setStyleSheet(f"""
-            QScrollArea {{
-                background: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
-        self.content_widget.setStyleSheet("background: transparent;")
+        # 使用共享的 Section 样式
+        self.setStyleSheet(SectionStyles.list_section_stylesheet())
+        self.scroll_area.setStyleSheet(SectionStyles.scroll_area_stylesheet())
+        self.content_widget.setStyleSheet(SectionStyles.transparent_background())
 
         # 更新所有关系横条样式
         for row in self.relationship_rows:

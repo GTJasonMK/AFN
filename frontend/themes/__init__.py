@@ -10,6 +10,7 @@
 - AccessibilityTheme: 无障碍样式
 - ModernEffects: 现代效果（渐变、玻璃态）
 - SVGIcons: SVG图标库
+- BookThemeStyler: 书香风格样式器
 """
 
 from .accessibility import AccessibilityTheme
@@ -17,6 +18,7 @@ from .theme_manager import theme_manager, ThemeMode
 from .modern_effects import ModernEffects
 from .svg_icons import SVGIcons
 from .button_styles import ButtonStyles, ButtonSizes
+from .book_theme_styler import BookThemeStyler, get_book_styler
 from .component_styles import (
     ComponentStyles,
     CardStyles,
@@ -50,4 +52,7 @@ __all__ = [
     'AccessibilityTheme',
     'ModernEffects',
     'SVGIcons',
+    # 书香风格
+    'BookThemeStyler',
+    'get_book_styler',
 ]

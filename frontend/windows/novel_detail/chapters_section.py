@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QStackedWidget, QScrollArea, QFileDialog, QTextEdit
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from utils.error_handler import handle_errors
@@ -30,7 +30,7 @@ class ChaptersSection(ThemeAwareWidget):
     def __init__(self, chapters=None, parent=None):
         self.all_chapters = chapters or []
         self.completed_chapters = []  # 过滤后的已完成章节
-        self.api_client = AFNAPIClient()
+        self.api_client = APIClientManager.get_client()
         self.selected_chapter = None
         self.chapter_cache = {}
         self.project_id = ''

@@ -53,8 +53,9 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
             msg_box.setText("程序发生未处理的错误，即将退出。")
             msg_box.setDetailedText(error_msg)
             msg_box.exec()
-    except Exception:
-        pass  # 如果无法显示对话框，至少日志已经记录了
+    except (RuntimeError, ImportError) as dialog_error:
+        # Qt 运行时错误或导入错误，无法显示对话框
+        logger.warning("无法显示错误对话框: %s", type(dialog_error).__name__)
 
     # 调用默认异常处理
     sys.__excepthook__(exc_type, exc_value, exc_traceback)

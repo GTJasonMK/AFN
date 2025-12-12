@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
@@ -13,11 +13,17 @@ class PartOutline(Base):
     """小说部分大纲表（用于长篇小说的分层大纲结构）"""
 
     __tablename__ = "part_outlines"
+    __table_args__ = (
+        # 复合唯一约束：同一项目内part_number唯一，同时作为高效查询索引
+        UniqueConstraint('project_id', 'part_number', name='uq_part_outline_project_part'),
+        # 复合索引：优化按项目+状态查询（如获取待处理的部分）
+        Index('ix_part_outline_project_status', 'project_id', 'generation_status'),
+    )
 
     # 基础字段
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     part_number: Mapped[int] = mapped_column(Integer, nullable=False)
 

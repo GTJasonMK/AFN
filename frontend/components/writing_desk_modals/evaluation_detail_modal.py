@@ -457,3 +457,10 @@ class WDEvaluationDetailModal(QDialog):
                     version_layout.addWidget(cons_widget)
 
                 layout.addWidget(version_card)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._apply_theme)
+        except (TypeError, RuntimeError):
+            pass

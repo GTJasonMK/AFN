@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -50,52 +50,6 @@ def normalize_chinese_quotes(text: str) -> str:
     text = text.replace('"', '"').replace('"', '"')
     text = text.replace(''', "'").replace(''', "'")
     return text
-
-
-def sanitize_json_like_text(raw_text: str) -> str:
-    """对可能含有未转义换行/引号的 JSON 文本进行清洗。"""
-    if not raw_text:
-        return raw_text
-
-    result = []
-    in_string = False
-    escape_next = False
-    length = len(raw_text)
-    i = 0
-    while i < length:
-        ch = raw_text[i]
-        if in_string:
-            if escape_next:
-                result.append(ch)
-                escape_next = False
-            elif ch == "\\":
-                result.append(ch)
-                escape_next = True
-            elif ch == '"':
-                j = i + 1
-                while j < length and raw_text[j] in " \t\r\n":
-                    j += 1
-
-                if j >= length or raw_text[j] in "}]" or raw_text[j] == ",":
-                    in_string = False
-                    result.append(ch)
-                else:
-                    result.extend(["\\", '"'])
-            elif ch == "\n":
-                result.extend(["\\", "n"])
-            elif ch == "\r":
-                result.extend(["\\", "r"])
-            elif ch == "\t":
-                result.extend(["\\", "t"])
-            else:
-                result.append(ch)
-        else:
-            if ch == '"':
-                in_string = True
-            result.append(ch)
-        i += 1
-
-    return "".join(result)
 
 
 def parse_llm_json_or_fail(
@@ -172,13 +126,75 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
             # 失败的跳过，不中断循环
         ```
     """
+    if not raw_text:
+        return None
+
     try:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
         return json.loads(normalized)
     except (json.JSONDecodeError, AttributeError, TypeError):
+        # 预期的解析失败，静默返回None
         return None
-    except Exception:
-        # 记录未预期的异常，但不抛出
-        logger.debug("JSON解析失败（安全模式），跳过此条目")
+    except Exception as exc:
+        # 未预期的异常，记录详情但不抛出
+        logger.warning(
+            "JSON解析时发生未预期异常（安全模式）: type=%s msg=%s",
+            type(exc).__name__,
+            str(exc)[:100],
+        )
         return None
+
+
+def extract_llm_content(
+    raw_response: str,
+    content_key: str = "content"
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """
+    从LLM响应中提取内容和元数据
+
+    统一处理LLM返回的各种格式：
+    1. 纯文本响应
+    2. JSON包装的响应 {"content": "...", "metadata": {...}}
+    3. Markdown代码块包装的JSON
+
+    Args:
+        raw_response: LLM原始响应文本
+        content_key: JSON中内容字段的键名，默认为"content"
+
+    Returns:
+        Tuple[str, Optional[Dict]]:
+            - 提取的内容文本
+            - 元数据字典（如果存在），否则None
+
+    Example:
+        ```python
+        # 在章节生成中使用
+        content, metadata = extract_llm_content(llm_response)
+        chapter.content = content
+        if metadata:
+            chapter.metadata = metadata
+        ```
+    """
+    if not raw_response:
+        return "", None
+
+    # 第一步：清理think标签
+    cleaned = remove_think_tags(raw_response)
+
+    # 第二步：尝试解析为JSON
+    parsed = parse_llm_json_safe(cleaned)
+
+    if parsed and isinstance(parsed, dict):
+        # 成功解析为JSON，提取content字段
+        content = parsed.get(content_key, "")
+        if not content:
+            # 如果没有content字段，可能整个响应就是内容
+            content = unwrap_markdown_json(cleaned)
+
+        # 提取元数据（排除content字段后的所有字段）
+        metadata = {k: v for k, v in parsed.items() if k != content_key}
+        return str(content), metadata if metadata else None
+
+    # 解析失败，返回清理后的纯文本
+    return unwrap_markdown_json(cleaned), None

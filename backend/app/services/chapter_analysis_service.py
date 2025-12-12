@@ -134,9 +134,10 @@ class ChapterAnalysisService:
                     len(analysis_data.key_events),
                 )
                 return analysis_data
-            except Exception as exc:
-                logger.error(
-                    "章节分析数据验证失败: novel=%s chapter=%d error=%s",
+            except (ValueError, TypeError, KeyError) as exc:
+                # Pydantic验证失败，尝试宽松模式
+                logger.warning(
+                    "章节分析数据验证失败，尝试宽松解析: novel=%s chapter=%d error=%s",
                     novel_title,
                     chapter_number,
                     exc,

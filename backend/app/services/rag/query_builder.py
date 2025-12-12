@@ -13,6 +13,7 @@ from ...schemas.novel import (
     ChapterAnalysisData,
     ForeshadowingItem,
 )
+from .utils import extract_involved_characters, build_outline_text
 
 
 @dataclass
@@ -156,19 +157,11 @@ class EnhancedQueryBuilder:
 
         通过匹配角色名称在大纲文本中出现来确定涉及的角色
         """
-        # 组合大纲文本
-        outline_text = " ".join([
-            outline.get("title", ""),
-            outline.get("summary", ""),
-        ])
-
-        involved = []
-        for char in blueprint_characters:
-            char_name = char.get("name", "")
-            if char_name and char_name in outline_text:
-                involved.append(char)
-
-        return involved
+        return extract_involved_characters(
+            outline=outline,
+            blueprint_characters=blueprint_characters,
+            include_details=False,
+        )
 
     def _build_character_queries(
         self,
@@ -216,10 +209,7 @@ class EnhancedQueryBuilder:
             return []
 
         queries = []
-        outline_text = " ".join([
-            outline.get("title", ""),
-            outline.get("summary", ""),
-        ]).lower()
+        outline_text = build_outline_text(outline).lower()
 
         # 按优先级排序伏笔
         sorted_foreshadowing = sorted(
@@ -279,10 +269,7 @@ class EnhancedQueryBuilder:
         prev_chapter_analysis: Optional[ChapterAnalysisData] = None,
     ) -> Optional[str]:
         """构建场景相关查询"""
-        outline_text = " ".join([
-            outline.get("title", ""),
-            outline.get("summary", ""),
-        ])
+        outline_text = build_outline_text(outline)
 
         # 尝试从大纲中提取地点
         location = self._extract_location_from_text(outline_text)
@@ -359,6 +346,9 @@ class EntityAwareQueryEnhancer:
     """基于实体的查询增强器
 
     使用蓝图信息增强查询，添加实体标注以提高检索精度
+
+    注意: 此类是RAG优化计划的一部分（见RAG_OPTIMIZATION_PLAN.md Phase 2），
+    目前尚未集成到主流程中，保留用于后续优化。
     """
 
     def enhance_query(

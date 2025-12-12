@@ -19,7 +19,8 @@ from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
-from api.client import AFNAPIClient
+from utils.constants import WorkerTimeouts
+from api.manager import APIClientManager
 
 # 复用灵感模式的组件
 from windows.inspiration_mode.chat_bubble import ChatBubble
@@ -28,17 +29,18 @@ from windows.inspiration_mode.conversation_input import ConversationInput
 
 class AssistantPanel(ThemeAwareFrame):
     """写作台右侧的 AI 助手面板"""
-    
+
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
-        self.api_client = AFNAPIClient()
-        
+        self.api_client = APIClientManager.get_client()
+
         # 状态
         self.is_loading = False
-        
+        self._worker = None  # 异步Worker引用
+
         super().__init__(parent)
         self.setupUI()
-        
+
         # 初始欢迎语
         QTimer.singleShot(500, self._show_welcome_message)
 
@@ -153,14 +155,17 @@ class AssistantPanel(ThemeAwareFrame):
         self._scroll_to_bottom()
         
         # 4. 异步请求 API
-        self.worker = AsyncAPIWorker(
+        # 先清理之前的worker（如果有）
+        self._cleanup_worker()
+
+        self._worker = AsyncAPIWorker(
             self.api_client.inspiration_converse,
             self.project_id,
             text
         )
-        self.worker.success.connect(self._on_ai_response)
-        self.worker.error.connect(self._on_ai_error)
-        self.worker.start()
+        self._worker.success.connect(self._on_ai_response)
+        self._worker.error.connect(self._on_ai_error)
+        self._worker.start()
 
     def _on_ai_response(self, response: dict):
         """处理 AI 响应"""
@@ -209,3 +214,33 @@ class AssistantPanel(ThemeAwareFrame):
         QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
         ))
+
+    def _cleanup_worker(self):
+        """清理异步Worker"""
+        if self._worker is None:
+            return
+
+        try:
+            if self._worker.isRunning():
+                self._worker.cancel()
+                self._worker.quit()
+                self._worker.wait(WorkerTimeouts.DEFAULT_MS)
+        except RuntimeError:
+            # Worker已被删除
+            pass
+        finally:
+            self._worker = None
+
+    def cleanup(self):
+        """清理资源（供父组件调用）"""
+        self._cleanup_worker()
+
+        # 移除加载气泡
+        if hasattr(self, 'loading_bubble') and self.loading_bubble:
+            try:
+                self.loading_bubble.deleteLater()
+            except RuntimeError:
+                pass
+            self.loading_bubble = None
+
+        super().cleanup()

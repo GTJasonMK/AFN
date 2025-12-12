@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.constants import NovelConstants
-from ..models.novel import NovelProject
+from ..models.novel import NovelProject, CharacterStateIndex, ForeshadowingIndex
 from ..repositories.blueprint_repository import (
     BlueprintCharacterRepository,
     BlueprintRelationshipRepository,
@@ -168,6 +168,21 @@ class BlueprintService:
             await self.session.execute(
                 delete(Chapter).where(Chapter.project_id == project_id)
             )
+
+            # 清理角色状态索引
+            await self.session.execute(
+                delete(CharacterStateIndex).where(
+                    CharacterStateIndex.project_id == project_id
+                )
+            )
+
+            # 清理伏笔索引（重新生成蓝图时删除所有伏笔记录）
+            await self.session.execute(
+                delete(ForeshadowingIndex).where(
+                    ForeshadowingIndex.project_id == project_id
+                )
+            )
+            logger.info("项目 %s 已清理角色状态和伏笔索引", project_id)
 
             # 同步清理向量库
             if settings.vector_store_enabled and llm_service:

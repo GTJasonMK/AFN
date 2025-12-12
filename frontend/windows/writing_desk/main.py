@@ -10,8 +10,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
+from components.dialogs import LoadingDialog
 from utils.async_worker import AsyncAPIWorker
+from utils.sse_worker import SSEWorker
+from utils.constants import WorkerTimeouts
+from utils.worker_manager import WorkerManager
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService, confirm
 from utils.dpi_utils import dp, sp
@@ -33,18 +37,15 @@ class WritingDesk(BasePage):
         super().__init__(parent)
         self.project_id = project_id
 
-        self.api_client = AFNAPIClient()
+        self.api_client = APIClientManager.get_client()
         self.project = None
         self.selected_chapter_number = None
         self.generating_chapter = None
 
-        # 异步任务管理 - 为不同操作维护独立的worker引用
-        self.current_worker = None  # 用于评审和重试等长时间操作
-        self.select_version_worker = None  # 用于版本选择
-        self.edit_content_worker = None  # 用于内容编辑
-        self.save_content_worker = None  # 用于保存内容
-        self.generation_worker = None   # 用于章节生成
-        self.preview_worker = None  # 用于提示词预览
+        # 异步任务管理 - 使用 WorkerManager 统一管理
+        self.worker_manager = WorkerManager(self)
+        self._sse_worker = None  # SSE Worker 单独管理（需要特殊的 stop 方法）
+        self._progress_dialog = None  # 进度对话框
 
         self.setupUI()
         self.loadProject()
@@ -163,7 +164,7 @@ class WritingDesk(BasePage):
         self.workspace.loadChapter(chapter_number)
 
     def onGenerateChapter(self, chapter_number):
-        """生成章节 - 后台异步执行模式"""
+        """生成章节 - 使用SSE流式进度显示"""
         # 防止快速点击导致多个生成任务同时运行
         if self.generating_chapter is not None:
             MessageService.show_warning(
@@ -175,7 +176,7 @@ class WritingDesk(BasePage):
 
         if not confirm(
             self,
-            f"确定要生成第{chapter_number}章吗？\n\n任务将在后台运行，您可以继续浏览其他内容。\n生成过程可能需要 1-3 分钟。",
+            f"确定要生成第{chapter_number}章吗？\n\n生成过程可能需要 1-3 分钟。",
             "确认生成"
         ):
             return
@@ -183,50 +184,172 @@ class WritingDesk(BasePage):
         # 标记正在生成的章节
         self.generating_chapter = chapter_number
         self.sidebar.setGeneratingChapter(chapter_number)
-        
-        # 显示开始通知
-        MessageService.show_info(
-            self, 
-            f"开始生成第{chapter_number}章，请耐心等待...", 
-            "任务已提交"
+
+        # 显示进度对话框
+        self._progress_dialog = LoadingDialog(
+            parent=self,
+            title=f"生成第{chapter_number}章",
+            message="正在初始化...",
+            cancelable=True
         )
+        self._progress_dialog.rejected.connect(self._on_chapter_gen_cancelled)
+        self._progress_dialog.show()
 
-        # 定义生成任务
-        def generate_task():
-            return self.api_client.generate_chapter(
-                project_id=self.project_id,
-                chapter_number=chapter_number
+        # 使用SSEWorker连接流式端点
+        url = f"{self.api_client.base_url}/api/writer/novels/{self.project_id}/chapters/generate-stream"
+        payload = {"chapter_number": chapter_number}
+
+        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker.progress_received.connect(self._on_chapter_gen_progress)
+        self._sse_worker.complete.connect(self._on_chapter_gen_complete)
+        self._sse_worker.error.connect(self._on_chapter_gen_error)
+        self._sse_worker.start()
+
+    def _on_chapter_gen_progress(self, data: dict):
+        """处理章节生成进度更新"""
+        if not self._progress_dialog:
+            return
+
+        stage = data.get('stage', '')
+        message = data.get('message', '')
+        current = data.get('current', 0)
+        total = data.get('total', 0)
+
+        # 根据阶段显示不同的进度信息
+        stage_labels = {
+            'initializing': '初始化',
+            'collecting_context': '收集上下文',
+            'preparing_prompt': '准备提示词',
+            'generating': '生成内容',
+            'saving': '保存结果'
+        }
+
+        stage_label = stage_labels.get(stage, stage)
+        if total > 0:
+            progress_text = f"[{stage_label}] {message}"
+        else:
+            progress_text = f"[{stage_label}] {message}"
+
+        self._progress_dialog.setMessage(progress_text)
+
+    def _on_chapter_gen_complete(self, data: dict):
+        """章节生成完成"""
+        chapter_number = self.generating_chapter
+        self._cleanup_chapter_gen_sse()
+
+        message = data.get('message', '生成完成')
+        version_count = data.get('version_count', 0)
+
+        logger.info(f"章节生成完成: {message}, 版本数: {version_count}")
+        MessageService.show_operation_success(self, message)
+
+        # 重新加载项目数据
+        self.loadProject()
+
+        # 如果当前正停留在该章节，刷新显示
+        if self.selected_chapter_number == chapter_number:
+            self.workspace.loadChapter(chapter_number)
+
+    def _on_chapter_gen_error(self, error_msg: str):
+        """章节生成错误
+
+        根据错误消息内容提供更有用的用户反馈。
+        """
+        chapter_number = self.generating_chapter
+        self._cleanup_chapter_gen_sse()
+        logger.error(f"章节生成失败: {error_msg}")
+
+        # 根据错误消息内容生成更友好的提示
+        title, message = self._format_generation_error(error_msg, chapter_number)
+        MessageService.show_error(self, message, title)
+
+    def _format_generation_error(self, error_msg: str, chapter_number: int) -> tuple:
+        """格式化章节生成错误消息
+
+        根据错误内容识别错误类型，提供更有用的建议。
+
+        Args:
+            error_msg: 原始错误消息
+            chapter_number: 章节号
+
+        Returns:
+            (title, message) 元组
+        """
+        error_lower = error_msg.lower() if error_msg else ""
+
+        # LLM服务相关错误
+        if any(kw in error_lower for kw in ["ai服务", "llm", "api key", "openai", "模型"]):
+            title = "AI服务错误"
+            message = (
+                f"第{chapter_number}章生成失败：AI服务暂时不可用\n\n"
+                "请检查：\n"
+                "- LLM配置是否正确\n"
+                "- API密钥是否有效\n"
+                "- 网络连接是否正常"
             )
+        # 超时错误
+        elif any(kw in error_lower for kw in ["超时", "timeout", "timed out"]):
+            title = "生成超时"
+            message = (
+                f"第{chapter_number}章生成超时\n\n"
+                "这可能是因为：\n"
+                "- 章节内容较长，需要更多生成时间\n"
+                "- 服务器负载较高\n\n"
+                "请稍后重试。"
+            )
+        # 连接错误
+        elif any(kw in error_lower for kw in ["连接", "connection", "network"]):
+            title = "连接失败"
+            message = (
+                f"第{chapter_number}章生成失败：网络连接问题\n\n"
+                "请检查：\n"
+                "- 后端服务是否已启动\n"
+                "- 网络连接是否正常"
+            )
+        # JSON解析错误
+        elif any(kw in error_lower for kw in ["json", "解析", "格式"]):
+            title = "响应格式错误"
+            message = (
+                f"第{chapter_number}章生成失败：AI响应格式异常\n\n"
+                "这可能是由于AI模型返回了非预期的内容。\n"
+                "请重试生成。"
+            )
+        # 章节大纲相关
+        elif "大纲" in error_msg:
+            title = "大纲错误"
+            message = (
+                f"第{chapter_number}章生成失败：章节大纲问题\n\n"
+                f"{error_msg}\n\n"
+                "请检查章节大纲是否已正确生成。"
+            )
+        # 默认错误
+        else:
+            title = "生成失败"
+            message = f"第{chapter_number}章生成失败\n\n{error_msg}"
 
-        # 定义成功回调
-        def on_success(result):
-            self.generating_chapter = None
-            self.sidebar.clearGeneratingState()
-            
-            # 显示成功通知
-            MessageService.show_operation_success(self, f"第{chapter_number}章生成")
-            
-            # 重新加载项目数据
-            self.loadProject()
-            
-            # 如果当前正停留在该章节，刷新显示
-            if self.selected_chapter_number == chapter_number:
-                self.workspace.loadChapter(chapter_number)
+        return title, message
 
-        # 定义错误回调
-        def on_error(error_msg):
-            self.generating_chapter = None
-            self.sidebar.clearGeneratingState()
-            MessageService.show_error(self, f"第{chapter_number}章生成失败：\n{error_msg}", "错误")
+    def _on_chapter_gen_cancelled(self):
+        """用户取消章节生成"""
+        logger.info("用户取消章节生成")
+        self._cleanup_chapter_gen_sse()
 
-        # 使用AsyncWorker在后台线程执行
-        # 注意：我们需要将worker保存在实例变量中，防止被垃圾回收
-        self.generation_worker = AsyncAPIWorker(generate_task)
-        self.generation_worker.success.connect(on_success)
-        self.generation_worker.error.connect(on_error)
+    def _cleanup_chapter_gen_sse(self):
+        """清理章节生成SSE相关资源"""
+        self.generating_chapter = None
+        self.sidebar.clearGeneratingState()
 
-        # 启动Worker
-        self.generation_worker.start()
+        if self._sse_worker:
+            # SSEWorker.stop() 已经断开信号并关闭连接，无需 blockSignals
+            self._sse_worker.stop()
+            if self._sse_worker.isRunning():
+                self._sse_worker.quit()
+                self._sse_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            self._sse_worker = None
+
+        if self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog = None
 
     def onPreviewPrompt(self, chapter_number):
         """预览章节生成的提示词（用于测试RAG效果）"""
@@ -313,30 +436,26 @@ class WritingDesk(BasePage):
         mode_text = "重新生成" if is_retry else "首次生成"
         self.show_loading(f"正在构建第{chapter_number}章的提示词（{mode_text}模式）...")
 
-        # 创建异步工作线程
-        self.preview_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.preview_chapter_prompt,
             self.project_id,
             chapter_number,
             writing_notes,
             is_retry
         )
-        self.preview_worker.success.connect(
+        worker.success.connect(
             lambda result: self.onPreviewPromptSuccess(result, chapter_number, is_retry)
         )
-        self.preview_worker.error.connect(self.onPreviewPromptError)
+        worker.error.connect(self.onPreviewPromptError)
 
-        # 启动预览任务
-        self.preview_worker.start()
+        # 使用 WorkerManager 启动（自动管理生命周期）
+        self.worker_manager.start(worker, 'preview')
 
     def onPreviewPromptSuccess(self, result, chapter_number, is_retry=False):
         """提示词预览成功回调"""
         # 隐藏加载动画
         self.hide_loading()
-
-        # 清理工作线程引用
-        if self.preview_worker:
-            self.preview_worker = None
 
         # 显示预览对话框
         dialog = PromptPreviewDialog(result, chapter_number, is_retry=is_retry, parent=self)
@@ -349,10 +468,6 @@ class WritingDesk(BasePage):
 
         MessageService.show_error(self, f"预览提示词失败：\n\n{error_msg}", "错误")
 
-        # 清理工作线程引用
-        if self.preview_worker:
-            self.preview_worker = None
-
     def onGenerateOutline(self):
         """跳转到项目详情的章节大纲页面"""
         self.navigateTo('DETAIL', project_id=self.project_id, section='chapter_outline')
@@ -362,20 +477,20 @@ class WritingDesk(BasePage):
         # 显示保存中提示
         self.show_loading(f"正在保存第{chapter_number}章内容...")
 
-        # 创建异步工作线程
-        self.save_content_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.update_chapter,
             self.project_id,
             chapter_number,
             content
         )
-        self.save_content_worker.success.connect(
+        worker.success.connect(
             lambda r: self.onSaveContentSuccess(chapter_number)
         )
-        self.save_content_worker.error.connect(self.onSaveContentError)
+        worker.error.connect(self.onSaveContentError)
 
-        # 启动保存任务
-        self.save_content_worker.start()
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'save_content')
 
     def onSaveContentSuccess(self, chapter_number):
         """保存成功回调"""
@@ -392,10 +507,6 @@ class WritingDesk(BasePage):
         )
         dialog.exec()
 
-        # 清理工作线程引用
-        if hasattr(self, 'save_content_worker') and self.save_content_worker:
-            self.save_content_worker = None
-
     def onSaveContentError(self, error_msg):
         """保存失败回调"""
         self.hide_loading()
@@ -411,10 +522,6 @@ class WritingDesk(BasePage):
         )
         dialog.exec()
 
-        # 清理工作线程引用
-        if hasattr(self, 'save_content_worker') and self.save_content_worker:
-            self.save_content_worker = None
-
     def onSelectVersion(self, version_index):
         """选择版本（异步非阻塞版本）"""
         if self.selected_chapter_number is None:
@@ -423,18 +530,18 @@ class WritingDesk(BasePage):
         # 显示加载动画
         self.show_loading(f"正在确认第{self.selected_chapter_number}章版本{version_index + 1}...")
 
-        # 创建异步工作线程（保持引用防止被垃圾回收）
-        self.select_version_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.select_chapter_version,
             self.project_id,
             self.selected_chapter_number,
             version_index
         )
-        self.select_version_worker.success.connect(lambda r: self.onSelectVersionSuccess(r, version_index))
-        self.select_version_worker.error.connect(self.onSelectVersionError)
+        worker.success.connect(lambda r: self.onSelectVersionSuccess(r, version_index))
+        worker.error.connect(self.onSelectVersionError)
 
-        # 启动任务
-        self.select_version_worker.start()
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'select_version')
 
     def onSelectVersionSuccess(self, result, version_index):
         """版本选择成功回调"""
@@ -442,10 +549,6 @@ class WritingDesk(BasePage):
         self.hide_loading()
 
         MessageService.show_success(self, "版本已确认！")
-
-        # 清理工作线程引用
-        if self.select_version_worker:
-            self.select_version_worker = None
 
         # 重新加载
         self.loadProject()
@@ -459,10 +562,6 @@ class WritingDesk(BasePage):
 
         MessageService.show_error(self, f"选择版本失败：\n\n{error_msg}", "错误")
 
-        # 清理工作线程引用
-        if self.select_version_worker:
-            self.select_version_worker = None
-
     def onEvaluateChapter(self):
         """评审章节（异步非阻塞版本）"""
         if self.selected_chapter_number is None:
@@ -471,17 +570,17 @@ class WritingDesk(BasePage):
         # 显示加载动画
         self.show_loading(f"正在评审第{self.selected_chapter_number}章...")
 
-        # 创建异步工作线程
-        self.current_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.evaluate_chapter,
             self.project_id,
             self.selected_chapter_number
         )
-        self.current_worker.success.connect(self.onEvaluateSuccess)
-        self.current_worker.error.connect(self.onEvaluateError)
+        worker.success.connect(self.onEvaluateSuccess)
+        worker.error.connect(self.onEvaluateError)
 
-        # 启动评审任务
-        self.current_worker.start()
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'evaluate')
 
     def onEvaluateSuccess(self, result):
         """章节评审成功回调"""
@@ -489,10 +588,6 @@ class WritingDesk(BasePage):
         self.hide_loading()
 
         MessageService.show_success(self, "评审完成！")
-
-        # 清理工作线程
-        if self.current_worker:
-            self.current_worker = None
 
         # 重新加载
         self.loadProject()
@@ -506,10 +601,6 @@ class WritingDesk(BasePage):
 
         MessageService.show_error(self, f"评审失败：\n\n{error_msg}", "错误")
 
-        # 清理工作线程
-        if self.current_worker:
-            self.current_worker = None
-
     def onEditContent(self, new_content):
         """编辑章节内容（异步非阻塞版本）"""
         if self.selected_chapter_number is None:
@@ -518,18 +609,18 @@ class WritingDesk(BasePage):
         # 显示加载动画
         self.show_loading(f"正在保存第{self.selected_chapter_number}章内容...")
 
-        # 创建异步工作线程（保持引用防止被垃圾回收）
-        self.edit_content_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.update_chapter,
             self.project_id,
             self.selected_chapter_number,
             new_content
         )
-        self.edit_content_worker.success.connect(self.onEditContentSuccess)
-        self.edit_content_worker.error.connect(self.onEditContentError)
+        worker.success.connect(self.onEditContentSuccess)
+        worker.error.connect(self.onEditContentError)
 
-        # 启动任务
-        self.edit_content_worker.start()
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'edit_content')
 
     def onEditContentSuccess(self, result):
         """编辑内容成功回调"""
@@ -537,10 +628,6 @@ class WritingDesk(BasePage):
         self.hide_loading()
 
         MessageService.show_success(self, "内容已保存！")
-
-        # 清理工作线程引用
-        if self.edit_content_worker:
-            self.edit_content_worker = None
 
         # 重新加载
         self.loadProject()
@@ -553,10 +640,6 @@ class WritingDesk(BasePage):
         self.hide_loading()
 
         MessageService.show_error(self, f"保存失败：\n\n{error_msg}", "错误")
-
-        # 清理工作线程引用
-        if self.edit_content_worker:
-            self.edit_content_worker = None
 
     def onRetryVersion(self, version_index):
         """重试章节版本（异步非阻塞版本）"""
@@ -589,19 +672,19 @@ class WritingDesk(BasePage):
             loading_msg += f"\n优化方向：{custom_prompt[:50]}..."
         self.show_loading(loading_msg)
 
-        # 创建异步工作线程
-        self.current_worker = AsyncAPIWorker(
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
             self.api_client.retry_chapter_version,
             self.project_id,
             self.selected_chapter_number,
             version_index,
             custom_prompt.strip() if custom_prompt.strip() else None
         )
-        self.current_worker.success.connect(lambda r: self.onRetrySuccess(r, version_index))
-        self.current_worker.error.connect(self.onRetryError)
+        worker.success.connect(lambda r: self.onRetrySuccess(r, version_index))
+        worker.error.connect(self.onRetryError)
 
-        # 启动重试任务
-        self.current_worker.start()
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'retry')
 
     def onRetrySuccess(self, result, version_index):
         """版本重试成功回调"""
@@ -612,10 +695,6 @@ class WritingDesk(BasePage):
             self,
             f"第{self.selected_chapter_number}章版本{version_index + 1}重新生成"
         )
-
-        # 清理工作线程
-        if self.current_worker:
-            self.current_worker = None
 
         # 重新加载项目并刷新显示
         self.loadProject()
@@ -629,17 +708,13 @@ class WritingDesk(BasePage):
 
         MessageService.show_error(self, f"重新生成失败：\n\n{error_msg}", "错误")
 
-        # 清理工作线程
-        if self.current_worker:
-            self.current_worker = None
-
     def openProjectDetail(self):
         """打开项目详情页"""
         self.navigateTo('DETAIL', project_id=self.project_id)
 
     def goBackToWorkspace(self):
-        """返回项目工作台"""
-        self.navigateTo('WORKSPACE', project_id=self.project_id)
+        """返回首页"""
+        self.navigateTo('HOME')
 
     def exportNovel(self, format_type):
         """导出小说"""
@@ -673,55 +748,35 @@ class WritingDesk(BasePage):
 
     def _cleanup_workers(self):
         """清理所有异步工作线程"""
-        workers = [
-            ('current_worker', self.current_worker),
-            ('select_version_worker', self.select_version_worker),
-            ('edit_content_worker', self.edit_content_worker),
-            ('save_content_worker', self.save_content_worker),
-            ('generation_worker', self.generation_worker),
-            ('preview_worker', self.preview_worker),
-        ]
+        # 使用 WorkerManager 统一清理所有托管的 Worker
+        self.worker_manager.cleanup_all()
 
-        for name, worker in workers:
-            if worker is not None:
-                try:
-                    # 断开所有信号连接，防止回调到已删除的对象
-                    worker.blockSignals(True)
-                    # 如果线程正在运行，等待它完成（设置超时避免永久阻塞）
-                    if worker.isRunning():
-                        worker.quit()
-                        worker.wait(1000)  # 最多等待1秒
-                        if worker.isRunning():
-                            worker.terminate()  # 强制终止
-                            worker.wait(500)
-                    logger.debug(f"清理worker: {name}")
-                except Exception as e:
-                    logger.warning(f"清理worker {name} 时发生错误: {e}")
+        # 清理SSE worker（章节生成流式，单独管理）
+        self._cleanup_chapter_gen_sse()
 
-        # 清空引用
-        self.current_worker = None
-        self.select_version_worker = None
-        self.edit_content_worker = None
-        self.save_content_worker = None
-        self.generation_worker = None
-        self.preview_worker = None
+        # 清理助手面板的Worker
+        if hasattr(self, 'assistant_panel') and self.assistant_panel:
+            try:
+                self.assistant_panel.cleanup()
+            except RuntimeError:
+                pass  # 面板已被删除
 
         # 隐藏加载动画（如果有）
         self.hide_loading()
-
-        # 清除生成状态
-        self.generating_chapter = None
-        if hasattr(self, 'sidebar'):
-            self.sidebar.clearGeneratingState()
 
     def __del__(self):
         """析构函数，确保资源被释放"""
         try:
             self._cleanup_workers()
-            if hasattr(self, 'api_client') and self.api_client:
-                self.api_client.close()
-        except Exception:
-            pass  # 忽略析构时的错误
+            # 注意：api_client 现在由 APIClientManager 单例管理，不在此处关闭
+        except (RuntimeError, AttributeError, TypeError):
+            # 析构时可能的异常：对象已删除、属性不存在、类型错误
+            pass
+
+    def closeEvent(self, event):
+        """窗口关闭时清理资源"""
+        self.onHide()
+        super().closeEvent(event)
 
     def refresh(self, **params):
         """页面刷新"""

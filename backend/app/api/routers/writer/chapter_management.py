@@ -4,16 +4,13 @@
 处理章节的选择、评价、编辑、删除等管理操作。
 """
 
-import json
 import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Body
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
-from ....core.state_machine import ProjectStatus
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
@@ -25,9 +22,8 @@ from ....db.session import get_session
 from ....exceptions import (
     ChapterNotGeneratedError,
     InvalidParameterError,
-    PromptTemplateNotFoundError,
 )
-from ....models.novel import Chapter, ChapterOutline
+from ....models.novel import Chapter
 from ....schemas.novel import (
     DeleteChapterRequest,
     ImportChapterRequest,
@@ -45,7 +41,7 @@ from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
-from ....utils.json_utils import remove_think_tags, unwrap_markdown_json
+from ....utils.json_utils import remove_think_tags
 from ....utils.prompt_helpers import ensure_prompt
 
 logger = logging.getLogger(__name__)
@@ -175,6 +171,17 @@ async def select_chapter_version(
     desktop_user: UserInDB = Depends(get_default_user),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> NovelProjectSchema:
+    """
+    选择章节版本
+
+    核心操作是版本选择，后续的摘要生成、分析、索引等为辅助操作。
+    辅助操作失败会被记录为warnings但不影响主流程。
+
+    Returns:
+        NovelProjectSchema: 包含warnings字段，记录辅助操作的失败信息
+    """
+    # 收集操作警告
+    warnings: list[str] = []
 
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
     chapter = next((ch for ch in project.chapters if ch.chapter_number == request.chapter_number), None)
@@ -192,9 +199,10 @@ async def select_chapter_version(
         request.chapter_number,
         request.version_index,
     )
-    
-    # 优化：分离版本选择和摘要生成，避免摘要失败导致整个操作失败
+
+    # 辅助操作：摘要生成、章节分析、索引更新、向量入库
     if selected and selected.content:
+        # 1. 摘要生成
         try:
             summary = await llm_service.get_summary(
                 selected.content,
@@ -205,12 +213,15 @@ async def select_chapter_version(
             chapter.real_summary = remove_think_tags(summary)
             await session.commit()
         except Exception as exc:
-            logger.error("项目 %s 第 %s 章摘要生成失败，但版本选择已保存: %s", project_id, request.chapter_number, exc)
-            # 摘要生成失败不影响版本选择结果，继续处理
+            warning_msg = f"摘要生成失败: {type(exc).__name__}"
+            warnings.append(warning_msg)
+            logger.error("项目 %s 第 %s 章摘要生成失败: %s", project_id, request.chapter_number, exc)
 
-        # 执行章节深度分析，提取元数据、角色状态、伏笔等结构化信息
+        # 2. 章节分析
         outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
         chapter_title = outline.title if outline and outline.title else f"第{chapter.chapter_number}章"
+        analysis_data = None
+
         try:
             analysis_service = ChapterAnalysisService(session)
             analysis_data = await analysis_service.analyze_chapter(
@@ -224,66 +235,56 @@ async def select_chapter_version(
             if analysis_data:
                 chapter.analysis_data = analysis_data.model_dump()
                 await session.commit()
-                logger.info(
-                    "项目 %s 第 %s 章分析数据已保存",
-                    project_id,
-                    request.chapter_number,
-                )
-
-                # 更新角色状态和伏笔索引
-                try:
-                    indexer = IncrementalIndexer(session)
-                    index_stats = await indexer.index_chapter_analysis(
-                        project_id=project_id,
-                        chapter_number=request.chapter_number,
-                        analysis_data=analysis_data,
-                    )
-                    await session.commit()
-                    logger.info(
-                        "项目 %s 第 %s 章索引更新完成: %s",
-                        project_id,
-                        request.chapter_number,
-                        index_stats,
-                    )
-                except Exception as index_exc:
-                    logger.error(
-                        "项目 %s 第 %s 章索引更新失败: %s",
-                        project_id,
-                        request.chapter_number,
-                        index_exc,
-                    )
-                    # 索引更新失败不影响主流程
+                logger.info("项目 %s 第 %s 章分析数据已保存", project_id, request.chapter_number)
         except Exception as exc:
-            logger.error(
-                "项目 %s 第 %s 章分析失败，但版本选择已保存: %s",
-                project_id,
-                request.chapter_number,
-                exc,
-            )
-            # 分析失败不影响版本选择结果，继续处理
+            warning_msg = f"章节分析失败: {type(exc).__name__}"
+            warnings.append(warning_msg)
+            logger.error("项目 %s 第 %s 章分析失败: %s", project_id, request.chapter_number, exc)
 
-        # 选定版本后同步向量库，确保后续章节可检索到最新内容（使用依赖注入的vector_store）
+        # 3. 索引更新（依赖分析数据）
+        if analysis_data:
+            try:
+                indexer = IncrementalIndexer(session)
+                index_stats = await indexer.index_chapter_analysis(
+                    project_id=project_id,
+                    chapter_number=request.chapter_number,
+                    analysis_data=analysis_data,
+                )
+                await session.commit()
+                logger.info("项目 %s 第 %s 章索引更新完成: %s", project_id, request.chapter_number, index_stats)
+            except Exception as exc:
+                warning_msg = f"索引更新失败: {type(exc).__name__}"
+                warnings.append(warning_msg)
+                logger.error("项目 %s 第 %s 章索引更新失败: %s", project_id, request.chapter_number, exc)
+
+        # 4. 向量入库
         if vector_store:
-            ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
-            await ingestion_service.ingest_chapter(
-                project_id=project_id,
-                chapter_number=chapter.chapter_number,
-                title=chapter_title,
-                content=selected.content,
-                summary=chapter.real_summary,
-                user_id=desktop_user.id,
-            )
-            logger.info(
-                "项目 %s 第 %s 章已同步至向量库",
-                project_id,
-                chapter.chapter_number,
-            )
+            try:
+                ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+                await ingestion_service.ingest_chapter(
+                    project_id=project_id,
+                    chapter_number=chapter.chapter_number,
+                    title=chapter_title,
+                    content=selected.content,
+                    summary=chapter.real_summary,
+                    user_id=desktop_user.id,
+                )
+                logger.info("项目 %s 第 %s 章已同步至向量库", project_id, chapter.chapter_number)
+            except Exception as exc:
+                warning_msg = f"向量入库失败: {type(exc).__name__}"
+                warnings.append(warning_msg)
+                logger.error("项目 %s 第 %s 章向量入库失败: %s", project_id, request.chapter_number, exc)
 
-    # 选择版本后检查是否所有章节都完成了
+    # 检查完成状态
     await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
 
-    # 返回最新数据（重新从数据库加载，确保selected_version关系被正确加载）
-    return await novel_service.get_project_schema(project_id, desktop_user.id)
+    # 返回结果，包含警告信息
+    result = await novel_service.get_project_schema(project_id, desktop_user.id)
+    if warnings:
+        result.warnings = warnings
+        logger.warning("项目 %s 第 %s 章版本选择完成，但有 %d 个警告", project_id, request.chapter_number, len(warnings))
+
+    return result
 
 
 @router.post("/novels/{project_id}/chapters/evaluate", response_model=NovelProjectSchema)
@@ -305,6 +306,10 @@ async def evaluate_chapter(
     2. 基于待评估内容检索相关历史片段（向量检索）
     3. 将两者结合提供给LLM进行评估
     """
+    # 导入评估服务
+    from ....services.chapter_evaluation_service import ChapterEvaluationService
+
+    # 1. 验证项目和章节
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
     chapter = next((ch for ch in project.chapters if ch.chapter_number == request.chapter_number), None)
     if not chapter:
@@ -314,168 +319,26 @@ async def evaluate_chapter(
         logger.warning("项目 %s 第 %s 章无可评估版本", project_id, request.chapter_number)
         raise InvalidParameterError("无可评估的章节版本")
 
+    # 2. 获取评估提示词
     evaluator_prompt = ensure_prompt(await prompt_service.get_prompt("evaluation"), "evaluation")
 
-    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
-    blueprint_dict = project_schema.blueprint.model_dump()
-
-    versions_to_evaluate = [
-        {"version_id": idx + 1, "content": version.content}
-        for idx, version in enumerate(sorted(chapter.versions, key=lambda item: item.created_at))
-    ]
-
-    # 构建前序章节摘要列表（completed_chapters）
-    # 获取当前章节之前所有已确认的章节，按章节号排序
-    completed_chapters = []
-    current_chapter_number = request.chapter_number
-
-    # 从大纲和章节数据中构建前序章节信息
-    outlines_map = {o.chapter_number: o for o in project.outlines}
-    chapters_map = {c.chapter_number: c for c in project.chapters}
-
-    for ch_num in sorted(outlines_map.keys()):
-        if ch_num >= current_chapter_number:
-            break  # 只获取当前章节之前的
-
-        outline = outlines_map.get(ch_num)
-        ch = chapters_map.get(ch_num)
-
-        # 判断章节是否已完成（有选中版本）
-        if ch and ch.selected_version_id:
-            # 优先使用实际摘要，其次使用大纲摘要
-            summary = ch.real_summary or (outline.summary if outline else None) or "（无摘要）"
-            completed_chapters.append({
-                "chapter_number": ch_num,
-                "title": outline.title if outline else f"第{ch_num}章",
-                "summary": summary,
-            })
-
-    # RAG检索：基于待评估内容检索相关历史片段
-    relevant_chunks = []
-    relevant_summaries = []
-
-    if vector_store:
-        try:
-            # 构建查询文本：使用章节大纲 + 第一个版本的开头内容
-            current_outline = outlines_map.get(current_chapter_number)
-            outline_text = ""
-            if current_outline:
-                outline_text = f"{current_outline.title}: {current_outline.summary or ''}"
-
-            # 取第一个版本的开头作为查询补充（避免太长）
-            first_version_preview = versions_to_evaluate[0]["content"][:800] if versions_to_evaluate else ""
-            query_text = f"{outline_text}\n{first_version_preview}".strip()
-
-            if query_text:
-                # 生成查询向量
-                query_embedding = await llm_service.get_embedding(
-                    query_text,
-                    user_id=desktop_user.id,
-                )
-
-                if query_embedding:
-                    # 检索相关历史片段（只检索当前章节之前的内容）
-                    chunks = await vector_store.query_chunks(
-                        project_id=project_id,
-                        embedding=query_embedding,
-                        top_k=5,
-                    )
-                    # 过滤：只保留当前章节之前的片段
-                    chunks = [c for c in chunks if c.chapter_number < current_chapter_number]
-
-                    # 检索相关摘要
-                    summaries = await vector_store.query_summaries(
-                        project_id=project_id,
-                        embedding=query_embedding,
-                        top_k=3,
-                    )
-                    # 过滤：只保留当前章节之前的摘要
-                    summaries = [s for s in summaries if s.chapter_number < current_chapter_number]
-
-                    # 格式化检索结果
-                    for chunk in chunks:
-                        relevant_chunks.append({
-                            "chapter_number": chunk.chapter_number,
-                            "chapter_title": chunk.chapter_title or f"第{chunk.chapter_number}章",
-                            "content": chunk.content,
-                            "relevance_score": round(chunk.score, 3) if chunk.score else None,
-                        })
-
-                    for summary in summaries:
-                        relevant_summaries.append({
-                            "chapter_number": summary.chapter_number,
-                            "title": summary.title,
-                            "summary": summary.summary,
-                            "relevance_score": round(summary.score, 3) if summary.score else None,
-                        })
-
-                    logger.info(
-                        "项目 %s 第 %s 章评估RAG检索完成: chunks=%d summaries=%d",
-                        project_id,
-                        request.chapter_number,
-                        len(relevant_chunks),
-                        len(relevant_summaries),
-                    )
-        except Exception as rag_exc:
-            logger.warning(
-                "项目 %s 第 %s 章评估RAG检索失败，将使用基础上下文: %s",
-                project_id,
-                request.chapter_number,
-                rag_exc,
-            )
-            # RAG失败不影响评估，继续使用基础上下文
-
-    logger.info(
-        "项目 %s 第 %s 章评估准备: 前序章节数=%d RAG片段=%d RAG摘要=%d",
-        project_id,
-        request.chapter_number,
-        len(completed_chapters),
-        len(relevant_chunks),
-        len(relevant_summaries),
+    # 3. 委托给评估服务执行
+    evaluation_service = ChapterEvaluationService(
+        session=session,
+        llm_service=llm_service,
+        vector_store=vector_store,
     )
 
-    # 构建评估payload，包含前序章节上下文和RAG检索结果
-    evaluator_payload = {
-        "novel_blueprint": blueprint_dict,
-        "completed_chapters": completed_chapters,
-        "content_to_evaluate": {
-            "chapter_number": chapter.chapter_number,
-            "versions": versions_to_evaluate,
-        },
-    }
+    evaluation_json = await evaluation_service.evaluate_chapter_versions(
+        project=project,
+        chapter=chapter,
+        evaluator_prompt=evaluator_prompt,
+        user_id=desktop_user.id,
+    )
 
-    # 添加RAG检索结果（如果有）
-    if relevant_chunks or relevant_summaries:
-        evaluator_payload["relevant_context"] = {
-            "description": "以下是通过语义检索找到的与待评估章节最相关的历史内容，可用于判断伏笔处理、人物一致性等",
-            "relevant_chunks": relevant_chunks,
-            "relevant_summaries": relevant_summaries,
-        }
-
-    # 优化：添加错误处理，避免评估失败导致整个操作失败
-    try:
-        evaluation_raw = await llm_service.get_llm_response(
-            system_prompt=evaluator_prompt,
-            conversation_history=[{"role": "user", "content": json.dumps(evaluator_payload, ensure_ascii=False)}],
-            temperature=settings.llm_temp_evaluation,
-            user_id=desktop_user.id,
-            timeout=360.0,
-        )
-        # 先移除think标签，再提取markdown代码块中的JSON
-        evaluation_clean = remove_think_tags(evaluation_raw)
-        evaluation_json = unwrap_markdown_json(evaluation_clean)
-        await novel_service.add_chapter_evaluation(chapter, None, evaluation_json)
-        await session.commit()
-        logger.info("项目 %s 第 %s 章评估完成", project_id, request.chapter_number)
-    except Exception as exc:
-        logger.error("项目 %s 第 %s 章评估失败: %s", project_id, request.chapter_number, exc)
-        # 评估失败不影响章节数据，添加失败标记
-        await novel_service.add_chapter_evaluation(
-            chapter,
-            None,
-            json.dumps({"error": "评估失败，请稍后重试", "details": str(exc)}, ensure_ascii=False)
-        )
-        await session.commit()
+    # 4. 保存评估结果
+    await evaluation_service.add_evaluation(chapter, evaluation_json)
+    await session.commit()
 
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 

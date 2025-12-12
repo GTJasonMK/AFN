@@ -2,19 +2,68 @@
 AFN (Agents for Novel) API 客户端封装
 
 提供与后端API交互的所有方法，无需认证。
+
+特性：
+- 支持 Context Manager（with 语句）自动管理资源
+- 分离连接超时和读取超时
+- 内置指数退避重试机制
+- 细化的异常处理
 """
 
 import logging
-import sys
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from api.exceptions import (
+    APIError,
+    NotFoundError,
+    BadRequestError,
+    ConflictError,
+    ValidationError,
+    InternalServerError,
+    ServiceUnavailableError,
+    ConnectionError as APIConnectionError,
+    TimeoutError as APITimeoutError,
+    create_api_error,
+)
+
+from utils.constants import NovelConstants
 
 
 logger = logging.getLogger(__name__)
 
 
+# 超时配置常量（秒）
+class TimeoutConfig:
+    """超时配置"""
+    # 连接超时：建立TCP连接的超时时间
+    CONNECT = 10
+    # 读取超时配置（根据操作类型）
+    READ_DEFAULT = 60       # 默认读取超时
+    READ_QUICK = 30         # 快速操作（健康检查、获取配置等）
+    READ_NORMAL = 120       # 普通操作（获取数据、更新等）
+    READ_GENERATION = 300   # 生成操作（蓝图、大纲生成）
+    READ_LONG = 600         # 长时间操作（章节生成、批量操作）
+
+
 class AFNAPIClient:
-    """AFN API 客户端"""
+    """AFN API 客户端
+
+    支持两种使用方式：
+
+    1. 直接使用：
+        client = AFNAPIClient()
+        data = client.get_novels()
+        client.close()  # 需要手动关闭
+
+    2. Context Manager（推荐）：
+        with AFNAPIClient() as client:
+            data = client.get_novels()
+        # 自动关闭
+    """
 
     def __init__(self, base_url: str = "http://127.0.0.1:8123"):
         """
@@ -24,24 +73,86 @@ class AFNAPIClient:
             base_url: 后端服务地址
         """
         self.base_url = base_url.rstrip('/')
-        self.session = requests.Session()
-        self.session.headers.update({
+        self._closed = False
+        self.session = self._create_session()
+        logger.debug("AFNAPIClient initialized: base_url=%s", self.base_url)
+
+    def _create_session(self) -> requests.Session:
+        """创建配置好的 Session
+
+        配置包括：
+        - 默认请求头
+        - 重试策略（仅对连接错误和特定状态码重试）
+        """
+        session = requests.Session()
+        session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
-        logger.debug("AFNAPIClient initialized: base_url=%s", self.base_url)
+
+        # 配置重试策略
+        # 仅对连接错误和 502/503/504 状态码重试
+        retry_strategy = Retry(
+            total=3,                    # 最多重试3次
+            backoff_factor=0.5,         # 退避因子：0.5s, 1s, 2s
+            status_forcelist=[502, 503, 504],  # 需要重试的状态码
+            allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            raise_on_status=False       # 不在重试时抛出异常
+        )
+
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        return session
+
+    def __enter__(self):
+        """Context Manager 入口"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context Manager 出口，确保资源被释放"""
+        self.close()
+        return False  # 不抑制异常
 
     def __del__(self):
         """析构函数，确保session被关闭"""
         self.close()
 
     def close(self):
-        """显式关闭session，释放资源"""
+        """显式关闭session，释放资源
+
+        可以多次调用，只有第一次会实际关闭。
+        """
+        if self._closed:
+            return
+
+        self._closed = True
         if hasattr(self, 'session') and self.session:
             try:
                 self.session.close()
-            except Exception:
-                pass  # 忽略关闭时的错误
+            except (OSError, RuntimeError, AttributeError) as e:
+                # 关闭时可能的预期异常：网络错误、运行时错误、属性错误
+                logger.debug("关闭session时发生预期异常: %s", type(e).__name__)
+
+    def _get_timeout(self, timeout: Union[int, Tuple[int, int], None]) -> Tuple[int, int]:
+        """解析超时配置
+
+        Args:
+            timeout: 超时配置，可以是：
+                - int: 读取超时（连接超时使用默认值）
+                - tuple: (连接超时, 读取超时)
+                - None: 使用默认值
+
+        Returns:
+            (连接超时, 读取超时) 元组
+        """
+        if timeout is None:
+            return (TimeoutConfig.CONNECT, TimeoutConfig.READ_DEFAULT)
+        elif isinstance(timeout, tuple):
+            return timeout
+        else:
+            return (TimeoutConfig.CONNECT, timeout)
 
     def _request(
         self,
@@ -49,7 +160,7 @@ class AFNAPIClient:
         endpoint: str,
         data: Optional[Dict] = None,
         params: Optional[Dict] = None,
-        timeout: int = 300,
+        timeout: Union[int, Tuple[int, int], None] = None,
         silent_status_codes: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """
@@ -60,20 +171,29 @@ class AFNAPIClient:
             endpoint: API端点
             data: 请求体数据
             params: URL参数
-            timeout: 超时时间（秒）
+            timeout: 超时配置（秒），可以是：
+                - int: 读取超时（连接超时使用默认值10秒）
+                - tuple: (连接超时, 读取超时)
+                - None: 使用默认值 (10, 60)
             silent_status_codes: 静默处理的状态码列表（不记录错误日志）
 
         Returns:
             响应JSON数据
 
         Raises:
-            requests.RequestException: 请求失败
+            APIError 及其子类: 请求失败时抛出对应类型的异常
         """
+        if self._closed:
+            raise APIError(message="APIClient已关闭，请重新创建实例")
+
         url = f"{self.base_url}{endpoint}"
         silent_status_codes = silent_status_codes or []
+        connect_timeout, read_timeout = self._get_timeout(timeout)
 
-        logger.info("API request start: %s %s (timeout=%ds)", method, endpoint, timeout)
-        sys.stdout.flush()
+        logger.info(
+            "API request start: %s %s (timeout=%d/%ds)",
+            method, endpoint, connect_timeout, read_timeout
+        )
 
         try:
             response = self.session.request(
@@ -81,7 +201,7 @@ class AFNAPIClient:
                 url=url,
                 json=data,
                 params=params,
-                timeout=timeout
+                timeout=(connect_timeout, read_timeout)
             )
 
             logger.info(
@@ -89,45 +209,101 @@ class AFNAPIClient:
                 method, endpoint, response.status_code,
                 response.headers.get('content-length', 'unknown')
             )
-            sys.stdout.flush()
 
             response.raise_for_status()
 
             result = response.json()
             logger.info("API request success: %s %s", method, endpoint)
-            sys.stdout.flush()
 
             return result
 
         except requests.HTTPError as e:
             # 尝试提取后端返回的详细错误信息
             error_msg = str(e)
+            status_code = e.response.status_code if e.response is not None else None
+            response_data = None
+
             if e.response is not None:
                 try:
-                    error_detail = e.response.json().get('detail')
+                    response_data = e.response.json()
+                    error_detail = response_data.get('detail')
                     if error_detail:
                         error_msg = error_detail
                 except (ValueError, AttributeError, KeyError):
                     pass
 
             # 检查是否是需要静默处理的状态码
-            if e.response is not None and e.response.status_code in silent_status_codes:
-                logger.debug(f"API请求返回 {e.response.status_code}: {method} {url}")
+            if status_code and status_code in silent_status_codes:
+                logger.debug(f"API请求返回 {status_code}: {method} {url}")
             else:
                 logger.error(f"API请求失败: {method} {url} - {error_msg}")
 
-            # 抛出包含详细错误信息的异常
-            raise Exception(error_msg) from e
+            # 抛出具体类型的异常
+            raise create_api_error(
+                status_code=status_code,
+                message=error_msg,
+                response_data=response_data,
+                original_error=e
+            )
+
+        except requests.exceptions.ConnectError as e:
+            logger.error(f"API连接失败: {method} {url} - {e}")
+            raise APIConnectionError(
+                message="无法连接到后端服务，请确认服务已启动",
+                original_error=e
+            )
+
+        except requests.exceptions.ReadTimeout as e:
+            # 读取超时单独处理
+            logger.error(f"API读取超时: {method} {url} - {e}")
+            raise APITimeoutError(
+                message=f"服务器响应超时（{read_timeout}秒），请稍后重试",
+                original_error=e
+            )
+
+        except requests.exceptions.ConnectTimeout as e:
+            # 连接超时单独处理
+            logger.error(f"API连接超时: {method} {url} - {e}")
+            raise APITimeoutError(
+                message=f"连接服务器超时（{connect_timeout}秒），请检查网络连接",
+                original_error=e
+            )
+
+        except requests.exceptions.Timeout as e:
+            # 其他超时
+            logger.error(f"API请求超时: {method} {url} - {e}")
+            raise APITimeoutError(
+                message=f"请求超时，请稍后重试",
+                original_error=e
+            )
+
+        except requests.exceptions.SSLError as e:
+            logger.error(f"API SSL错误: {method} {url} - {e}")
+            raise APIConnectionError(
+                message="SSL/TLS连接错误，请检查证书配置",
+                original_error=e
+            )
+
+        except requests.exceptions.ChunkedEncodingError as e:
+            logger.error(f"API响应编码错误: {method} {url} - {e}")
+            raise APIError(
+                message="服务器响应异常中断，请重试",
+                original_error=e
+            )
+
         except requests.RequestException as e:
-            logger.error(f"API请求失败: {method} {url} - {e}")
-            raise
+            logger.error(f"API请求失败: {method} {url} - {type(e).__name__}: {e}")
+            raise APIError(
+                message=f"请求失败: {str(e)}",
+                original_error=e
+            )
 
     def _request_raw(
         self,
         method: str,
         endpoint: str,
         params: Optional[Dict] = None,
-        timeout: int = 60,
+        timeout: Union[int, Tuple[int, int], None] = None,
         return_type: str = 'text'
     ) -> Any:
         """
@@ -137,33 +313,60 @@ class AFNAPIClient:
             method: HTTP方法
             endpoint: API端点
             params: URL参数
-            timeout: 超时时间（秒）
+            timeout: 超时配置（秒）
             return_type: 返回类型（'text'或'content'）
 
         Returns:
             响应的text或content（bytes）
 
         Raises:
-            requests.RequestException: 请求失败
+            APIError 及其子类: 请求失败时抛出对应类型的异常
         """
+        if self._closed:
+            raise APIError(message="APIClient已关闭，请重新创建实例")
+
         url = f"{self.base_url}{endpoint}"
+        connect_timeout, read_timeout = self._get_timeout(timeout or TimeoutConfig.READ_NORMAL)
 
         try:
             response = self.session.request(
                 method=method,
                 url=url,
                 params=params,
-                timeout=timeout
+                timeout=(connect_timeout, read_timeout)
             )
             response.raise_for_status()
             return response.text if return_type == 'text' else response.content
 
         except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
             logger.error(f"API请求失败: {method} {url} - {e}")
-            raise
+            raise create_api_error(
+                status_code=status_code,
+                message=str(e),
+                original_error=e
+            )
+
+        except requests.exceptions.ConnectError as e:
+            logger.error(f"API连接失败: {method} {url} - {e}")
+            raise APIConnectionError(
+                message="无法连接到后端服务",
+                original_error=e
+            )
+
+        except requests.exceptions.Timeout as e:
+            logger.error(f"API请求超时: {method} {url} - {e}")
+            raise APITimeoutError(
+                message=f"请求超时（{read_timeout}秒）",
+                original_error=e
+            )
+
         except requests.RequestException as e:
-            logger.error(f"API请求失败: {method} {url} - {e}")
-            raise
+            logger.error(f"API请求失败: {method} {url} - {type(e).__name__}: {e}")
+            raise APIError(
+                message=f"请求失败: {str(e)}",
+                original_error=e
+            )
 
     # ==================== 健康检查 ====================
 
@@ -394,7 +597,7 @@ class AFNAPIClient:
         self,
         project_id: str,
         total_chapters: int,
-        chapters_per_part: int = 25
+        chapters_per_part: int = NovelConstants.CHAPTERS_PER_PART
     ) -> Dict[str, Any]:
         """
         生成部分大纲
@@ -402,7 +605,7 @@ class AFNAPIClient:
         Args:
             project_id: 项目ID
             total_chapters: 小说总章节数
-            chapters_per_part: 每个部分的章节数（默认25）
+            chapters_per_part: 每个部分的章节数
 
         Returns:
             大纲数据

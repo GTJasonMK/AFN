@@ -204,3 +204,10 @@ class ChapterOutlineList(QWidget):
             self.scroll_layout.addStretch()
 
         self._apply_style()
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

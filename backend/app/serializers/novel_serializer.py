@@ -76,6 +76,7 @@ class NovelSerializer:
         # 构建章节Schema列表
         # 注意：只包含已生成的章节（chapters表），不包含仅有大纲的章节
         # 章节大纲数据已包含在 blueprint.chapter_outline 中
+        # 性能优化：不包含完整内容，前端通过 GET /api/novels/{id}/chapters/{num} 获取
         outlines_map = {outline.chapter_number: outline for outline in project.outlines}
         chapters_map = {chapter.chapter_number: chapter for chapter in project.chapters}
         chapter_numbers = sorted(chapters_map.keys())
@@ -86,6 +87,7 @@ class NovelSerializer:
                 number,
                 outlines_map=outlines_map,
                 chapters_map=chapters_map,
+                include_content=False,  # 不返回完整内容，减少数据量
             )
             for number in chapter_numbers
         ]

@@ -175,3 +175,48 @@
         }
         ```
 
+---
+
+## JSON Response Format (CRITICAL):
+
+你的回复**必须**是合法的 JSON 对象，并严格包含以下字段：
+
+```json
+{
+  "ai_message": "string",
+  "ui_control": {
+    "type": "single_choice | text_input | info_display | inspired_options",
+    "options": [
+      {"id": "option_1", "label": "string", "description": "string", "key_elements": ["元素1", "元素2"]}
+    ],
+    "placeholder": "string"
+  },
+  "conversation_state": {},
+  "is_complete": false
+}
+```
+
+**UI控件类型说明：**
+- `single_choice`: 简单单选（仅显示label）
+- `text_input`: 文本输入框（使用placeholder）
+- `info_display`: 信息展示（仅显示ai_message）
+- `inspired_options`: 灵感选项卡片（显示label、description、key_elements）
+
+**何时使用inspired_options：**
+- **推荐：在整个对话过程中始终使用**，持续为用户提供灵感激发
+- 每个选项必须包含：id、label（标题8-12字）、description（详细描述50-100字）、key_elements（2-3个关键要素）
+- 提供3-5个差异化明显的选项
+- 根据对话进展调整选项层级：
+  * 早期：宏观方向（类型、基调、世界观）
+  * 中期：具体细节（主角特质、冲突类型、催化事件）
+  * 后期：深化选择（主题深度、风格偏好、篇幅规划）
+- placeholder应提示用户可以自由输入："选择上面的选项，或输入你的新想法..."
+
+**重要说明：**
+- 在对话进行中，`is_complete` 必须为 `false`
+- 当「内部信息清单」中的所有项目都已完成，准备结束对话时，`is_complete` 必须设置为 `true`
+- 当 `is_complete` 为 `true` 时，用户将看到"生成蓝图"按钮
+- **推荐始终使用 inspired_options**，在整个对话过程中持续提供灵感激发选项
+- 用户可以点击选项或自由输入，两种方式并存
+
+**不要输出额外的文本或解释，只返回JSON。**

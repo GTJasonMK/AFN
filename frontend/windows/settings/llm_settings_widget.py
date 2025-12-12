@@ -1,15 +1,14 @@
 """
-LLM配置管理 - 极简版本
+LLM配置管理 - 书籍风格
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QListWidget, QListWidgetItem, QFileDialog
+    QListWidget, QListWidgetItem, QFileDialog, QFrame
 )
 from PyQt6.QtCore import Qt
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
-from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService, confirm
 from .config_dialog import LLMConfigDialog
@@ -18,14 +17,15 @@ import json
 
 
 class LLMSettingsWidget(QWidget):
-    """LLM配置管理 - 极简风格"""
+    """LLM配置管理 - 书籍风格"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.api_client = AFNAPIClient()
+        self.api_client = APIClientManager.get_client()
         self.configs = []
         self.testing_config_id = None
-        self.setupUI()
+        self._create_ui_structure()
+        self._apply_styles()
         self.loadConfigs()
 
         # 连接主题切换信号
@@ -35,74 +35,80 @@ class LLMSettingsWidget(QWidget):
         """主题切换时更新样式"""
         self._apply_styles()
 
-    def setupUI(self):
-        """初始化极简UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         # 主布局
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
-        layout.setSpacing(dp(20))
+        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        layout.setSpacing(dp(16))
 
-        # 标题
-        self.title_label = QLabel("LLM 配置")
-        layout.addWidget(self.title_label)
+        # 顶部操作栏
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(dp(12))
 
-        # 按钮栏
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(dp(10))
-
-        # 新增按钮
-        self.add_btn = QPushButton("新增")
+        # 新增按钮（主要操作）
+        self.add_btn = QPushButton("+ 新增配置")
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_btn.clicked.connect(self.createConfig)
-        button_layout.addWidget(self.add_btn)
+        top_bar.addWidget(self.add_btn)
 
         # 导入按钮
         self.import_btn = QPushButton("导入")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.import_btn.clicked.connect(self.importConfigs)
-        button_layout.addWidget(self.import_btn)
+        top_bar.addWidget(self.import_btn)
 
         # 导出全部按钮
         self.export_all_btn = QPushButton("导出全部")
+        self.export_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_all_btn.clicked.connect(self.exportAll)
-        button_layout.addWidget(self.export_all_btn)
+        top_bar.addWidget(self.export_all_btn)
 
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
 
         # 配置列表
         self.config_list = QListWidget()
-        layout.addWidget(self.config_list)
+        self.config_list.setMinimumHeight(dp(200))
+        layout.addWidget(self.config_list, stretch=1)
 
-        # 操作按钮栏
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(dp(10))
+        # 底部操作按钮栏
+        action_bar = QHBoxLayout()
+        action_bar.setSpacing(dp(12))
 
         # 测试按钮
         self.test_btn = QPushButton("测试连接")
+        self.test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.test_btn.clicked.connect(self.testSelectedConfig)
-        action_layout.addWidget(self.test_btn)
+        action_bar.addWidget(self.test_btn)
 
         # 激活按钮
         self.activate_btn = QPushButton("激活")
+        self.activate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.activate_btn.clicked.connect(self.activateSelectedConfig)
-        action_layout.addWidget(self.activate_btn)
+        action_bar.addWidget(self.activate_btn)
 
         # 编辑按钮
         self.edit_btn = QPushButton("编辑")
+        self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self.editSelectedConfig)
-        action_layout.addWidget(self.edit_btn)
+        action_bar.addWidget(self.edit_btn)
 
         # 导出按钮
         self.export_btn = QPushButton("导出")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.exportSelectedConfig)
-        action_layout.addWidget(self.export_btn)
+        action_bar.addWidget(self.export_btn)
 
-        # 删除按钮
+        action_bar.addStretch()
+
+        # 删除按钮（放右侧，危险操作）
         self.delete_btn = QPushButton("删除")
+        self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_btn.clicked.connect(self.deleteSelectedConfig)
-        action_layout.addWidget(self.delete_btn)
+        action_bar.addWidget(self.delete_btn)
 
-        action_layout.addStretch()
-        layout.addLayout(action_layout)
+        layout.addLayout(action_bar)
 
         # 初始状态禁用操作按钮
         self.updateActionButtons()
@@ -110,62 +116,129 @@ class LLMSettingsWidget(QWidget):
         # 连接选择变化信号
         self.config_list.itemSelectionChanged.connect(self.updateActionButtons)
 
-        # 应用样式
-        self._apply_styles()
-
     def _apply_styles(self):
-        """应用主题样式（主题切换时调用）"""
+        """应用书籍风格主题"""
+        bg_primary = theme_manager.book_bg_primary()
+        bg_secondary = theme_manager.book_bg_secondary()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        accent_color = theme_manager.book_accent_color()
+        border_color = theme_manager.book_border_color()
         ui_font = theme_manager.ui_font()
 
-        # 标题样式
-        self.title_label.setStyleSheet(f"""
-            font-family: {ui_font};
-            font-size: {sp(24)}px;
-            font-weight: bold;
-            color: {theme_manager.TEXT_PRIMARY};
+        # 主要按钮样式（新增配置）
+        self.add_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-family: {ui_font};
+                background-color: {accent_color};
+                color: {bg_primary};
+                border: none;
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(20)}px;
+                font-size: {sp(13)}px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {text_primary};
+            }}
+            QPushButton:disabled {{
+                background-color: {border_color};
+                color: {text_secondary};
+            }}
         """)
 
-        # 按钮样式
-        btn_style = self.getButtonStyle()
-        self.add_btn.setStyleSheet(btn_style)
-        self.import_btn.setStyleSheet(btn_style)
-        self.export_all_btn.setStyleSheet(btn_style)
-        self.test_btn.setStyleSheet(btn_style)
-        self.activate_btn.setStyleSheet(btn_style)
-        self.edit_btn.setStyleSheet(btn_style)
-        self.export_btn.setStyleSheet(btn_style)
-        self.delete_btn.setStyleSheet(self.getDeleteButtonStyle())
+        # 次要按钮样式
+        secondary_btn_style = f"""
+            QPushButton {{
+                font-family: {ui_font};
+                background-color: transparent;
+                color: {text_secondary};
+                border: 1px solid {border_color};
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+            }}
+            QPushButton:hover {{
+                color: {accent_color};
+                border-color: {accent_color};
+            }}
+            QPushButton:disabled {{
+                color: {border_color};
+                border-color: {border_color};
+            }}
+        """
+        self.import_btn.setStyleSheet(secondary_btn_style)
+        self.export_all_btn.setStyleSheet(secondary_btn_style)
+        self.test_btn.setStyleSheet(secondary_btn_style)
+        self.activate_btn.setStyleSheet(secondary_btn_style)
+        self.edit_btn.setStyleSheet(secondary_btn_style)
+        self.export_btn.setStyleSheet(secondary_btn_style)
+
+        # 删除按钮样式（危险操作）
+        self.delete_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-family: {ui_font};
+                background-color: transparent;
+                color: #D32F2F;
+                border: 1px solid #D32F2F;
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+            }}
+            QPushButton:hover {{
+                background-color: #D32F2F;
+                color: white;
+            }}
+            QPushButton:disabled {{
+                color: {border_color};
+                border-color: {border_color};
+            }}
+        """)
 
         # 配置列表样式
         self.config_list.setStyleSheet(f"""
             QListWidget {{
                 font-family: {ui_font};
-                background-color: {theme_manager.BG_SECONDARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
-                padding: {dp(10)}px;
+                background-color: {bg_primary};
+                border: 1px solid {border_color};
+                border-radius: {dp(8)}px;
+                padding: {dp(8)}px;
+                outline: none;
             }}
             QListWidget::item {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(4)}px;
-                padding: {dp(15)}px;
-                margin: {dp(5)}px;
-                color: {theme_manager.TEXT_PRIMARY};
+                background-color: {bg_secondary};
+                border: 1px solid transparent;
+                border-radius: {dp(6)}px;
+                padding: {dp(12)}px {dp(16)}px;
+                margin: {dp(4)}px {dp(2)}px;
+                color: {text_primary};
+                line-height: 1.5;
+            }}
+            QListWidget::item:hover {{
+                border-color: {border_color};
             }}
             QListWidget::item:selected {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                border-color: {theme_manager.PRIMARY};
+                background-color: {bg_secondary};
+                border-color: {accent_color};
+            }}
+            QScrollBar:vertical {{
+                background-color: transparent;
+                width: {dp(6)}px;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {border_color};
+                border-radius: {dp(3)}px;
+                min-height: {dp(30)}px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {text_secondary};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
             }}
         """)
-
-    def getButtonStyle(self):
-        """获取标准按钮样式"""
-        return ButtonStyles.secondary()
-
-    def getDeleteButtonStyle(self):
-        """获取删除按钮样式"""
-        return ButtonStyles.outline_danger()
 
     def loadConfigs(self):
         """加载配置列表"""
@@ -389,3 +462,10 @@ class LLMSettingsWidget(QWidget):
                 self.loadConfigs()
             except Exception as e:
                 MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

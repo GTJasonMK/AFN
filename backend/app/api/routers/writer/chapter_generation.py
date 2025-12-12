@@ -8,10 +8,10 @@ import logging
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
-from ....core.state_machine import ProjectStatus
 from ....core.dependencies import (
     get_default_user,
     get_vector_store,
@@ -34,17 +34,17 @@ from ....schemas.novel import (
     RAGStatistics,
 )
 from ....schemas.user import UserInDB
-from ....services.chapter_generation_service import ChapterGenerationService
+from ....services.chapter_generation import (
+    ChapterGenerationService,
+    ChapterGenerationWorkflow,
+)
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
-from ....utils.json_utils import (
-    remove_think_tags,
-    unwrap_markdown_json,
-    parse_llm_json_safe,
-)
+from ....utils.json_utils import extract_llm_content
 from ....utils.prompt_helpers import ensure_prompt
+from ....utils.sse_helpers import sse_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -64,109 +64,33 @@ async def generate_chapter(
     """
     生成章节内容，支持并行生成多个版本
 
-    重构后的简化版本，业务逻辑已迁移到ChapterGenerationService
+    使用ChapterGenerationWorkflow封装业务逻辑，保持Router层简洁。
     """
-    logger.info("=" * 100)
-    logger.info("!!! 收到章节生成请求 !!!")
-    logger.info("project_id=%s, chapter_number=%s, user_id=%s", project_id, request.chapter_number, desktop_user.id)
-    logger.info("=" * 100)
-
-    # 初始化章节生成服务
-    chapter_gen_service = ChapterGenerationService(session, llm_service)
-
-    # 1. 初始化和验证
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    logger.info("用户 %s 开始为项目 %s 生成第 %s 章", desktop_user.id, project_id, request.chapter_number)
-
-    if project.status == ProjectStatus.CHAPTER_OUTLINES_READY.value:
-        await novel_service.transition_project_status(project, ProjectStatus.WRITING.value)
-        logger.info("项目 %s 状态更新为 %s", project_id, ProjectStatus.WRITING.value)
-
-    version_count = chapter_gen_service.resolve_version_count()
-    if settings.writer_parallel_generation and version_count > 1:
-        await llm_service.enforce_daily_limit(desktop_user.id)
-        logger.info("项目 %s 第 %s 章（并行模式）已完成 daily limit 检查", project_id, request.chapter_number)
-
-    outline = await novel_service.get_outline(project_id, request.chapter_number)
-    if not outline:
-        logger.warning("项目 %s 未找到第 %s 章纲要，生成流程终止", project_id, request.chapter_number)
-        raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {request.chapter_number} 章")
-
-    chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
-    chapter.real_summary = None
-    chapter.selected_version_id = None
-    chapter.status = "generating"
-    await session.commit()
-
-    # 2. 收集历史章节摘要
-    completed_chapters, previous_summary_text, previous_tail_excerpt = await chapter_gen_service.collect_chapter_summaries(
-        project=project,
-        current_chapter_number=request.chapter_number,
-        user_id=desktop_user.id,
-        project_id=project_id,
+    logger.info(
+        "收到章节生成请求: project_id=%s chapter_number=%s user_id=%s",
+        project_id, request.chapter_number, desktop_user.id
     )
 
-    # 3. 准备蓝图数据
-    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
-    blueprint_dict = project_schema.blueprint.model_dump()
-    blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
-
-    # 4. 获取写作提示词并执行增强型RAG检索
-    writer_prompt = ensure_prompt(await prompt_service.get_prompt("writing"), "writing")
-
-    # 使用统一的上下文准备方法
-    gen_context = await chapter_gen_service.prepare_generation_context(
-        project=project,
-        outline=outline,
-        blueprint_dict=blueprint_dict,
+    # 创建工作流并执行
+    workflow = ChapterGenerationWorkflow(
+        session=session,
+        llm_service=llm_service,
+        novel_service=novel_service,
+        prompt_service=prompt_service,
+        project_id=project_id,
         chapter_number=request.chapter_number,
         user_id=desktop_user.id,
         writing_notes=request.writing_notes,
         vector_store=vector_store,
     )
 
-    # 获取旧版上下文格式（用于兼容现有的build_writing_prompt）
-    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
-
-    # 5. 构建完整提示词
-    prompt_input = chapter_gen_service.build_writing_prompt(
-        outline=outline,
-        blueprint_dict=blueprint_dict,
-        completed_chapters=completed_chapters,
-        previous_summary_text=previous_summary_text,
-        previous_tail_excerpt=previous_tail_excerpt,
-        rag_context=rag_context,
-        writing_notes=request.writing_notes,
-        chapter_number=request.chapter_number,
-    )
-    logger.debug("章节写作提示词：%s\n%s", writer_prompt, prompt_input)
-
-    # 6. 准备并行生成配置
-    skip_usage_tracking = settings.writer_parallel_generation
-    llm_config: Optional[Dict[str, Optional[str]]] = None
-    if skip_usage_tracking:
-        llm_config = await llm_service.resolve_llm_config_cached(desktop_user.id, skip_daily_limit_check=True)
-        logger.info("项目 %s 第 %s 章（并行模式）已缓存 LLM 配置", project_id, request.chapter_number)
-
-    # 7. 生成所有版本
-    raw_versions = await chapter_gen_service.generate_chapter_versions(
-        version_count=version_count,
-        writer_prompt=writer_prompt,
-        prompt_input=prompt_input,
-        llm_config=llm_config,
-        skip_usage_tracking=skip_usage_tracking,
-        user_id=desktop_user.id,
-        project_id=project_id,
-        chapter_number=request.chapter_number,
+    result = await workflow.execute()
+    logger.info(
+        "项目 %s 第 %s 章生成完成，共 %s 个版本",
+        project_id, request.chapter_number, result.version_count
     )
 
-    # 8. 处理生成结果并保存
-    contents, metadata = chapter_gen_service.process_generated_versions(raw_versions)
-    await novel_service.replace_chapter_versions(chapter, contents, metadata)
-    await session.commit()
-    logger.info("项目 %s 第 %s 章生成完成，已写入 %s 个版本", project_id, request.chapter_number, len(contents))
-
-    # 9. 返回最新项目数据
+    # 返回最新项目数据
     session.expire_all()
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 
@@ -249,17 +173,8 @@ async def retry_chapter_version(
         timeout=600.0,
     )
 
-    # 使用和generate_chapter_versions相同的处理逻辑
-    cleaned = remove_think_tags(response)
-    result = parse_llm_json_safe(cleaned)
-    if result:
-        raw_result = result
-    else:
-        raw_result = {"content": unwrap_markdown_json(cleaned)}
-
-    # 使用统一的process_generated_versions方法提取content
-    contents, _ = chapter_gen_service.process_generated_versions([raw_result])
-    new_content = contents[0] if contents else unwrap_markdown_json(cleaned)
+    # 使用统一的内容提取方法
+    new_content, _ = extract_llm_content(response)
 
     # 替换指定版本的内容
     target_version = versions[request.version_index]
@@ -354,12 +269,12 @@ async def preview_chapter_prompt(
         prompt_input = chapter_gen_service.build_writing_prompt(
             outline=outline,
             blueprint_dict=blueprint_dict,
-            completed_chapters=completed_chapters,
             previous_summary_text=previous_summary_text,
             previous_tail_excerpt=previous_tail_excerpt,
             rag_context=rag_context,
             writing_notes=request.writing_notes,
             chapter_number=request.chapter_number,
+            completed_chapters=completed_chapters,
         )
 
     # 6. 构建各部分内容（用于调试）
@@ -437,3 +352,68 @@ async def preview_chapter_prompt(
     )
 
 
+@router.post("/novels/{project_id}/chapters/generate-stream")
+async def generate_chapter_stream(
+    project_id: str,
+    request: GenerateChapterRequest,
+    novel_service: NovelService = Depends(get_novel_service),
+    prompt_service: PromptService = Depends(get_prompt_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
+) -> StreamingResponse:
+    """
+    生成章节内容（SSE流式返回进度）
+
+    使用ChapterGenerationWorkflow.execute_with_progress()实现流式进度推送。
+
+    事件类型：
+    - progress: 阶段进度 {"stage", "message", "current", "total"}
+    - complete: 完成 {"message", "chapter_number", "version_count"}
+    - error: 错误 {"message"}
+
+    阶段（stage）说明：
+    - initializing: 初始化和验证
+    - collecting_context: 收集历史章节上下文
+    - preparing_prompt: 准备提示词和RAG检索
+    - generating: 生成版本内容
+    - saving: 保存结果
+    """
+    logger.info(
+        "收到章节生成请求（SSE模式）: project_id=%s chapter_number=%s user_id=%s",
+        project_id, request.chapter_number, desktop_user.id
+    )
+
+    # 创建工作流
+    workflow = ChapterGenerationWorkflow(
+        session=session,
+        llm_service=llm_service,
+        novel_service=novel_service,
+        prompt_service=prompt_service,
+        project_id=project_id,
+        chapter_number=request.chapter_number,
+        user_id=desktop_user.id,
+        writing_notes=request.writing_notes,
+        vector_store=vector_store,
+    )
+
+    async def event_generator():
+        async for progress in workflow.execute_with_progress():
+            stage = progress.get("stage", "unknown")
+            if stage == "complete":
+                yield sse_event("complete", progress)
+            elif stage == "error":
+                yield sse_event("error", progress)
+            else:
+                yield sse_event("progress", progress)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

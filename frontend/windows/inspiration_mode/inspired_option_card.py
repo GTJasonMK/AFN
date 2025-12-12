@@ -292,6 +292,38 @@ class InspiredOptionsContainer(ThemeAwareWidget):
                 # C++对象已被删除，跳过
                 pass
 
+    def unlock(self):
+        """解锁选项容器，允许再次选择（用于错误恢复）"""
+        self.is_locked = False
+        # 启用所有卡片（检查对象是否仍有效）
+        for card in self.cards:
+            try:
+                card.isVisible()
+                card.set_disabled(False)
+            except RuntimeError:
+                pass
+
+    def add_option(self, option_data: dict):
+        """
+        动态添加单个选项卡片（用于流式逐个显示）
+
+        Args:
+            option_data: 选项数据字典
+        """
+        if not option_data:
+            return
+
+        # 创建新卡片
+        card = InspiredOptionCard(option_data)
+        card.clicked.connect(self.on_card_clicked)
+        self.cards.append(card)
+
+        # 添加到布局
+        self.layout().addWidget(card)
+
+        # 更新选项数据
+        self.options_data.append(option_data)
+
     def _apply_theme(self):
         """更新主题样式"""
         # 容器本身不需要特殊样式，由子卡片处理

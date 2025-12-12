@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from app.core.constants import NovelConstants
+
 
 class ChoiceOption(BaseModel):
     """前端选择项描述，用于动态 UI 控件。"""
@@ -170,7 +172,7 @@ class Blueprint(BaseModel):
     chapter_outline: List[ChapterOutline] = []
     needs_part_outlines: bool = False  # 是否需要分阶段生成（基于part_outline_threshold配置）
     total_chapters: Optional[int] = None  # 总章节数
-    chapters_per_part: Optional[int] = 25  # 每部分章节数（默认25）
+    chapters_per_part: Optional[int] = NovelConstants.CHAPTERS_PER_PART  # 每部分章节数
     part_outlines: List[PartOutline] = []  # 部分大纲列表
 
 
@@ -183,6 +185,10 @@ class NovelProject(BaseModel):
     conversation_history: List[Dict[str, Any]] = []
     blueprint: Optional[Blueprint] = None
     chapters: List[Chapter] = []
+    warnings: Optional[List[str]] = Field(
+        default=None,
+        description="操作过程中的警告信息列表，如摘要生成失败、索引更新失败等"
+    )
 
     class Config:
         from_attributes = True
@@ -327,6 +333,12 @@ class GeneratePartOutlinesRequest(BaseModel):
         default=25,
         description="每个部分的章节数",
         ge=10,
+        le=100
+    )
+    count: Optional[int] = Field(
+        default=None,
+        description="要生成的部分数量（用于继续生成模式，None表示生成全部剩余部分）",
+        ge=1,
         le=100
     )
 

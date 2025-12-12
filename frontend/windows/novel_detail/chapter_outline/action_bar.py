@@ -214,3 +214,10 @@ class OutlineActionBar(QFrame):
                 self.continue_btn.setEnabled(enabled)
             self.regenerate_btn.setEnabled(enabled)
             self.delete_btn.setEnabled(enabled)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

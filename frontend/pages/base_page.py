@@ -36,9 +36,8 @@ class BasePage(QWidget):
         self._theme_connected = False
         self._connect_theme_signal()
 
-        # 创建统一的LoadingOverlay（默认隐藏）
+        # LoadingOverlay 延迟创建，首次调用 show_loading 时初始化
         self._loading_overlay = None
-        self._init_loading_overlay()
 
     def _connect_theme_signal(self):
         """连接主题信号（只连接一次）"""
@@ -141,7 +140,7 @@ class BasePage(QWidget):
         """导航到其他页面的便捷方法
 
         Args:
-            page_type: 页面类型（如'WORKSPACE', 'DETAIL'等）
+            page_type: 页面类型（如'HOME', 'DETAIL', 'WRITING_DESK'等）
             **params: 页面参数
         """
         logger.info("BasePage.navigateTo called: page_type=%s, params=%s", page_type, params)
@@ -155,7 +154,7 @@ class BasePage(QWidget):
         例如：灵感对话完成后跳转到项目详情页，返回时应直接到首页而非灵感对话。
 
         Args:
-            page_type: 页面类型（如'WORKSPACE', 'DETAIL'等）
+            page_type: 页面类型（如'HOME', 'DETAIL', 'WRITING_DESK'等）
             **params: 页面参数
         """
         self.navigateReplaceRequested.emit(page_type, params)
@@ -163,12 +162,6 @@ class BasePage(QWidget):
     def goBack(self):
         """返回上一页的便捷方法"""
         self.goBackRequested.emit()
-
-    def _init_loading_overlay(self):
-        """初始化LoadingOverlay（延迟创建）"""
-        # 不在这里创建，而是在第一次调用show_loading时创建
-        # 这样避免所有页面都创建不必要的overlay
-        pass
 
     def _ensure_loading_overlay(self):
         """确保LoadingOverlay已创建"""

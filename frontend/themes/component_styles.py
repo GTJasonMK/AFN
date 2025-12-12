@@ -12,6 +12,21 @@
 - 滚动条（Scrollbar）
 - 徽章（Badge）
 - 分隔线（Divider）
+
+职责边界：
+- ComponentStyles: 通用 UI 组件样式（本模块）
+  - 使用 QWidget 类选择器，适用于全局样式
+  - 提供卡片、标签、徽章等基础组件样式
+  - 不使用 object_name 参数
+
+- DialogStyles (components/dialogs/styles.py): 对话框组件专用
+  - 使用 object_name 参数生成精确的 CSS 选择器
+  - 关注对话框的容器、标题、按钮、输入框等元素
+
+- BookThemeStyler (themes/book_theme_styler.py): 书香风格系统
+  - 小说写作界面专用，缓存主题值以提高性能
+  - 提供章节编辑器、版本卡片等专业样式
+  - 使用 object_name 参数以支持复杂布局
 """
 
 from .theme_manager import theme_manager

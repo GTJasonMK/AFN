@@ -55,3 +55,40 @@ def sse_comment(comment: str) -> str:
         格式化的SSE注释字符串
     """
     return f": {comment}\n\n"
+
+
+# SSE响应标准头部
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def create_sse_response(generator):
+    """
+    创建标准的SSE流式响应
+
+    统一SSE响应的创建方式，避免在各个路由中重复设置头部。
+
+    Args:
+        generator: 异步生成器函数，yield SSE事件字符串
+
+    Returns:
+        StreamingResponse: FastAPI流式响应对象
+
+    示例:
+        async def my_generator():
+            yield sse_event("progress", {"status": "starting"})
+            # ... 处理逻辑
+            yield sse_event("complete", {"message": "完成"})
+
+        return create_sse_response(my_generator())
+    """
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )

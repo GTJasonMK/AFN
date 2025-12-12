@@ -402,3 +402,10 @@ class RelationshipRow(QFrame):
             description = data.get('description', '')
             display_desc = description[:60] + "..." if len(description) > 60 else description
             self.desc_label.setText(display_desc)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass

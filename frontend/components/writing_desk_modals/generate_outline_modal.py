@@ -306,3 +306,10 @@ class WDGenerateOutlineModal(QDialog):
         if count > 0:
             self.generated.emit(count)
             self.accept()
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._apply_theme)
+        except (TypeError, RuntimeError):
+            pass
