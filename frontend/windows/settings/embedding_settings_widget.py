@@ -38,7 +38,7 @@ class EmbeddingSettingsWidget(QWidget):
         """创建UI结构"""
         # 主布局
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(dp(16))
 
         # 顶部操作栏
@@ -47,6 +47,7 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 新增按钮（主要操作）
         self.add_btn = QPushButton("+ 新增配置")
+        self.add_btn.setObjectName("primary_btn")
         self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_btn.clicked.connect(self.createConfig)
         top_bar.addWidget(self.add_btn)
@@ -56,7 +57,8 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 配置列表
         self.config_list = QListWidget()
-        self.config_list.setMinimumHeight(dp(200))
+        self.config_list.setObjectName("config_list")
+        self.config_list.setMinimumHeight(dp(240))
         layout.addWidget(self.config_list, stretch=1)
 
         # 底部操作按钮栏
@@ -65,18 +67,21 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 测试按钮
         self.test_btn = QPushButton("测试连接")
+        self.test_btn.setObjectName("secondary_btn")
         self.test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.test_btn.clicked.connect(self.testSelectedConfig)
         action_bar.addWidget(self.test_btn)
 
         # 激活按钮
         self.activate_btn = QPushButton("激活")
+        self.activate_btn.setObjectName("secondary_btn")
         self.activate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.activate_btn.clicked.connect(self.activateSelectedConfig)
         action_bar.addWidget(self.activate_btn)
 
         # 编辑按钮
         self.edit_btn = QPushButton("编辑")
+        self.edit_btn.setObjectName("secondary_btn")
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self.editSelectedConfig)
         action_bar.addWidget(self.edit_btn)
@@ -85,6 +90,7 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 删除按钮（放右侧，危险操作）
         self.delete_btn = QPushButton("删除")
+        self.delete_btn.setObjectName("danger_btn")
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_btn.clicked.connect(self.deleteSelectedConfig)
         action_bar.addWidget(self.delete_btn)
@@ -103,27 +109,27 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 主要按钮（新增配置）
         self.add_btn.setStyleSheet(f"""
-            QPushButton {{
+            QPushButton#primary_btn {{
                 font-family: {palette.ui_font};
                 background-color: {palette.accent_color};
                 color: {palette.bg_primary};
                 border: none;
-                border-radius: {dp(8)}px;
-                padding: {dp(10)}px {dp(24)}px;
-                font-size: {sp(14)}px;
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(20)}px;
+                font-size: {sp(13)}px;
                 font-weight: 600;
             }}
-            QPushButton:hover {{
+            QPushButton#primary_btn:hover {{
                 background-color: {palette.text_primary};
             }}
-            QPushButton:pressed {{
+            QPushButton#primary_btn:pressed {{
                 background-color: {palette.accent_light};
             }}
         """)
 
         # 次要按钮样式
         secondary_style = f"""
-            QPushButton {{
+            QPushButton#secondary_btn {{
                 font-family: {palette.ui_font};
                 background-color: transparent;
                 color: {palette.text_secondary};
@@ -133,23 +139,23 @@ class EmbeddingSettingsWidget(QWidget):
                 font-size: {sp(13)}px;
                 font-weight: 500;
             }}
-            QPushButton:hover {{
+            QPushButton#secondary_btn:hover {{
                 color: {palette.accent_color};
                 border-color: {palette.accent_color};
                 background-color: {palette.bg_primary};
             }}
-            QPushButton:disabled {{
+            QPushButton#secondary_btn:disabled {{
                 color: {palette.border_color};
                 border-color: {palette.border_color};
             }}
         """
-        
+
         for btn in [self.test_btn, self.activate_btn, self.edit_btn]:
             btn.setStyleSheet(secondary_style)
 
         # 删除按钮样式（危险操作）
         self.delete_btn.setStyleSheet(f"""
-            QPushButton {{
+            QPushButton#danger_btn {{
                 font-family: {palette.ui_font};
                 background-color: transparent;
                 color: {theme_manager.ERROR};
@@ -159,12 +165,12 @@ class EmbeddingSettingsWidget(QWidget):
                 font-size: {sp(13)}px;
                 font-weight: 500;
             }}
-            QPushButton:hover {{
+            QPushButton#danger_btn:hover {{
                 background-color: {theme_manager.ERROR};
                 color: white;
                 border-color: {theme_manager.ERROR};
             }}
-            QPushButton:disabled {{
+            QPushButton#danger_btn:disabled {{
                 color: {palette.border_color};
                 border-color: {palette.border_color};
             }}
@@ -172,30 +178,35 @@ class EmbeddingSettingsWidget(QWidget):
 
         # 配置列表样式 - 优化质感
         self.config_list.setStyleSheet(f"""
-            QListWidget {{
+            QListWidget#config_list {{
                 font-family: {palette.ui_font};
                 background-color: {palette.bg_primary};
                 border: 1px solid {palette.border_color};
-                border-radius: {dp(12)}px;
-                padding: {dp(12)}px;
+                border-radius: {dp(8)}px;
+                padding: {dp(8)}px;
                 outline: none;
             }}
-            QListWidget::item {{
-                background-color: {palette.bg_secondary};
-                border: 1px solid transparent;
-                border-radius: {dp(8)}px;
-                padding: {dp(16)}px;
-                margin-bottom: {dp(8)}px;
+            QListWidget#config_list::item {{
+                background-color: transparent;
+                border: none;
+                border-left: 3px solid transparent;
+                border-radius: 0;
+                padding: {dp(14)}px {dp(12)}px;
+                margin: 0;
                 color: {palette.text_primary};
+                border-bottom: 1px solid {palette.border_color};
             }}
-            QListWidget::item:hover {{
-                background-color: {palette.bg_primary};
-                border-color: {palette.accent_color};
+            QListWidget#config_list::item:last-child {{
+                border-bottom: none;
             }}
-            QListWidget::item:selected {{
+            QListWidget#config_list::item:hover {{
                 background-color: {palette.bg_secondary};
-                border: 1px solid {palette.accent_color};
-                color: {palette.accent_color};
+                border-left: 3px solid {palette.accent_light};
+            }}
+            QListWidget#config_list::item:selected {{
+                background-color: {palette.bg_secondary};
+                border-left: 3px solid {palette.accent_color};
+                color: {palette.text_primary};
             }}
             QScrollBar:vertical {{
                 background-color: transparent;

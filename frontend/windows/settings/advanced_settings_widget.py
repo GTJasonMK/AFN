@@ -37,13 +37,8 @@ class AdvancedSettingsWidget(QWidget):
     def _create_ui_structure(self):
         """创建UI结构"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        layout.setSpacing(dp(20))
-
-        # 说明文字
-        self.desc_label = QLabel("这些配置会影响章节生成和大纲规划的行为。")
-        self.desc_label.setWordWrap(True)
-        layout.addWidget(self.desc_label)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(dp(16))
 
         # 章节生成配置组
         self.chapter_group = self._create_chapter_generation_group()
@@ -155,18 +150,7 @@ class AdvancedSettingsWidget(QWidget):
         """应用书籍风格主题"""
         palette = theme_manager.get_book_palette()
 
-        # 说明文字样式
-        self.desc_label.setStyleSheet(f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(14)}px;
-                color: {palette.text_secondary};
-                padding-bottom: {dp(12)}px;
-                border-bottom: 1px solid {palette.border_color};
-            }}
-        """)
-
-        # GroupBox样式 - 恢复边框，使用书香风格
+        # GroupBox样式 - 书香风格
         group_style = f"""
             QGroupBox {{
                 font-family: {palette.serif_font};

@@ -483,11 +483,6 @@ class NovelDetail(BasePage):
             # 根据section_id创建对应组件
             if section_id == 'overview':
                 blueprint = self._safe_get_blueprint()
-                logger.info(
-                    f"创建OverviewSection: blueprint类型={type(blueprint).__name__}, "
-                    f"blueprint键={list(blueprint.keys()) if isinstance(blueprint, dict) else 'N/A'}, "
-                    f"one_sentence_summary={blueprint.get('one_sentence_summary', 'MISSING') if isinstance(blueprint, dict) else 'NOT_DICT'}"
-                )
                 section = OverviewSection(data=blueprint, editable=True)
                 section.editRequested.connect(self.onEditRequested)
             elif section_id == 'world_setting':
