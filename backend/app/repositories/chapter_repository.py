@@ -79,6 +79,7 @@ class ChapterRepository(BaseRepository[Chapter]):
             .options(
                 selectinload(Chapter.versions),
                 selectinload(Chapter.selected_version),
+                selectinload(Chapter.manga_prompt),
             )
         )
         result = await self.session.execute(stmt)

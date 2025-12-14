@@ -27,3 +27,4 @@ class User(Base):
     novel_projects: Mapped[list["NovelProject"]] = relationship("NovelProject", back_populates="owner")
     llm_configs: Mapped[list["LLMConfig"]] = relationship("LLMConfig", back_populates="user", cascade="all, delete-orphan")
     embedding_configs: Mapped[list["EmbeddingConfig"]] = relationship("EmbeddingConfig", back_populates="user", cascade="all, delete-orphan")
+    image_configs: Mapped[list["ImageGenerationConfig"]] = relationship("ImageGenerationConfig", back_populates="user", cascade="all, delete-orphan")

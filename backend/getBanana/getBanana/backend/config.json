@@ -1,0 +1,16 @@
+{
+  "api_key": "88888888",
+  "last_model": "nano-banana-pro",
+  "last_ratio": "1:1",
+  "last_resolution": "原始",
+  "last_style": "无",
+  "last_quality": "标准",
+  "last_count": "1",
+  "temperature": 0.7,
+  "seed": "24320688",
+  "save_dir": "E:/code/getBanana/output",
+  "prompt_history": [
+    "生成一个动漫角色哈哈大笑的序列帧，采用五行五列共25帧，背景纯白色就行",
+    "一只可爱的香蕉卡通角色，微笑表情"
+  ]
+}

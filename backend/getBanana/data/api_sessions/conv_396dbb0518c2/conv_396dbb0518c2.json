@@ -1,0 +1,34 @@
+{
+  "id": "conv_396dbb0518c2",
+  "name": "conv_396dbb0518c2",
+  "model": "gemini-3-pro-preview",
+  "system_prompt": null,
+  "messages": [
+    {
+      "role": "user",
+      "content": "{\"message\": \"选择：权力顶层的觊觎\"}",
+      "timestamp": 1764405732.2862482,
+      "images": []
+    },
+    {
+      "role": "assistant",
+      "content": "```json\n{\n  \"ai_message\": \"非常好！这就为故事注入了“怀璧其罪”的经典张力。一个只想安静搞发明的技术宅，偏偏吸引了权力食物链顶端最凶猛的目光。那么，究竟是哪一件惊世骇俗的作品，成了将主角拖入权力漩Vortex的“诱饵”，彻底打破了他/她平静的“网红”生活？\",\n  \"ui_control\": {\n    \"type\": \"inspired_options\",\n    \"options\": [\n      {\n        \"id\": \"opt_1\",\n        \"label\": \"颠覆时代的印刷革命\",\n        \"description\": \"主角改良了活字印刷术，使用新合金与排版方式，让书籍的印刷效率提升百倍。一位权臣或皇子看到了它在科举、律法、甚至伪造文书方面的巨大潜力，试图将其收为己有，垄断知识的传播。\",\n        \"key_elements\": [\n          \"知识垄断\",\n          \"技术革新\",\n          \"利益争夺\"\n        ]\n      },\n      {\n        \"id\": \"opt_2\",\n        \"label\": \"军工利器横空出世\",\n        \"description\": \"主角在研究烟花时，意外搞出了稳定且威力巨大的“黑火药”。在一次节庆演示中，其堪比“天雷”的威力震惊了皇帝和将军。主角立即被“请”入军器监，被迫为帝国打造最致命的武器。\",\n        \"key_elements\": [\n          \"军用科技\",\n          \"意外发现\",\n          \"强权介入\"\n        ]\n      },\n      {\n        \"id\": \"opt_3\",\n        \"label\": \"长安的“蒸汽朋克”\",\n        \"description\": \"主角利用简陋的材料，造出了一个原始的蒸汽机模型，用来驱动一个水车或纺织机。虽然效率不高，但“无风自动”的景象被视为祥瑞或妖术，引起了最高统治者的好奇与忌惮。\",\n        \"key_elements\": [\n          \"跨时代科技\",\n          \"祥瑞与妖术\",\n          \"皇帝的注视\"\n        ]\n      },\n      {\n        \"id\": \"opt_4\",\n        \"label\": \"窥探秘密的“千里镜”\",\n        \"description\": \"主角为了观星，磨制出了一架高倍率望远镜。然而，这个能“缩地成寸”的宝贝，很快被发现可以用来窥探敌国军情，甚至是后宫隐私。主角因此被内廷特务机构控制，成为皇帝的“眼睛”。\",\n        \"key_elements\": [\n          \"信息工具\",\n          \"宫廷监视\",\n          \"禁忌发明\"\n        ]\n      }\n    ],\n    \"placeholder\": \"选择一个关键发明，或构思一个更能引爆剧情的导火索...\"\n  },\n  \"conversation_state\": {\n    \"round\": 4\n  },\n  \"is_complete\": false\n}\n```",
+      "timestamp": 1764405761.0286756,
+      "images": []
+    }
+  ],
+  "source": "api",
+  "binding": {
+    "conversation_id": "conv_396dbb0518c2",
+    "account_index": 3,
+    "team_id": "adfb70d1-8f5d-4e09-a870-890be188821b",
+    "session_name": "collections/default_collection/engines/agentspace-engine/sessions/903362971467778070",
+    "image_dir": "E:\\code\\GetGemini\\recons\\data\\images\\conv_396dbb0518c2",
+    "created_at": 1764405732.285307,
+    "last_active_at": 1764405761.0286756,
+    "message_count": 2,
+    "image_count": 0
+  },
+  "created_at": 1764405732.285307,
+  "updated_at": 1764405761.0286756
+}

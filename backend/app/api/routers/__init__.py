@@ -6,7 +6,7 @@ API路由汇总（PyQt桌面版）
 
 from fastapi import APIRouter
 
-from . import embedding_config, llm_config, novels, writer, settings
+from . import embedding_config, llm_config, novels, writer, settings, image_generation
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(writer.router, prefix="/api/writer")
 api_router.include_router(llm_config.router)
 api_router.include_router(embedding_config.router)
 api_router.include_router(settings.router, prefix="/api/settings")
+api_router.include_router(image_generation.router, prefix="/api")

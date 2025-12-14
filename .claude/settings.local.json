@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venvScriptsactivate)",
+      "Bash(alembic revision:*)",
+      "Bash(source:*)"
+    ]
+  }
+}

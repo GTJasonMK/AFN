@@ -15,6 +15,7 @@ from utils.dpi_utils import dp, sp
 from .llm_settings_widget import LLMSettingsWidget
 from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
+from .image_settings_widget import ImageSettingsWidget
 
 
 class SettingsView(BasePage):
@@ -70,6 +71,7 @@ class SettingsView(BasePage):
         # 添加导航项
         self._add_nav_item("LLM 服务")
         self._add_nav_item("嵌入模型")
+        self._add_nav_item("生图模型")
         self._add_nav_item("高级配置")
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
@@ -99,6 +101,9 @@ class SettingsView(BasePage):
 
         self.embedding_settings = EmbeddingSettingsWidget()
         self.page_stack.addWidget(self.embedding_settings)
+
+        self.image_settings = ImageSettingsWidget()
+        self.page_stack.addWidget(self.image_settings)
 
         self.advanced_settings = AdvancedSettingsWidget()
         self.page_stack.addWidget(self.advanced_settings)
@@ -203,5 +208,7 @@ class SettingsView(BasePage):
             self.llm_settings.loadConfigs()
         if hasattr(self, 'embedding_settings'):
             self.embedding_settings.loadConfigs()
+        if hasattr(self, 'image_settings'):
+            self.image_settings.loadConfigs()
         if hasattr(self, 'advanced_settings'):
             self.advanced_settings.loadConfig()

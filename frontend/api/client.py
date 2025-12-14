@@ -1307,6 +1307,112 @@ class AFNAPIClient:
             f'/api/writer/optimization-sessions/{session_id}',
         )
 
+    # ==================== 漫画提示词 ====================
+
+    def generate_manga_prompts(
+        self,
+        project_id: str,
+        chapter_number: int,
+        style: str = "manga",
+        scene_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        生成章节的漫画提示词
+
+        将章节内容智能分割为多个关键画面，并为每个画面生成文生图提示词。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            style: 漫画风格 (manga/anime/comic/webtoon)
+            scene_count: 目标场景数量 (5-20)，为None时由LLM自动决定
+
+        Returns:
+            漫画提示词结果，包含：
+            - character_profiles: 角色外观描述字典
+            - scenes: 场景列表
+            - style_guide: 整体风格指南
+        """
+        # 构建请求体，scene_count为None时不传递，让LLM自动决定
+        payload = {'style': style}
+        if scene_count is not None:
+            payload['scene_count'] = scene_count
+
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
+            payload,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    def get_manga_prompts(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取已保存的漫画提示词
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            漫画提示词结果，如果不存在返回None
+        """
+        try:
+            return self._request(
+                'GET',
+                f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
+            )
+        except NotFoundError:
+            return None
+
+    def update_manga_scene(
+        self,
+        project_id: str,
+        chapter_number: int,
+        scene_id: int,
+        update_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        更新单个场景的提示词
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            scene_id: 场景ID
+            update_data: 更新数据
+
+        Returns:
+            更新后的场景
+        """
+        return self._request(
+            'PUT',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/scenes/{scene_id}',
+            update_data,
+        )
+
+    def delete_manga_prompts(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> Dict[str, Any]:
+        """
+        删除章节的漫画提示词
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            删除结果
+        """
+        return self._request(
+            'DELETE',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
+        )
+
     # ==================== LLM配置 ====================
 
     def get_llm_configs(self) -> List[Dict[str, Any]]:
@@ -1546,3 +1652,268 @@ class AFNAPIClient:
             更新结果
         """
         return self._request('PUT', '/api/settings/advanced-config', data=config)
+
+    # ==================== 图片生成配置 ====================
+
+    def get_image_configs(self) -> List[Dict[str, Any]]:
+        """获取图片生成配置列表"""
+        return self._request('GET', '/api/image-generation/configs')
+
+    def get_image_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        获取指定图片生成配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            配置详情
+        """
+        return self._request('GET', f'/api/image-generation/configs/{config_id}')
+
+    def create_image_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        创建图片生成配置
+
+        Args:
+            config_data: 配置数据
+
+        Returns:
+            创建的配置
+        """
+        return self._request('POST', '/api/image-generation/configs', config_data)
+
+    def update_image_config(
+        self,
+        config_id: int,
+        config_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        更新图片生成配置
+
+        Args:
+            config_id: 配置ID
+            config_data: 配置数据
+
+        Returns:
+            更新后的配置
+        """
+        return self._request('PUT', f'/api/image-generation/configs/{config_id}', config_data)
+
+    def delete_image_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        删除图片生成配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            删除结果
+        """
+        return self._request('DELETE', f'/api/image-generation/configs/{config_id}')
+
+    def activate_image_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        激活图片生成配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            激活结果
+        """
+        return self._request('POST', f'/api/image-generation/configs/{config_id}/activate')
+
+    def test_image_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        测试图片生成配置连接
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            测试结果，包含 success 和 message 字段
+        """
+        return self._request(
+            'POST',
+            f'/api/image-generation/configs/{config_id}/test',
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    # ==================== 图片生成 ====================
+
+    def generate_scene_image(
+        self,
+        project_id: str,
+        chapter_number: int,
+        scene_id: int,
+        prompt: str,
+        style: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
+        quality: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        为场景生成图片
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            scene_id: 场景ID
+            prompt: 图片生成提示词
+            style: 图片风格（可选）
+            aspect_ratio: 宽高比（可选）
+            quality: 质量预设（可选）
+
+        Returns:
+            生成结果，包含图片URL和信息
+        """
+        data = {'prompt': prompt}
+        if style:
+            data['style'] = style
+        if aspect_ratio:
+            data['aspect_ratio'] = aspect_ratio
+        if quality:
+            data['quality'] = quality
+
+        return self._request(
+            'POST',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/scenes/{scene_id}/generate',
+            data,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    def get_scene_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+        scene_id: int,
+    ) -> Dict[str, Any]:
+        """
+        获取场景的所有图片
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            scene_id: 场景ID
+
+        Returns:
+            图片列表
+        """
+        return self._request(
+            'GET',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/scenes/{scene_id}/images'
+        )
+
+    def get_chapter_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        获取章节的所有图片
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            图片列表
+        """
+        return self._request(
+            'GET',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/images'
+        )
+
+    def delete_generated_image(self, image_id: int) -> Dict[str, Any]:
+        """
+        删除生成的图片
+
+        Args:
+            image_id: 图片ID
+
+        Returns:
+            删除结果
+        """
+        return self._request('DELETE', f'/api/image-generation/images/{image_id}')
+
+    def toggle_image_selection(
+        self,
+        image_id: int,
+        selected: bool = True
+    ) -> Dict[str, Any]:
+        """
+        切换图片选中状态（用于PDF导出）
+
+        Args:
+            image_id: 图片ID
+            selected: 是否选中
+
+        Returns:
+            操作结果
+        """
+        return self._request(
+            'POST',
+            f'/api/image-generation/images/{image_id}/toggle-selection',
+            params={'selected': selected}
+        )
+
+    def export_images_to_pdf(
+        self,
+        project_id: str,
+        image_ids: List[int],
+        title: Optional[str] = None,
+        page_size: str = "A4",
+        images_per_page: int = 2,
+        include_prompts: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        导出图片为PDF
+
+        Args:
+            project_id: 项目ID
+            image_ids: 要导出的图片ID列表
+            title: PDF标题
+            page_size: 页面大小（A4/A3/Letter）
+            images_per_page: 每页图片数量
+            include_prompts: 是否包含提示词
+
+        Returns:
+            导出结果，包含下载URL
+        """
+        data = {
+            'project_id': project_id,
+            'image_ids': image_ids,
+            'page_size': page_size,
+            'images_per_page': images_per_page,
+            'include_prompts': include_prompts,
+        }
+        if title:
+            data['title'] = title
+
+        return self._request(
+            'POST',
+            '/api/image-generation/export/pdf',
+            data,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    def get_image_file_url(
+        self,
+        project_id: str,
+        chapter_number: int,
+        scene_id: int,
+        file_name: str,
+    ) -> str:
+        """
+        获取图片文件的URL
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            scene_id: 场景ID
+            file_name: 文件名
+
+        Returns:
+            图片文件URL
+        """
+        return f"{self.base_url}/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"

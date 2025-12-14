@@ -1,0 +1,96 @@
+{
+  "host": "127.0.0.1",
+  "port": 8000,
+  "proxy": "http://127.0.0.1:7897",
+  "admin_password": "admin123",
+  "admin_secret_key": "your-secret-key-change-me",
+  "api_tokens": [
+    "88888888"
+  ],
+  "accounts": [
+    {
+      "team_id": "2de2039f-3ab0-4f8a-bfdd-2696b98a11a5",
+      "csesidx": "1278796029",
+      "secure_c_ses": "CSE.ARsLs03S304hUI2PFccJlaOytoBECGDnEcjvAuYmz3tdCd3ma6tUjWVZkO8YVD6VEMy9EzStp4YtDxC4OYrrh_GuAt2PglJSdJAf15NMpLsYxo__440VdkbuoZKeRmFu9LYAE-eK8vmzqy7FtkYPwdjuktsF6epYSfUPnW5wvuaD74skJ_-1TNk3yksXnox_8ugIQlzvKQ1DSja219L-8gnVqH-148RzYmK2mvfXOTjrTk2LtEsLdWxE6NPQJg-ULKV1eIrehNC2CtkthsYxEm8m0YIM7py9ppPvuW7qhJ6mHvp77zWqIEkm2WRG3_K4fNzHwQnJSu3uVowOrz2I6gbqb7GG6sKE8h73GVrtG7McV4kDzAAOrsCzRrUzWkZnKGPwydVzOhLg4OVIJ6cPmofOdYTilun4t99mwenXwwvC_NnYJNiPRcZPhQwkcnZ99KC4mdlTzeciSA",
+      "host_c_oses": "COS.AQH81rgh1_108QvCyR-kKpOvqYW1uHZSkqP-7NyERBab0TyItQ_uPShTM3V0NoQ6PClI_6wpyL5tzymOM1oLFWQfe76w9_3Dl8KIwZWZhflz5Jh8WfMN_tp85yO5mDcOSGI0x_JyijG8AFee",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "note": "账号1",
+      "available": true,
+      "refresh_time": "2025-11-29T13:43:20.250008"
+    },
+    {
+      "team_id": "0c3e3ba0-7fe7-4ba9-88c4-4181d10d8000",
+      "csesidx": "1540873046",
+      "secure_c_ses": "CSE.ARsLs00K9Ch3LOiRLILNgiR_gEyqumQrwZ-QV4uXVJzcW9HJ4VoYRlO2IphhNHsqR1QtBrAn2QvZ_mBdqauMgl7U_5AzBNMGGGhUFVEgMXgfmWr0XugcFWAUnLcyLtB1Nclc7ihYcOOK0RL_nZRNiv1_GvpL9cgtkCLh4VhLdkvyBBEs3DxUHxx2mFgEGXPNIxWZrQVix0oFLnYzbuRA4TgEcRE7SYCjE7F329Y5eKzqmxjEwSxrIDaLw7QfqO9xnb6r8wT87q5UzFTI0MM3jW3RcSMxbxNeB6O0aAHO29cORVg6go0bX_wn6FsZGICFyuqaSAelPQlyEtKLoBZxlLAHVxwBrTpz1MdNx5QS2R7iU36Foyc9LWrlYL5fA_zY-h5R9HGsV8f-mPPlj8QJeEcvktDEahG_MKFyhy1XDezWckePTpErwm0VoFdPEpGahxFstHrmwGTDZA",
+      "host_c_oses": "COS.AQH81rhGg2RtFZTbbYVYJFDMyXCaaJFaXTFJYaGrWSS7lroCVmOGSm4du5_h33IYubQHAWGIwMpU6aTAVPHDbpRVN4wMDGOP79pCwP5bIzpoiLQQgWB8ZrNdHHBB25clhVWgKVFy8ri5D2yN",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "note": "账号2",
+      "available": true,
+      "refresh_time": "2025-11-29T13:44:13.970485"
+    },
+    {
+      "team_id": "422eab65-3628-40b9-a3fd-e10ef4503c11",
+      "csesidx": "352755539",
+      "secure_c_ses": "CSE.ARsLs014tUVI5HbAsfFiCMROaPh5gSXKUiHt74W38kBq4Xhy2ExDrYSTjxAVKwj87BpuUwbKfJdhmsAoycOu28L4A635x2Iqgp1YcTGU0tCR_JSXCyGNUmiwqWGVkAf8Pz7a0r-d2VUlN_MSWQyob8hcuVJzFbtyMGB6_o14KLn4WaFPrlbmuPK9yo9zBUHR5rtuNHntox0PWycjkzGUtYkN76oXnBQ2HUcbKJnpaM_c6OuaC8m8z72r0lx4vQitUm2A_xjXgQRyeum3_-0fS1vWO9PexRNIB1VU-vYNj9YEWggSjlaN187VpVY2OEphGJtXQ6EdcVMfOYJsTr1jAY65alyJwbVhWKcNgslZwUrQXdeAmO7YEHShw9eYEPfZdhIHpRa1TIKCvygopz38g1VuGbQcXruKiqO3NFdLlUaIEVAPnDVksr8LC1zaiY9zuCjmpO8CSElzSg",
+      "host_c_oses": "COS.AQH81rhJYcdqGIgFgGw2fd-dFWUOhLyyAFMqIjJjK44lNuq7eVJOP5kvUZslXsuvcpicLiS58UrWuTlf4RyPLAaXa7rmZM4oxpeKoJgA_mtMV-znIGrq-fmPt0MwpnWH9DN_oUF8yaJfOASO",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "note": "账号3",
+      "available": true,
+      "refresh_time": "2025-11-29T13:45:25.303517"
+    },
+    {
+      "team_id": "adfb70d1-8f5d-4e09-a870-890be188821b",
+      "csesidx": "201795086",
+      "secure_c_ses": "CSE.ARsLs01w7wX-SJ3s978WE5AydPVneGstynOfeSp6tt2bQTltlCGHMDYIJlMLZKcNprFJu9XAvREtVVxYpPOiAUMQVhBOMKlMkPIxIDYKTmpxdbeYjnMGSbMJulYwwPAjijtI5cLHKYrcT0uSSBSEEVnEBgMAbrj_f3iZiJeJXEXm95ZgVFlTD8QyBbmTfhxOnEeTCnQK0wRoXBEqpiHDe5Iw6nxmCON1suB-lk7KEp9ZRsnQDpBT1loUGOBDc9jKa9f8GKPNiBp6bvdKBMgkq3JqOusgi1n6We5NS5YL215vJTBi0V04AruQGdeO1KjzVzTJ1XSnn8-9XBhaIU3N_JqFAGy40IMOhJsu2cJSFb04ov1wXuNNBBsEb1wDCqSYzx-jhgTYtEmYp7Oy00r8Zf26UtAX6EFVdV7Q8No-q9DGLLuGlkifLiD6SDEY92UzipufoTT80WlZ",
+      "host_c_oses": "COS.AQH81rhWULiWiU6t-5zffHGn7O-wmzzrz8XwWtKE3oIMtzIGKjdPCrxYf61Lt6FrOsZ2Ixwjfb7DShKDnvfB9fEzkyR_Ndm5IIg-fVXH6RrFAzWFDZ-zJ9LmlqlUJXvEdpvohSbIxfHVziyS",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "note": "账号4",
+      "available": true,
+      "refresh_time": "2025-11-29T13:46:13.148839"
+    },
+    {
+      "team_id": "10f6a745-df90-458d-bebb-222505326e46",
+      "csesidx": "1151642528",
+      "secure_c_ses": "CSE.ARsLs00OY7DQYhgXVpdhvx2P88T37YfnDNEpm1OyQwPnIjzVO4j4Cwu9P_u3kpfxsawS2wa4ccZEUaeTLODQmF4FtZGd9szwfv1JsESNwm5U_g1Gew4GgooIjblnA9WUNIP464jv8qJ4UfER0YGDHA8HTorxH4fNUbVrAhaPfmwxALyqV9inqosB50NdgmHuOWwWaUCisVK0bci4-KkFcECDoYtPNOqgEEhKpT2ICKexbXRcr40_LVQfPC5IOCkLSCmGHk5xUWICisf9tQtHAYTqS87waY-kIDoZQQQRvB_Y97nXV_lJmayfdJiNoBvZhDRIvhJU6rxhrFBi6xajO_QjO-SHYflyhTzcbKRtgoPTWjUuUr3Q4RBf4GcAfsQ1YVCHvNdIJFGDys-qVG6TjyvsobyHkCD-Xm9PQCgiSrSxosVU9JIUJUxQUgVzhUIoPlJXB-pv5JWHGQ",
+      "host_c_oses": "COS.AQH81rirQ2e9lwJIecGeAaiOLnukoVtvdz1l6709kdrXmVCEMm2aJHIzGN021LqPfR6sfsYSXEYebG7XdPPL6PIO1cBbhc0w0d-ZMjLGlODjsFOAlzaqJSEJOheibJgLYs_EPh8sHlv-wqrh",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "note": "账号5",
+      "available": true,
+      "refresh_time": "2025-11-29T13:47:01.630144"
+    }
+  ],
+  "models": [
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "description": "",
+      "context_length": 32768,
+      "max_tokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "description": "",
+      "context_length": 32768,
+      "max_tokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "name": "Gemini 2.0 Flash",
+      "description": "",
+      "context_length": 32768,
+      "max_tokens": 8192,
+      "enabled": true
+    }
+  ],
+  "cooldown": {
+    "auth_error_seconds": 900,
+    "rate_limit_seconds": 300,
+    "generic_error_seconds": 120
+  },
+  "image_cache_hours": 24,
+  "image_base_url": "",
+  "log_level": "INFO"
+}

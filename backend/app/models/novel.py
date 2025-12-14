@@ -237,6 +237,9 @@ class Chapter(Base):
     evaluations: Mapped[list["ChapterEvaluation"]] = relationship(
         back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterEvaluation.created_at"
     )
+    manga_prompt: Mapped[Optional["ChapterMangaPrompt"]] = relationship(
+        back_populates="chapter", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class ChapterVersion(Base):
@@ -342,3 +345,35 @@ class ForeshadowingIndex(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ChapterMangaPrompt(Base):
+    """章节漫画提示词
+
+    存储将章节内容转化为文生图模型所需的提示词序列。
+    用于实现小说到漫画的转化功能。
+    """
+
+    __tablename__ = "chapter_manga_prompts"
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    chapter_id: Mapped[int] = mapped_column(
+        ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+
+    # 角色外观配置（JSON字典，确保角色在所有画面中外观一致）
+    # 格式: {"角色名": "详细的英文外观描述"}
+    character_profiles: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    # 整体风格指南
+    style_guide: Mapped[Optional[str]] = mapped_column(Text)
+
+    # 场景列表（JSON数组）
+    # 每个场景包含: scene_id, scene_summary, original_text, characters,
+    # prompt_en, prompt_zh, negative_prompt, style_tags, composition, emotion, lighting
+    scenes: Mapped[list] = mapped_column(JSON, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    chapter: Mapped["Chapter"] = relationship(back_populates="manga_prompt")

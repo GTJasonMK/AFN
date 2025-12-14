@@ -1,0 +1,34 @@
+{
+  "id": "conv_3047cd43037f",
+  "name": "conv_3047cd43037f",
+  "model": "gemini-3-pro-preview",
+  "system_prompt": null,
+  "messages": [
+    {
+      "role": "user",
+      "content": "{\"message\": \"选择：窥探秘密的“千里镜”\"}",
+      "timestamp": 1764406872.5453136,
+      "images": []
+    },
+    {
+      "role": "assistant",
+      "content": "{\n  \"ai_message\": \"“千里镜”——既能窥探星辰，也能洞察人心，这注定是一件让权力者无法安眠的“神器”。当它的消息传开，你认为，是哪一只手最快、也最有力地将它攥入掌心，让我们的主角彻底告别了市井的逍遥？\",\n  \"ui_control\": {\n    \"type\": \"inspired_options\",\n    \"options\": [\n      {\n        \"id\": \"opt_1\",\n        \"label\": \"绝对皇权的天子之眼\",\n        \"description\": \"皇帝将“千里镜”视为天赐神器，是巩固皇权的无上工具。主角被“供养”在宫中，成为皇帝的专属工匠，被迫为他窥探星象、监视边疆、甚至洞察朝臣隐私。从此，主角的每一个发明都与帝国命运紧密相连，却也失去了自由。\",\n        \"key_elements\": [\n          \"君心难测\",\n          \"帝国工具\",\n          \"失去自由\"\n        ]\n      },\n      {\n        \"id\": \"opt_2\",\n        \"label\": \"帝国阴影下的特务之手\",\n        \"description\": \"一个类似于“内卫”或“不良人”的神秘特务机构控制了主角和千里镜。他们逼迫主角制造各种监视设备，成为帝国最隐秘的耳目。主角被卷入一连串暗杀、阴谋和宫廷秘闻中，每一步都在刀尖上行走。\",\n        \"key_elements\": [\n          \"特务机构\",\n          \"身不由己\",\n          \"黑暗秘密\"\n        ]\n      },\n      {\n        \"id\": \"opt_3\",\n        \"label\": \"野心皇子的夺嫡利器\",\n        \"description\": \"一位有夺嫡之心的皇子（如太子或某位亲王）发现了千里镜的军事和情报价值。他软硬兼施，将主角拉拢到自己麾下，利用千里镜监视政敌、布局未来。主角被迫站队，卷入了九死一生的储君之争。\",\n        \"key_elements\": [\n          \"夺嫡之争\",\n          \"政治投机\",\n          \"命运捆绑\"\n        ]\n      },\n      {\n        \"id\": \"opt_4\",\n        \"label\": \"权臣掌中的博弈棋子\",\n        \"description\": \"朝中某位权倾朝野的大臣（如宰相或大将军）将主角和其发明视为自己权力版图上的一颗重要棋子。他利用主角的技术来打击异己、巩固地位，同时又提防着主角被皇帝直接控制。主角在权臣和皇权的夹缝中艰难求生。\",\n        \"key_elements\": [\n          \"权臣控制\",\n          \"夹缝求生\",\n          \"政治博弈\"\n        ]\n      }\n    ],\n    \"placeholder\": \"选择一个幕后黑手，或设计一个更复杂的权力关系...\"\n  },\n  \"conversation_state\": {\n    \"round\": 5\n  },\n  \"is_complete\": false\n}",
+      "timestamp": 1764406899.847232,
+      "images": []
+    }
+  ],
+  "source": "api",
+  "binding": {
+    "conversation_id": "conv_3047cd43037f",
+    "account_index": 1,
+    "team_id": "0c3e3ba0-7fe7-4ba9-88c4-4181d10d8000",
+    "session_name": "collections/default_collection/engines/agentspace-engine/sessions/3885027434040823429",
+    "image_dir": "E:\\code\\GetGemini\\recons\\data\\images\\conv_3047cd43037f",
+    "created_at": 1764406872.5442872,
+    "last_active_at": 1764406899.847232,
+    "message_count": 2,
+    "image_count": 0
+  },
+  "created_at": 1764406872.5442872,
+  "updated_at": 1764406899.847232
+}

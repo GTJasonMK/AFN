@@ -27,6 +27,7 @@ from .panels import (
     SummaryPanelBuilder,
     ContentPanelBuilder,
 )
+from .panels.manga_panel import MangaPanelBuilder
 
 
 class WDWorkspace(ThemeAwareFrame):
@@ -62,6 +63,14 @@ class WDWorkspace(ThemeAwareFrame):
         self._summary_builder = SummaryPanelBuilder()
         self._content_builder = ContentPanelBuilder(
             on_save_content=self.saveContent
+        )
+
+        # 漫画面板构建器
+        self._manga_builder = MangaPanelBuilder(
+            on_generate=self._onGenerateMangaPrompt,
+            on_copy_prompt=self._onCopyPrompt,
+            on_delete=self._onDeleteMangaPrompt,
+            on_generate_image=self._onGenerateImage,
         )
 
         # 保存组件引用
@@ -108,6 +117,7 @@ class WDWorkspace(ThemeAwareFrame):
         self._review_builder.refresh_theme()
         self._summary_builder.refresh_theme()
         self._content_builder.refresh_theme()
+        self._manga_builder.refresh_theme()
 
         self.setStyleSheet(f"""
             WDWorkspace {{
@@ -994,6 +1004,11 @@ class WDWorkspace(ThemeAwareFrame):
         analysis_tab = self._analysis_builder.create_analysis_tab(chapter_data)
         self.tab_widget.addTab(analysis_tab, "分析")
 
+        # Tab 6: 漫画提示词 - 使用 MangaPanelBuilder
+        manga_data = self._prepareMangaData(chapter_data)
+        manga_tab = self._manga_builder.create_manga_tab(manga_data, self)
+        self.tab_widget.addTab(manga_tab, "漫画")
+
         layout.addWidget(self.tab_widget, stretch=1)
 
         return widget
@@ -1325,3 +1340,173 @@ class WDWorkspace(ThemeAwareFrame):
         # 如果还有其他待确认的修改，显示下一个
         if hasattr(self, '_pending_changes') and self._pending_changes:
             self._showConfirmPanel(self._pending_changes[0], 0)
+
+    # ==================== 漫画面板相关方法 ====================
+
+    def _prepareMangaData(self, chapter_data: dict) -> dict:
+        """
+        准备漫画面板数据
+
+        Args:
+            chapter_data: 章节数据
+
+        Returns:
+            漫画面板所需的数据字典
+        """
+        manga_data = {
+            'has_manga_prompt': False,
+            'scenes': [],
+            'character_profiles': {},
+            'style_guide': '',
+        }
+
+        # 尝试从API获取已保存的漫画提示词
+        if self.project_id and self.current_chapter:
+            try:
+                result = self.api_client.get_manga_prompts(
+                    self.project_id, self.current_chapter
+                )
+                if result:
+                    manga_data['has_manga_prompt'] = True
+                    manga_data['scenes'] = result.get('scenes', [])
+                    manga_data['character_profiles'] = result.get('character_profiles', {})
+                    manga_data['style_guide'] = result.get('style_guide', '')
+            except Exception:
+                # 如果获取失败，保持默认空状态
+                pass
+
+        return manga_data
+
+    def _onGenerateMangaPrompt(self, style: str, scene_count: int):
+        """
+        生成漫画提示词回调
+
+        Args:
+            style: 漫画风格 (manga/anime/comic/webtoon)
+            scene_count: 场景数量
+        """
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+
+        if not self.project_id or not self.current_chapter:
+            MessageService.show_warning(self, "请先选择章节")
+            return
+
+        def do_generate():
+            return self.api_client.generate_manga_prompts(
+                self.project_id,
+                self.current_chapter,
+                style=style,
+                scene_count=scene_count,
+            )
+
+        def on_success(result):
+            MessageService.show_success(self, "漫画提示词生成成功")
+            # 重新加载章节以刷新漫画面板
+            self.loadChapter(self.current_chapter)
+
+        def on_error(error):
+            MessageService.show_error(self, f"生成失败: {error}")
+
+        # 开始异步生成（不阻塞UI显示加载信息）
+        worker = AsyncWorker(do_generate)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用防止被垃圾回收
+        self._manga_worker = worker
+
+    def _onCopyPrompt(self, prompt: str):
+        """
+        复制提示词到剪贴板
+
+        Args:
+            prompt: 要复制的提示词内容
+        """
+        from utils.message_service import MessageService
+
+        if not prompt:
+            return
+
+        clipboard = QApplication.clipboard()
+        clipboard.setText(prompt)
+        MessageService.show_success(self, "已复制到剪贴板")
+
+    def _onDeleteMangaPrompt(self):
+        """删除漫画提示词回调"""
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+
+        if not self.project_id or not self.current_chapter:
+            return
+
+        if not MessageService.confirm(self, "确定要删除漫画提示词吗?", "此操作不可恢复"):
+            return
+
+        def do_delete():
+            return self.api_client.delete_manga_prompts(
+                self.project_id, self.current_chapter
+            )
+
+        def on_success(result):
+            MessageService.show_success(self, "漫画提示词已删除")
+            # 重新加载章节以刷新漫画面板
+            self.loadChapter(self.current_chapter)
+
+        def on_error(error):
+            MessageService.show_error(self, f"删除失败: {error}")
+
+        worker = AsyncWorker(do_delete)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        self._manga_delete_worker = worker
+
+    def _onGenerateImage(self, scene_id: int, prompt: str, negative_prompt: str):
+        """
+        生成图片回调
+
+        Args:
+            scene_id: 场景ID
+            prompt: 正面提示词
+            negative_prompt: 负面提示词
+        """
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+
+        if not self.project_id or not self.current_chapter:
+            return
+
+        MessageService.show_info(self, f"正在为场景 {scene_id} 生成图片...")
+
+        def do_generate():
+            return self.api_client.generate_scene_image(
+                project_id=self.project_id,
+                chapter_number=self.current_chapter,
+                scene_id=scene_id,
+                prompt=prompt,
+            )
+
+        def on_success(result):
+            if result.get('success', False):
+                image_url = result.get('image_url', '')
+                MessageService.show_success(
+                    self,
+                    f"场景 {scene_id} 图片生成成功"
+                )
+            else:
+                error_msg = result.get('error_message', '未知错误')
+                MessageService.show_error(self, f"生成失败: {error_msg}")
+
+        def on_error(error):
+            MessageService.show_error(self, f"图片生成失败: {error}")
+
+        worker = AsyncWorker(do_generate)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用防止被垃圾回收
+        self._image_gen_worker = worker
