@@ -11,6 +11,9 @@ AI 辅助长篇小说创作桌面应用，开箱即用，无需登录。
 - **灵活配置**：支持多个 LLM 提供商，随时切换
 - **本地存储**：所有数据存储在本地，完全私密
 - **RAG 增强**：智能检索上下文，确保故事连贯性
+- **漫画转化**：将章节内容智能分割为漫画场景，生成 AI 绘图提示词
+- **图片生成**：集成多厂商图片生成 API，一键生成场景插图
+- **PDF 导出**：将生成的图片导出为 PDF，方便分享和打印
 
 ## 目录结构
 
@@ -20,14 +23,22 @@ AFN/
 │   ├── app/             # 应用代码
 │   │   ├── api/routers/ # API 路由
 │   │   ├── services/    # 业务逻辑层
+│   │   │   ├── chapter_generation/  # 章节生成
+│   │   │   ├── image_generation/    # 图片生成
+│   │   │   ├── manga_prompt/        # 漫画提示词
+│   │   │   └── rag/                 # RAG 检索
 │   │   ├── models/      # SQLAlchemy 模型
 │   │   └── schemas/     # Pydantic 数据模型
 │   ├── prompts/         # LLM 提示词模板
 │   ├── storage/         # 数据存储（自动创建）
+│   │   ├── afn.db       # SQLite 数据库
+│   │   └── generated_images/  # 生成的图片
 │   └── README.md        # 后端文档
 │
 ├── frontend/            # PyQt6 桌面前端
 │   ├── windows/         # 页面窗口
+│   │   ├── writing_desk/  # 写作台
+│   │   └── settings/      # 设置页面
 │   ├── components/      # UI 组件库
 │   ├── themes/          # 主题系统
 │   ├── api/client.py    # API 客户端
@@ -99,6 +110,11 @@ python main.py
 创建项目 -> 灵感对话 -> 生成蓝图 -> 生成大纲 -> 章节写作 -> 导出作品
    |          |          |          |          |          |
  输入标题   与AI交流   查看设定   章节纲要   多版本选择   TXT文件
+                                              |
+                                              v
+                                     漫画提示词 -> 生成图片 -> PDF导出
+                                         |          |          |
+                                     场景分割   AI绘图服务   分享打印
 ```
 
 ## 系统要求
@@ -121,6 +137,21 @@ python main.py
 
 **配置方法**：在应用的"LLM配置"页面添加对应的 Base URL 和 API Key
 
+## 支持的图片生成服务
+
+- **OpenAI 兼容接口**：nano-banana-pro、DALL-E 2/3、Gemini 等
+- **Stability AI**：Stable Diffusion XL 等
+- **本地 ComfyUI**：支持自定义工作流
+
+**配置方法**：在应用的"生图模型"页面添加配置
+
+### 图片生成功能说明
+
+1. **漫画提示词生成**：在写作台的"漫画"标签页，点击"生成提示词"将章节内容分割为多个场景
+2. **场景图片生成**：每个场景卡片有"生成图片"按钮，点击即可调用配置的图片生成服务
+3. **图片管理**：生成的图片按 `项目/章节/场景` 结构存储在 `storage/generated_images/` 目录
+4. **PDF导出**：选择多张图片导出为 PDF 文件，支持自定义布局
+
 ## 技术栈
 
 **后端**：
@@ -129,6 +160,7 @@ python main.py
 - SQLite / MySQL
 - OpenAI API 兼容接口
 - RAG 检索增强
+- ReportLab (PDF 生成)
 
 **前端**：
 - PyQt6 6.6.1
@@ -142,6 +174,17 @@ python main.py
 - **OpenAI**：https://platform.openai.com/api-keys
 - **国内服务**：2API、API2D 等中转服务
 - **本地部署**：安装 Ollama 使用本地模型
+
+### 如何配置图片生成服务？
+
+1. 进入设置页面，选择"生图模型"
+2. 点击"新增配置"
+3. 选择服务类型（OpenAI兼容/Stability/ComfyUI）
+4. 填写 API 地址和密钥
+5. 选择默认模型和风格
+6. 点击"激活"启用配置
+
+推荐使用 nano-banana-pro 或 DALL-E 3 获得最佳效果。
 
 ### 启动失败？
 
