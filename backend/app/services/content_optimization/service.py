@@ -25,6 +25,7 @@ class ContentOptimizationService:
         llm_service,
         vector_store=None,
         prompt_service=None,
+        embedding_service=None,
     ):
         """
         初始化服务
@@ -34,11 +35,13 @@ class ContentOptimizationService:
             llm_service: LLM服务
             vector_store: 向量存储服务（可选）
             prompt_service: 提示词服务（可选）
+            embedding_service: 嵌入服务（可选，用于时序感知检索）
         """
         self.session = session
         self.llm_service = llm_service
         self.vector_store = vector_store
         self.prompt_service = prompt_service
+        self.embedding_service = embedding_service
         self.session_manager = get_session_manager()
 
     async def optimize_chapter_stream(
@@ -72,6 +75,7 @@ class ContentOptimizationService:
                 llm_service=self.llm_service,
                 vector_store=self.vector_store,
                 prompt_service=self.prompt_service,
+                embedding_service=self.embedding_service,
                 optimization_session=opt_session,
             )
 

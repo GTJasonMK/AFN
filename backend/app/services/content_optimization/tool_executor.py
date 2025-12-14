@@ -5,13 +5,14 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .tools import ToolName, ToolCall, ToolResult
 from .paragraph_analyzer import ParagraphAnalyzer
 from ..vector_store_service import VectorStoreService
+from ..rag.temporal_retriever import TemporalAwareRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +25,12 @@ class AgentState:
         paragraphs: List[str],
         project_id: str,
         chapter_number: int,
+        total_chapters: int = 0,
     ):
         self.paragraphs = paragraphs
         self.project_id = project_id
         self.chapter_number = chapter_number
+        self.total_chapters = total_chapters
 
         # 当前段落索引
         self.current_index = 0
@@ -84,14 +87,21 @@ class ToolExecutor:
         session: AsyncSession,
         vector_store: Optional[VectorStoreService],
         paragraph_analyzer: ParagraphAnalyzer,
+        embedding_service: Optional[Any] = None,  # EmbeddingService
         character_index: Any = None,  # CharacterStateIndex model
         foreshadowing_index: Any = None,  # ForeshadowingIndex model
     ):
         self.session = session
         self.vector_store = vector_store
         self.paragraph_analyzer = paragraph_analyzer
+        self.embedding_service = embedding_service
         self.character_index = character_index
         self.foreshadowing_index = foreshadowing_index
+
+        # 初始化时序感知检索器
+        self.temporal_retriever: Optional[TemporalAwareRetriever] = None
+        if vector_store:
+            self.temporal_retriever = TemporalAwareRetriever(vector_store)
 
     async def execute(self, tool_call: ToolCall, state: AgentState) -> ToolResult:
         """
@@ -163,7 +173,7 @@ class ToolExecutor:
         params: Dict[str, Any],
         state: AgentState,
     ) -> Dict[str, Any]:
-        """处理RAG检索"""
+        """处理RAG检索（使用时序感知检索）"""
         query = params.get("query", "")
         query_type = params.get("query_type", "general")
         top_k = params.get("top_k", 5)
@@ -185,7 +195,42 @@ class ToolExecutor:
             full_query = f"场景描写 {query}"
 
         try:
-            # 执行检索
+            # 优先使用时序感知检索（需要embedding_service和total_chapters）
+            if (
+                self.temporal_retriever
+                and self.embedding_service
+                and state.total_chapters > 0
+            ):
+                # 将文本查询转换为向量
+                query_embedding = await self.embedding_service.get_embedding(full_query)
+
+                # 使用时序感知检索
+                chunks = await self.temporal_retriever.retrieve_chunks_with_temporal(
+                    project_id=state.project_id,
+                    query_embedding=query_embedding,
+                    target_chapter=state.chapter_number,
+                    total_chapters=state.total_chapters,
+                    top_k=top_k,
+                )
+
+                results = []
+                for chunk in chunks:
+                    results.append({
+                        "chapter_number": chunk.chapter_number,
+                        "content": chunk.content[:300] if chunk.content else "",
+                        "score": chunk.score,
+                        "temporal_score": chunk.metadata.get("_temporal_score", 0) if chunk.metadata else 0,
+                    })
+
+                return {
+                    "success": True,
+                    "query": query,
+                    "results_count": len(results),
+                    "results": results,
+                    "retrieval_mode": "temporal_aware",
+                }
+
+            # 回退到简单相似度检索
             chunks = await self.vector_store.similarity_search(
                 state.project_id,
                 full_query,
@@ -196,7 +241,7 @@ class ToolExecutor:
             for chunk in chunks:
                 results.append({
                     "chapter_number": chunk.get("chapter_number"),
-                    "content": chunk.get("content", "")[:300],  # 限制长度
+                    "content": chunk.get("content", "")[:300],
                     "score": chunk.get("score", 0),
                 })
 
@@ -205,6 +250,7 @@ class ToolExecutor:
                 "query": query,
                 "results_count": len(results),
                 "results": results,
+                "retrieval_mode": "similarity_only",
             }
 
         except Exception as e:
@@ -229,7 +275,7 @@ class ToolExecutor:
 
         # 从索引中查询
         if self.character_index is not None:
-            from ...models.rag import CharacterStateIndex
+            from ...models.novel import CharacterStateIndex
             from sqlalchemy import select
 
             stmt = select(CharacterStateIndex).where(
@@ -247,9 +293,10 @@ class ToolExecutor:
                     "found": True,
                     "last_chapter": record.chapter_number,
                     "location": record.location,
+                    "status": record.status,
+                    "changes": record.changes or [],
                     "emotional_state": record.emotional_state,
-                    "key_relationships": record.key_relationships,
-                    "summary": record.summary,
+                    "relationships_snapshot": record.relationships_snapshot,
                 }
                 state.character_states[character_name] = char_state
                 return char_state
@@ -265,35 +312,41 @@ class ToolExecutor:
         params: Dict[str, Any],
         state: AgentState,
     ) -> Dict[str, Any]:
-        """获取伏笔信息"""
+        """获取伏笔信息（仅返回未解决的伏笔）"""
         keywords = params.get("keywords", [])
 
         if self.foreshadowing_index is not None:
-            from ...models.rag import ForeshadowingIndex
-            from sqlalchemy import select, or_
+            from ...models.novel import ForeshadowingIndex
+            from sqlalchemy import select
 
-            # 构建关键词匹配条件
+            # 构建查询条件：只查询pending状态的伏笔
             conditions = [
                 ForeshadowingIndex.project_id == state.project_id,
                 ForeshadowingIndex.planted_chapter < state.chapter_number,
+                ForeshadowingIndex.status == "pending",  # 只返回未解决的伏笔
             ]
 
-            stmt = select(ForeshadowingIndex).where(*conditions).limit(10)
+            stmt = select(ForeshadowingIndex).where(*conditions).order_by(
+                # 高优先级优先，埋得越久越优先
+                ForeshadowingIndex.priority.desc(),
+                ForeshadowingIndex.planted_chapter.asc(),
+            ).limit(10)
             result = await self.session.execute(stmt)
             records = result.scalars().all()
 
             # 简单关键词匹配过滤
             foreshadows = []
             for record in records:
-                # 检查关键词匹配
-                content = f"{record.description} {record.context}"
+                # 检查关键词匹配（使用description和original_text）
+                content = f"{record.description} {record.original_text or ''}"
                 if any(kw in content for kw in keywords) or not keywords:
                     foreshadows.append({
                         "description": record.description,
                         "planted_chapter": record.planted_chapter,
-                        "is_resolved": record.is_resolved,
+                        "is_resolved": record.status == "resolved",
                         "resolved_chapter": record.resolved_chapter,
-                        "importance": record.importance,
+                        "priority": record.priority,
+                        "category": record.category,
                     })
 
             return {

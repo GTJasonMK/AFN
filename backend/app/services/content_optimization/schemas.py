@@ -245,3 +245,4 @@ class OptimizationContext(BaseModel):
     character_names: List[str] = Field(default_factory=list, description="已知角色名")
     style_guide: Optional[str] = Field(default=None, description="风格指南")
     prev_chapter_ending: Optional[str] = Field(default=None, description="前章结尾")
+    total_chapters: int = Field(default=0, description="小说总章节数（用于时序感知检索）")

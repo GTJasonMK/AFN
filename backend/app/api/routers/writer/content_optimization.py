@@ -81,6 +81,7 @@ async def optimize_chapter_content(
         llm_service=llm_service,
         vector_store=vector_store,
         prompt_service=prompt_service,
+        embedding_service=llm_service.embedding_service,
     )
 
     return StreamingResponse(

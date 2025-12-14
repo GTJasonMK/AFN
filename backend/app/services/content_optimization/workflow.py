@@ -37,6 +37,7 @@ class ContentOptimizationWorkflow:
         llm_service,
         vector_store=None,
         prompt_service=None,
+        embedding_service=None,
         optimization_session: Optional[OptimizationSession] = None,
     ):
         """
@@ -47,12 +48,14 @@ class ContentOptimizationWorkflow:
             llm_service: LLM服务
             vector_store: 向量存储服务（可选）
             prompt_service: 提示词服务（可选）
+            embedding_service: 嵌入服务（可选，用于时序感知检索）
             optimization_session: 优化会话（用于暂停/继续控制）
         """
         self.session = session
         self.llm_service = llm_service
         self.vector_store = vector_store
         self.prompt_service = prompt_service
+        self.embedding_service = embedding_service
         self.optimization_session = optimization_session
 
     async def execute_with_stream(
@@ -117,6 +120,7 @@ class ContentOptimizationWorkflow:
                 session=self.session,
                 vector_store=self.vector_store,
                 paragraph_analyzer=paragraph_analyzer,
+                embedding_service=self.embedding_service,
             )
 
             agent = ContentOptimizationAgent(
@@ -132,6 +136,7 @@ class ContentOptimizationWorkflow:
                 paragraphs=paragraphs_to_analyze,
                 project_id=project_id,
                 chapter_number=chapter_number,
+                total_chapters=context.total_chapters,
             )
 
             # 阶段4: 运行Agent
@@ -211,6 +216,11 @@ class ContentOptimizationWorkflow:
         if project and project.blueprint:
             style_guide = project.blueprint.style
 
+        # 获取总章节数（用于时序感知检索）
+        total_chapters = 0
+        if project and project.blueprint:
+            total_chapters = project.blueprint.total_chapters or 0
+
         return OptimizationContext(
             project_id=project_id,
             chapter_number=chapter_number,
@@ -218,6 +228,7 @@ class ContentOptimizationWorkflow:
             character_names=character_names,
             style_guide=style_guide,
             prev_chapter_ending=prev_chapter_ending,
+            total_chapters=total_chapters,
         )
 
 
