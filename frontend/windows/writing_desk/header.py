@@ -101,8 +101,8 @@ class WDHeader(ThemeAwareFrame):
         self.detail_btn.clicked.connect(self.viewDetailClicked.emit)
         buttons_layout.addWidget(self.detail_btn)
         
-        # AI助手按钮
-        self.assistant_btn = QPushButton("AI助手")
+        # RAG助手按钮
+        self.assistant_btn = QPushButton("RAG助手")
         self.assistant_btn.setCheckable(True)
         self.assistant_btn.setChecked(False)
         self.assistant_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -219,8 +219,8 @@ class WDHeader(ThemeAwareFrame):
         # 详情按钮
         if self.detail_btn:
             self.detail_btn.setStyleSheet(ButtonStyles.primary('SM'))
-            
-        # AI助手按钮
+
+        # RAG助手按钮
         if self.assistant_btn:
             # 未选中是secondary，选中是primary
             style = ButtonStyles.primary('SM') if self.assistant_btn.isChecked() else ButtonStyles.secondary('SM')

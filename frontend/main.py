@@ -12,7 +12,7 @@ import traceback
 import faulthandler
 from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QStyleFactory
 from PyQt6.QtCore import Qt
 
 # 启用faulthandler来捕获段错误（C层面的崩溃）
@@ -198,6 +198,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("AFN")
     app.setOrganizationName("AFN")
+
+    # 设置 Fusion 样式 - 确保 QSS 样式表在 Windows 上正确工作
+    # Windows 原生样式会覆盖 QSS 边框设置，Fusion 样式提供一致的跨平台行为
+    app.setStyle(QStyleFactory.create('Fusion'))
 
     # 初始化配置管理器
     config_manager = ConfigManager()

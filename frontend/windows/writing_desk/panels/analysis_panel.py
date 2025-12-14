@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
 from components.empty_state import EmptyStateWithIllustration
+from components.flow_layout import FlowLayout
 from utils.dpi_utils import dp, sp
 from .base import BasePanelBuilder
 
@@ -245,7 +246,12 @@ class AnalysisPanelBuilder(BasePanelBuilder):
             tag_type: 标签类型 (default/character/location/item/keyword/tag)
         """
         s = self._styler
-        tag = QLabel(text)
+
+        # 截断过长的文本
+        display_text = text if len(text) <= 20 else text[:18] + "..."
+        tag = QLabel(display_text)
+        if len(text) > 20:
+            tag.setToolTip(text)  # 完整文本显示在tooltip
 
         # 根据类型选择边框颜色
         type_colors = {
@@ -271,7 +277,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
         return tag
 
     def _create_flow_layout(self, items: list, tag_type: str = "default") -> QWidget:
-        """创建流式布局的标签组
+        """创建流式布局的标签组（自动换行）
 
         Args:
             items: 标签文本列表
@@ -279,9 +285,8 @@ class AnalysisPanelBuilder(BasePanelBuilder):
         """
         container = QWidget()
         container.setStyleSheet("background-color: transparent;")
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(6))
+        layout = FlowLayout(spacing=dp(6))
+        container.setLayout(layout)
 
         max_items = 10
         for item in items[:max_items]:
@@ -292,7 +297,6 @@ class AnalysisPanelBuilder(BasePanelBuilder):
             more_tag = self._create_tag_widget(f"+{len(items) - max_items}", "default")
             layout.addWidget(more_tag)
 
-        layout.addStretch()
         return container
 
     def _create_summaries_section(self, summaries: dict) -> QFrame:

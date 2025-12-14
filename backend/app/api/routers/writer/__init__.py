@@ -6,6 +6,8 @@
 - chapter_management.py: 章节管理（选择、评价、编辑、删除）
 - chapter_outlines.py: 章节大纲管理
 - part_outlines.py: 部分大纲管理（长篇小说）
+- rag_query.py: RAG检索查询（测试向量检索效果）
+- content_optimization.py: 正文优化（段落分析、连贯性检查）
 """
 
 from fastapi import APIRouter
@@ -14,6 +16,8 @@ from .chapter_generation import router as chapter_generation_router
 from .chapter_management import router as chapter_management_router
 from .chapter_outlines import router as chapter_outlines_router
 from .part_outlines import router as part_outlines_router
+from .rag_query import router as rag_query_router
+from .content_optimization import router as content_optimization_router
 
 # 创建writer总路由器（prefix在主路由器中设置）
 router = APIRouter(tags=["Writer"])
@@ -23,5 +27,7 @@ router.include_router(chapter_generation_router)
 router.include_router(chapter_management_router)
 router.include_router(chapter_outlines_router)
 router.include_router(part_outlines_router)
+router.include_router(rag_query_router)
+router.include_router(content_optimization_router)
 
 __all__ = ["router"]

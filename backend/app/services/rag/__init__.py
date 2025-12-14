@@ -7,6 +7,7 @@ RAG增强模块
 - 智能上下文构建
 - 上下文压缩
 - 大纲RAG检索
+- 场景状态提取
 - 公共工具函数
 """
 
@@ -15,6 +16,7 @@ from .temporal_retriever import TemporalAwareRetriever
 from .context_builder import SmartContextBuilder, GenerationContext, BlueprintInfo, RAGContext
 from .context_compressor import ContextCompressor
 from .outline_retriever import OutlineRAGRetriever, get_outline_rag_retriever
+from .scene_extractor import SceneState, SceneStateExtractor, get_scene_extractor
 from .utils import (
     extract_involved_characters,
     truncate_text,
@@ -36,6 +38,10 @@ __all__ = [
     "BlueprintInfo",
     "RAGContext",
     "ContextCompressor",
+    # 场景状态
+    "SceneState",
+    "SceneStateExtractor",
+    "get_scene_extractor",
     # 工具函数
     "extract_involved_characters",
     "truncate_text",

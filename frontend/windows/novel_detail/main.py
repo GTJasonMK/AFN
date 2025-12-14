@@ -162,7 +162,7 @@ class NovelDetail(BasePage):
         edit_title_btn = QPushButton("编辑")
         edit_title_btn.setObjectName("edit_title_btn")
         edit_title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_title_btn.setFixedHeight(dp(24))
+        edit_title_btn.setFixedHeight(dp(32))  # 修正：24px不符合触控目标最小值32px
         edit_title_btn.clicked.connect(self.editProjectTitle)
         title_row.addWidget(edit_title_btn)
         title_row.addStretch()

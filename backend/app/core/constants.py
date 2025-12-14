@@ -58,6 +58,7 @@ class LLMConstants:
 
     # Token限制
     BLUEPRINT_MAX_TOKENS = 8192  # 蓝图生成最大输出tokens（Gemini 2.5 Flash限制）
+    CHAPTER_MAX_TOKENS = 8192  # 章节生成最大输出tokens
     DEFAULT_MAX_TOKENS = 4096  # 默认最大tokens
 
     # Temperature配置

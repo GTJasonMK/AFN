@@ -50,17 +50,19 @@ class ReviewPanelBuilder(BasePanelBuilder):
         """创建评审结果标签页
 
         Args:
-            chapter_data: 章节数据，包含 evaluation 字段
+            chapter_data: 章节数据，包含 evaluation 字段和 versions 字段
             parent: 父组件（用于空状态组件）
 
         Returns:
             评审Tab的根Widget
         """
         evaluation_str = chapter_data.get('evaluation')
+        versions = chapter_data.get('versions') or []
+        version_count = len(versions)
 
         # 如果没有评审数据，显示空状态
         if not evaluation_str:
-            return self._create_empty_state(parent)
+            return self._create_empty_state(parent, version_count)
 
         # 解析评审JSON
         try:
@@ -69,10 +71,18 @@ class ReviewPanelBuilder(BasePanelBuilder):
             return self._create_error_state()
 
         # 创建评审结果展示容器
-        return self._create_review_content(evaluation_data)
+        return self._create_review_content(evaluation_data, version_count)
 
-    def _create_empty_state(self, parent: QWidget = None) -> QWidget:
-        """创建空状态Widget"""
+    def _create_empty_state(self, parent: QWidget = None, version_count: int = 0) -> QWidget:
+        """创建空状态Widget
+
+        Args:
+            parent: 父组件
+            version_count: 版本数量，用于决定是否启用评审按钮
+
+        Returns:
+            空状态Widget
+        """
         s = self._styler
 
         empty_widget = QWidget()
@@ -87,24 +97,35 @@ class ReviewPanelBuilder(BasePanelBuilder):
         empty_layout.setContentsMargins(dp(32), dp(32), dp(32), dp(32))
         empty_layout.setSpacing(dp(24))
 
-        # 空状态
-        empty_state = EmptyStateWithIllustration(
-            illustration_char='R',
-            title='暂无评审结果',
-            description='AI可以分析各版本优缺点并推荐最佳版本',
-            parent=empty_widget
-        )
-        empty_layout.addWidget(empty_state)
+        # 根据版本数量显示不同的空状态
+        if version_count <= 1:
+            # 只有一个版本或没有版本，不需要评审
+            empty_state = EmptyStateWithIllustration(
+                illustration_char='R',
+                title='无需评审',
+                description='评审功能用于比较多个版本并推荐最佳版本\n当前章节只有一个版本，无需评审',
+                parent=empty_widget
+            )
+            empty_layout.addWidget(empty_state)
+        else:
+            # 多个版本，可以评审
+            empty_state = EmptyStateWithIllustration(
+                illustration_char='R',
+                title='暂无评审结果',
+                description='AI可以分析各版本优缺点并推荐最佳版本',
+                parent=empty_widget
+            )
+            empty_layout.addWidget(empty_state)
 
-        # 开始评审按钮
-        evaluate_btn = QPushButton("开始评审")
-        evaluate_btn.setObjectName("evaluate_btn")
-        evaluate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        evaluate_btn.setStyleSheet(ButtonStyles.primary())
-        if self._on_evaluate_chapter:
-            evaluate_btn.clicked.connect(self._on_evaluate_chapter)
-        evaluate_btn.setFixedWidth(dp(160))
-        empty_layout.addWidget(evaluate_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            # 开始评审按钮
+            evaluate_btn = QPushButton("开始评审")
+            evaluate_btn.setObjectName("evaluate_btn")
+            evaluate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            evaluate_btn.setStyleSheet(ButtonStyles.primary())
+            if self._on_evaluate_chapter:
+                evaluate_btn.clicked.connect(self._on_evaluate_chapter)
+            evaluate_btn.setFixedWidth(dp(160))
+            empty_layout.addWidget(evaluate_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         return empty_widget
 
@@ -118,11 +139,12 @@ class ReviewPanelBuilder(BasePanelBuilder):
         )
         return error_widget
 
-    def _create_review_content(self, evaluation_data: dict) -> QWidget:
+    def _create_review_content(self, evaluation_data: dict, version_count: int = 0) -> QWidget:
         """创建评审内容Widget
 
         Args:
             evaluation_data: 解析后的评审数据
+            version_count: 版本数量
 
         Returns:
             评审内容Widget
@@ -151,14 +173,15 @@ class ReviewPanelBuilder(BasePanelBuilder):
         details_scroll = self._create_details_scroll(evaluation_details, best_choice)
         layout.addWidget(details_scroll, stretch=1)
 
-        # 底部重新评审按钮
-        reeval_btn = QPushButton("重新评审")
-        reeval_btn.setObjectName("reeval_btn")
-        reeval_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        reeval_btn.setStyleSheet(ButtonStyles.secondary())
-        if self._on_evaluate_chapter:
-            reeval_btn.clicked.connect(self._on_evaluate_chapter)
-        layout.addWidget(reeval_btn)
+        # 底部重新评审按钮（只有多版本时才显示）
+        if version_count > 1:
+            reeval_btn = QPushButton("重新评审")
+            reeval_btn.setObjectName("reeval_btn")
+            reeval_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            reeval_btn.setStyleSheet(ButtonStyles.secondary())
+            if self._on_evaluate_chapter:
+                reeval_btn.clicked.connect(self._on_evaluate_chapter)
+            layout.addWidget(reeval_btn)
 
         return container
 

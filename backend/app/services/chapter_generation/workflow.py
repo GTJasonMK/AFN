@@ -4,11 +4,13 @@
 封装整个章节生成的业务流程，支持同步和流式两种调用方式。
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .context import ChapterGenerationResult
 from .prompt_builder import ChapterPromptBuilder
+from ...schemas.novel import ChapterGenerationStatus
 from ...utils.exception_helpers import get_safe_error_message
 
 if TYPE_CHECKING:
@@ -85,11 +87,8 @@ class ChapterGenerationWorkflow:
             )
             logger.info("项目 %s 状态更新为 %s", self.project_id, ProjectStatus.WRITING.value)
 
-        # 检查版本数和每日限额
+        # 检查版本数
         self._version_count = self._chapter_gen_service.resolve_version_count()
-        from ...core.config import settings
-        if settings.writer_parallel_generation and self._version_count > 1:
-            await self.llm_service.enforce_daily_limit(self.user_id)
 
         # 获取大纲
         self._outline = await self.novel_service.get_outline(
@@ -123,6 +122,7 @@ class ChapterGenerationWorkflow:
     ) -> tuple:
         """阶段3: 准备提示词"""
         from ...utils.prompt_helpers import ensure_prompt
+        from ..rag.scene_extractor import SceneStateExtractor
 
         # 准备蓝图
         project_schema = await self.novel_service.get_project_schema(
@@ -153,7 +153,20 @@ class ChapterGenerationWorkflow:
             if gen_context.enhanced_rag_context else None
         )
 
-        # 构建用户提示词
+        # 提取场景状态（新增）
+        scene_extractor = SceneStateExtractor()
+        scene_state = scene_extractor.extract(
+            prev_chapter_analysis=gen_context.prev_chapter_analysis,
+            previous_tail_excerpt=previous_tail,
+        )
+
+        # 获取生成上下文（用于提取涉及角色、伏笔等）
+        generation_context = (
+            gen_context.enhanced_rag_context.generation_context
+            if gen_context.enhanced_rag_context else None
+        )
+
+        # 构建用户提示词（场景聚焦结构）
         prompt_input = self._prompt_builder.build_writing_prompt(
             outline=self._outline,
             blueprint_dict=blueprint_dict,
@@ -163,6 +176,8 @@ class ChapterGenerationWorkflow:
             writing_notes=self.writing_notes,
             chapter_number=self.chapter_number,
             completed_chapters=completed_chapters,
+            scene_state=scene_state,
+            generation_context=generation_context,
         )
 
         return writer_prompt, prompt_input
@@ -213,9 +228,9 @@ class ChapterGenerationWorkflow:
         """重置章节状态（失败时调用）"""
         if self._chapter is not None:
             try:
-                self._chapter.status = "draft"
+                self._chapter.status = ChapterGenerationStatus.NOT_GENERATED.value
                 await self.session.commit()
-                logger.info("已重置第 %s 章状态为 draft", self.chapter_number)
+                logger.info("已重置第 %s 章状态为 not_generated", self.chapter_number)
             except Exception as reset_error:
                 logger.error("重置章节状态失败: %s", reset_error)
 
@@ -312,6 +327,20 @@ class ChapterGenerationWorkflow:
                 "version_count": result.version_count,
             }
 
+        except asyncio.CancelledError:
+            # 用户取消操作 - 这是预期行为，不记录为错误
+            logger.info(
+                "项目 %s 第 %s 章生成被用户取消",
+                self.project_id, self.chapter_number
+            )
+            # 尝试重置章节状态（使用独立的异常处理避免二次错误）
+            await self._reset_chapter_status_safe()
+            # 返回取消事件，不重新抛出异常（让生成器正常结束）
+            yield {
+                "stage": "cancelled",
+                "message": "生成已取消",
+            }
+
         except Exception as exc:
             logger.exception("章节生成失败: %s", exc)
             await self._reset_chapter_status()
@@ -321,6 +350,24 @@ class ChapterGenerationWorkflow:
                 "stage": "error",
                 "message": safe_message,
             }
+
+    async def _reset_chapter_status_safe(self) -> None:
+        """安全地重置章节状态（用于取消场景，不抛出异常）"""
+        if self._chapter is None:
+            return
+
+        try:
+            # 使用新的session来避免被取消的session的问题
+            # 由于当前session可能处于不一致状态，直接尝试操作
+            self._chapter.status = ChapterGenerationStatus.NOT_GENERATED.value
+            await self.session.commit()
+            logger.info("已重置第 %s 章状态为 not_generated（取消后清理）", self.chapter_number)
+        except asyncio.CancelledError:
+            # commit时也可能被取消，忽略
+            logger.debug("重置章节状态时被取消，跳过")
+        except Exception as reset_error:
+            # 其他错误也只记录，不抛出
+            logger.warning("取消后重置章节状态失败（可忽略）: %s", reset_error)
 
 
 __all__ = [

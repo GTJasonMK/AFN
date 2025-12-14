@@ -4,8 +4,8 @@
 提供可复用的按钮样式，减少代码重复
 支持多种尺寸和变体
 
-设计规范：
-- 尺寸：XS(24px) / SM(28px) / MD(36px) / LG(44px) / XL(52px)
+设计规范（符合8pt网格）：
+- 尺寸：XS(24px) / SM(32px) / MD(36px) / LG(48px) / XL(56px)
 - 变体：primary / secondary / glass / danger / success / warning / link / icon
 - 状态：normal / hover / pressed / disabled
 """
@@ -17,12 +17,12 @@ from utils.dpi_utils import dp, sp
 class ButtonSizes:
     """按钮尺寸常量"""
 
-    # 高度
+    # 高度 - 符合8pt网格（24为最小触控目标，36为4px微调例外）
     HEIGHT_XS = dp(24)
-    HEIGHT_SM = dp(28)
-    HEIGHT_MD = dp(36)
-    HEIGHT_LG = dp(44)
-    HEIGHT_XL = dp(52)
+    HEIGHT_SM = dp(32)  # 修正：28不符合8pt网格，改为32
+    HEIGHT_MD = dp(36)  # 4px微调，介于32和40之间的中等尺寸
+    HEIGHT_LG = dp(48)  # 修正：44不符合8pt网格，改为48
+    HEIGHT_XL = dp(56)  # 修正：52不符合8pt网格，改为56
 
     # 水平内边距
     PADDING_H_XS = dp(12)
@@ -31,12 +31,12 @@ class ButtonSizes:
     PADDING_H_LG = dp(32)
     PADDING_H_XL = dp(40)
 
-    # 垂直内边距
+    # 垂直内边距 - 符合8pt网格（6px为微调例外）
     PADDING_V_XS = dp(4)
-    PADDING_V_SM = dp(6)
-    PADDING_V_MD = dp(10)
+    PADDING_V_SM = dp(6)   # 4px微调，小按钮紧凑设计
+    PADDING_V_MD = dp(8)   # 修正：10不符合8pt网格，改为8
     PADDING_V_LG = dp(12)
-    PADDING_V_XL = dp(14)
+    PADDING_V_XL = dp(16)  # 修正：14不符合8pt网格，改为16
 
     # 字体大小
     FONT_XS = sp(11)

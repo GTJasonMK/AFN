@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
+from ....core.constants import LLMConstants
 from ....core.dependencies import (
     get_default_user,
     get_vector_store,
@@ -171,6 +172,8 @@ async def retry_chapter_version(
         temperature=settings.llm_temp_writing,
         user_id=desktop_user.id,
         timeout=600.0,
+        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
+        response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
     )
 
     # 使用统一的内容提取方法
@@ -277,14 +280,28 @@ async def preview_chapter_prompt(
             completed_chapters=completed_chapters,
         )
 
-    # 6. 构建各部分内容（用于调试）
-    import json
-    blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
+    # 6. 构建各部分内容（用于调试，与新的场景聚焦结构匹配）
+    # 核心设定信息
+    core_info_parts = []
+    if blueprint_dict.get("genre"):
+        core_info_parts.append(f"题材: {blueprint_dict['genre']}")
+    if blueprint_dict.get("style"):
+        core_info_parts.append(f"风格: {blueprint_dict['style']}")
+    if blueprint_dict.get("tone"):
+        core_info_parts.append(f"基调: {blueprint_dict['tone']}")
+    if blueprint_dict.get("one_sentence_summary"):
+        core_info_parts.append(f"故事: {blueprint_dict['one_sentence_summary']}")
+    characters = blueprint_dict.get("characters", [])
+    if characters:
+        names = [c.get("name", "") for c in characters if c.get("name")]
+        if names:
+            core_info_parts.append(f"角色名单: {', '.join(names)}")
+    core_setting_text = "\n".join(core_info_parts) if core_info_parts else "暂无核心设定"
 
     outline_title = outline.title or f"第{outline.chapter_number}章"
     outline_summary = outline.summary or "暂无摘要"
 
-    rag_chunks_text = "未检索到章节片段"
+    rag_chunks_text = "未检索到相关段落"
     rag_summaries_text = "未检索到章节摘要"
     if rag_context:
         if rag_context.chunks:
@@ -292,29 +309,27 @@ async def preview_chapter_prompt(
         if rag_context.summaries:
             rag_summaries_text = "\n".join(rag_context.summary_lines())
 
-    # 根据模式构建不同的分段内容
+    # 根据模式构建不同的分段内容（与新的场景聚焦结构匹配）
     if request.is_retry:
-        # 重新生成模式：不包含前情摘要
+        # 重新生成模式：不包含前情摘要（复用之前获取的retry变量）
         prompt_sections = {
-            "世界蓝图": blueprint_text,
-            "上一章摘要": retry_previous_summary or "暂无可用摘要",
-            "上一章结尾": retry_previous_tail or "暂无上一章结尾内容",
-            "检索到的剧情上下文": rag_chunks_text,
-            "检索到的章节摘要": rag_summaries_text,
-            "当前章节目标": f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{request.writing_notes or '无额外写作指令'}",
+            "核心设定": core_setting_text,
+            "当前任务": f"第{outline.chapter_number}章: {outline_title}\n大纲: {outline_summary}\n写作指令: {request.writing_notes or '无'}",
+            "场景状态": f"上一章结尾:\n> {retry_previous_tail or '暂无上一章结尾内容'}\n\n上一章摘要: {retry_previous_summary or '暂无可用摘要'}",
+            "相关段落": rag_chunks_text,
+            "章节摘要": rag_summaries_text,
         }
     else:
         # 首次生成模式：包含完整前情摘要
         from ....utils.writer_helpers import build_layered_summary
         completed_section = build_layered_summary(completed_chapters, request.chapter_number)
         prompt_sections = {
-            "世界蓝图": blueprint_text,
-            "前情摘要": completed_section,
-            "上一章摘要": previous_summary_text or "暂无可用摘要",
-            "上一章结尾": previous_tail_excerpt or "暂无上一章结尾内容",
-            "检索到的剧情上下文": rag_chunks_text,
-            "检索到的章节摘要": rag_summaries_text,
-            "当前章节目标": f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{request.writing_notes or '无额外写作指令'}",
+            "核心设定": core_setting_text,
+            "当前任务": f"第{outline.chapter_number}章: {outline_title}\n大纲: {outline_summary}\n写作指令: {request.writing_notes or '无'}",
+            "场景状态": f"上一章结尾:\n> {previous_tail_excerpt or '暂无上一章结尾内容'}\n\n上一章摘要: {previous_summary_text or '暂无可用摘要'}",
+            "前情摘要": completed_section or "暂无前情摘要",
+            "相关段落": rag_chunks_text,
+            "章节摘要": rag_summaries_text,
         }
 
     # 7. 构建RAG统计信息
@@ -405,6 +420,9 @@ async def generate_chapter_stream(
                 yield sse_event("complete", progress)
             elif stage == "error":
                 yield sse_event("error", progress)
+            elif stage == "cancelled":
+                # 用户取消操作，发送取消事件后正常结束
+                yield sse_event("cancelled", progress)
             else:
                 yield sse_event("progress", progress)
 

@@ -17,18 +17,75 @@ from utils.dpi_utils import dp, sp
 
 
 class PromptPreviewDialog(QDialog):
-    """提示词预览对话框"""
+    """提示词预览对话框
+
+    支持主题切换：连接到 theme_manager.theme_changed 信号
+    """
 
     def __init__(self, preview_data: Dict[str, Any], chapter_number: int, is_retry: bool = False, parent=None):
         super().__init__(parent)
         self.preview_data = preview_data
         self.chapter_number = chapter_number
         self.is_retry = is_retry
+        self._theme_connected = False
+
         mode_text = "重新生成" if is_retry else "首次生成"
         self.setWindowTitle(f"第 {chapter_number} 章 - 提示词预览（{mode_text}模式）")
         self.setMinimumSize(1000, 700)
         self.resize(1200, 800)
         self.setupUI()
+        self._connect_theme_signal()
+
+    def _connect_theme_signal(self):
+        """连接主题信号"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self._on_theme_changed)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self._on_theme_changed)
+            except TypeError:
+                pass
+            self._theme_connected = False
+
+    def _on_theme_changed(self, mode: str):
+        """主题变化回调 - 重建界面"""
+        # 保存当前tab索引
+        current_tab = self.tab_widget.currentIndex() if hasattr(self, 'tab_widget') else 0
+
+        # 清空并重建界面
+        self._clear_layout()
+        self.setupUI()
+
+        # 恢复tab索引
+        if hasattr(self, 'tab_widget') and current_tab < self.tab_widget.count():
+            self.tab_widget.setCurrentIndex(current_tab)
+
+    def _clear_layout(self):
+        """清空当前布局"""
+        if self.layout():
+            # 递归删除所有子组件
+            self._clear_widgets_from_layout(self.layout())
+            # 将旧布局转移到临时widget并销毁
+            # 这是Qt中删除布局的标准方式
+            QWidget().setLayout(self.layout())
+
+    def _clear_widgets_from_layout(self, layout):
+        """递归清空布局中的组件"""
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self._clear_widgets_from_layout(item.layout())
+
+    def closeEvent(self, event):
+        """关闭时断开信号"""
+        self._disconnect_theme_signal()
+        super().closeEvent(event)
 
     def setupUI(self):
         """初始化UI"""
@@ -36,7 +93,7 @@ class PromptPreviewDialog(QDialog):
         mono_font = "Consolas, 'Courier New', monospace"
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+        layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))  # 修正：20不符合8pt网格
         layout.setSpacing(dp(16))
 
         # 设置对话框样式
@@ -99,8 +156,10 @@ class PromptPreviewDialog(QDialog):
     def _create_stats_card(self, ui_font: str) -> QFrame:
         """创建统计信息卡片"""
         card = QFrame()
+        card.setObjectName("stats_card")
+        card.setFrameShape(QFrame.Shape.NoFrame)
         card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#stats_card {{
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;
@@ -319,18 +378,14 @@ class PromptPreviewDialog(QDialog):
         # 分段内容
         sections = self.preview_data.get('prompt_sections', {})
 
-        # 定义分段顺序和显示名称
+        # 定义分段顺序和显示名称（与新的场景聚焦结构匹配）
         section_names = {
-            'blueprint_core': '蓝图核心',
-            'character_names': '角色名单',
-            'current_outline': '当前章节大纲',
-            'previous_ending': '前章结尾',
-            'character_details': '角色详情',
-            'foreshadowing': '伏笔信息',
-            'rag_summaries': 'RAG摘要',
-            'world_setting': '世界观设定',
-            'rag_chunks': 'RAG检索片段',
-            'writing_notes': '写作要点',
+            '核心设定': '核心设定',
+            '当前任务': '当前任务',
+            '场景状态': '场景状态',
+            '前情摘要': '前情摘要',
+            '相关段落': '相关段落',
+            '章节摘要': '章节摘要',
         }
 
         for key, display_name in section_names.items():
@@ -362,11 +417,13 @@ class PromptPreviewDialog(QDialog):
     def _create_section_card(self, title: str, content: str, ui_font: str, mono_font: str) -> QFrame:
         """创建分段卡片"""
         card = QFrame()
+        card.setObjectName("section_card")
+        card.setFrameShape(QFrame.Shape.NoFrame)
         card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#section_card {{
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(6)}px;
+                border-radius: {dp(8)}px;
             }}
         """)
 
@@ -377,11 +434,16 @@ class PromptPreviewDialog(QDialog):
         # 标题行
         header = QHBoxLayout()
         title_label = QLabel(title)
+        # 直接设置样式，不使用选择器
         title_label.setStyleSheet(f"""
             font-family: {ui_font};
             font-size: {sp(14)}px;
             font-weight: bold;
             color: {theme_manager.PRIMARY};
+            background-color: transparent;
+            border: 1px solid {theme_manager.PRIMARY};
+            border-radius: {dp(4)}px;
+            padding: {dp(4)}px {dp(8)}px;
         """)
         header.addWidget(title_label)
 
@@ -402,6 +464,8 @@ class PromptPreviewDialog(QDialog):
         text_edit.setPlainText(content)
         text_edit.setReadOnly(True)
         text_edit.setMaximumHeight(dp(200))
+        # 禁用 QTextEdit 的原生边框，完全依赖 QSS
+        text_edit.setFrameShape(QFrame.Shape.NoFrame)
         text_edit.setStyleSheet(self._get_text_edit_style(mono_font))
 
         layout.addWidget(text_edit)
@@ -428,8 +492,10 @@ class PromptPreviewDialog(QDialog):
 
         # RAG概述卡片
         overview_card = QFrame()
+        overview_card.setObjectName("overview_card")
+        overview_card.setFrameShape(QFrame.Shape.NoFrame)
         overview_card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#overview_card {{
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;
@@ -482,8 +548,10 @@ class PromptPreviewDialog(QDialog):
 
         # 查询信息卡片
         query_card = QFrame()
+        query_card.setObjectName("query_card")
+        query_card.setFrameShape(QFrame.Shape.NoFrame)
         query_card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#query_card {{
                 background-color: {theme_manager.BG_CARD};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;
@@ -550,6 +618,7 @@ class PromptPreviewDialog(QDialog):
 
     def _get_text_edit_style(self, mono_font: str) -> str:
         """获取文本编辑器样式"""
+        # 注意：必须覆盖 :focus 状态，否则全局 accessibility 样式会显示亮色边框
         return f"""
             QTextEdit {{
                 background-color: {theme_manager.BG_SECONDARY};
@@ -560,6 +629,11 @@ class PromptPreviewDialog(QDialog):
                 font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_PRIMARY};
                 line-height: 1.5;
+            }}
+            QTextEdit:focus {{
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                background-color: {theme_manager.BG_SECONDARY};
+                outline: none;
             }}
             {theme_manager.scrollbar()}
         """

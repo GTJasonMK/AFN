@@ -92,6 +92,15 @@ async def _ensure_database_exists() -> None:
 
 
 async def _ensure_default_prompts(session: AsyncSession) -> None:
+    """
+    确保默认提示词存在，并同步文件更新到数据库。
+
+    策略：
+    - 新提示词：插入数据库
+    - 已存在的提示词：如果文件内容不同，更新数据库
+    """
+    from ..services.prompt_service import get_prompt_cache
+
     # 优先使用环境变量指定的路径（打包环境），否则使用相对路径（开发环境）
     prompts_dir_env = os.environ.get('PROMPTS_DIR')
     if prompts_dir_env:
@@ -103,12 +112,28 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
         logger.warning(f"提示词目录不存在: {prompts_dir}")
         return
 
-    result = await session.execute(select(Prompt.name))
-    existing_names = set(result.scalars().all())
+    # 获取数据库中现有的提示词（包括内容，用于比对）
+    result = await session.execute(select(Prompt))
+    existing_prompts = {p.name: p for p in result.scalars().all()}
 
+    updated_count = 0
     for prompt_file in sorted(prompts_dir.glob("*.md")):
         name = prompt_file.stem
-        if name in existing_names:
-            continue
-        content = prompt_file.read_text(encoding="utf-8")
-        session.add(Prompt(name=name, content=content))
+        file_content = prompt_file.read_text(encoding="utf-8")
+
+        if name in existing_prompts:
+            # 已存在：检查内容是否需要更新
+            existing = existing_prompts[name]
+            if existing.content != file_content:
+                existing.content = file_content
+                updated_count += 1
+                logger.info(f"提示词 '{name}' 已从文件同步更新")
+        else:
+            # 新提示词：插入
+            session.add(Prompt(name=name, content=file_content))
+            logger.info(f"提示词 '{name}' 已从文件加载")
+
+    # 如果有更新，使全局缓存失效
+    if updated_count > 0:
+        await get_prompt_cache().invalidate()
+        logger.info(f"已更新 {updated_count} 个提示词，缓存已失效")

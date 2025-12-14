@@ -142,13 +142,13 @@ class Settings(BaseSettings):
         description="章节摘要检索条数",
     )
     vector_chunk_size: int = Field(
-        default=480,
+        default=320,
         ge=128,
         env="VECTOR_CHUNK_SIZE",
         description="章节分块的目标字数",
     )
     vector_chunk_overlap: int = Field(
-        default=120,
+        default=80,
         ge=0,
         env="VECTOR_CHUNK_OVERLAP",
         description="章节分块重叠字数",
@@ -282,10 +282,51 @@ class Settings(BaseSettings):
         return bool(self.vector_db_url)
 
 
+def _get_config_file_path() -> Path:
+    """获取 config.json 配置文件路径（适配打包环境）"""
+    if getattr(sys, 'frozen', False):
+        # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
+        work_dir = Path(sys.executable).parent
+    else:
+        # 开发环境：配置保存到 backend/storage 文件夹
+        work_dir = Path(__file__).resolve().parents[2]
+
+    return work_dir / 'storage' / 'config.json'
+
+
+def _load_json_config() -> dict:
+    """加载 config.json 中的配置"""
+    import json
+    config_file = _get_config_file_path()
+    if config_file.exists():
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
 @lru_cache
 def get_settings() -> Settings:
-    """使用 LRU 缓存确保配置只初始化一次，减少 IO 与解析开销。"""
-    return Settings()
+    """使用 LRU 缓存确保配置只初始化一次，减少 IO 与解析开销。
+
+    启动时会从 config.json 加载用户保存的高级配置并覆盖默认值。
+    """
+    instance = Settings()
+
+    # 从 config.json 加载用户保存的高级配置
+    json_config = _load_json_config()
+    if json_config:
+        # 覆盖高级配置项（这些配置在设置页面中可修改）
+        if 'writer_chapter_version_count' in json_config:
+            instance.writer_chapter_versions = json_config['writer_chapter_version_count']
+        if 'writer_parallel_generation' in json_config:
+            instance.writer_parallel_generation = json_config['writer_parallel_generation']
+        if 'part_outline_threshold' in json_config:
+            instance.part_outline_threshold = json_config['part_outline_threshold']
+
+    return instance
 
 
 def reload_settings() -> Settings:

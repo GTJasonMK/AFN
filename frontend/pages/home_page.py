@@ -4,13 +4,14 @@
 右侧：Tab切换（最近项目 / 全部项目）
 """
 
+import math
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGraphicsOpacityEffect, QScrollArea, QFrame, QSizePolicy,
     QStackedWidget, QButtonGroup, QMenu
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform, QFont, QFontDatabase, QAction
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPointF, pyqtProperty, QSequentialAnimationGroup, pyqtSignal, QRectF
+from PyQt6.QtGui import QColor, QPainter, QBrush, QTransform, QFont, QFontDatabase, QAction, QPen, QLinearGradient, QPainterPath
 
 
 # 创作箴言集 - 富有文学气息的启发性标语
@@ -94,39 +95,116 @@ def get_title_sort_key(title: str) -> str:
 
 
 class FloatingParticle:
-    """浮动粒子类"""
-    def __init__(self, x, y, vx, vy, size, color):
+    """基础粒子类"""
+    def __init__(self, x, y, vx, vy, size, color, particle_type='dot'):
         self.x = x
         self.y = y
         self.vx = vx
         self.vy = vy
         self.size = size
         self.color = color
+        self.particle_type = particle_type
         self.opacity = random.uniform(0.3, 0.7)
+        self.phase = random.uniform(0, math.pi * 2)  # 用于呼吸效果
+        self.rotation = random.uniform(0, 360)  # 旋转角度
+        self.rotation_speed = random.uniform(-1, 1)  # 旋转速度
+        self.life = 1.0  # 生命值（用于淡入淡出）
+        self.pulse_speed = random.uniform(0.02, 0.05)  # 脉冲速度
 
-    def update(self, width, height):
-        """更新粒子位置"""
+    def update(self, width, height, time_tick):
+        """更新粒子位置和状态"""
         self.x += self.vx
         self.y += self.vy
+        self.rotation += self.rotation_speed
+        self.phase += self.pulse_speed
+
+        # 边界反弹
         if self.x <= 0 or self.x >= width:
             self.vx = -self.vx
         if self.y <= 0 or self.y >= height:
             self.vy = -self.vy
 
+    def get_current_opacity(self):
+        """获取当前透明度（带呼吸效果）"""
+        breath = 0.3 + 0.2 * math.sin(self.phase)
+        return self.opacity * breath * self.life
+
+
+class InkParticle(FloatingParticle):
+    """墨滴粒子 - 模拟墨水滴落扩散效果"""
+    def __init__(self, x, y):
+        vx = random.uniform(-0.15, 0.15)
+        vy = random.uniform(-0.1, 0.2)  # 略向下飘
+        size = random.uniform(3, 8)
+        super().__init__(x, y, vx, vy, size, None, 'ink')
+        self.spread = 0  # 扩散程度
+        self.max_spread = random.uniform(0, 3)
+
+    def update(self, width, height, time_tick):
+        super().update(width, height, time_tick)
+        # 缓慢扩散
+        if self.spread < self.max_spread:
+            self.spread += 0.01
+
+
+class PaperParticle(FloatingParticle):
+    """纸片粒子 - 模拟飘落的书页碎片"""
+    def __init__(self, x, y):
+        vx = random.uniform(-0.3, 0.3)
+        vy = random.uniform(-0.2, 0.1)  # 略向上飘
+        size = random.uniform(8, 15)
+        super().__init__(x, y, vx, vy, size, None, 'paper')
+        self.width_ratio = random.uniform(0.4, 0.8)  # 宽高比
+        self.flutter = random.uniform(0.5, 1.5)  # 飘动幅度
+
+    def update(self, width, height, time_tick):
+        # 添加飘动效果
+        self.x += math.sin(self.phase * 2) * self.flutter * 0.1
+        super().update(width, height, time_tick)
+
+
+class SparkleParticle(FloatingParticle):
+    """星光粒子 - 闪烁的小光点"""
+    def __init__(self, x, y):
+        vx = random.uniform(-0.05, 0.05)
+        vy = random.uniform(-0.05, 0.05)
+        size = random.uniform(1, 3)
+        super().__init__(x, y, vx, vy, size, None, 'sparkle')
+        self.twinkle_speed = random.uniform(0.05, 0.15)
+
+    def get_current_opacity(self):
+        """闪烁效果"""
+        twinkle = 0.2 + 0.8 * abs(math.sin(self.phase * 3))
+        return self.opacity * twinkle * self.life
+
+
+class CalligraphyStroke(FloatingParticle):
+    """书法笔触粒子 - 优雅的曲线"""
+    def __init__(self, x, y):
+        vx = random.uniform(-0.1, 0.1)
+        vy = random.uniform(-0.1, 0.1)
+        size = random.uniform(20, 40)  # 笔触长度
+        super().__init__(x, y, vx, vy, size, None, 'stroke')
+        self.curve_amount = random.uniform(0.2, 0.5)  # 弯曲程度
+        self.thickness = random.uniform(1, 2.5)  # 笔触粗细
+
 
 class ParticleBackground(QWidget):
-    """浮动粒子背景
+    """书香气息的粒子背景
 
-    特性：
-    - 支持 pause/resume 控制动画生命周期
-    - 安全的主题信号管理（不依赖 __del__）
-    - 页面切换时自动暂停/恢复以节省资源
+    特效类型：
+    - 墨滴：缓慢飘动的墨水滴，带扩散效果
+    - 纸片：飘落的书页碎片，带旋转和飘动
+    - 星光：闪烁的小光点，营造梦幻感
+    - 笔触：优雅的书法曲线
+    - 连线：近邻粒子间的淡淡连线，如星座图
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.particles = []
         self._theme_connected = False
+        self._time_tick = 0
         self._init_particles()
 
         # 动画定时器
@@ -148,66 +226,232 @@ class ParticleBackground(QWidget):
             try:
                 theme_manager.theme_changed.disconnect(self._on_theme_changed)
             except (TypeError, RuntimeError):
-                pass  # 信号可能已断开
+                pass
             self._theme_connected = False
 
     def _on_theme_changed(self, theme_mode):
-        """主题改变时刷新粒子颜色"""
-        self._refresh_particle_colors()
-
-    def _refresh_particle_colors(self):
-        """刷新粒子颜色"""
-        is_dark = theme_manager.is_dark_mode()
-        accent = theme_manager.book_accent_color()
-        text_secondary = theme_manager.book_text_secondary()
-        if is_dark:
-            colors = [QColor(accent), QColor("#8B7E66"), QColor("#C4B093")]
-        else:
-            colors = [QColor(text_secondary), QColor(accent), QColor("#2C3E50")]
-        for particle in self.particles:
-            color = random.choice(colors)
-            color.setAlpha(int(random.uniform(15, 50)))
-            particle.color = color
+        """主题改变时刷新"""
         self.update()
 
-    def _init_particles(self):
-        """初始化粒子"""
+    def _get_colors(self):
+        """获取主题相关颜色"""
         is_dark = theme_manager.is_dark_mode()
         accent = theme_manager.book_accent_color()
         text_secondary = theme_manager.book_text_secondary()
+
         if is_dark:
-            colors = [QColor(accent), QColor("#8B7E66"), QColor("#C4B093")]
+            return {
+                'ink': QColor(accent),
+                'ink_alt': QColor("#8B7E66"),
+                'paper': QColor("#C4B093"),
+                'sparkle': QColor("#FFD700"),
+                'stroke': QColor(text_secondary),
+                'line': QColor(accent),
+            }
         else:
-            colors = [QColor(text_secondary), QColor(accent), QColor("#2C3E50")]
-        for _ in range(30):
-            x = random.randint(0, 1000)
+            return {
+                'ink': QColor(text_secondary),
+                'ink_alt': QColor(accent),
+                'paper': QColor("#D4C4A8"),
+                'sparkle': QColor("#B8860B"),
+                'stroke': QColor("#8B7355"),
+                'line': QColor(text_secondary),
+            }
+
+    def _init_particles(self):
+        """初始化多种类型的粒子"""
+        self.particles = []
+
+        # 墨滴粒子（主要）
+        for _ in range(15):
+            x = random.randint(0, 1200)
             y = random.randint(0, 800)
-            vx = random.uniform(-0.2, 0.2)
-            vy = random.uniform(-0.2, 0.2)
-            size = random.randint(2, 5)
-            color = random.choice(colors)
-            color.setAlpha(int(random.uniform(15, 50)))
-            self.particles.append(FloatingParticle(x, y, vx, vy, size, color))
+            self.particles.append(InkParticle(x, y))
+
+        # 纸片粒子
+        for _ in range(8):
+            x = random.randint(0, 1200)
+            y = random.randint(0, 800)
+            self.particles.append(PaperParticle(x, y))
+
+        # 星光粒子
+        for _ in range(20):
+            x = random.randint(0, 1200)
+            y = random.randint(0, 800)
+            self.particles.append(SparkleParticle(x, y))
+
+        # 书法笔触
+        for _ in range(5):
+            x = random.randint(0, 1200)
+            y = random.randint(0, 800)
+            self.particles.append(CalligraphyStroke(x, y))
 
     def _update_particles(self):
         """更新粒子位置"""
+        self._time_tick += 1
         for particle in self.particles:
-            particle.update(self.width(), self.height())
+            particle.update(self.width(), self.height(), self._time_tick)
         self.update()
 
     def paintEvent(self, event):
         """绘制粒子"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        colors = self._get_colors()
+
+        # 1. 先绘制粒子间的连线（星座效果）
+        self._draw_constellation_lines(painter, colors)
+
+        # 2. 绘制各类粒子
         for particle in self.particles:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(particle.color))
-            painter.drawEllipse(QPointF(particle.x, particle.y), particle.size, particle.size)
+            if particle.particle_type == 'ink':
+                self._draw_ink_particle(painter, particle, colors)
+            elif particle.particle_type == 'paper':
+                self._draw_paper_particle(painter, particle, colors)
+            elif particle.particle_type == 'sparkle':
+                self._draw_sparkle_particle(painter, particle, colors)
+            elif particle.particle_type == 'stroke':
+                self._draw_stroke_particle(painter, particle, colors)
+
+    def _draw_constellation_lines(self, painter, colors):
+        """绘制星座连线效果"""
+        line_color = colors['line']
+        max_distance = 150  # 最大连线距离
+
+        # 只连接墨滴和星光粒子
+        connectable = [p for p in self.particles if p.particle_type in ('ink', 'sparkle')]
+
+        for i, p1 in enumerate(connectable):
+            for p2 in connectable[i+1:]:
+                dx = p1.x - p2.x
+                dy = p1.y - p2.y
+                distance = math.sqrt(dx * dx + dy * dy)
+
+                if distance < max_distance:
+                    # 距离越近，线越明显
+                    alpha = int(20 * (1 - distance / max_distance))
+                    if alpha > 0:
+                        color = QColor(line_color)
+                        color.setAlpha(alpha)
+                        painter.setPen(QPen(color, 0.5))
+                        painter.drawLine(QPointF(p1.x, p1.y), QPointF(p2.x, p2.y))
+
+    def _draw_ink_particle(self, painter, particle, colors):
+        """绘制墨滴粒子"""
+        color = colors['ink'] if random.random() > 0.3 else colors['ink_alt']
+        opacity = particle.get_current_opacity()
+        color.setAlpha(int(opacity * 60))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(color))
+
+        # 主墨滴
+        size = particle.size + particle.spread
+        painter.drawEllipse(QPointF(particle.x, particle.y), size, size)
+
+        # 墨晕效果（更大更淡的外圈）
+        if particle.spread > 0:
+            halo_color = QColor(color)
+            halo_color.setAlpha(int(opacity * 15))
+            painter.setBrush(QBrush(halo_color))
+            painter.drawEllipse(QPointF(particle.x, particle.y), size * 1.8, size * 1.8)
+
+    def _draw_paper_particle(self, painter, particle, colors):
+        """绘制纸片粒子"""
+        color = colors['paper']
+        opacity = particle.get_current_opacity()
+        color.setAlpha(int(opacity * 40))
+
+        painter.save()
+        painter.translate(particle.x, particle.y)
+        painter.rotate(particle.rotation)
+
+        # 绘制矩形纸片
+        w = particle.size
+        h = particle.size * particle.width_ratio
+        rect = QRectF(-w/2, -h/2, w, h)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(color))
+        painter.drawRect(rect)
+
+        # 纸片边缘高光
+        edge_color = QColor(color)
+        edge_color.setAlpha(int(opacity * 20))
+        painter.setPen(QPen(edge_color, 0.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+
+        painter.restore()
+
+    def _draw_sparkle_particle(self, painter, particle, colors):
+        """绘制星光粒子"""
+        color = colors['sparkle']
+        opacity = particle.get_current_opacity()
+        color.setAlpha(int(opacity * 180))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        # 核心亮点
+        painter.setBrush(QBrush(color))
+        painter.drawEllipse(QPointF(particle.x, particle.y), particle.size, particle.size)
+
+        # 光晕
+        glow_color = QColor(color)
+        glow_color.setAlpha(int(opacity * 30))
+        painter.setBrush(QBrush(glow_color))
+        painter.drawEllipse(QPointF(particle.x, particle.y), particle.size * 3, particle.size * 3)
+
+        # 十字星芒
+        if opacity > 0.5:
+            star_color = QColor(color)
+            star_color.setAlpha(int(opacity * 100))
+            painter.setPen(QPen(star_color, 0.5))
+            length = particle.size * 4
+            painter.drawLine(
+                QPointF(particle.x - length, particle.y),
+                QPointF(particle.x + length, particle.y)
+            )
+            painter.drawLine(
+                QPointF(particle.x, particle.y - length),
+                QPointF(particle.x, particle.y + length)
+            )
+
+    def _draw_stroke_particle(self, painter, particle, colors):
+        """绘制书法笔触"""
+        color = colors['stroke']
+        opacity = particle.get_current_opacity()
+        color.setAlpha(int(opacity * 35))
+
+        painter.save()
+        painter.translate(particle.x, particle.y)
+        painter.rotate(particle.rotation)
+
+        # 使用贝塞尔曲线绘制优雅的笔触
+        path = QPainterPath()
+        length = particle.size
+        curve = particle.curve_amount * length
+
+        path.moveTo(-length/2, 0)
+        path.cubicTo(
+            QPointF(-length/4, -curve),
+            QPointF(length/4, curve),
+            QPointF(length/2, 0)
+        )
+
+        pen = QPen(color, particle.thickness)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+        painter.restore()
 
     def start(self):
         """启动粒子动画"""
         if not self.timer.isActive():
-            self.timer.start(50)
+            self.timer.start(33)  # ~30fps
 
     def stop(self):
         """停止粒子动画"""
@@ -219,12 +463,7 @@ class ParticleBackground(QWidget):
         return self.timer.isActive()
 
     def cleanup(self):
-        """清理资源（显式调用）
-
-        在父组件销毁前应调用此方法，确保：
-        - 停止定时器
-        - 断开主题信号
-        """
+        """清理资源"""
         self.stop()
         self._disconnect_theme_signal()
 
@@ -270,7 +509,7 @@ class RecentProjectCard(ThemeAwareFrame):
         # 删除按钮（仅在启用时创建，默认隐藏，hover时显示）
         if self._show_delete:
             self.delete_btn = QPushButton("删除")
-            self.delete_btn.setFixedSize(dp(48), dp(24))
+            self.delete_btn.setFixedSize(dp(48), dp(32))  # 修正：24px不符合触控目标最小值32px
             self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self.delete_btn.setVisible(False)
             self.delete_btn.clicked.connect(self._on_delete_clicked)
@@ -462,13 +701,17 @@ class TabButton(ThemeAwareButton):
                     color: {theme_manager.BUTTON_TEXT};
                     border: none;
                     border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(20)}px;
+                    padding: {dp(8)}px {dp(24)}px;
                     font-family: {ui_font};
                     font-size: {dp(14)}px;
                     font-weight: 500;
                 }}
                 QPushButton:hover {{
                     background-color: {text_primary};
+                }}
+                QPushButton:focus {{
+                    outline: 2px solid {theme_manager.PRIMARY_LIGHT};
+                    outline-offset: 2px;
                 }}
             """)
         else:
@@ -479,7 +722,7 @@ class TabButton(ThemeAwareButton):
                     color: {text_secondary};
                     border: 1px solid {border_color};
                     border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(20)}px;
+                    padding: {dp(8)}px {dp(24)}px;
                     font-family: {ui_font};
                     font-size: {dp(14)}px;
                     font-weight: 500;
@@ -487,6 +730,10 @@ class TabButton(ThemeAwareButton):
                 QPushButton:hover {{
                     color: {accent_color};
                     border-color: {accent_color};
+                }}
+                QPushButton:focus {{
+                    border: 2px solid {accent_color};
+                    outline: none;
                 }}
             """)
 
@@ -558,10 +805,10 @@ class HomePage(BasePage):
         # ========== 左侧区域 ==========
         left_widget = QWidget()
         left_widget.setMinimumWidth(dp(400))
-        left_widget.setMaximumWidth(dp(500))
+        left_widget.setMaximumWidth(dp(504))  # 修正：500不符合8pt网格，改为504 (8×63)
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(dp(60), dp(60), dp(40), dp(60))
-        left_layout.setSpacing(dp(20))
+        left_layout.setContentsMargins(dp(64), dp(64), dp(40), dp(64))  # 修正：60不符合8pt网格
+        left_layout.setSpacing(dp(24))  # 修正：20不符合8pt网格
 
         # 右上角设置按钮
         header_layout = QHBoxLayout()
@@ -612,7 +859,7 @@ class HomePage(BasePage):
         self.quote_opacity = QGraphicsOpacityEffect()
         self.quote_container.setGraphicsEffect(self.quote_opacity)
 
-        left_layout.addSpacing(dp(50))
+        left_layout.addSpacing(dp(48))  # 修正：50不符合8pt网格
 
         # 操作按钮区域
         buttons_widget = QWidget()
@@ -642,7 +889,7 @@ class HomePage(BasePage):
         # ========== 右侧区域（Tab切换：最近项目 / 全部项目） ==========
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(dp(40), dp(60), dp(60), dp(60))
+        right_layout.setContentsMargins(dp(40), dp(64), dp(64), dp(64))  # 修正：60不符合8pt网格
         right_layout.setSpacing(0)
 
         # Tab栏
@@ -941,8 +1188,8 @@ class HomePage(BasePage):
 
         # 根据状态决定导航目标
         if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:
-            # 已有蓝图，导航到详情页
-            self.navigateTo('DETAIL', project_id=project_id)
+            # 已有蓝图，直接进入写作台
+            self.navigateTo('WRITING_DESK', project_id=project_id)
         else:
             # 未完成蓝图（draft状态），导航回灵感对话继续
             self.navigateTo('INSPIRATION', project_id=project_id)

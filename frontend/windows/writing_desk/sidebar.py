@@ -17,7 +17,6 @@ from themes.theme_manager import theme_manager
 from themes.modern_effects import ModernEffects
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
-from utils.formatters import count_chinese_characters
 from utils.message_service import MessageService, confirm
 from api.manager import APIClientManager
 from .chapter_card import ChapterCard
@@ -68,8 +67,8 @@ class WDSidebar(ThemeAwareFrame):
         self.blueprint_card = QFrame()
         self.blueprint_card.setObjectName("blueprint_card")
         blueprint_layout = QVBoxLayout(self.blueprint_card)
-        blueprint_layout.setContentsMargins(dp(14), dp(14), dp(14), dp(14))  # 从20减少到14
-        blueprint_layout.setSpacing(dp(10))  # 从12减少到10
+        blueprint_layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))  # 修正：14不符合8pt网格
+        blueprint_layout.setSpacing(dp(12))  # 修正：10不符合8pt网格
 
         # 蓝图标题行
         bp_header = QHBoxLayout()
@@ -101,7 +100,7 @@ class WDSidebar(ThemeAwareFrame):
         # 设置大小策略，允许垂直方向随内容变化（Preferred允许扩展）
         self.summary_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         summary_layout = QVBoxLayout(self.summary_card)
-        summary_layout.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
+        summary_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))  # 修正：10不符合8pt网格
         summary_layout.setSpacing(dp(4))
 
         # 概要标题行（标题 + 展开/收起按钮）
@@ -118,7 +117,7 @@ class WDSidebar(ThemeAwareFrame):
         self.expand_btn = QPushButton("展开")
         self.expand_btn.setObjectName("expand_btn")
         self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.expand_btn.setFixedHeight(dp(20))
+        self.expand_btn.setFixedHeight(dp(32))  # 修正：20px不符合触控目标最小值32px
         self.expand_btn.clicked.connect(self._toggle_summary_expand)
         summary_header.addWidget(self.expand_btn)
 
@@ -176,7 +175,7 @@ class WDSidebar(ThemeAwareFrame):
         self.chapters_container = QWidget()
         self.chapters_layout = QVBoxLayout(self.chapters_container)
         self.chapters_layout.setContentsMargins(0, 0, 0, 0)
-        self.chapters_layout.setSpacing(dp(6))  # 从8减少到6
+        self.chapters_layout.setSpacing(dp(8))  # 修正：6不符合8pt网格
         self.chapters_layout.addStretch()
 
         scroll_area.setWidget(self.chapters_container)
@@ -245,7 +244,7 @@ class WDSidebar(ThemeAwareFrame):
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: rgba(255, 255, 255, 0.9);
                 background-color: rgba(255, 255, 255, 0.15);
-                padding: {dp(4)}px {dp(10)}px;
+                padding: {dp(4)}px {dp(8)}px;  /* 修正：10不符合8pt网格 */
                 border-radius: {theme_manager.RADIUS_SM};
             """)
 
@@ -371,6 +370,18 @@ class WDSidebar(ThemeAwareFrame):
         project_chapters = self.project.get('chapters', [])
         chapters_map = {ch.get('chapter_number'): ch for ch in project_chapters}
 
+        # 后端 generation_status 到前端 status 的映射
+        status_mapping = {
+            'not_generated': 'not_generated',
+            'generating': 'generating',
+            'evaluating': 'generating',  # 评审中也显示为生成中
+            'selecting': 'generating',   # 选择中也显示为生成中
+            'failed': 'failed',
+            'evaluation_failed': 'failed',
+            'waiting_for_confirm': 'pending',  # 等待确认：有版本但用户尚未选择
+            'successful': 'completed',         # 成功：用户已确认选择版本
+        }
+
         # 创建章节卡片
         for idx, outline in enumerate(chapter_outlines):
             chapter_num = outline.get('chapter_number', idx + 1)
@@ -378,14 +389,11 @@ class WDSidebar(ThemeAwareFrame):
 
             # 获取章节状态和字数
             chapter_info = chapters_map.get(chapter_num, {})
-            content = chapter_info.get('content', '')
-            word_count = count_chinese_characters(content) if content else 0
+            word_count = chapter_info.get('word_count', 0)
 
-            # 确定状态
-            if content:
-                status = 'completed'
-            else:
-                status = 'not_generated'
+            # 使用后端返回的 generation_status，而不是自己判断
+            backend_status = chapter_info.get('generation_status', 'not_generated')
+            status = status_mapping.get(backend_status, 'not_generated')
 
             chapter_data = {
                 'chapter_number': chapter_num,

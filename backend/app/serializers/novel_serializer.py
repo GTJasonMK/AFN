@@ -4,6 +4,7 @@
 负责将ORM模型转换为Pydantic Schema，分离序列化逻辑和业务逻辑。
 """
 
+import logging
 from typing import Dict, List, Optional
 
 from ..models.novel import (
@@ -11,6 +12,9 @@ from ..models.novel import (
     ChapterOutline,
     NovelProject,
 )
+
+logger = logging.getLogger(__name__)
+
 from ..schemas.novel import (
     Blueprint,
     Chapter as ChapterSchema,
@@ -342,6 +346,14 @@ class NovelSerializer:
                 except Exception:
                     analysis_data = None
 
+            # selected_version_idx 总是需要计算（用于状态判断），不依赖 include_content
+            if chapter.versions and chapter.selected_version_id:
+                sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
+                selected_version_idx = next(
+                    (i for i, v in enumerate(sorted_versions) if v.id == chapter.selected_version_id),
+                    None
+                )
+
             # 只有在 include_content=True 时才包含完整内容
             if include_content:
                 if chapter.selected_version:
@@ -349,15 +361,17 @@ class NovelSerializer:
                 if chapter.versions:
                     sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
                     versions = [v.content for v in sorted_versions]
-                    # 计算选中版本的索引
-                    if chapter.selected_version:
-                        selected_version_idx = next(
-                            (i for i, v in enumerate(sorted_versions) if v.id == chapter.selected_version_id),
-                            None
-                        )
                 if chapter.evaluations:
                     latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
                     evaluation_text = latest.feedback or latest.decision
+
+        # 安全地转换状态值为枚举，处理未知状态
+        try:
+            generation_status = ChapterGenerationStatus(status_value)
+        except ValueError:
+            # 未知状态，使用默认值
+            logger.warning("未知的章节状态 '%s'，使用默认值 NOT_GENERATED", status_value)
+            generation_status = ChapterGenerationStatus.NOT_GENERATED
 
         return ChapterSchema(
             chapter_number=chapter_number,
@@ -367,7 +381,7 @@ class NovelSerializer:
             content=content,
             versions=versions,
             evaluation=evaluation_text,
-            generation_status=ChapterGenerationStatus(status_value),
+            generation_status=generation_status,
             word_count=word_count,
             selected_version=selected_version_idx,
             analysis_data=analysis_data,

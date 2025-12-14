@@ -11,6 +11,7 @@ from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService, confirm
+from utils.async_worker import AsyncAPIWorker
 from .config_dialog import LLMConfigDialog
 from .test_result_dialog import TestResultDialog
 import json
@@ -24,6 +25,7 @@ class LLMSettingsWidget(QWidget):
         self.api_client = APIClientManager.get_client()
         self.configs = []
         self.testing_config_id = None
+        self._test_worker = None  # 异步测试Worker
         self._create_ui_structure()
         self._apply_styles()
         self.loadConfigs()
@@ -137,7 +139,7 @@ class LLMSettingsWidget(QWidget):
                 color: {palette.bg_primary};
                 border: none;
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(20)}px;
+                padding: {dp(8)}px {dp(24)}px;  /* 修正：10和20不符合8pt网格 */
                 font-size: {sp(13)}px;
                 font-weight: 600;
             }}
@@ -214,7 +216,7 @@ class LLMSettingsWidget(QWidget):
                 border: none;
                 border-left: 3px solid transparent;
                 border-radius: 0;
-                padding: {dp(14)}px {dp(12)}px;
+                padding: {dp(16)}px {dp(12)}px;  /* 修正：14不符合8pt网格，改为16 */
                 margin: 0;
                 color: {palette.text_primary};
                 border-bottom: 1px solid {palette.border_color};
@@ -368,35 +370,63 @@ class LLMSettingsWidget(QWidget):
             MessageService.show_error(self, f"激活失败：{str(e)}", "错误")
 
     def testSelectedConfig(self):
-        """测试选中的配置"""
+        """测试选中的配置（异步）"""
         config = self.getSelectedConfig()
         if not config:
             return
 
-        try:
-            # 禁用按钮
-            self.test_btn.setEnabled(False)
-            self.test_btn.setText("测试中...")
+        # 清理之前的worker
+        self._cleanup_test_worker()
 
-            # 调用API测试
-            result = self.api_client.test_llm_config(config['id'])
+        # 禁用按钮，显示测试中状态
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("测试中...")
 
-            # 解析结果
-            success = result.get('success', False)
-            message = result.get('message', '')
-            details = result.get('details', {})
+        # 异步调用API测试
+        self._test_worker = AsyncAPIWorker(
+            self.api_client.test_llm_config,
+            config['id']
+        )
+        self._test_worker.success.connect(self._on_test_success)
+        self._test_worker.error.connect(self._on_test_error)
+        self._test_worker.start()
 
-            # 显示结果对话框
-            dialog = TestResultDialog(success, message, details, parent=self)
-            dialog.exec()
+    def _on_test_success(self, result: dict):
+        """测试成功回调"""
+        # 恢复按钮状态
+        self.test_btn.setEnabled(True)
+        self.test_btn.setText("测试连接")
 
-        except Exception as e:
-            TestResultDialog(False, f"连接失败：{str(e)}", parent=self).exec()
+        # 解析结果
+        success = result.get('success', False)
+        message = result.get('message', '')
+        details = result.get('details', {})
 
-        finally:
-            # 恢复按钮
-            self.test_btn.setEnabled(True)
-            self.test_btn.setText("测试连接")
+        # 显示结果对话框
+        dialog = TestResultDialog(success, message, details, parent=self)
+        dialog.exec()
+
+    def _on_test_error(self, error_msg: str):
+        """测试失败回调"""
+        # 恢复按钮状态
+        self.test_btn.setEnabled(True)
+        self.test_btn.setText("测试连接")
+
+        # 显示错误对话框
+        TestResultDialog(False, f"连接失败: {error_msg}", parent=self).exec()
+
+    def _cleanup_test_worker(self):
+        """清理测试Worker"""
+        if self._test_worker is not None:
+            try:
+                if self._test_worker.isRunning():
+                    self._test_worker.cancel()
+                    self._test_worker.quit()
+                    self._test_worker.wait(3000)
+            except RuntimeError:
+                pass
+            finally:
+                self._test_worker = None
 
     def exportSelectedConfig(self):
         """导出选中的配置"""
@@ -474,7 +504,8 @@ class LLMSettingsWidget(QWidget):
                 MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
 
     def __del__(self):
-        """析构时断开主题信号连接"""
+        """析构时断开主题信号连接并清理worker"""
+        self._cleanup_test_worker()
         try:
             theme_manager.theme_changed.disconnect(self._on_theme_changed)
         except (TypeError, RuntimeError):

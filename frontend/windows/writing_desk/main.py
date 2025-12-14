@@ -6,9 +6,8 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog
+    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog, QSizePolicy
 )
-from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
 from api.manager import APIClientManager
 from components.dialogs import LoadingDialog
@@ -75,26 +74,31 @@ class WritingDesk(BasePage):
         self.header = WDHeader()
         main_layout.addWidget(self.header)
 
-        # 主内容区 - 紧凑布局
+        # 主内容区
         self.content_widget = QWidget()
         content_layout = QHBoxLayout(self.content_widget)
-        content_layout.setContentsMargins(16, 16, 16, 16)
-        content_layout.setSpacing(16)
+        content_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
+        content_layout.setSpacing(dp(12))
 
-        # Sidebar
+        # Sidebar（固定宽度）
         self.sidebar = WDSidebar()
         content_layout.addWidget(self.sidebar)
 
-        # Workspace
+        # Workspace（占据剩余空间）
         self.workspace = WDWorkspace()
         self.workspace.setProjectId(self.project_id)
+        # 不设置最小宽度，让 Qt 布局系统自动分配空间
+        # 设置 Workspace 水平方向可扩展
+        self.workspace.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         content_layout.addWidget(self.workspace, stretch=1)
 
-        # Assistant Panel (Initially hidden)
+        # RAG Assistant Panel（固定宽度，初始隐藏）
         self.assistant_panel = AssistantPanel(self.project_id)
+        # 使用 setFixedWidth 确保宽度固定（内部同时设置 min 和 max）
+        # 320dp 宽度确保在大多数窗口尺寸下不会与 workspace 重叠
+        self.assistant_panel.setFixedWidth(dp(320))
         self.assistant_panel.setVisible(False)
-        self.assistant_panel.setFixedWidth(dp(350))
-        content_layout.addWidget(self.assistant_panel)
+        content_layout.addWidget(self.assistant_panel, stretch=0)
 
         main_layout.addWidget(self.content_widget, stretch=1)
 
@@ -126,10 +130,15 @@ class WritingDesk(BasePage):
         self.workspace.evaluateChapter.connect(self.onEvaluateChapter)
         self.workspace.retryVersion.connect(self.onRetryVersion)
         self.workspace.editContent.connect(self.onEditContent)
+        self.workspace.chapterContentLoaded.connect(self.onChapterContentLoaded)
+
+        # Assistant Panel 信号
+        self.assistant_panel.suggestion_applied.connect(self.onSuggestionApplied)
 
     def toggleAssistant(self, show: bool):
-        """切换AI助手显示状态"""
+        """切换RAG助手显示状态"""
         self.assistant_panel.setVisible(show)
+        # 由于assistant_panel使用固定宽度，splitter会自动处理布局
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
@@ -192,6 +201,16 @@ class WritingDesk(BasePage):
         self.selected_chapter_number = chapter_number
         self.workspace.loadChapter(chapter_number)
 
+    def onChapterContentLoaded(self, chapter_number: int, content: str):
+        """章节内容加载完成 - 更新优化面板"""
+        if self.assistant_panel:
+            self.assistant_panel.set_chapter_for_optimization(chapter_number, content)
+
+    def onSuggestionApplied(self, suggestion: dict):
+        """处理修改建议被应用 - 在正文编辑器中高亮显示修改"""
+        if self.workspace:
+            self.workspace.applySuggestion(suggestion)
+
     def onGenerateChapter(self, chapter_number):
         """生成章节 - 使用SSE流式进度显示"""
         # 防止快速点击导致多个生成任务同时运行
@@ -210,14 +229,28 @@ class WritingDesk(BasePage):
         ):
             return
 
+        # 询问用户输入写作提示词（可选）
+        from components.dialogs import TextInputDialog
+        writing_notes, ok = TextInputDialog.getTextStatic(
+            parent=self,
+            title="写作指导",
+            label=f"请输入第{chapter_number}章的写作指导（可选）：\n\n"
+                  "留空则按大纲设定生成，填写后会影响RAG检索和生成内容。",
+            placeholder="示例：注重环境描写、加强悬疑氛围、增加角色对话、突出心理变化..."
+        )
+
+        if not ok:
+            return
+
         # 标记正在生成的章节
         self.generating_chapter = chapter_number
         self.sidebar.setGeneratingChapter(chapter_number)
 
         # 显示进度对话框
+        progress_title = f"生成第{chapter_number}章"
         self._progress_dialog = LoadingDialog(
             parent=self,
-            title=f"生成第{chapter_number}章",
+            title=progress_title,
             message="正在初始化...",
             cancelable=True
         )
@@ -227,10 +260,14 @@ class WritingDesk(BasePage):
         # 使用SSEWorker连接流式端点
         url = f"{self.api_client.base_url}/api/writer/novels/{self.project_id}/chapters/generate-stream"
         payload = {"chapter_number": chapter_number}
+        # 添加写作提示词（如果有）
+        if writing_notes and writing_notes.strip():
+            payload["writing_notes"] = writing_notes.strip()
 
         self._sse_worker = SSEWorker(url, payload)
         self._sse_worker.progress_received.connect(self._on_chapter_gen_progress)
         self._sse_worker.complete.connect(self._on_chapter_gen_complete)
+        self._sse_worker.cancelled.connect(self._on_chapter_gen_cancelled_by_server)
         self._sse_worker.error.connect(self._on_chapter_gen_error)
         self._sse_worker.start()
 
@@ -293,8 +330,13 @@ class WritingDesk(BasePage):
         MessageService.show_error(self, message, title)
 
     def _on_chapter_gen_cancelled(self):
-        """用户取消章节生成"""
+        """用户取消章节生成（点击取消按钮）"""
         logger.info("用户取消章节生成")
+        self._cleanup_chapter_gen_sse()
+
+    def _on_chapter_gen_cancelled_by_server(self, data: dict):
+        """服务器确认章节生成已取消"""
+        logger.info("服务器确认章节生成已取消: %s", data.get('message', ''))
         self._cleanup_chapter_gen_sse()
 
     def _cleanup_chapter_gen_sse(self):
@@ -326,35 +368,79 @@ class WritingDesk(BasePage):
         options_dialog.setWindowTitle("预览提示词选项")
         options_dialog.setMinimumWidth(dp(450))
 
+        # 设置对话框背景色
+        options_dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+        """)
+
         layout = QVBoxLayout(options_dialog)
         layout.setSpacing(dp(16))
-        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+        layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))
 
         # 模式选择
+        ui_font = theme_manager.ui_font()
         mode_label = QLabel("选择预览模式：")
-        mode_label.setStyleSheet(f"font-weight: bold; color: {theme_manager.TEXT_PRIMARY};")
+        mode_label.setStyleSheet(f"""
+            font-family: {ui_font};
+            font-size: {sp(14)}px;
+            font-weight: bold;
+            color: {theme_manager.TEXT_PRIMARY};
+        """)
         layout.addWidget(mode_label)
 
         mode_group = QButtonGroup(options_dialog)
 
+        # 单选按钮样式
+        radio_style = f"""
+            QRadioButton {{
+                font-family: {ui_font};
+                font-size: {sp(13)}px;
+                color: {theme_manager.TEXT_PRIMARY};
+                spacing: {dp(8)}px;
+            }}
+            QRadioButton::indicator {{
+                width: {dp(18)}px;
+                height: {dp(18)}px;
+                border: 2px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(9)}px;
+                background-color: {theme_manager.BG_SECONDARY};
+            }}
+            QRadioButton::indicator:checked {{
+                border-color: {theme_manager.PRIMARY};
+                background-color: {theme_manager.PRIMARY};
+            }}
+        """
+
         first_gen_radio = QRadioButton("首次生成 - 完整提示词（包含分层前情摘要）")
         first_gen_radio.setChecked(True)
-        first_gen_radio.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+        first_gen_radio.setStyleSheet(radio_style)
         mode_group.addButton(first_gen_radio, 0)
         layout.addWidget(first_gen_radio)
 
         retry_radio = QRadioButton("重新生成 - 简化提示词（不含完整前情摘要）")
-        retry_radio.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+        retry_radio.setStyleSheet(radio_style)
         mode_group.addButton(retry_radio, 1)
         layout.addWidget(retry_radio)
 
         # 写作备注/优化方向
         notes_label = QLabel("写作备注/优化方向（可选）：")
-        notes_label.setStyleSheet(f"font-weight: bold; color: {theme_manager.TEXT_PRIMARY}; margin-top: {dp(8)}px;")
+        notes_label.setStyleSheet(f"""
+            font-family: {ui_font};
+            font-size: {sp(14)}px;
+            font-weight: bold;
+            color: {theme_manager.TEXT_PRIMARY};
+            margin-top: {dp(8)}px;
+        """)
         layout.addWidget(notes_label)
 
         notes_hint = QLabel("留空则使用默认设置，填写后会影响RAG查询和提示词内容")
-        notes_hint.setStyleSheet(f"font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};")
+        notes_hint.setStyleSheet(f"""
+            font-family: {ui_font};
+            font-size: {sp(12)}px;
+            color: {theme_manager.TEXT_SECONDARY};
+        """)
         layout.addWidget(notes_hint)
 
         notes_input = QTextEdit()
@@ -362,11 +448,16 @@ class WritingDesk(BasePage):
         notes_input.setMaximumHeight(dp(80))
         notes_input.setStyleSheet(f"""
             QTextEdit {{
+                font-family: {ui_font};
                 background-color: {theme_manager.BG_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
+                border-radius: {dp(6)}px;
                 padding: {dp(8)}px;
+                font-size: {sp(13)}px;
                 color: {theme_manager.TEXT_PRIMARY};
+            }}
+            QTextEdit:focus {{
+                border-color: {theme_manager.PRIMARY};
             }}
         """)
         layout.addWidget(notes_input)

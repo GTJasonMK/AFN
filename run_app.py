@@ -573,13 +573,19 @@ def stop_backend():
 # ============================================================
 
 def start_frontend_subprocess():
-    """以子进程方式启动前端（开发模式 - 备选方案）"""
+    """以子进程方式启动前端（开发模式）"""
     python_exe = str(FRONTEND_PYTHON) if FRONTEND_PYTHON.exists() else sys.executable
+
+    print("\n[启动] 启动前端应用...")
+    logger.info(f"启动前端应用（子进程模式），使用: {python_exe}")
 
     process = subprocess.Popen(
         [python_exe, 'main.py'],
         cwd=str(FRONTEND_DIR)
     )
+
+    print("[完成] AFN 已启动，祝您创作愉快！\n")
+    logger.info(f"前端进程已启动 (PID: {process.pid})")
 
     return process.wait()
 
@@ -750,7 +756,12 @@ def main():
             sys.exit(1)
 
         # 启动前端
-        exit_code = start_frontend()
+        if IS_FROZEN:
+            # 打包模式：在当前进程中运行前端（PyQt6已打包）
+            exit_code = start_frontend()
+        else:
+            # 开发模式：以子进程运行前端（使用前端venv的Python）
+            exit_code = start_frontend_subprocess()
 
         # 清理
         stop_backend()

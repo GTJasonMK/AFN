@@ -145,6 +145,8 @@ class ChapterCard(ThemeAwareWidget):
                 color = theme_manager.WARNING
             elif status == 'completed':
                 color = theme_manager.SUCCESS
+            elif status == 'pending':
+                color = theme_manager.PRIMARY  # 待确认使用主题色，提示用户需要操作
             elif status == 'failed':
                 color = theme_manager.ERROR
             else:
@@ -186,12 +188,13 @@ class ChapterCard(ThemeAwareWidget):
         """根据状态获取图标"""
         status = self.chapter_data.get('status', 'not_generated')
         icons = {
-            'completed': '✓',
-            'generating': '🔄',
-            'failed': '✗',
-            'not_generated': '○'
+            'completed': '+',      # 已确认版本
+            'pending': '*',        # 待确认（有版本但未选择）
+            'generating': '~',     # 生成中
+            'failed': 'x',         # 生成失败
+            'not_generated': 'o'   # 未生成
         }
-        return icons.get(status, '○')
+        return icons.get(status, 'o')
 
     def _get_meta_text(self):
         """获取元信息文本"""
@@ -200,6 +203,7 @@ class ChapterCard(ThemeAwareWidget):
 
         status_texts = {
             'completed': '已完成',
+            'pending': '待确认',
             'generating': '生成中...',
             'failed': '生成失败',
             'not_generated': '未生成'
@@ -207,8 +211,8 @@ class ChapterCard(ThemeAwareWidget):
 
         status_text = status_texts.get(status, '未生成')
 
-        if status == 'completed' and word_count > 0:
-            return f"{format_word_count(word_count)} • {status_text}"
+        if status in ('completed', 'pending') and word_count > 0:
+            return f"{format_word_count(word_count)} - {status_text}"
         else:
             return status_text
 

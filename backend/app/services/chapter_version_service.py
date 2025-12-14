@@ -22,7 +22,7 @@ from ..repositories.chapter_repository import (
     ChapterOutlineRepository,
 )
 from ..schemas.novel import ChapterGenerationStatus
-from ..utils.content_normalizer import normalize_version_content
+from ..utils.content_normalizer import count_chinese_characters
 
 logger = logging.getLogger(__name__)
 
@@ -114,19 +114,32 @@ class ChapterVersionService:
 
         Args:
             chapter: 章节实例
-            contents: 版本内容列表
-            metadata: 版本元数据列表（可选）
+            contents: 版本内容列表（已经由version_processor提取好的纯文本）
+            metadata: 版本元数据列表（可选，仅用于记录，不再用于提取内容）
 
         Returns:
             List[ChapterVersion]: 创建的版本列表
         """
         # 准备版本数据
+        # contents 已经是 version_processor._extract_content_from_dict 提取的纯文本
+        # 不需要再通过 normalize_version_content 处理
         versions_data = []
         for index, content in enumerate(contents):
-            extra = metadata[index] if metadata and index < len(metadata) else None
-            text_content = normalize_version_content(content, extra)
+            # 确保 content 是字符串
+            if not isinstance(content, str):
+                logger.warning(
+                    "[DEBUG] replace_chapter_versions - index=%d, content不是字符串，类型=%s",
+                    index, type(content).__name__
+                )
+                content = str(content) if content else ""
+
+            logger.info(
+                "[DEBUG] replace_chapter_versions - index=%d, content长度=%d, 前100字符=%s",
+                index, len(content), repr(content[:100]) if content else "EMPTY"
+            )
+
             versions_data.append({
-                "content": text_content,
+                "content": content,
                 "metadata": None,
                 "version_label": f"v{index+1}",
             })
@@ -165,7 +178,7 @@ class ChapterVersionService:
         chapter.selected_version_id = selected.id
         chapter.selected_version = selected
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
-        chapter.word_count = len(selected.content or "")
+        chapter.word_count = count_chinese_characters(selected.content or "")
 
         await self._touch_project(chapter.project_id)
         return selected

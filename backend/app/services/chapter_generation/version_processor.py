@@ -4,8 +4,13 @@
 负责处理LLM生成的章节版本数据，包括解析和提取内容。
 """
 
+import logging
 import json
 from typing import Any, Dict, List, Tuple
+
+from ...utils.json_utils import remove_think_tags
+
+logger = logging.getLogger(__name__)
 
 
 class ChapterVersionProcessor:
@@ -18,6 +23,22 @@ class ChapterVersionProcessor:
         processor = ChapterVersionProcessor()
         contents, metadata = processor.process_versions(raw_versions)
     """
+
+    # 可能包含章节内容的字段名（按优先级排序）
+    # full_content 应该排在最前面，因为它明确表示"完整内容"
+    CONTENT_FIELD_NAMES = [
+        "full_content",
+        "chapter_content",
+        "content",
+        "chapter_text",
+        "text",
+        "body",
+        "story",
+        "chapter",
+        "output",
+        "result",
+        "response",
+    ]
 
     def process_versions(self, raw_versions: List[Any]) -> Tuple[List[str], List[Dict]]:
         """
@@ -32,15 +53,21 @@ class ChapterVersionProcessor:
         contents: List[str] = []
         metadata: List[Dict] = []
 
-        for variant in raw_versions:
+        for idx, variant in enumerate(raw_versions):
             if isinstance(variant, dict):
-                # 按优先级检查可能的内容字段（writing.md提示词中使用的是full_content）
+                # 按优先级检查可能的内容字段
                 content = self._extract_content_from_dict(variant)
+                # 清理可能残留的think标签
+                content = remove_think_tags(content)
                 contents.append(content)
                 metadata.append(variant)
+                logger.debug("版本 %d 内容提取完成，长度: %d", idx + 1, len(content))
             else:
-                contents.append(str(variant))
+                # 纯文本，清理think标签
+                content = remove_think_tags(str(variant))
+                contents.append(content)
                 metadata.append({"raw": variant})
+                logger.debug("版本 %d 为纯文本，长度: %d", idx + 1, len(content))
 
         return contents, metadata
 
@@ -48,10 +75,8 @@ class ChapterVersionProcessor:
         """
         从字典中提取内容
 
-        按优先级检查以下字段:
-        1. content
-        2. full_content (writing.md提示词要求的格式)
-        3. chapter_content
+        按优先级检查多种可能的字段名，如果都不存在则尝试提取
+        最长的字符串值作为内容。
 
         Args:
             variant: 版本数据字典
@@ -59,20 +84,57 @@ class ChapterVersionProcessor:
         Returns:
             提取的内容字符串
         """
-        # 优先检查 content 字段
-        if "content" in variant and isinstance(variant["content"], str):
-            return variant["content"]
+        # 调试：打印字典的所有键
+        logger.info("[DEBUG] _extract_content_from_dict - 输入字典键: %s", list(variant.keys()))
 
-        # 检查 full_content 字段（writing.md提示词要求的格式）
-        if "full_content" in variant and isinstance(variant["full_content"], str):
-            return variant["full_content"]
+        # 1. 按优先级检查已知的内容字段名（无长度限制，只要是字符串就返回）
+        for field_name in self.CONTENT_FIELD_NAMES:
+            if field_name in variant:
+                value = variant[field_name]
+                logger.info(
+                    "[DEBUG] _extract_content_from_dict - 检查字段 '%s': 类型=%s, 是字符串=%s, 值前100字符=%s",
+                    field_name,
+                    type(value).__name__,
+                    isinstance(value, str),
+                    repr(str(value)[:100]) if value else "None"
+                )
+                if isinstance(value, str) and value.strip():
+                    logger.info("[DEBUG] _extract_content_from_dict - 成功从字段 '%s' 提取，长度: %d", field_name, len(value))
+                    return value
 
-        # 检查 chapter_content 字段
-        if "chapter_content" in variant:
-            return str(variant["chapter_content"])
+        # 2. 找到字典中最长的字符串值
+        longest_str = ""
+        longest_key = ""
+        for key, value in variant.items():
+            if isinstance(value, str) and len(value) > len(longest_str):
+                longest_str = value
+                longest_key = key
 
-        # 如果所有预期字段都不存在，fallback到整个dict的序列化
-        return json.dumps(variant, ensure_ascii=False)
+        # 如果找到了字符串，优先返回它（不要返回JSON）
+        if longest_str.strip():
+            logger.info("[DEBUG] _extract_content_from_dict - 使用最长字符串字段 '%s'，长度: %d", longest_key, len(longest_str))
+            return longest_str
+
+        # 3. 检查是否有嵌套的内容
+        for key, value in variant.items():
+            if isinstance(value, dict):
+                nested_content = self._extract_content_from_dict(value)
+                if nested_content.strip() and not nested_content.startswith("{"):
+                    logger.info("[DEBUG] _extract_content_from_dict - 从嵌套字段 '%s' 提取到内容", key)
+                    return nested_content
+
+        # 4. 最后的fallback：记录警告并返回JSON
+        logger.warning(
+            "[DEBUG] _extract_content_from_dict - 无法提取内容，返回JSON。字典键: %s",
+            list(variant.keys())
+        )
+        # 过滤掉明显的元数据字段
+        metadata_fields = {"metadata", "meta", "info", "stats", "analysis", "notes"}
+        filtered = {k: v for k, v in variant.items() if k.lower() not in metadata_fields}
+
+        if filtered:
+            return json.dumps(filtered, ensure_ascii=False, indent=2)
+        return json.dumps(variant, ensure_ascii=False, indent=2)
 
 
 # 模块级单例

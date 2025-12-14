@@ -132,7 +132,7 @@ GEMINI.md
 
 # 本地开发脚本
 build.bat
-
+开发日记.txt
 # 临时诊断脚本
 backend/test_embedding.py
 backend/diagnose_embedding.py

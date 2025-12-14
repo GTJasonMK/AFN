@@ -59,7 +59,7 @@ class VersionPanelBuilder(BasePanelBuilder):
             版本Tab的根Widget
         """
         s = self._styler  # 使用缓存的样式器属性
-        versions = chapter_data.get('versions', [])
+        versions = chapter_data.get('versions') or []
         selected_idx = chapter_data.get('selected_version')
 
         # 如果没有版本数据，使用专业空状态组件

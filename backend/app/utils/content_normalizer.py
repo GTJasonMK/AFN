@@ -6,20 +6,26 @@
 """
 
 import json
+import logging
+import re
 from typing import Any, Optional
 
+logger = logging.getLogger(__name__)
+
 # 优先尝试的内容字段名（按优先级排序）
+# full_content 应该排在最前面，因为它明确表示"完整内容"
 _PREFERRED_CONTENT_KEYS: tuple[str, ...] = (
-    "content",
-    "chapter_content",
-    "chapter_text",
     "full_content",
+    "chapter_content",
+    "content",
+    "chapter_text",
     "text",
     "body",
     "story",
     "chapter",
-    "real_summary",
-    "summary",
+    "output",
+    "result",
+    "response",
 )
 
 
@@ -52,13 +58,21 @@ def normalize_version_content(raw_content: Any, metadata: Any) -> str:
         )  # 返回: "正文"
         ```
     """
-    text = _coerce_text(metadata)
+    logger.info("[DEBUG] normalize_version_content - raw_content类型=%s, metadata类型=%s",
+                type(raw_content).__name__, type(metadata).__name__)
+    if isinstance(metadata, dict):
+        logger.info("[DEBUG] normalize_version_content - metadata键=%s", list(metadata.keys()))
+
+    text = _coerce_text(metadata, "metadata")
     if not text:
-        text = _coerce_text(raw_content)
+        text = _coerce_text(raw_content, "raw_content")
+
+    logger.info("[DEBUG] normalize_version_content - 最终结果前200字符=%s",
+                repr(text[:200]) if text else "EMPTY")
     return text or ""
 
 
-def _coerce_text(value: Any) -> Optional[str]:
+def _coerce_text(value: Any, source: str = "") -> Optional[str]:
     """
     强制将任意类型的值转换为文本
 
@@ -72,6 +86,7 @@ def _coerce_text(value: Any) -> Optional[str]:
 
     Args:
         value: 任意类型的值
+        source: 调试用来源标识
 
     Returns:
         转换后的文本，如果无法提取有效内容则返回None
@@ -88,16 +103,30 @@ def _coerce_text(value: Any) -> Optional[str]:
     if isinstance(value, dict):
         # 尝试按优先级提取内容字段
         for key in _PREFERRED_CONTENT_KEYS:
-            if key in value and value[key]:
-                nested = _coerce_text(value[key])
-                if nested:
-                    return nested
+            # 使用 'key in value' 检查键存在，然后检查值不是 None
+            # 注意：空字符串 "" 在布尔上下文中是 False，但我们仍然要处理它
+            if key in value:
+                field_value = value[key]
+                # 只跳过 None，允许空字符串通过（虽然空字符串会在后面被过滤）
+                if field_value is not None:
+                    logger.info("[DEBUG] _coerce_text(%s) - 找到字段 '%s', 类型=%s",
+                                source, key, type(field_value).__name__)
+                    nested = _coerce_text(field_value, f"{source}.{key}")
+                    if nested:
+                        logger.info("[DEBUG] _coerce_text(%s) - 从字段 '%s' 提取成功，长度=%d",
+                                    source, key, len(nested))
+                        return nested
+                    else:
+                        logger.info("[DEBUG] _coerce_text(%s) - 字段 '%s' 提取结果为空，继续检查下一个字段",
+                                    source, key)
         # 如果没有找到优先字段，序列化整个字典
+        logger.warning("[DEBUG] _coerce_text(%s) - 未找到优先字段，将返回JSON序列化。键=%s",
+                       source, list(value.keys()))
         return _clean_string(json.dumps(value, ensure_ascii=False))
 
     if isinstance(value, (list, tuple, set)):
         # 递归处理集合中的每个元素
-        parts = [text for text in (_coerce_text(item) for item in value) if text]
+        parts = [text for text in (_coerce_text(item, f"{source}[item]") for item in value) if text]
         if parts:
             return "\n".join(parts)
         return None
@@ -130,7 +159,7 @@ def _clean_string(text: str) -> str:
     if stripped.startswith("{") and stripped.endswith("}"):
         try:
             parsed = json.loads(stripped)
-            coerced = _coerce_text(parsed)
+            coerced = _coerce_text(parsed, "_clean_string.parsed")
             if coerced:
                 return coerced
         except json.JSONDecodeError:
@@ -147,3 +176,22 @@ def _clean_string(text: str) -> str:
         .replace('\\"', '"')
         .replace("\\\\", "\\")
     )
+
+
+def count_chinese_characters(text: str) -> int:
+    """
+    统计文本中的中文字符数量（只统计汉字，不包括标点、英文、空格等）
+
+    这是用于章节字数统计的标准函数，确保前后端字数一致。
+
+    Args:
+        text: 要统计的文本内容
+
+    Returns:
+        中文汉字数量
+    """
+    if not text:
+        return 0
+    # 统计Unicode范围 U+4E00 到 U+9FFF 的汉字（CJK统一汉字基本区）
+    # 这与前端 frontend/utils/formatters.py 中的 count_chinese_characters 保持一致
+    return len([c for c in text if '\u4e00' <= c <= '\u9fff'])

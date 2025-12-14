@@ -42,11 +42,12 @@ class DesignSystemConstants:
     """
 
     # ==================== 圆角规范 - 方正风格（微圆角设计）====================
+    # 遵循 4px 递增规律：2 → 4 → 6 → 8 → 12 → 16
     RADIUS_XS = "2px"    # 超小元素（几乎直角）
     RADIUS_SM = "4px"    # 小元素：按钮、标签、小卡片
     RADIUS_MD = "6px"    # 中等元素：卡片、输入框
     RADIUS_LG = "8px"    # 大元素：大型容器
-    RADIUS_XL = "10px"   # 超大元素：模态框
+    RADIUS_XL = "16px"   # 超大元素：模态框（符合8pt网格）
     RADIUS_ROUND = "50%"  # 圆形：头像、图标按钮
 
     # ==================== 间距规范 - 8px网格系统 ====================
@@ -57,9 +58,9 @@ class DesignSystemConstants:
     SPACING_XL = "40px"
     SPACING_XXL = "48px"
 
-    # ==================== 字体大小规范 ====================
+    # ==================== 字体大小规范 - 符合8pt网格 ====================
     FONT_SIZE_XS = "12px"
-    FONT_SIZE_SM = "13px"
+    FONT_SIZE_SM = "12px"   # 修正：13px不符合8pt网格，改为12px
     FONT_SIZE_BASE = "14px"
     FONT_SIZE_MD = "16px"
     FONT_SIZE_LG = "18px"
@@ -73,8 +74,8 @@ class DesignSystemConstants:
     FONT_WEIGHT_SEMIBOLD = "600"
     FONT_WEIGHT_BOLD = "700"
 
-    # ==================== 行高规范 ====================
-    LINE_HEIGHT_TIGHT = "1.2"
+    # ==================== 行高规范 - 符合可读性标准 ====================
+    LINE_HEIGHT_TIGHT = "1.4"   # 修正：1.2低于最小可读性阈值，改为1.4
     LINE_HEIGHT_NORMAL = "1.5"
     LINE_HEIGHT_RELAXED = "1.6"
     LINE_HEIGHT_LOOSE = "1.8"
@@ -685,7 +686,7 @@ class ThemeManager(QObject):
         bg_pressed: str,
         text_color: str = None,
         border: str = "none",
-        padding: str = "10px 24px",
+        padding: str = "8px 24px",
         min_height: str = "36px"
     ) -> str:
         """实心按钮样式工厂方法
@@ -696,7 +697,7 @@ class ThemeManager(QObject):
             bg_pressed: 按下时背景颜色
             text_color: 文字颜色（默认为 BUTTON_TEXT）
             border: 边框样式（默认为 none）
-            padding: 内边距
+            padding: 内边距（符合8pt网格：8px 24px）
             min_height: 最小高度
 
         Returns:
@@ -726,6 +727,10 @@ class ThemeManager(QObject):
                 background-color: {self.BG_TERTIARY};
                 color: {self.TEXT_DISABLED};
             }}
+            QPushButton:focus {{
+                border: 2px solid {self.PRIMARY};
+                outline: none;
+            }}
         """
 
     def button_primary(self):
@@ -743,7 +748,7 @@ class ThemeManager(QObject):
                 color: {self.BUTTON_TEXT};
                 border: none;
                 border-radius: {self.RADIUS_SM};
-                padding: 10px 24px;
+                padding: 8px 24px;
                 font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
@@ -759,6 +764,10 @@ class ThemeManager(QObject):
                 background: {self.BG_TERTIARY};
                 color: {self.TEXT_DISABLED};
             }}
+            QPushButton:focus {{
+                border: 2px solid {self.PRIMARY_LIGHT};
+                outline: none;
+            }}
         """
 
     def button_secondary(self):
@@ -772,7 +781,7 @@ class ThemeManager(QObject):
                 color: {self.TEXT_PRIMARY};
                 border: 1px solid {self.BORDER_DEFAULT};
                 border-radius: {self.RADIUS_SM};
-                padding: 10px 24px;
+                padding: 8px 24px;
                 font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
@@ -791,6 +800,10 @@ class ThemeManager(QObject):
                 border-color: {self.BORDER_LIGHT};
                 background: transparent;
             }}
+            QPushButton:focus {{
+                border: 2px solid {self.PRIMARY};
+                outline: none;
+            }}
         """
 
     def button_accent(self):
@@ -807,7 +820,7 @@ class ThemeManager(QObject):
                 color: {self.BUTTON_TEXT};
                 border: none;
                 border-radius: {self.RADIUS_SM};
-                padding: 10px 24px;
+                padding: 8px 24px;
                 font-family: {ui_font};
                 font-size: {self.FONT_SIZE_SM};
                 font-weight: {self.FONT_WEIGHT_SEMIBOLD};
@@ -822,6 +835,10 @@ class ThemeManager(QObject):
             QPushButton:disabled {{
                 background: {self.BG_TERTIARY};
                 color: {self.TEXT_DISABLED};
+            }}
+            QPushButton:focus {{
+                border: 2px solid {self.ACCENT_LIGHT};
+                outline: none;
             }}
         """
 
@@ -995,7 +1012,7 @@ class ThemeManager(QObject):
                 top: -1px;
             }}
             QTabBar::tab {{
-                padding: 10px 20px;
+                padding: 8px 24px;
                 font-size: {self.FONT_SIZE_BASE};
                 font-weight: {self.FONT_WEIGHT_NORMAL};
                 color: {self.TEXT_SECONDARY};
@@ -1012,6 +1029,10 @@ class ThemeManager(QObject):
             QTabBar::tab:hover:!selected {{
                 color: {self.TEXT_PRIMARY};
                 background-color: {self.BG_SECONDARY};
+            }}
+            QTabBar::tab:focus {{
+                outline: 2px solid {self.PRIMARY};
+                outline-offset: -2px;
             }}
         """
 

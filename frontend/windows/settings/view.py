@@ -88,7 +88,7 @@ class SettingsView(BasePage):
         self.page_frame.setGraphicsEffect(shadow)
 
         page_layout = QVBoxLayout(self.page_frame)
-        page_layout.setContentsMargins(dp(24), dp(20), dp(24), dp(20))
+        page_layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))  # 修正：20不符合8pt网格，改为24
         page_layout.setSpacing(0)
 
         # 堆叠页面
@@ -115,7 +115,7 @@ class SettingsView(BasePage):
     def _add_nav_item(self, title):
         """添加导航项"""
         item = QListWidgetItem()
-        item.setSizeHint(QSize(0, dp(44)))
+        item.setSizeHint(QSize(0, dp(48)))  # 修正：44不符合8pt网格，改为48
         item.setText(title)
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.nav_list.addItem(item)
@@ -172,7 +172,7 @@ class SettingsView(BasePage):
                 color: {palette.text_secondary};
                 border: none;
                 border-left: 2px solid transparent;
-                padding: {dp(10)}px {dp(12)}px;
+                padding: {dp(12)}px {dp(12)}px;  /* 修正：10不符合8pt网格，改为12 */
                 font-family: {palette.ui_font};
                 font-size: {sp(14)}px;
             }}

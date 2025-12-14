@@ -53,6 +53,7 @@ class SSEWorker(QThread):
 
     # 完成与错误信号
     complete = pyqtSignal(dict)           # 流式完成（包含 metadata）
+    cancelled = pyqtSignal(dict)          # 流式被用户取消
     error = pyqtSignal(str)               # 简单错误消息（仅字符串，用于简单场景）
     error_data = pyqtSignal(dict)         # 完整错误数据（包含 message, saved_count, saved_parts 等）
     #                                     # 用于需要详细错误信息的场景（如部分成功时显示已保存数量）
@@ -61,6 +62,9 @@ class SSEWorker(QThread):
     streaming_start = pyqtSignal(dict)    # 流式开始，前端应禁用交互
     ai_message_chunk = pyqtSignal(str)    # AI消息文本片段
     option_received = pyqtSignal(dict)    # 单个选项数据
+
+    # ===== 通用事件信号（用于自定义事件类型） =====
+    event_received = pyqtSignal(str, dict)  # (event_type, data) - 用于未预定义的事件类型
 
     def __init__(self, url: str, payload: dict, parent=None):
         """
@@ -194,6 +198,10 @@ class SSEWorker(QThread):
             logger.info("SSE流完成，发射complete信号")
             self.complete.emit(data)
 
+        elif event_type == 'cancelled':
+            logger.info("SSE流被取消，发射cancelled信号")
+            self.cancelled.emit(data)
+
         elif event_type == 'error':
             error_msg = data.get('message', '未知错误')
             logger.error("SSE错误事件: %s", error_msg)
@@ -211,6 +219,12 @@ class SSEWorker(QThread):
         elif event_type == 'option':
             logger.debug("SSE收到选项: %s", data)
             self.option_received.emit(data)
+
+        else:
+            # 未知事件类型，通过通用信号发射
+            if event_type:
+                logger.debug("SSE收到自定义事件: %s", event_type)
+                self.event_received.emit(event_type, data)
 
     def _safe_emit_error(self, message: str):
         """安全地发射错误信号（使用锁保护，防止竞态条件）"""
@@ -243,22 +257,28 @@ class SSEWorker(QThread):
 
         在stop()时调用，确保即使有残余的emit也不会到达已删除的对象
         """
-        signal_list = [
-            self.token_received,
-            self.progress_received,
-            self.complete,
-            self.error,
-            self.error_data,
-            self.streaming_start,
-            self.ai_message_chunk,
-            self.option_received,
-        ]
-        for signal in signal_list:
-            try:
-                signal.disconnect()
-            except TypeError:
-                # 信号可能未连接
-                pass
+        try:
+            signal_list = [
+                self.token_received,
+                self.progress_received,
+                self.complete,
+                self.cancelled,
+                self.error,
+                self.error_data,
+                self.streaming_start,
+                self.ai_message_chunk,
+                self.option_received,
+                self.event_received,
+            ]
+            for signal in signal_list:
+                try:
+                    signal.disconnect()
+                except TypeError:
+                    # 信号可能未连接
+                    pass
+        except RuntimeError:
+            # C++对象已被删除，无需断开信号
+            pass
 
     def stop(self):
         """停止SSE监听（线程安全）
@@ -272,23 +292,27 @@ class SSEWorker(QThread):
         3. 断开所有信号连接（防止残余emit到达已销毁对象）
         4. 关闭网络会话以中断正在进行的请求
         """
-        logger.info("请求停止SSE worker")
+        try:
+            logger.info("请求停止SSE worker")
 
-        # 使用锁确保设置停止标志和禁用发射是原子的
-        with self._emit_lock:
-            self._stop_event.set()
-            self._emit_allowed = False
+            # 使用锁确保设置停止标志和禁用发射是原子的
+            with self._emit_lock:
+                self._stop_event.set()
+                self._emit_allowed = False
 
-        # 断开所有信号，防止残余emit到达已销毁的槽
-        self._disconnect_all_signals()
+            # 断开所有信号，防止残余emit到达已销毁的槽
+            self._disconnect_all_signals()
 
-        # 尝试关闭session以中断正在进行的请求
-        if self._session:
-            try:
-                self._session.close()
-            except (OSError, RuntimeError, AttributeError):
-                # 关闭时的预期异常
-                pass
+            # 尝试关闭session以中断正在进行的请求
+            if self._session:
+                try:
+                    self._session.close()
+                except (OSError, RuntimeError, AttributeError):
+                    # 关闭时的预期异常
+                    pass
+        except RuntimeError:
+            # C++对象已被删除
+            pass
 
     def is_stopped(self) -> bool:
         """检查是否已停止（线程安全）"""

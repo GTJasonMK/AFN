@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import InvalidRequestError
 
 from ...core.config import settings
+from ...core.constants import LLMConstants
 from ...models.novel import ChapterOutline, NovelProject
 from ...schemas.novel import ChapterAnalysisData
 from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, parse_llm_json_safe
@@ -476,6 +477,9 @@ class ChapterGenerationService:
 
         Returns:
             List[Dict]: 生成的版本列表
+
+        Raises:
+            asyncio.CancelledError: 当生成被取消时向上传播
         """
         async def _generate_single_version(idx: int) -> Dict:
             task_id = id(asyncio.current_task())
@@ -487,6 +491,8 @@ class ChapterGenerationService:
                     temperature=settings.llm_temp_writing,
                     user_id=user_id,
                     timeout=600.0,
+                    max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
+                    response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
                     skip_usage_tracking=skip_usage_tracking,
                     skip_daily_limit_check=skip_usage_tracking,
                     cached_config=llm_config,
@@ -497,9 +503,27 @@ class ChapterGenerationService:
                 # 尝试解析JSON（安全模式）
                 result = parse_llm_json_safe(cleaned)
                 if result:
-                    return result
+                    # 如果解析成功但没有content字段，检查是否有其他已知的内容字段
+                    # 如果都没有，直接将原始文本作为content（LLM可能返回纯文本被错误解析）
+                    # full_content 优先级最高
+                    content_fields = ["full_content", "chapter_content", "content", "chapter_text", "text", "body", "chapter"]
+                    has_content_field = any(
+                        field in result and isinstance(result[field], str) and result[field].strip()
+                        for field in content_fields
+                    )
+                    if has_content_field:
+                        return result
+                    else:
+                        # 没有明确的内容字段，检查是否是纯文本被误解析为JSON
+                        # 或者返回原始cleaned文本
+                        logger.debug("[Task %s] JSON解析成功但无内容字段，使用原始文本", task_id)
+                        return {"content": unwrap_markdown_json(cleaned)}
                 else:
                     return {"content": unwrap_markdown_json(cleaned)}
+            except asyncio.CancelledError:
+                # 取消异常需要向上传播，不能被吞掉
+                logger.info("[Task %s] 版本 %s 生成被取消", task_id, idx + 1)
+                raise
             except Exception as exc:
                 import traceback
                 error_details = traceback.format_exc()
@@ -580,7 +604,11 @@ class ChapterGenerationService:
             # 处理异常结果
             processed_versions = []
             for idx, result in enumerate(raw_versions):
-                if isinstance(result, Exception):
+                if isinstance(result, asyncio.CancelledError):
+                    # 取消异常需要重新抛出
+                    logger.info("项目 %s 第 %s 章版本 %s 被取消，传播取消异常", project_id, chapter_number, idx + 1)
+                    raise result
+                elif isinstance(result, Exception):
                     logger.error("项目 %s 第 %s 章版本 %s 生成失败: %s", project_id, chapter_number, idx + 1, result)
                     processed_versions.append({"content": f"生成失败: {result}"})
                 else:

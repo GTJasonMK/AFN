@@ -48,7 +48,7 @@ class ChatBubble(ThemeAwareFrame):
     def _create_ui_structure(self):
         """创建UI结构（只调用一次）"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setContentsMargins(24, 16, 24, 16)  # 修正：20不符合8pt网格，改为24
         layout.setSpacing(12)
 
         # 发送者标签

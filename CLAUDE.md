@@ -77,22 +77,27 @@ AFN (Agents for Novel) 是AI辅助长篇小说创作的单机桌面应用。核�
 backend/app/
 ├── api/routers/
 │   ├── novels/              # 项目管理路由（灵感对话、蓝图、大纲）
-│   └── writer/              # 写作阶段路由（章节生成、版本管理）
+│   └── writer/              # 写作阶段路由（章节生成、版本管理、RAG查询）
 ├── services/
 │   ├── novel_service.py     # 项目管理、灵感对话
 │   ├── llm_service.py       # LLM调用（流式/非流式）
 │   ├── chapter_generation/  # 章节生成模块
 │   │   ├── service.py       # 生成服务入口
 │   │   ├── workflow.py      # 生成工作流
-│   │   └── context.py       # 上下文构建
+│   │   ├── context.py       # 上下文构建
+│   │   ├── prompt_builder.py # 提示词构建
+│   │   └── version_processor.py # 版本处理
 │   ├── part_outline/        # 分部大纲模块
 │   │   ├── service.py       # 大纲服务入口
 │   │   └── workflow.py      # 生成工作流
 │   ├── rag/                 # RAG增强模块
-│   │   ├── query_builder.py # 多维查询构建
+│   │   ├── query_builder.py     # 多维查询构建
 │   │   ├── context_builder.py   # 分层上下文
 │   │   ├── context_compressor.py # 上下文压缩
-│   │   └── temporal_retriever.py # 时序感知检索
+│   │   ├── temporal_retriever.py # 时序感知检索
+│   │   ├── outline_retriever.py  # 大纲RAG检索
+│   │   ├── scene_extractor.py    # 场景状态提取
+│   │   └── utils.py              # 公共工具函数
 │   ├── embedding_service.py # 嵌入服务（OpenAI兼容/Ollama）
 │   └── incremental_indexer.py # 增量索引
 ├── repositories/            # 数据访问层（继承BaseRepository）
@@ -100,7 +105,8 @@ backend/app/
 ├── schemas/                 # Pydantic数据模型
 └── utils/
     ├── json_utils.py        # LLM响应JSON解析
-    └── sse_helpers.py       # SSE事件工具
+    ├── sse_helpers.py       # SSE事件工具
+    └── content_normalizer.py # 内容规范化
 ```
 
 ## 前端架构
@@ -131,8 +137,16 @@ frontend/
 ```
 DRAFT -> BLUEPRINT_READY -> [PART_OUTLINES_READY] -> CHAPTER_OUTLINES_READY -> WRITING -> COMPLETED
 ```
-- 长篇（>=50章）：先生成分部大纲（每25章一部分），再生成章节大纲
-- 短篇（<50章）：直接生成章节大纲
+
+**状态说明**：
+- `DRAFT`：灵感对话进行中
+- `BLUEPRINT_READY`：蓝图生成完成
+- `PART_OUTLINES_READY`：分部大纲就绪（仅长篇>=50章）
+- `CHAPTER_OUTLINES_READY`：章节大纲就绪
+- `WRITING`：章节写作中
+- `COMPLETED`：全部章节完成
+
+**回退机制**：状态机支持回退，如 `WRITING -> CHAPTER_OUTLINES_READY` 允许修改大纲后重新生成
 
 ## 核心开发模式
 
@@ -238,6 +252,7 @@ from app.exceptions import (
     ChapterNotGeneratedError,    # 400 - 章节未生成
     GenerationCancelledError,    # 400 - 生成任务被取消
     PromptTemplateNotFoundError, # 500 - 提示词模板不存在
+    ConversationExtractionError, # 400 - 对话历史提取失败
 )
 ```
 
@@ -304,6 +319,14 @@ class NovelRepository(BaseRepository[Novel]):
 章节生成请求 -> QueryBuilder（多维查询）-> TemporalRetriever（时序检索）
     -> ContextBuilder（分层构建）-> ContextCompressor（压缩）-> LLM生成
 ```
+
+**核心组件**：
+- `EnhancedQueryBuilder`：基于大纲、角色、伏笔构建多维查询
+- `TemporalAwareRetriever`：时序感知的向量检索
+- `SmartContextBuilder`：分层上下文构建
+- `ContextCompressor`：智能压缩以适应token限制
+- `OutlineRAGRetriever`：大纲生成阶段的RAG检索
+- `SceneStateExtractor`：从章节内容提取场景状态
 
 **上下文分层**：
 - 必需层：蓝图核心、角色名、当前大纲、前章结尾

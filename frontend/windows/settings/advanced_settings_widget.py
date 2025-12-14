@@ -74,7 +74,7 @@ class AdvancedSettingsWidget(QWidget):
         group = QGroupBox("章节生成")
 
         form_layout = QFormLayout(group)
-        form_layout.setContentsMargins(dp(20), dp(16), dp(20), dp(20))
+        form_layout.setContentsMargins(dp(24), dp(16), dp(24), dp(24))  # 修正：20不符合8pt网格
         form_layout.setSpacing(dp(16))
 
         # 候选版本数
@@ -120,7 +120,7 @@ class AdvancedSettingsWidget(QWidget):
         group = QGroupBox("大纲规划")
 
         form_layout = QFormLayout(group)
-        form_layout.setContentsMargins(dp(20), dp(16), dp(20), dp(20))
+        form_layout.setContentsMargins(dp(24), dp(16), dp(24), dp(24))  # 修正：20不符合8pt网格
         form_layout.setSpacing(dp(16))
 
         # 分部大纲阈值
@@ -266,7 +266,7 @@ class AdvancedSettingsWidget(QWidget):
                 color: {palette.text_secondary};
                 border: 1px solid {palette.border_color};
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(20)}px;
+                padding: {dp(8)}px {dp(24)}px;  /* 修正：10和20不符合8pt网格 */
                 font-size: {sp(14)}px;
             }}
             QPushButton:hover {{
@@ -284,7 +284,7 @@ class AdvancedSettingsWidget(QWidget):
                 color: {palette.bg_primary};
                 border: none;
                 border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(24)}px;
+                padding: {dp(8)}px {dp(24)}px;  /* 修正：10不符合8pt网格，改为8 */
                 font-size: {sp(14)}px;
                 font-weight: 600;
             }}
