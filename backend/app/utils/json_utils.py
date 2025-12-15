@@ -143,7 +143,21 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
         return json.loads(normalized)
-    except (json.JSONDecodeError, AttributeError, TypeError):
+    except json.JSONDecodeError as e:
+        # JSON解析失败，记录详细信息以便调试
+        logger.warning(
+            "JSON解析失败: %s, 位置: %d, 原文长度: %d, 预处理后长度: %d",
+            str(e)[:100], e.pos if hasattr(e, 'pos') else -1,
+            len(raw_text) if raw_text else 0,
+            len(normalized) if 'normalized' in dir() else 0
+        )
+        # 尝试记录解析失败的位置附近的内容
+        if hasattr(e, 'pos') and 'normalized' in dir() and normalized:
+            start = max(0, e.pos - 50)
+            end = min(len(normalized), e.pos + 50)
+            logger.warning("解析失败位置附近的内容: ...%s...", normalized[start:end])
+        return None
+    except (AttributeError, TypeError):
         # 预期的解析失败，静默返回None
         return None
     except Exception as exc:

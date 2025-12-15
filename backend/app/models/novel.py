@@ -370,8 +370,12 @@ class ChapterMangaPrompt(Base):
 
     # 场景列表（JSON数组）
     # 每个场景包含: scene_id, scene_summary, original_text, characters,
-    # prompt_en, prompt_zh, negative_prompt, style_tags, composition, emotion, lighting
+    # prompt_en, prompt_zh, negative_prompt, style_tags, composition, emotion, lighting, panel_info
     scenes: Mapped[list] = mapped_column(JSON, default=list)
+
+    # 排版信息（JSON对象）
+    # 包含: layout_type, page_size, reading_direction, total_pages, total_panels, layout_analysis
+    layout_info: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -121,6 +121,7 @@ class GeneratedImageInfo(BaseModel):
     file_name: str
     file_path: str
     url: str  # 访问URL
+    scene_id: int  # 场景ID
     width: Optional[int] = None
     height: Optional[int] = None
     prompt: Optional[str] = None
@@ -164,6 +165,25 @@ class PDFExportResult(BaseModel):
     success: bool
     file_path: Optional[str] = None
     file_name: Optional[str] = None
+    download_url: Optional[str] = None  # 下载URL
+    error_message: Optional[str] = None
+
+
+class ChapterMangaPDFRequest(BaseModel):
+    """章节漫画PDF生成请求"""
+    title: Optional[str] = Field(default=None, description="PDF标题")
+    include_prompts: bool = Field(default=False, description="是否包含提示词")
+    page_size: str = Field(default="A4", description="页面大小: A4, A3, Letter")
+    layout: str = Field(default="full", description="布局: full(全页), manga(漫画分格)")
+
+
+class ChapterMangaPDFResponse(BaseModel):
+    """章节漫画PDF响应"""
+    success: bool
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+    download_url: Optional[str] = None
+    page_count: int = 0
     error_message: Optional[str] = None
 
 

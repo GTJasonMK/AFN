@@ -1315,6 +1315,7 @@ class AFNAPIClient:
         chapter_number: int,
         style: str = "manga",
         scene_count: Optional[int] = None,
+        dialogue_language: str = "chinese",
     ) -> Dict[str, Any]:
         """
         生成章节的漫画提示词
@@ -1326,6 +1327,7 @@ class AFNAPIClient:
             chapter_number: 章节号
             style: 漫画风格 (manga/anime/comic/webtoon)
             scene_count: 目标场景数量 (5-20)，为None时由LLM自动决定
+            dialogue_language: 对话语言 (chinese/japanese/english/korean/none)
 
         Returns:
             漫画提示词结果，包含：
@@ -1334,7 +1336,10 @@ class AFNAPIClient:
             - style_guide: 整体风格指南
         """
         # 构建请求体，scene_count为None时不传递，让LLM自动决定
-        payload = {'style': style}
+        payload = {
+            'style': style,
+            'dialogue_language': dialogue_language,
+        }
         if scene_count is not None:
             payload['scene_count'] = scene_count
 
@@ -1917,3 +1922,70 @@ class AFNAPIClient:
             图片文件URL
         """
         return f"{self.base_url}/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"
+
+    def generate_chapter_manga_pdf(
+        self,
+        project_id: str,
+        chapter_number: int,
+        title: Optional[str] = None,
+        page_size: str = "A4",
+        include_prompts: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        生成章节漫画PDF
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            title: PDF标题
+            page_size: 页面大小（A4/A3/Letter）
+            include_prompts: 是否包含提示词
+
+        Returns:
+            生成结果，包含下载URL
+        """
+        data = {
+            'page_size': page_size,
+            'include_prompts': include_prompts,
+        }
+        if title:
+            data['title'] = title
+
+        return self._request(
+            'POST',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/manga-pdf',
+            data,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
+    def get_latest_chapter_manga_pdf(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> Dict[str, Any]:
+        """
+        获取章节最新的漫画PDF
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            PDF信息，包含下载URL
+        """
+        return self._request(
+            'GET',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/manga-pdf/latest'
+        )
+
+    def get_export_download_url(self, file_name: str) -> str:
+        """
+        获取导出文件下载URL
+
+        Args:
+            file_name: 文件名
+
+        Returns:
+            下载URL
+        """
+        return f"{self.base_url}/api/image-generation/export/download/{file_name}"

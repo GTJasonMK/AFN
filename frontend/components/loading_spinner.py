@@ -18,9 +18,10 @@ class CircularSpinner(ThemeAwareWidget):
     Material Design风格的圆形进度指示器
     """
 
-    def __init__(self, size=40, color=None, parent=None):
+    def __init__(self, size=40, color=None, parent=None, auto_start=True):
         self.size = size
         self._custom_color = color  # 自定义颜色（可选）
+        self._auto_start = auto_start  # 是否自动启动动画
         self.angle = 0
         self.timer = None
         super().__init__(parent)
@@ -33,7 +34,9 @@ class CircularSpinner(ThemeAwareWidget):
         # 使用QTimer实现动画
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._rotate)
-        self.timer.start(16)  # 约60 FPS
+        # 仅当 auto_start=True 时自动启动
+        if self._auto_start:
+            self.timer.start(16)  # 约60 FPS
 
     def _apply_theme(self):
         """应用主题样式（重绘时使用主题色）"""

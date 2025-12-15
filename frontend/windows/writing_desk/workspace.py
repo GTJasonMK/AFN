@@ -71,6 +71,10 @@ class WDWorkspace(ThemeAwareFrame):
             on_copy_prompt=self._onCopyPrompt,
             on_delete=self._onDeleteMangaPrompt,
             on_generate_image=self._onGenerateImage,
+            on_load_images=self._loadChapterImages,
+            on_generate_pdf=self._onGenerateMangaPDF,
+            on_load_pdf=self._loadChapterMangaPDF,
+            on_download_pdf=self._onDownloadPDF,
         )
 
         # 保存组件引用
@@ -1358,6 +1362,8 @@ class WDWorkspace(ThemeAwareFrame):
             'scenes': [],
             'character_profiles': {},
             'style_guide': '',
+            'images': [],  # 已生成的图片列表
+            'pdf_info': {},  # PDF信息
         }
 
         # 尝试从API获取已保存的漫画提示词
@@ -1375,15 +1381,76 @@ class WDWorkspace(ThemeAwareFrame):
                 # 如果获取失败，保持默认空状态
                 pass
 
+            # 获取已生成的图片列表
+            try:
+                images = self._loadChapterImages()
+                manga_data['images'] = images
+
+                # 统计每个场景的已生成图片数量
+                scene_image_counts = {}
+                for img in images:
+                    scene_id = img.get('scene_id', 0)
+                    scene_image_counts[scene_id] = scene_image_counts.get(scene_id, 0) + 1
+
+                # 更新场景数据，添加已生成图片数量
+                for scene in manga_data['scenes']:
+                    scene_id = scene.get('scene_id', 0)
+                    scene['generated_count'] = scene_image_counts.get(scene_id, 0)
+            except Exception:
+                pass
+
+            # 获取最新的漫画PDF信息
+            try:
+                pdf_info = self._loadChapterMangaPDF()
+                manga_data['pdf_info'] = pdf_info
+            except Exception:
+                pass
+
         return manga_data
 
-    def _onGenerateMangaPrompt(self, style: str, scene_count: int):
+    def _loadChapterImages(self):
+        """
+        加载当前章节的所有已生成图片
+
+        Returns:
+            图片列表，每个图片包含 file_path, scene_id, prompt 等信息
+        """
+        if not self.project_id or not self.current_chapter:
+            return []
+
+        try:
+            # API 直接返回图片列表
+            images = self.api_client.get_chapter_images(
+                self.project_id, self.current_chapter
+            )
+
+            # 确保返回的是列表
+            if not isinstance(images, list):
+                images = []
+
+            # 转换图片路径为本地绝对路径
+            for img in images:
+                file_path = img.get('file_path', '')
+                if file_path:
+                    # 构建完整的本地路径
+                    # 图片存储在 backend/storage/generated_images/{project_id}/chapter_{n}/scene_{n}/
+                    import os
+                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                    local_path = os.path.join(base_dir, 'backend', 'storage', 'generated_images', file_path)
+                    img['local_path'] = local_path
+
+            return images
+        except Exception:
+            return []
+
+    def _onGenerateMangaPrompt(self, style: str, scene_count: int, dialogue_language: str = "chinese"):
         """
         生成漫画提示词回调
 
         Args:
             style: 漫画风格 (manga/anime/comic/webtoon)
             scene_count: 场景数量
+            dialogue_language: 对话语言 (chinese/japanese/english/korean/none)
         """
         from utils.async_worker import AsyncWorker
         from utils.message_service import MessageService
@@ -1392,20 +1459,31 @@ class WDWorkspace(ThemeAwareFrame):
             MessageService.show_warning(self, "请先选择章节")
             return
 
+        # 显示加载动画
+        if self._manga_builder:
+            self._manga_builder.set_toolbar_loading(True, "正在生成提示词...")
+
         def do_generate():
             return self.api_client.generate_manga_prompts(
                 self.project_id,
                 self.current_chapter,
                 style=style,
                 scene_count=scene_count,
+                dialogue_language=dialogue_language,
             )
 
         def on_success(result):
+            # 显示成功状态
+            if self._manga_builder:
+                self._manga_builder.set_toolbar_success("生成成功")
             MessageService.show_success(self, "漫画提示词生成成功")
             # 重新加载章节以刷新漫画面板
             self.loadChapter(self.current_chapter)
 
         def on_error(error):
+            # 显示错误状态
+            if self._manga_builder:
+                self._manga_builder.set_toolbar_error("生成失败")
             MessageService.show_error(self, f"生成失败: {error}")
 
         # 开始异步生成（不阻塞UI显示加载信息）
@@ -1479,7 +1557,8 @@ class WDWorkspace(ThemeAwareFrame):
         if not self.project_id or not self.current_chapter:
             return
 
-        MessageService.show_info(self, f"正在为场景 {scene_id} 生成图片...")
+        # 显示加载动画
+        self._manga_builder.set_scene_loading(scene_id, True, "正在生成图片...")
 
         def do_generate():
             return self.api_client.generate_scene_image(
@@ -1491,16 +1570,19 @@ class WDWorkspace(ThemeAwareFrame):
 
         def on_success(result):
             if result.get('success', False):
-                image_url = result.get('image_url', '')
-                MessageService.show_success(
-                    self,
-                    f"场景 {scene_id} 图片生成成功"
+                images = result.get('images', [])
+                image_count = len(images) if images else 1
+                self._manga_builder.set_scene_success(
+                    scene_id,
+                    f"已生成 {image_count} 张图片"
                 )
             else:
                 error_msg = result.get('error_message', '未知错误')
+                self._manga_builder.set_scene_error(scene_id, f"失败: {error_msg[:20]}")
                 MessageService.show_error(self, f"生成失败: {error_msg}")
 
         def on_error(error):
+            self._manga_builder.set_scene_error(scene_id, "生成失败")
             MessageService.show_error(self, f"图片生成失败: {error}")
 
         worker = AsyncWorker(do_generate)
@@ -1510,3 +1592,90 @@ class WDWorkspace(ThemeAwareFrame):
 
         # 保存worker引用防止被垃圾回收
         self._image_gen_worker = worker
+
+    def _loadChapterMangaPDF(self) -> dict:
+        """
+        加载当前章节的最新漫画PDF信息
+
+        Returns:
+            PDF信息字典，包含 success, file_path, file_name, download_url 等
+        """
+        if not self.project_id or not self.current_chapter:
+            return {}
+
+        try:
+            result = self.api_client.get_latest_chapter_manga_pdf(
+                self.project_id, self.current_chapter
+            )
+            return result
+        except Exception:
+            return {}
+
+    def _onGenerateMangaPDF(self):
+        """
+        生成漫画PDF回调
+        """
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+
+        if not self.project_id or not self.current_chapter:
+            MessageService.show_warning(self, "请先选择章节")
+            return
+
+        def do_generate():
+            return self.api_client.generate_chapter_manga_pdf(
+                self.project_id,
+                self.current_chapter,
+            )
+
+        def on_success(result):
+            if result.get('success', False):
+                page_count = result.get('page_count', 0)
+                MessageService.show_success(self, f"漫画PDF生成成功 ({page_count}页)")
+                # 重新加载章节以刷新漫画面板
+                self.loadChapter(self.current_chapter)
+            else:
+                error_msg = result.get('error_message', '未知错误')
+                MessageService.show_error(self, f"PDF生成失败: {error_msg}")
+
+        def on_error(error):
+            MessageService.show_error(self, f"PDF生成失败: {error}")
+
+        # 开始异步生成
+        worker = AsyncWorker(do_generate)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用防止被垃圾回收
+        self._pdf_gen_worker = worker
+
+    def _onDownloadPDF(self, file_name: str):
+        """
+        下载PDF文件
+
+        Args:
+            file_name: PDF文件名
+        """
+        from utils.message_service import MessageService
+        import subprocess
+        import platform
+
+        if not file_name:
+            return
+
+        # 获取下载URL
+        download_url = self.api_client.get_export_download_url(file_name)
+
+        try:
+            # 使用系统默认浏览器打开下载链接
+            if platform.system() == 'Windows':
+                subprocess.Popen(['start', '', download_url], shell=True)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.Popen(['open', download_url])
+            else:  # Linux
+                subprocess.Popen(['xdg-open', download_url])
+
+            MessageService.show_success(self, "已打开下载链接")
+        except Exception as e:
+            MessageService.show_error(self, f"下载失败: {e}")
