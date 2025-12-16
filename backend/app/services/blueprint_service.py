@@ -6,6 +6,8 @@
 
 import logging
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +30,19 @@ from ..utils.json_utils import parse_llm_json_safe
 from ..utils.exception_helpers import log_exception
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# 数据类：蓝图生成结果
+# ------------------------------------------------------------------
+
+@dataclass
+class BlueprintGenerationResult:
+    """蓝图生成结果"""
+    blueprint: Blueprint
+    ai_message: str
+    needs_part_outlines: bool
+    total_chapters: int
 
 
 class BlueprintService:
@@ -223,6 +238,8 @@ class BlueprintService:
                 await self.chapter_outline_repo.delete_by_project(project_id)
                 logger.info("项目 %s 重新生成蓝图，已清除 %d 个章节大纲", project_id, outline_count)
         except Exception as exc:
+            # 章节大纲删除是核心操作，失败应该抛出让调用者处理
+            # 记录日志后重新抛出，确保事务回滚
             log_exception(
                 exc,
                 "删除章节大纲",
@@ -230,6 +247,7 @@ class BlueprintService:
                 project_id=project_id,
                 outline_count=outline_count if 'outline_count' in locals() else 0
             )
+            raise
 
         # 4. 使 project 对象的关系缓存失效，确保后续查询获取最新数据
         # 这非常重要：如果不刷新，ORM 可能返回缓存的旧数据
@@ -457,3 +475,181 @@ class BlueprintService:
         )
 
         return default_chapters
+
+    # ------------------------------------------------------------------
+    # 业务逻辑方法（从Router层迁移）
+    # ------------------------------------------------------------------
+
+    def validate_and_clean_blueprint(
+        self,
+        blueprint: Blueprint,
+        project_id: str,
+    ) -> Blueprint:
+        """
+        验证蓝图数据并清理违规内容
+
+        强制工作流分离：蓝图生成阶段不包含章节大纲。
+        即使LLM违反指令生成了章节大纲，也要强制清空并记录。
+
+        Args:
+            blueprint: 原始蓝图对象
+            project_id: 项目ID（用于日志）
+
+        Returns:
+            Blueprint: 清理后的蓝图对象
+        """
+        if blueprint.chapter_outline:
+            logger.warning(
+                "项目 %s 蓝图生成时包含了 %d 个章节大纲，违反工作流设计，正在备份并清空",
+                project_id,
+                len(blueprint.chapter_outline),
+            )
+
+            # 初始化world_setting
+            if not blueprint.world_setting:
+                blueprint.world_setting = {}
+
+            # 清理旧的违规备份（只保留最新一次，避免数据膨胀）
+            if '_discarded_chapter_outlines' in blueprint.world_setting:
+                old_count = blueprint.world_setting['_discarded_chapter_outlines'].get('count', 0)
+                logger.info(
+                    "项目 %s 清理旧的违规章节大纲备份（共 %d 个）",
+                    project_id,
+                    old_count
+                )
+
+            # 备份当前被丢弃的数据（只保留元信息，不保留完整data，减少存储）
+            blueprint.world_setting['_discarded_chapter_outlines'] = {
+                'timestamp': datetime.now().isoformat(),
+                'count': len(blueprint.chapter_outline),
+                'summary': f"检测到{len(blueprint.chapter_outline)}个违规章节大纲，已自动清理"
+            }
+
+            logger.info(
+                "项目 %s 已记录违规章节大纲元信息（count=%d），完整数据已丢弃",
+                project_id,
+                len(blueprint.chapter_outline)
+            )
+
+            # 清空chapter_outline
+            blueprint.chapter_outline = []
+
+        return blueprint
+
+    def calculate_needs_part_outlines(
+        self,
+        blueprint: Blueprint,
+        total_chapters: int,
+        project_id: str,
+    ) -> bool:
+        """
+        根据章节数计算是否需要分部大纲
+
+        Args:
+            blueprint: 蓝图对象（会被修改）
+            total_chapters: 总章节数
+            project_id: 项目ID（用于日志）
+
+        Returns:
+            bool: 是否需要分部大纲
+        """
+        # 更新蓝图的总章节数
+        blueprint.total_chapters = total_chapters
+
+        # 根据章节数判断是否需要分部大纲
+        # 使用 >= 与文档保持一致：长篇小说定义为章节数>=阈值
+        if total_chapters >= settings.part_outline_threshold:
+            blueprint.needs_part_outlines = True
+            logger.info(
+                "项目 %s 章节数 %d 达到或超过阈值 %d，自动设置 needs_part_outlines=True",
+                project_id, total_chapters, settings.part_outline_threshold
+            )
+        else:
+            blueprint.needs_part_outlines = False
+            logger.info(
+                "项目 %s 章节数 %d 未达到阈值 %d，设置 needs_part_outlines=False",
+                project_id, total_chapters, settings.part_outline_threshold
+            )
+
+        return blueprint.needs_part_outlines
+
+    def generate_blueprint_message(
+        self,
+        total_chapters: int,
+        needs_part_outlines: bool,
+    ) -> str:
+        """
+        根据蓝图生成结果生成提示消息
+
+        Args:
+            total_chapters: 总章节数
+            needs_part_outlines: 是否需要分部大纲
+
+        Returns:
+            str: AI提示消息
+        """
+        if needs_part_outlines:
+            return (
+                f"太棒了！基础蓝图已生成完成。您的小说计划 {total_chapters} 章，"
+                "接下来请在详情页点击「生成部分大纲」按钮来规划整体结构，"
+                "然后再生成详细的章节大纲。"
+            )
+        else:
+            return (
+                f"太棒了！基础蓝图已生成完成。您的小说计划 {total_chapters} 章，"
+                "接下来请在详情页点击「生成章节大纲」按钮来规划具体章节。"
+            )
+
+    def process_generated_blueprint(
+        self,
+        blueprint: Blueprint,
+        history_records: List[Any],
+        formatted_history: List[Dict[str, str]],
+        project_id: str,
+    ) -> BlueprintGenerationResult:
+        """
+        处理LLM生成的蓝图数据
+
+        整合蓝图验证、章节数提取、分部大纲判断、消息生成等业务逻辑。
+
+        Args:
+            blueprint: LLM生成的原始蓝图
+            history_records: 原始对话历史记录
+            formatted_history: 格式化后的对话历史
+            project_id: 项目ID
+
+        Returns:
+            BlueprintGenerationResult: 处理后的蓝图结果
+        """
+        # 1. 验证并清理蓝图（移除违规章节大纲）
+        blueprint = self.validate_and_clean_blueprint(blueprint, project_id)
+
+        # 2. 提取或推断章节数
+        total_chapters = self.extract_total_chapters(
+            blueprint_total=blueprint.total_chapters,
+            history_records=history_records,
+            formatted_history=formatted_history,
+            project_id=project_id,
+        )
+
+        # 3. 计算是否需要分部大纲（会更新blueprint对象）
+        needs_part_outlines = self.calculate_needs_part_outlines(
+            blueprint, total_chapters, project_id
+        )
+
+        logger.info(
+            "项目 %s 蓝图处理完成，总章节数=%d，需要部分大纲=%s",
+            project_id,
+            total_chapters,
+            needs_part_outlines,
+        )
+
+        # 4. 生成提示消息
+        ai_message = self.generate_blueprint_message(total_chapters, needs_part_outlines)
+
+        return BlueprintGenerationResult(
+            blueprint=blueprint,
+            ai_message=ai_message,
+            needs_part_outlines=needs_part_outlines,
+            total_chapters=total_chapters,
+        )

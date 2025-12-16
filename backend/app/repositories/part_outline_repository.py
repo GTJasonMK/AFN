@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 
 from .base import BaseRepository
 from ..models.part_outline import PartOutline
@@ -13,22 +13,12 @@ class PartOutlineRepository(BaseRepository[PartOutline]):
 
     async def get_by_project_id(self, project_id: str) -> List[PartOutline]:
         """获取指定项目的所有部分大纲，按part_number升序排列"""
-        stmt = (
-            select(PartOutline)
-            .where(PartOutline.project_id == project_id)
-            .order_by(PartOutline.part_number)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        result = await self.list_by_project(project_id, order_by="part_number")
+        return list(result)
 
     async def get_by_part_number(self, project_id: str, part_number: int) -> Optional[PartOutline]:
         """获取指定项目的特定部分大纲"""
-        stmt = select(PartOutline).where(
-            PartOutline.project_id == project_id,
-            PartOutline.part_number == part_number,
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().first()
+        return await self.get(project_id=project_id, part_number=part_number)
 
     # delete_by_project_id 已在 BaseRepository 中实现，无需重复定义
 
@@ -45,24 +35,7 @@ class PartOutlineRepository(BaseRepository[PartOutline]):
         Returns:
             int: 删除的部分数量
         """
-        # 先统计要删除的数量
-        count_stmt = (
-            select(func.count(PartOutline.id))
-            .where(PartOutline.project_id == project_id)
-            .where(PartOutline.part_number >= from_part)
-        )
-        result = await self.session.execute(count_stmt)
-        delete_count = result.scalar() or 0
-
-        # 执行删除
-        stmt = delete(PartOutline).where(
-            PartOutline.project_id == project_id,
-            PartOutline.part_number >= from_part
-        )
-        await self.session.execute(stmt)
-        await self.session.flush()
-
-        return delete_count
+        return await self.delete_from_value("part_number", project_id, from_part)
 
     async def batch_create(self, part_outlines: List[PartOutline]) -> List[PartOutline]:
         """批量创建部分大纲"""

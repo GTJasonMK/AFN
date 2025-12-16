@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
+from ....core.constants import LLMConstants
 from ....core.state_machine import ProjectStatus
 from ....core.dependencies import (
     get_default_user,
@@ -156,7 +157,7 @@ async def generate_chapter_outlines(
             conversation_history=[{"role": "user", "content": user_prompt}],
             temperature=settings.llm_temp_outline,
             user_id=desktop_user.id,
-            timeout=180.0,
+            timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
             max_tokens=None,
         )
 

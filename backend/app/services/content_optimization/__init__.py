@@ -14,7 +14,7 @@
 """
 
 from .service import ContentOptimizationService
-from .workflow import ContentOptimizationWorkflow, LegacyContentOptimizationWorkflow
+from .workflow import ContentOptimizationWorkflow
 from .agent import ContentOptimizationAgent
 from .tools import ToolName, ToolCall, ToolResult, get_tools_prompt
 from .tool_executor import ToolExecutor, AgentState
@@ -30,7 +30,6 @@ __all__ = [
     "ContentOptimizationService",
     # 工作流
     "ContentOptimizationWorkflow",
-    "LegacyContentOptimizationWorkflow",
     # Agent核心
     "ContentOptimizationAgent",
     "ToolExecutor",

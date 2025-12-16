@@ -108,16 +108,8 @@ class NovelService:
         )
 
     def _is_backward_transition(self, current_status: str, new_status: str) -> bool:
-        """判断是否为回退转换"""
-        backward_transitions = {
-            ProjectStatus.WRITING: [ProjectStatus.CHAPTER_OUTLINES_READY],
-            ProjectStatus.CHAPTER_OUTLINES_READY: [
-                ProjectStatus.BLUEPRINT_READY,
-                ProjectStatus.PART_OUTLINES_READY,
-            ],
-            ProjectStatus.BLUEPRINT_READY: [ProjectStatus.DRAFT],
-        }
-        return new_status in backward_transitions.get(current_status, [])
+        """判断是否为回退转换（使用状态机统一定义）"""
+        return ProjectStateMachine.check_backward_transition(current_status, new_status)
 
     async def _cleanup_data_for_backward_transition(
         self,
@@ -141,6 +133,9 @@ class NovelService:
                 chapter_numbers = [ch.chapter_number for ch in project.chapters]
                 await self._chapter_version_service.delete_chapters(project_id, chapter_numbers)
                 logger.info("项目 %s 回退时删除了 %d 个章节", project_id, len(chapter_numbers))
+
+                # 同步清理向量库数据，防止RAG检索返回已删除章节内容
+                await self._cleanup_vector_store(project_id, chapter_numbers)
 
         # chapter_outlines_ready -> blueprint_ready/part_outlines_ready：删除所有章节大纲
         elif (
@@ -391,3 +386,45 @@ class NovelService:
         if completed_chapters == total_chapters and project.status == ProjectStatus.WRITING.value:
             await self.transition_project_status(project, ProjectStatus.COMPLETED.value)
             logger.info("项目 %s 所有章节完成，状态更新为 %s", project_id, ProjectStatus.COMPLETED.value)
+
+    # ------------------------------------------------------------------
+    # 向量库清理
+    # ------------------------------------------------------------------
+
+    async def _cleanup_vector_store(self, project_id: str, chapter_numbers: List[int]) -> None:
+        """
+        清理向量库中的章节数据
+
+        在状态回退时调用，确保RAG检索不会返回已删除章节的内容。
+
+        Args:
+            project_id: 项目ID
+            chapter_numbers: 要清理的章节号列表
+        """
+        from ..core.config import settings
+
+        if not settings.vector_store_enabled or not chapter_numbers:
+            return
+
+        try:
+            from .vector_store_service import VectorStoreService
+            from .chapter_ingest_service import ChapterIngestionService
+
+            vector_store = VectorStoreService()
+            ingest_service = ChapterIngestionService(
+                llm_service=None,
+                vector_store=vector_store
+            )
+            await ingest_service.delete_chapters(project_id, list(chapter_numbers))
+            logger.info(
+                "向量库清理完成: project_id=%s chapters=%s",
+                project_id,
+                chapter_numbers
+            )
+        except Exception as exc:
+            # 向量库清理失败不应阻断主流程，仅记录警告
+            logger.warning(
+                "状态回退时向量库清理失败 (project_id=%s): %s",
+                project_id,
+                exc
+            )

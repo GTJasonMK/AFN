@@ -138,6 +138,12 @@ class MangaPromptResult(BaseModel):
     # 排版信息
     layout_info: Optional[LayoutInfo] = Field(default=None, description="排版信息")
 
+    # 版本警告（当漫画提示词基于旧版本正文生成时）
+    version_mismatch_warning: Optional[str] = Field(
+        default=None,
+        description="版本不匹配警告，提示用户漫画提示词可能需要重新生成"
+    )
+
 
 class MangaPromptRequest(BaseModel):
     """生成漫画提示词的请求"""

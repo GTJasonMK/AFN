@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
 from ....core.constants import LLMConstants
+from ....core.state_validators import (
+    validate_project_status,
+    CHAPTER_GENERATION_STATES,
+)
 from ....core.dependencies import (
     get_default_user,
     get_vector_store,
@@ -72,6 +76,10 @@ async def generate_chapter(
         project_id, request.chapter_number, desktop_user.id
     )
 
+    # 状态校验：确保项目处于可生成章节的状态
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    validate_project_status(project.status, CHAPTER_GENERATION_STATES, "生成章节内容")
+
     # 创建工作流并执行
     workflow = ChapterGenerationWorkflow(
         session=session,
@@ -112,10 +120,13 @@ async def retry_chapter_version(
     """重新生成指定章节的某个版本"""
     logger.info("用户 %s 请求重试项目 %s 第 %s 章的版本 %s", desktop_user.id, project_id, request.chapter_number, request.version_index)
 
+    # 状态校验：确保项目处于可生成章节的状态
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    validate_project_status(project.status, CHAPTER_GENERATION_STATES, "重新生成章节版本")
+
     # 初始化章节生成服务
     chapter_gen_service = ChapterGenerationService(session, llm_service)
 
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
     chapter = next((ch for ch in project.chapters if ch.chapter_number == request.chapter_number), None)
     if not chapter or not chapter.versions:
         raise ChapterNotGeneratedError(project_id, request.chapter_number)
@@ -147,9 +158,6 @@ async def retry_chapter_version(
         vector_store=vector_store,
     )
 
-    # 获取RAG上下文
-    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
-
     # 使用统一的方法获取上一章信息
     previous_summary_text, previous_tail_excerpt = chapter_gen_service.get_previous_chapter_info(
         project, request.chapter_number
@@ -161,7 +169,7 @@ async def retry_chapter_version(
         blueprint_dict=blueprint_dict,
         previous_summary_text=previous_summary_text,
         previous_tail_excerpt=previous_tail_excerpt,
-        rag_context=rag_context,
+        rag_context=gen_context.rag_context,
         writing_notes=request.custom_prompt,
     )
 
@@ -171,7 +179,7 @@ async def retry_chapter_version(
         conversation_history=[{"role": "user", "content": prompt_input}],
         temperature=settings.llm_temp_writing,
         user_id=desktop_user.id,
-        timeout=600.0,
+        timeout=LLMConstants.CHAPTER_GENERATION_TIMEOUT,
         max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
         response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
     )
@@ -249,9 +257,6 @@ async def preview_chapter_prompt(
         vector_store=vector_store,
     )
 
-    # 获取RAG上下文
-    rag_context = gen_context.enhanced_rag_context.get_legacy_context() if gen_context.enhanced_rag_context else None
-
     # 5. 根据模式构建提示词
     if request.is_retry:
         # 重新生成模式：使用简化版提示词（不包含完整前情摘要）
@@ -264,7 +269,7 @@ async def preview_chapter_prompt(
             blueprint_dict=blueprint_dict,
             previous_summary_text=retry_previous_summary,
             previous_tail_excerpt=retry_previous_tail,
-            rag_context=rag_context,
+            rag_context=gen_context.rag_context,
             writing_notes=request.writing_notes,
         )
     else:
@@ -274,7 +279,7 @@ async def preview_chapter_prompt(
             blueprint_dict=blueprint_dict,
             previous_summary_text=previous_summary_text,
             previous_tail_excerpt=previous_tail_excerpt,
-            rag_context=rag_context,
+            rag_context=gen_context.rag_context,
             writing_notes=request.writing_notes,
             chapter_number=request.chapter_number,
             completed_chapters=completed_chapters,
@@ -303,6 +308,7 @@ async def preview_chapter_prompt(
 
     rag_chunks_text = "未检索到相关段落"
     rag_summaries_text = "未检索到章节摘要"
+    rag_context = gen_context.rag_context
     if rag_context:
         if rag_context.chunks:
             rag_chunks_text = "\n\n".join(rag_context.chunk_texts())
@@ -399,6 +405,10 @@ async def generate_chapter_stream(
         "收到章节生成请求（SSE模式）: project_id=%s chapter_number=%s user_id=%s",
         project_id, request.chapter_number, desktop_user.id
     )
+
+    # 状态校验：确保项目处于可生成章节的状态
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    validate_project_status(project.status, CHAPTER_GENERATION_STATES, "生成章节内容")
 
     # 创建工作流
     workflow = ChapterGenerationWorkflow(

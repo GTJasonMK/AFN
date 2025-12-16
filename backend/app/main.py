@@ -33,12 +33,16 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理：启动时初始化数据库，并预热提示词缓存"""
+    """应用生命周期管理：启动时初始化数据库，并预热提示词缓存；关闭时清理资源"""
+    # 启动阶段
     await init_db()
     async with AsyncSessionLocal() as session:
         prompt_service = PromptService(session)
         await prompt_service.preload()
     yield
+    # 关闭阶段：清理HTTP客户端连接池
+    from .services.image_generation.service import HTTPClientManager
+    await HTTPClientManager.close_client()
 
 
 app = FastAPI(

@@ -14,7 +14,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
-from ....core.state_machine import ProjectStatus
+from ....core.constants import LLMConstants
+from ....core.state_validators import (
+    validate_project_status,
+    check_writing_coherence,
+    get_max_generated_chapter,
+    OUTLINE_GENERATION_STATES,
+)
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
@@ -25,6 +31,7 @@ from ....core.dependencies import (
 from ....db.session import get_session
 from ....exceptions import (
     InvalidParameterError,
+    InvalidStateTransitionError,
     LLMServiceError,
     PromptTemplateNotFoundError,
     ResourceNotFoundError,
@@ -36,14 +43,22 @@ from ....schemas.novel import (
 )
 from ....schemas.user import UserInDB
 from ....repositories.chapter_repository import ChapterOutlineRepository, ChapterRepository
+from ....repositories.part_outline_repository import PartOutlineRepository
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
+from ....services.blueprint_service import BlueprintService
 from ....services.rag import get_outline_rag_retriever
 from ....utils.json_utils import remove_think_tags, parse_llm_json_or_fail
 from ....utils.prompt_helpers import ensure_prompt
-from ....utils.sse_helpers import sse_event, create_sse_response
+from ....utils.sse_helpers import (
+    sse_event,
+    create_sse_response,
+    sse_error_event,
+    sse_complete_event,
+    track_saved_items,
+)
 from ....utils.exception_helpers import get_safe_error_message
 
 logger = logging.getLogger(__name__)
@@ -66,6 +81,10 @@ async def generate_chapter_outlines_by_count(
 
     使用RAG检索增强：检索已完成章节的摘要，确保新大纲与已有内容一致。
 
+    状态校验：
+    - 项目状态必须为 BLUEPRINT_READY、PART_OUTLINES_READY 或 CHAPTER_OUTLINES_READY
+    - 如果蓝图标记 needs_part_outlines=True，必须先生成分部大纲
+
     事件类型：
     - progress: 批次进度 {"current_batch", "total_batches", "generated_count", "total_count", "current_range"}
     - complete: 完成 {"message", "generated_chapters", "total_chapters"}
@@ -79,7 +98,24 @@ async def generate_chapter_outlines_by_count(
         StreamingResponse with text/event-stream
     """
     # 在生成器外部预先获取所有需要的数据
-    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    # 状态校验：检查项目是否处于允许生成章节大纲的状态
+    validate_project_status(project.status, OUTLINE_GENERATION_STATES, "生成章节大纲")
+
+    # 分部大纲校验：如果蓝图标记需要分部大纲，检查是否已生成
+    blueprint_service = BlueprintService(session)
+    blueprint = await blueprint_service.blueprint_repo.get_by_project_id(project_id)
+    part_outlines = []  # 初始化，后续校验需要使用
+    if blueprint and blueprint.needs_part_outlines:
+        part_outline_repo = PartOutlineRepository(session)
+        part_outlines = await part_outline_repo.get_by_project_id(project_id)
+        if not part_outlines:
+            raise InvalidStateTransitionError(
+                f"该项目计划 {blueprint.total_chapters} 章，需要先生成分部大纲。"
+                "请在项目详情页点击「生成分部大纲」按钮。"
+            )
+
     chapter_outline_repo = ChapterOutlineRepository(session)
     all_outlines = await chapter_outline_repo.list_by_project(project_id)
 
@@ -95,6 +131,32 @@ async def generate_chapter_outlines_by_count(
 
     end_chapter = start_chapter + request.count - 1
     total_count = request.count
+
+    # WRITING 状态连贯性检查：只允许生成已生成正文之后的章节大纲
+    # 防止在已有正文的章节号之前或之间插入新大纲，避免上下文不一致
+    max_generated_chapter = get_max_generated_chapter(project.chapters)
+    check_writing_coherence(
+        project.status, start_chapter, max_generated_chapter, "生成章节大纲"
+    )
+
+    # 分部大纲覆盖校验：确保目标章节范围被已有分部大纲覆盖
+    if blueprint and blueprint.needs_part_outlines and part_outlines:
+        # 计算分部大纲覆盖的最大章节号
+        max_covered_chapter = max(po.end_chapter for po in part_outlines)
+        if end_chapter > max_covered_chapter:
+            # 找到缺失的分部
+            missing_parts = []
+            for po in sorted(part_outlines, key=lambda x: x.part_number):
+                if po.start_chapter <= end_chapter <= po.end_chapter:
+                    break
+            else:
+                # 计算需要生成哪一部分的大纲
+                next_part_number = max(po.part_number for po in part_outlines) + 1
+                raise InvalidStateTransitionError(
+                    f"目标章节范围（第 {start_chapter}-{end_chapter} 章）超出已有分部大纲覆盖范围"
+                    f"（当前最大覆盖到第 {max_covered_chapter} 章）。"
+                    f"请先生成第 {next_part_number} 部分的分部大纲。"
+                )
 
     logger.info(
         "用户 %s 请求为项目 %s 增量串行生成章节大纲，起始章节 %s，数量 %s（第 %s-%s 章）",
@@ -207,7 +269,7 @@ async def generate_chapter_outlines_by_count(
                     conversation_history=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
                     temperature=settings.llm_temp_outline,
                     user_id=desktop_user.id,
-                    timeout=360.0,
+                    timeout=LLMConstants.CHAPTER_OUTLINE_TIMEOUT,
                 )
 
                 # 解析LLM响应
@@ -544,7 +606,7 @@ async def regenerate_chapter_outline(
         conversation_history=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         temperature=settings.llm_temp_outline,
         user_id=desktop_user.id,
-        timeout=180.0,
+        timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
     )
 
     # 解析LLM响应

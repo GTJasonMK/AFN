@@ -4,16 +4,19 @@
 处理小说蓝图的生成、保存、优化和更新操作。
 """
 
-import json
 import logging
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.state_machine import ProjectStatus
+from ....core.constants import LLMConstants
+from ....core.state_validators import (
+    validate_project_status,
+    BLUEPRINT_EDIT_STATES,
+)
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
@@ -80,6 +83,10 @@ async def generate_blueprint(
     conversation_service = ConversationService(session)
     blueprint_service = BlueprintService(session)
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    # 状态校验：确保项目处于可编辑蓝图的状态
+    validate_project_status(project.status, BLUEPRINT_EDIT_STATES, "生成蓝图")
+
     logger.info(
         "项目 %s 开始生成蓝图 (force_regenerate=%s, user_id=%s)",
         project_id, force_regenerate, desktop_user.id
@@ -118,7 +125,7 @@ async def generate_blueprint(
         conversation_history=formatted_history,
         temperature=settings.llm_temp_blueprint,
         user_id=desktop_user.id,
-        timeout=480.0,
+        timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
         max_tokens=8192,  # Gemini 2.5 Flash的最大输出限制
     )
 
@@ -142,93 +149,17 @@ async def generate_blueprint(
         logger.error("项目 %s 蓝图Pydantic验证失败: %s\nblueprint_data keys: %s", project_id, str(exc), list(blueprint_data.keys()))
         raise JSONParseError(f"蓝图数据格式错误: {str(exc)}") from exc
 
-    # 强制工作流分离：蓝图生成阶段不包含章节大纲
-    # 即使LLM违反指令生成了章节大纲，也要强制清空
-    # 但为了避免数据丢失，先备份到world_setting的特殊字段中
-    if blueprint.chapter_outline:
-        logger.warning(
-            "项目 %s 蓝图生成时包含了 %d 个章节大纲，违反工作流设计，正在备份并清空",
-            project_id,
-            len(blueprint.chapter_outline),
-        )
-
-        # 初始化world_setting
-        if not blueprint.world_setting:
-            blueprint.world_setting = {}
-
-        # 清理旧的违规备份（只保留最新一次，避免数据膨胀）
-        if '_discarded_chapter_outlines' in blueprint.world_setting:
-            old_count = blueprint.world_setting['_discarded_chapter_outlines'].get('count', 0)
-            logger.info(
-                "项目 %s 清理旧的违规章节大纲备份（共 %d 个）",
-                project_id,
-                old_count
-            )
-
-        # 备份当前被丢弃的数据（只保留元信息，不保留完整data，减少存储）
-        blueprint.world_setting['_discarded_chapter_outlines'] = {
-            'timestamp': datetime.now().isoformat(),
-            'count': len(blueprint.chapter_outline),
-            # 仅保留摘要信息，不保留完整数据（避免数据膨胀）
-            'summary': f"检测到{len(blueprint.chapter_outline)}个违规章节大纲，已自动清理"
-        }
-
-        logger.info(
-            "项目 %s 已记录违规章节大纲元信息（count=%d），完整数据已丢弃",
-            project_id,
-            len(blueprint.chapter_outline)
-        )
-
-        # 清空chapter_outline
-        blueprint.chapter_outline = []
-
-    # 数据校验与降级：total_chapters 必须大于0
-    # 如果LLM返回的章节数无效，使用BlueprintService提取或推断
-    total_chapters = blueprint_service.extract_total_chapters(
-        blueprint_total=blueprint.total_chapters,
+    # 使用BlueprintService处理蓝图业务逻辑（验证、清理、章节数提取、消息生成）
+    result = blueprint_service.process_generated_blueprint(
+        blueprint=blueprint,
         history_records=history_records,
         formatted_history=formatted_history,
         project_id=project_id,
     )
-    blueprint.total_chapters = total_chapters
+    blueprint = result.blueprint
+    ai_message = result.ai_message
 
-    # 同时更新 needs_part_outlines 字段（根据章节数��断）
-    if total_chapters > settings.part_outline_threshold:
-        blueprint.needs_part_outlines = True
-        logger.info(
-            "项目 %s 章节数 %d 超过阈值 %d，自动设置 needs_part_outlines=True",
-            project_id, total_chapters, settings.part_outline_threshold
-        )
-    else:
-        blueprint.needs_part_outlines = False
-        logger.info(
-            "项目 %s 章节数 %d 未超过阈值 %d，设置 needs_part_outlines=False",
-            project_id, total_chapters, settings.part_outline_threshold
-        )
-
-    needs_part_outlines = blueprint.needs_part_outlines
-
-    logger.info(
-        "项目 %s 蓝图生成完成，总章节数=%d，需要部分大纲=%s",
-        project_id,
-        total_chapters,
-        needs_part_outlines,
-    )
-
-    # 根据章节数生成不同的提示消息
-    if needs_part_outlines:
-        ai_message = (
-            f"太棒了！基础蓝图已生成完成。您的小说计划 {total_chapters} 章，"
-            "接下来请在详情页点击「生成部分大纲」按钮来规划整体结构，"
-            "然后再生成详细的章节大纲。"
-        )
-    else:
-        ai_message = (
-            f"太棒了！基础蓝图已生成完成。您的小说计划 {total_chapters} 章，"
-            "接下来请在详情页点击「生成章节大纲」按钮来规划具体章节。"
-        )
-
-    # 重新生成蓝图时，清除所���已生成的章节内容、部分大纲和向量库数据
+    # 重新生成蓝图时，清除所有已生成的章节内容、部分大纲和向量库数据
     await blueprint_service.cleanup_old_blueprint_data(project, llm_service)
 
     logger.info("项目 %s 准备保存蓝图到数据库", project_id)
@@ -370,7 +301,7 @@ async def refine_blueprint(
         conversation_history=[{"role": "user", "content": user_message}],
         temperature=settings.llm_temp_blueprint,
         user_id=desktop_user.id,
-        timeout=480.0,
+        timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
         max_tokens=None,  # 移除限制，让模型输出完整蓝图
     )
     # 解析优化后的蓝图JSON
@@ -387,14 +318,8 @@ async def refine_blueprint(
         logger.exception("蓝图优化失败，Pydantic验证错误：project_id=%s, error=%s", project_id, str(exc))
         raise JSONParseError(f"蓝图优化失败：{str(exc)}") from exc
 
-    # 强制工作流分离：蓝图优化阶段不应包含章节大纲
-    if refined_blueprint.chapter_outline:
-        logger.warning(
-            "项目 %s 蓝图优化时包含了 %d 个章节大纲，违反工作流设计，已强制清空",
-            project_id,
-            len(refined_blueprint.chapter_outline),
-        )
-        refined_blueprint.chapter_outline = []
+    # 使用BlueprintService验证并清理蓝图（强制工作流分离）
+    refined_blueprint = blueprint_service.validate_and_clean_blueprint(refined_blueprint, project_id)
 
     # 优化蓝图时，清除所有已生成的章节内容、部分大纲、章节大纲和向量库数据
     # 以确保数据与新蓝图保持一致

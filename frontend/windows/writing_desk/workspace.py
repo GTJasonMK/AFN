@@ -51,14 +51,14 @@ class WDWorkspace(ThemeAwareFrame):
         # 样式器 - 缓存主题值，避免重复调用theme_manager
         self._styler = BookThemeStyler()
 
-        # 面板构建器 - 使用回调函数模式处理用户交互
+        # 面板构建器 - 使用方法引用处理用户交互（避免Lambda捕获self导致的内存泄漏风险）
         self._analysis_builder = AnalysisPanelBuilder()
         self._version_builder = VersionPanelBuilder(
-            on_select_version=lambda idx: self.selectVersion.emit(idx),
-            on_retry_version=lambda idx: self.retryVersion.emit(idx)
+            on_select_version=self._emitSelectVersion,
+            on_retry_version=self._emitRetryVersion
         )
         self._review_builder = ReviewPanelBuilder(
-            on_evaluate_chapter=lambda: self.evaluateChapter.emit()
+            on_evaluate_chapter=self._emitEvaluateChapter
         )
         self._summary_builder = SummaryPanelBuilder()
         self._content_builder = ContentPanelBuilder(
@@ -1009,13 +1009,40 @@ class WDWorkspace(ThemeAwareFrame):
         self.tab_widget.addTab(analysis_tab, "分析")
 
         # Tab 6: 漫画提示词 - 使用 MangaPanelBuilder
-        manga_data = self._prepareMangaData(chapter_data)
-        manga_tab = self._manga_builder.create_manga_tab(manga_data, self)
+        # 先创建空状态的漫画Tab，避免同步API调用阻塞UI
+        empty_manga_data = {
+            'has_manga_prompt': False,
+            'scenes': [],
+            'character_profiles': {},
+            'style_guide': '',
+            'images': [],
+            'pdf_info': {},
+            '_is_loading': True,  # 标记正在加载
+        }
+        manga_tab = self._manga_builder.create_manga_tab(empty_manga_data, self)
         self.tab_widget.addTab(manga_tab, "漫画")
 
         layout.addWidget(self.tab_widget, stretch=1)
 
+        # 异步加载漫画数据，避免UI阻塞
+        self._loadMangaDataAsync()
+
         return widget
+
+    # ==================== 信号发射包装方法 ====================
+    # 这些方法用于替代Lambda回调，避免Lambda捕获self导致的潜在内存泄漏
+
+    def _emitSelectVersion(self, idx: int):
+        """发射选择版本信号"""
+        self.selectVersion.emit(idx)
+
+    def _emitRetryVersion(self, idx: int):
+        """发射重试版本信号"""
+        self.retryVersion.emit(idx)
+
+    def _emitEvaluateChapter(self):
+        """发射评审章节信号"""
+        self.evaluateChapter.emit()
 
     def saveContent(self):
         """保存章节内容"""
@@ -1407,6 +1434,52 @@ class WDWorkspace(ThemeAwareFrame):
                 pass
 
         return manga_data
+
+    def _loadMangaDataAsync(self):
+        """
+        异步加载漫画数据，避免UI阻塞
+
+        使用AsyncWorker在后台线程加载漫画提示词、图片和PDF信息，
+        加载完成后更新漫画Tab的内容。
+        """
+        from utils.async_worker import AsyncWorker
+
+        if not self.project_id or not self.current_chapter:
+            return
+
+        # 保存当前章节号，用于验证回调时章节未切换
+        loading_chapter = self.current_chapter
+
+        def do_load():
+            """在后台线程执行的加载函数"""
+            return self._prepareMangaData({'chapter_number': loading_chapter})
+
+        def on_success(manga_data):
+            """加载成功回调"""
+            # 检查章节是否已切换，避免更新错误的Tab
+            if self.current_chapter != loading_chapter:
+                return
+
+            # 更新漫画Tab
+            if self.tab_widget and self.tab_widget.count() >= 6:
+                # 移除旧的漫画Tab
+                old_manga_tab = self.tab_widget.widget(5)  # 漫画是第6个Tab（索引5）
+                if old_manga_tab:
+                    self.tab_widget.removeTab(5)
+                    old_manga_tab.deleteLater()
+
+                # 创建新的漫画Tab
+                new_manga_tab = self._manga_builder.create_manga_tab(manga_data, self)
+                self.tab_widget.insertTab(5, new_manga_tab, "漫画")
+
+        def on_error(error):
+            """加载失败回调 - 静默处理，保持空状态"""
+            pass
+
+        worker = AsyncWorker(do_load)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
 
     def _loadChapterImages(self):
         """

@@ -361,6 +361,12 @@ class ChapterMangaPrompt(Base):
         ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
     )
 
+    # 关联的正文版本ID（记录漫画提示词基于哪个版本生成）
+    # 用于检测版本是否匹配，如果用户切换版本后提示词可能需要重新生成
+    source_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # 角色外观配置（JSON字典，确保角色在所有画面中外观一致）
     # 格式: {"角色名": "详细的英文外观描述"}
     character_profiles: Mapped[dict] = mapped_column(JSON, default=dict)

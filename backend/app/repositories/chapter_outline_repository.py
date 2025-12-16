@@ -37,21 +37,17 @@ class ChapterOutlineRepository(BaseRepository[ChapterOutline]):
 
     async def list_by_project(self, project_id: str) -> Iterable[ChapterOutline]:
         """
-        获取项目的所有章节大纲
+        获取项目的所有章节大纲（按章节号排序）
+
+        重写基类方法以添加默认排序
 
         Args:
             project_id: 项目ID
 
         Returns:
-            大纲列表
+            大纲列表（按chapter_number升序）
         """
-        stmt = (
-            select(ChapterOutline)
-            .where(ChapterOutline.project_id == project_id)
-            .order_by(ChapterOutline.chapter_number)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return await super().list_by_project(project_id, order_by="chapter_number")
 
     async def count_by_project(self, project_id: str) -> int:
         """
@@ -63,12 +59,7 @@ class ChapterOutlineRepository(BaseRepository[ChapterOutline]):
         Returns:
             大纲数量
         """
-        stmt = (
-            select(func.count(ChapterOutline.id))
-            .where(ChapterOutline.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
+        return await self.count_by_field("project_id", project_id)
 
     async def delete_by_project(self, project_id: str) -> None:
         """
@@ -77,9 +68,7 @@ class ChapterOutlineRepository(BaseRepository[ChapterOutline]):
         Args:
             project_id: 项目ID
         """
-        await self.session.execute(
-            delete(ChapterOutline).where(ChapterOutline.project_id == project_id)
-        )
+        await self.delete_by_project_id(project_id)
 
     async def delete_from_chapter(self, project_id: str, from_chapter: int) -> int:
         """
@@ -94,23 +83,7 @@ class ChapterOutlineRepository(BaseRepository[ChapterOutline]):
         Returns:
             int: 删除的大纲数量
         """
-        # 先统计要删除的数量
-        count_stmt = (
-            select(func.count(ChapterOutline.id))
-            .where(ChapterOutline.project_id == project_id)
-            .where(ChapterOutline.chapter_number >= from_chapter)
-        )
-        result = await self.session.execute(count_stmt)
-        delete_count = result.scalar() or 0
-
-        # 执行删除
-        await self.session.execute(
-            delete(ChapterOutline)
-            .where(ChapterOutline.project_id == project_id)
-            .where(ChapterOutline.chapter_number >= from_chapter)
-        )
-
-        return delete_count
+        return await self.delete_from_value("chapter_number", project_id, from_chapter)
 
     async def bulk_create(
         self,

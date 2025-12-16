@@ -9,6 +9,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from ...core.constants import LLMConstants
 from .tools import (
     ToolName,
     ToolCall,
@@ -18,9 +19,11 @@ from .tools import (
     format_tool_result,
 )
 from .tool_executor import ToolExecutor, AgentState
-from .schemas import OptimizationEventType, OptimizationMode
+from .schemas import OptimizationEventType, OptimizationMode, StructuredThinking
 from .session_manager import OptimizationSession, get_session_manager
 from ..llm_service import LLMService
+from ..llm_wrappers import call_llm, LLMProfile
+from ..prompt_service import PromptService
 from ...utils.sse_helpers import sse_event
 
 logger = logging.getLogger(__name__)
@@ -42,12 +45,14 @@ class ContentOptimizationAgent:
         user_id: str,
         optimization_session: Optional[OptimizationSession] = None,
         optimization_mode: OptimizationMode = OptimizationMode.AUTO,
+        prompt_service: Optional[PromptService] = None,
     ):
         self.llm_service = llm_service
         self.tool_executor = tool_executor
         self.user_id = user_id
         self.optimization_session = optimization_session
         self.optimization_mode = optimization_mode
+        self.prompt_service = prompt_service
         self.session_manager = get_session_manager()
 
         # Agent对话历史（用于维持上下文）
@@ -85,7 +90,7 @@ class ContentOptimizationAgent:
         })
 
         # 初始化Agent
-        system_prompt = self._build_system_prompt(dimensions)
+        system_prompt = await self._build_system_prompt(dimensions)
         self.conversation_history = []
 
         # 发送初始任务描述
@@ -123,27 +128,71 @@ class ContentOptimizationAgent:
                     continue
 
                 # 解析思考过程和工具调用
-                thinking, tool_call = self._parse_response(response)
+                thinking, parse_result = self._parse_response(response)
 
-                # 发送思考事件
+                # 发送思考事件（P2-3: 使用结构化思考）
                 if thinking:
+                    # 解析结构化思考过程
+                    structured_thinking = StructuredThinking.parse_from_text(thinking)
+
+                    # 提取主要关注维度
+                    primary_dimension = None
+                    for step in structured_thinking.steps:
+                        if step.related_dimension:
+                            primary_dimension = step.related_dimension
+                            break
+
                     yield sse_event(OptimizationEventType.THINKING, {
                         "paragraph_index": state.current_index,
                         "content": thinking,
                         "step": f"iteration_{iteration}",
+                        # P2-3: 新增结构化字段
+                        "structured": {
+                            "steps": [
+                                {
+                                    "step_type": step.step_type.value,
+                                    "content": step.content,
+                                    "evidence": step.evidence,
+                                    "confidence": step.confidence,
+                                    "related_dimension": step.related_dimension,
+                                }
+                                for step in structured_thinking.steps
+                            ],
+                            "summary": structured_thinking.summary,
+                            "next_action_hint": structured_thinking.next_action_hint,
+                        } if structured_thinking.steps else None,
+                        "step_count": len(structured_thinking.steps),
+                        "primary_dimension": primary_dimension,
                     })
 
-                # 如果没有工具调用，提示Agent选择工具
-                if not tool_call:
+                # 处理工具调用解析结果
+                if not parse_result.success:
                     self.conversation_history.append({
                         "role": "assistant",
                         "content": response,
                     })
-                    self.conversation_history.append({
-                        "role": "user",
-                        "content": "请使用<tool_call>标签选择一个工具来执行。",
-                    })
+
+                    # 根据错误类型构建提示信息
+                    if parse_result.is_parse_error:
+                        # JSON解析错误或工具名称无效 - 不增加迭代计数，给LLM修正机会
+                        error_hint = f"工具调用格式错误: {parse_result.error}。"
+                        self.conversation_history.append({
+                            "role": "user",
+                            "content": f"{error_hint} 请检查并重新使用正确的JSON格式调用工具。",
+                        })
+                        # 回退迭代计数，给LLM修正的机会
+                        iteration -= 1
+                        paragraph_iteration -= 1
+                        logger.warning("工具调用解析失败，给予重试机会: %s", parse_result.error)
+                    else:
+                        # 没有找到tool_call标签 - 提示Agent选择工具
+                        self.conversation_history.append({
+                            "role": "user",
+                            "content": "请使用<tool_call>标签选择一个工具来执行。",
+                        })
                     continue
+
+                tool_call = parse_result.tool_call
 
                 # 发送动作事件
                 yield sse_event(OptimizationEventType.ACTION, {
@@ -184,7 +233,7 @@ class ContentOptimizationAgent:
                             # 等待用户操作（继续或取消）
                             can_continue = await self.session_manager.wait_if_paused(
                                 self.optimization_session.session_id,
-                                timeout=300.0,  # 5分钟超时
+                                timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,  # 5分钟超时
                             )
 
                             if not can_continue:
@@ -256,7 +305,7 @@ class ContentOptimizationAgent:
             len(state.suggestions),
         )
 
-    def _build_system_prompt(self, dimensions: List[str]) -> str:
+    async def _build_system_prompt(self, dimensions: List[str]) -> str:
         """构建系统提示词"""
         dimension_names = {
             "coherence": "逻辑连贯性",
@@ -268,7 +317,15 @@ class ContentOptimizationAgent:
         }
 
         dim_desc = "、".join([dimension_names.get(d, d) for d in dimensions])
+        tools_prompt = get_tools_prompt()
 
+        # 尝试从外部模板加载
+        if self.prompt_service:
+            template = await self.prompt_service.get_prompt("content_optimization_agent")
+            if template:
+                return template.format(dimensions=dim_desc, tools_prompt=tools_prompt)
+
+        # 回退到内联模板
         return f"""你是一个专业的小说编辑Agent，负责分析和优化小说章节内容。
 
 ## 你的任务
@@ -281,7 +338,7 @@ class ContentOptimizationAgent:
 2. 然后选择一个工具执行（在<tool_call>标签中）
 
 ## 可用工具
-{get_tools_prompt()}
+{tools_prompt}
 
 ## 响应格式
 <thinking>
@@ -332,25 +389,32 @@ class ContentOptimizationAgent:
 
     async def _get_agent_response(self, system_prompt: str) -> str:
         """调用LLM获取Agent响应"""
-        # 构建对话消息（conversation_history 是消息列表，不包含 system 消息）
+        # 获取最后一条用户消息作为当前内容
         messages = self.conversation_history.copy()
+        if not messages:
+            return ""
+
+        current_message = messages[-1]["content"]
+        extra_messages = messages[:-1] if len(messages) > 1 else None
 
         # 调用LLM（非流式，因为需要完整响应来解析工具调用）
-        response = await self.llm_service.get_llm_response(
+        response = await call_llm(
+            self.llm_service,
+            LLMProfile.AGENT,
             system_prompt=system_prompt,
-            conversation_history=messages,
+            user_content=current_message,
             user_id=self.user_id,
-            response_format=None,  # Agent响应不需要JSON格式
+            extra_messages=extra_messages,
         )
 
         return response
 
-    def _parse_response(self, response: str) -> tuple[str, Optional[ToolCall]]:
+    def _parse_response(self, response: str) -> tuple[str, "ToolCallParseResult"]:
         """解析Agent响应，提取思考过程和工具调用"""
         import re
+        from .tools import ToolCallParseResult
 
         thinking = ""
-        tool_call = None
 
         # 提取thinking
         thinking_match = re.search(r'<thinking>(.*?)</thinking>', response, re.DOTALL)
@@ -358,9 +422,9 @@ class ContentOptimizationAgent:
             thinking = thinking_match.group(1).strip()
 
         # 解析工具调用
-        tool_call = parse_tool_call(response)
+        parse_result = parse_tool_call(response)
 
-        return thinking, tool_call
+        return thinking, parse_result
 
     def _summarize_result(self, result: ToolResult) -> str:
         """总结工具执行结果，用于SSE事件"""

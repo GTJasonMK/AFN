@@ -13,6 +13,7 @@ from ...core.state_machine import ProjectStatus
 from ...models.part_outline import PartOutline
 from ...schemas.novel import PartOutlineGenerationProgress
 from ...utils.exception_helpers import get_safe_error_message
+from ..llm_wrappers import call_llm_json, LLMProfile
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -149,13 +150,13 @@ class PartOutlineWorkflow:
         )
 
         # 调用LLM
-        response = await self._part_service.llm_service.get_llm_response(
+        response = await call_llm_json(
+            self._part_service.llm_service,
+            LLMProfile.BLUEPRINT,
             system_prompt=system_prompt,
-            conversation_history=[{"role": "user", "content": user_prompt}],
-            temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
+            user_content=user_prompt,
             user_id=self.user_id,
-            response_format="json_object",
-            timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+            timeout_override=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
         )
 
         # 解析响应

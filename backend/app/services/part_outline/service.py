@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.state_machine import ProjectStatus
+from ...core.config import settings
 from ...core.constants import NovelConstants, LLMConstants, GenerationStatus
 from ...exceptions import (
     ResourceNotFoundError,
@@ -30,6 +31,7 @@ from ...schemas.novel import (
     ChapterOutline as ChapterOutlineSchema,
 )
 from ..llm_service import LLMService
+from ..llm_wrappers import call_llm_json, LLMProfile
 from ..prompt_service import PromptService
 from ..novel_service import NovelService
 from ..prompt_builder import PromptBuilder
@@ -232,9 +234,11 @@ class PartOutlineService:
             InvalidParameterError: 如果章节数不满足要求
             BlueprintNotReadyError: 如果蓝图未生成
         """
-        if total_chapters < NovelConstants.LONG_NOVEL_THRESHOLD:
+        # P1修复: 使用统一的可配置阈值，而非硬编码常量
+        threshold = settings.part_outline_threshold
+        if total_chapters < threshold:
             raise InvalidParameterError(
-                f"章节数为 {total_chapters}，不需要使用部分大纲功能（仅适用于{NovelConstants.LONG_NOVEL_THRESHOLD}章及以上的长篇小说）",
+                f"章节数为 {total_chapters}，不需要使用部分大纲功能（仅适用于{threshold}章及以上的长篇小说）",
                 "total_chapters"
             )
 
@@ -341,13 +345,13 @@ class PartOutlineService:
                 optimization_prompt=optimization_prompt,
             )
 
-            response = await self.llm_service.get_llm_response(
+            response = await call_llm_json(
+                self.llm_service,
+                LLMProfile.BLUEPRINT,
                 system_prompt=system_prompt,
-                conversation_history=[{"role": "user", "content": user_prompt}],
-                temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
+                user_content=user_prompt,
                 user_id=user_id,
-                response_format="json_object",
-                timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+                timeout_override=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
             )
 
             part_data = self._parser.parse_single_part(response, current_part_num)
@@ -614,13 +618,13 @@ class PartOutlineService:
             optimization_prompt=optimization_prompt,
         )
 
-        response = await self.llm_service.get_llm_response(
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.BLUEPRINT,
             system_prompt=system_prompt,
-            conversation_history=[{"role": "user", "content": user_prompt}],
-            temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
+            user_content=user_prompt,
             user_id=user_id,
-            response_format="json_object",
-            timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+            timeout_override=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
         )
 
         part_data = self._parser.parse_single_part(response, part_number)

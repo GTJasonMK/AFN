@@ -113,6 +113,8 @@ class ImageGenerationRequest(BaseModel):
     quality: Optional[str] = Field(default="standard", description="质量预设")
     count: int = Field(default=1, ge=1, le=4, description="生成数量")
     seed: Optional[int] = Field(default=None, description="随机种子")
+    # 版本追溯：记录图片基于哪个章节版本生成
+    chapter_version_id: Optional[int] = Field(default=None, description="章节版本ID，用于版本追溯")
 
 
 class GeneratedImageInfo(BaseModel):
@@ -175,6 +177,8 @@ class ChapterMangaPDFRequest(BaseModel):
     include_prompts: bool = Field(default=False, description="是否包含提示词")
     page_size: str = Field(default="A4", description="页面大小: A4, A3, Letter")
     layout: str = Field(default="full", description="布局: full(全页), manga(漫画分格)")
+    # 版本过滤：仅导出当前版本的图片
+    chapter_version_id: Optional[int] = Field(default=None, description="章节版本ID，用于过滤特定版本的图片")
 
 
 class ChapterMangaPDFResponse(BaseModel):

@@ -7,6 +7,7 @@
 import logging
 from typing import List, Optional
 
+from ..llm_wrappers import call_llm, LLMProfile
 from .schemas import (
     CheckDimension,
     CoherenceIssue,
@@ -19,10 +20,8 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-# 检查维度的LLM提示词模板
-COHERENCE_CHECK_PROMPT = """你是一个专业的小说编辑，正在审查章节内容的质量。
-
-## 当前段落（第{paragraph_index}段）
+# 用户消息模板（系统提示词已迁移到 prompts/coherence_check.md）
+COHERENCE_CHECK_USER_TEMPLATE = """## 当前段落（第{paragraph_index}段）
 {paragraph}
 
 ## 前文段落
@@ -31,35 +30,10 @@ COHERENCE_CHECK_PROMPT = """你是一个专业的小说编辑，正在审查章�
 ## 已知信息
 {context_info}
 
-## 检查维度
+## 本次需要检查的维度
 {dimensions_to_check}
 
-## 任务
-请仔细检查当前段落，找出可能存在的问题。对于每个问题，请提供：
-1. 问题类型（coherence/character/foreshadow/timeline/style/scene）
-2. 问题描述
-3. 严重程度（high/medium/low）
-4. 具体修改建议
-
-请以JSON格式输出，格式如下：
-```json
-{{
-  "issues": [
-    {{
-      "type": "问题类型",
-      "description": "问题描述",
-      "severity": "严重程度",
-      "original_text": "原文片段",
-      "suggested_text": "建议修改后的文本",
-      "reason": "修改理由"
-    }}
-  ],
-  "summary": "整体评价"
-}}
-```
-
-如果没有发现问题，返回空的issues数组。
-"""
+请根据以上信息进行检查。"""
 
 DIMENSION_DESCRIPTIONS = {
     CheckDimension.COHERENCE: """
@@ -116,6 +90,15 @@ class CoherenceChecker:
         self.llm_service = llm_service
         self.prompt_service = prompt_service
 
+    async def _get_system_prompt(self) -> str:
+        """获取系统提示词，优先从prompt_service获取"""
+        if self.prompt_service:
+            prompt = await self.prompt_service.get_prompt("coherence_check")
+            if prompt:
+                return prompt
+        # 回退到默认提示词
+        return "你是一个专业的小说编辑，擅长发现和修正文本中的逻辑问题。请仔细检查段落内容，找出可能存在的问题，并以JSON格式输出。"
+
     async def check_paragraph(
         self,
         paragraph: str,
@@ -141,8 +124,8 @@ class CoherenceChecker:
         Returns:
             建议事件列表
         """
-        # 构建提示词
-        prompt = self._build_check_prompt(
+        # 构建用户消息
+        user_content = self._build_check_prompt(
             paragraph=paragraph,
             paragraph_index=paragraph_index,
             prev_paragraphs=prev_paragraphs,
@@ -152,13 +135,16 @@ class CoherenceChecker:
         )
 
         try:
-            # 调用LLM
-            response = await self.llm_service.get_llm_response(
+            # 获取系统提示词
+            system_prompt = await self._get_system_prompt()
+
+            # 使用统一的LLM调用包装器
+            response = await call_llm(
+                self.llm_service,
+                LLMProfile.COHERENCE,
+                system_prompt=system_prompt,
+                user_content=user_content,
                 user_id=user_id,
-                system_prompt="你是一个专业的小说编辑，擅长发现和修正文本中的逻辑问题。",
-                user_prompt=prompt,
-                payload={},
-                timeout=120.0,
             )
 
             # 解析响应
@@ -226,7 +212,7 @@ class CoherenceChecker:
             for dim in dimensions
         )
 
-        return COHERENCE_CHECK_PROMPT.format(
+        return COHERENCE_CHECK_USER_TEMPLATE.format(
             paragraph_index=paragraph_index + 1,
             paragraph=paragraph,
             prev_paragraphs=prev_text,
@@ -249,7 +235,7 @@ class CoherenceChecker:
         Returns:
             建议事件列表
         """
-        from ....utils.json_utils import parse_llm_json_safe
+        from ...utils.json_utils import parse_llm_json_safe
 
         data = parse_llm_json_safe(response)
         if not data:

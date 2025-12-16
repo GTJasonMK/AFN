@@ -37,6 +37,7 @@ from .layout_schemas import (
 )
 from .schemas import MangaStyle
 from ...utils.json_utils import parse_llm_json_safe
+from ..llm_wrappers import call_llm_json, LLMProfile
 
 logger = logging.getLogger(__name__)
 
@@ -91,12 +92,12 @@ class LayoutService:
 
         # 调用LLM生成排版
         try:
-            llm_response = await self.llm_service.get_llm_response(
-                system_prompt,
-                [{"role": "user", "content": user_prompt}],
-                temperature=0.7,
-                response_format="json_object",
-                user_id=int(user_id) if user_id else None,
+            llm_response = await call_llm_json(
+                self.llm_service,
+                LLMProfile.LAYOUT,
+                system_prompt=system_prompt,
+                user_content=user_prompt,
+                user_id=int(user_id) if user_id else 0,
             )
 
             # 解析响应

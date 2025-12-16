@@ -20,9 +20,10 @@ class ToolName(str, Enum):
 
     # 分析工具
     ANALYZE_PARAGRAPH = "analyze_paragraph"     # 分析段落元素
-    CHECK_COHERENCE = "check_coherence"         # 检查逻辑连贯性
+    CHECK_COHERENCE = "check_coherence"         # 检查逻辑连贯性（快速规则检查）
     CHECK_CHARACTER = "check_character"         # 检查角色一致性
     CHECK_TIMELINE = "check_timeline"           # 检查时间线
+    DEEP_CHECK = "deep_check"                   # 深度LLM检查（调用CoherenceChecker）
 
     # 输出工具
     GENERATE_SUGGESTION = "generate_suggestion"  # 生成修改建议
@@ -159,6 +160,17 @@ TOOL_DEFINITIONS: Dict[ToolName, ToolDefinition] = {
         returns="时间线检查结果",
     ),
 
+    ToolName.DEEP_CHECK: ToolDefinition(
+        name=ToolName.DEEP_CHECK,
+        description="使用LLM进行深度内容检查。当快速检查（check_coherence等）发现可疑问题，或需要更精确的分析时调用。注意：此工具调用成本较高，请谨慎使用。",
+        parameters={
+            "dimensions": "检查维度列表: coherence(逻辑连贯) / character(角色一致) / foreshadow(伏笔呼应) / timeline(时间线) / style(风格一致) / scene(场景描写)，可多选",
+            "focus_text": "可选，重点关注的文本片段",
+        },
+        required_params=["dimensions"],
+        returns="深度检查结果，包含发现的问题列表和修改建议",
+    ),
+
     ToolName.GENERATE_SUGGESTION: ToolDefinition(
         name=ToolName.GENERATE_SUGGESTION,
         description="基于发现的问题生成修改建议。只有在确认存在问题时才调用此工具。",
@@ -229,7 +241,7 @@ def get_tools_prompt() -> str:
     # 分析工具
     sections.append("\n# 分析工具\n用于分析段落内容和检查一致性。\n")
     for tool_name in [ToolName.ANALYZE_PARAGRAPH, ToolName.CHECK_COHERENCE,
-                      ToolName.CHECK_CHARACTER, ToolName.CHECK_TIMELINE]:
+                      ToolName.CHECK_CHARACTER, ToolName.CHECK_TIMELINE, ToolName.DEEP_CHECK]:
         sections.append(TOOL_DEFINITIONS[tool_name].to_prompt_format())
 
     # 输出工具
@@ -245,7 +257,29 @@ def get_tools_prompt() -> str:
     return "\n".join(sections)
 
 
-def parse_tool_call(response: str) -> Optional[ToolCall]:
+class ToolCallParseResult:
+    """工具调用解析结果"""
+    def __init__(
+        self,
+        tool_call: Optional[ToolCall] = None,
+        error: Optional[str] = None,
+        has_tag: bool = False,
+    ):
+        self.tool_call = tool_call
+        self.error = error
+        self.has_tag = has_tag  # 是否找到了<tool_call>标签
+
+    @property
+    def success(self) -> bool:
+        return self.tool_call is not None
+
+    @property
+    def is_parse_error(self) -> bool:
+        """是否是解析错误（找到了标签但解析失败）"""
+        return self.has_tag and self.tool_call is None
+
+
+def parse_tool_call(response: str) -> ToolCallParseResult:
     """
     从LLM响应中解析工具调用
 
@@ -257,6 +291,9 @@ def parse_tool_call(response: str) -> Optional[ToolCall]:
         "reasoning": "为什么调用这个工具"
     }
     </tool_call>
+
+    Returns:
+        ToolCallParseResult: 包含解析结果和错误信息
     """
     import json
     import re
@@ -266,18 +303,27 @@ def parse_tool_call(response: str) -> Optional[ToolCall]:
     match = re.search(pattern, response, re.DOTALL)
 
     if not match:
-        return None
+        return ToolCallParseResult(has_tag=False)
 
     try:
         tool_data = json.loads(match.group(1))
         tool_name = ToolName(tool_data.get("tool", ""))
-        return ToolCall(
+        tool_call = ToolCall(
             tool_name=tool_name,
             parameters=tool_data.get("parameters", {}),
             reasoning=tool_data.get("reasoning", ""),
         )
-    except (json.JSONDecodeError, ValueError):
-        return None
+        return ToolCallParseResult(tool_call=tool_call, has_tag=True)
+    except json.JSONDecodeError as e:
+        return ToolCallParseResult(
+            has_tag=True,
+            error=f"JSON格式错误: {str(e)}",
+        )
+    except ValueError as e:
+        return ToolCallParseResult(
+            has_tag=True,
+            error=f"工具名称无效: {str(e)}",
+        )
 
 
 def format_tool_result(result: ToolResult) -> str:

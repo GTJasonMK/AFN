@@ -12,10 +12,11 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.constants import NovelConstants
+from ..core.constants import NovelConstants, LLMConstants
 from ..models.novel import NovelConversation
 from ..services.conversation_service import ConversationService
 from ..services.llm_service import LLMService
+from ..services.llm_wrappers import call_llm, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import (
     parse_llm_json_or_fail,
@@ -218,12 +219,13 @@ class InspirationService:
         system_prompt = await self.get_system_prompt()
 
         # 3. 调用LLM
-        llm_response = await self.llm_service.get_llm_response(
+        llm_response = await call_llm(
+            self.llm_service,
+            LLMProfile.INSPIRATION,
             system_prompt=system_prompt,
-            conversation_history=conversation_history,
-            temperature=settings.llm_temp_inspiration,
+            user_content=user_content,
             user_id=user_id,
-            timeout=240.0,
+            extra_messages=conversation_history[:-1] if len(conversation_history) > 1 else None,
         )
 
         # 4. 解析响应
@@ -300,7 +302,7 @@ class InspirationService:
             conversation_history=conversation_history,
             temperature=settings.llm_temp_inspiration,
             user_id=user_id,
-            timeout=240.0,
+            timeout=LLMConstants.INSPIRATION_TIMEOUT,
         ):
             content = chunk.get("content")
             if content:
@@ -311,9 +313,12 @@ class InspirationService:
         llm_response = "".join(full_response)
         parsed, normalized = self.parse_llm_response(llm_response, project_id)
 
-        # 6. 保存对话历史
+        # 6. 保存对话历史并立即提交
+        # 注意：在流式响应中，对话保存是关键操作，应该尽快持久化
+        # 避免在生成器外部commit，防止客户端断开导致事务状态不确定
         await self.conversation_service.append_conversation(project_id, "user", user_content)
         await self.conversation_service.append_conversation(project_id, "assistant", normalized)
+        await self.session.commit()
 
         # 7. 计算完成状态
         is_complete, ready_for_blueprint, conversation_turns = self.calculate_completion_status(

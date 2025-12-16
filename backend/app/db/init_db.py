@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -26,6 +26,9 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("数据库表结构已初始化")
+
+    # ---- 第一步半：执行数据库迁移（添加缺失的列） ----
+    await _run_migrations()
 
     # ---- 第二步：确保默认桌面用户存在（PyQt版无需管理员） ----
     async with AsyncSessionLocal() as session:
@@ -137,3 +140,37 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
     if updated_count > 0:
         await get_prompt_cache().invalidate()
         logger.info(f"已更新 {updated_count} 个提示词，缓存已失效")
+
+
+async def _run_migrations() -> None:
+    """
+    执行数据库迁移，添加缺失的列。
+
+    对于SQLite，使用ALTER TABLE ADD COLUMN来添加新列。
+    如果列已存在，会捕获异常并跳过。
+    """
+    migrations = [
+        # 格式: (表名, 列名, 列定义SQL)
+        (
+            "chapter_manga_prompts",
+            "source_version_id",
+            "ALTER TABLE chapter_manga_prompts ADD COLUMN source_version_id INTEGER REFERENCES chapter_versions(id) ON DELETE SET NULL"
+        ),
+    ]
+
+    async with engine.begin() as conn:
+        for table_name, column_name, alter_sql in migrations:
+            try:
+                # 检查列是否已存在（SQLite特有方式）
+                result = await conn.execute(text(f"PRAGMA table_info({table_name})"))
+                columns = [row[1] for row in result.fetchall()]
+
+                if column_name not in columns:
+                    await conn.execute(text(alter_sql))
+                    logger.info(f"数据库迁移: 已添加列 {table_name}.{column_name}")
+                else:
+                    logger.debug(f"数据库迁移: 列 {table_name}.{column_name} 已存在，跳过")
+
+            except OperationalError as e:
+                # 表可能不存在（首次运行），或其他问题
+                logger.debug(f"数据库迁移跳过 {table_name}.{column_name}: {e}")

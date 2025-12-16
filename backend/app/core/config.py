@@ -281,6 +281,26 @@ class Settings(BaseSettings):
         """是否已经配置向量库，用于在业务逻辑中快速判断。"""
         return bool(self.vector_db_url)
 
+    @property
+    def storage_dir(self) -> Path:
+        """存储目录根路径"""
+        if getattr(sys, 'frozen', False):
+            # 打包环境：存储在 exe 所在目录
+            return Path(sys.executable).parent / "storage"
+        else:
+            # 开发环境：存储在 backend/storage 目录
+            return Path(__file__).resolve().parents[2] / "storage"
+
+    @property
+    def generated_images_dir(self) -> Path:
+        """生成图片存储目录"""
+        return self.storage_dir / "generated_images"
+
+    @property
+    def exports_dir(self) -> Path:
+        """导出文件目录"""
+        return self.storage_dir / "exports"
+
 
 def _get_config_file_path() -> Path:
     """获取 config.json 配置文件路径（适配打包环境）"""

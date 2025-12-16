@@ -17,6 +17,7 @@ from ...repositories.chapter_repository import ChapterOutlineRepository
 from ...schemas.novel import ChapterOutline as ChapterOutlineSchema
 from ...utils.exception_helpers import log_exception
 from ..llm_service import LLMService
+from ..llm_wrappers import call_llm_json, LLMProfile
 from ..prompt_service import PromptService
 from ..prompt_builder import PromptBuilder
 
@@ -156,13 +157,13 @@ class ChapterOutlineWorkflow:
             )
 
             # 调用LLM
-            response = await self.llm_service.get_llm_response(
+            response = await call_llm_json(
+                self.llm_service,
+                LLMProfile.BLUEPRINT,
                 system_prompt=system_prompt,
-                conversation_history=[{"role": "user", "content": user_prompt}],
-                temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
+                user_content=user_prompt,
                 user_id=user_id,
-                response_format="json_object",
-                timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+                timeout_override=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
             )
 
             # 检查取消状态

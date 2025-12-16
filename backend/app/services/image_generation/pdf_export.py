@@ -18,26 +18,85 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .schemas import PDFExportRequest, PDFExportResult, ChapterMangaPDFRequest, ChapterMangaPDFResponse
 from ...models.image_config import GeneratedImage
 from ...models.novel import ChapterMangaPrompt
+from ...core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 计算存储目录路径（与 config.py 中 SQLite 路径计算方式一致）
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # backend/app/services/image_generation -> 项目根目录
-STORAGE_DIR = _PROJECT_ROOT / "backend" / "storage"
+# 使用统一的路径配置
+EXPORT_DIR = settings.exports_dir
+IMAGES_ROOT = settings.generated_images_dir
 
-# PDF导出目录
-EXPORT_DIR = STORAGE_DIR / "exports"
-
-# 图片存储根目录
-IMAGES_ROOT = STORAGE_DIR / "generated_images"
-
+# P2修复: 统一页面尺寸定义，避免在多处重复定义
 # 页面尺寸常量（单位：点，1点=1/72英寸）
 PAGE_SIZES = {
     "A4": (595.27, 841.89),   # 210x297mm
     "B5": (498.90, 708.66),   # 176x250mm
     "A5": (419.53, 595.27),   # 148x210mm
     "Letter": (612, 792),      # 8.5x11英寸
+    "A3": (841.89, 1190.55),  # 297x420mm
 }
+
+
+def get_page_size(size_name: str, default: str = "A4") -> tuple:
+    """
+    获取页面尺寸（统一入口）
+
+    Args:
+        size_name: 页面尺寸名称（A4, A3, B5, A5, Letter）
+        default: 默认尺寸
+
+    Returns:
+        (width, height) 元组，单位为点
+    """
+    return PAGE_SIZES.get(size_name, PAGE_SIZES.get(default, PAGE_SIZES["A4"]))
+
+# 中文字体配置
+# 默认使用系统字体，如果不可用则回退到Helvetica
+_CHINESE_FONT_REGISTERED = False
+_CHINESE_FONT_NAME = "Helvetica"  # 默认回退字体
+_CHINESE_FONT_BOLD = "Helvetica-Bold"
+
+
+def _register_chinese_font():
+    """注册中文字体（仅执行一次）"""
+    global _CHINESE_FONT_REGISTERED, _CHINESE_FONT_NAME, _CHINESE_FONT_BOLD
+
+    if _CHINESE_FONT_REGISTERED:
+        return
+
+    _CHINESE_FONT_REGISTERED = True
+
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+
+        # 尝试注册常见的中文字体
+        font_paths = [
+            # Windows 字体路径
+            ("SimHei", "C:/Windows/Fonts/simhei.ttf"),
+            ("SimSun", "C:/Windows/Fonts/simsun.ttc"),
+            ("Microsoft YaHei", "C:/Windows/Fonts/msyh.ttc"),
+            # Linux 字体路径
+            ("WenQuanYi", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+            # macOS 字体路径
+            ("PingFang", "/System/Library/Fonts/PingFang.ttc"),
+        ]
+
+        for font_name, font_path in font_paths:
+            if Path(font_path).exists():
+                try:
+                    pdfmetrics.registerFont(TTFont(font_name, font_path))
+                    _CHINESE_FONT_NAME = font_name
+                    _CHINESE_FONT_BOLD = font_name  # 中文字体通常没有单独的粗体版本
+                    logger.info("成功注册中文字体: %s", font_name)
+                    return
+                except Exception as e:
+                    logger.warning("注册字体 %s 失败: %s", font_name, e)
+                    continue
+
+        logger.warning("未找到可用的中文字体，将使用默认字体（中文可能显示为方块）")
+    except ImportError:
+        logger.warning("无法导入字体模块，使用默认字体")
 
 
 class PDFExportService:
@@ -62,7 +121,6 @@ class PDFExportService:
         try:
             # 导入reportlab（PDF生成库）
             try:
-                from reportlab.lib.pagesizes import A4, A3, letter
                 from reportlab.lib.units import cm
                 from reportlab.platypus import SimpleDocTemplate, Image, Paragraph, Spacer, PageBreak
                 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -97,13 +155,8 @@ class PDFExportService:
             file_name = f"{title}_{timestamp}.pdf"
             file_path = EXPORT_DIR / file_name
 
-            # 选择页面大小
-            page_sizes = {
-                "A4": A4,
-                "A3": A3,
-                "Letter": letter,
-            }
-            page_size = page_sizes.get(request.page_size, A4)
+            # P2修复: 使用统一的页面尺寸定义
+            page_size = get_page_size(request.page_size)
 
             # 创建PDF文档
             doc = SimpleDocTemplate(
@@ -254,7 +307,6 @@ class PDFExportService:
         try:
             # 导入reportlab
             try:
-                from reportlab.lib.pagesizes import A4, A3, letter
                 from reportlab.lib.units import cm, mm
                 from reportlab.pdfgen import canvas
                 from reportlab.lib.utils import ImageReader
@@ -265,16 +317,42 @@ class PDFExportService:
                     error_message="PDF生成库未安装，请运行: pip install reportlab pillow",
                 )
 
-            # 获取章节所有图片
-            result = await self.session.execute(
-                select(GeneratedImage)
-                .where(
-                    GeneratedImage.project_id == project_id,
-                    GeneratedImage.chapter_number == chapter_number,
+            # 获取章节所有图片（支持版本过滤）
+            query = select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+            )
+
+            # P1修复: 版本过滤逻辑优化 - 严格按版本过滤，不混入历史数据
+            # 如果指定了版本ID，只查询该版本的图片；否则只查询没有版本ID的历史图片
+            if request.chapter_version_id is not None:
+                query = query.where(
+                    GeneratedImage.chapter_version_id == request.chapter_version_id
                 )
-                .order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
+            else:
+                # 未指定版本时，只获取无版本标记的历史图片
+                query = query.where(
+                    GeneratedImage.chapter_version_id.is_(None)
+                )
+
+            result = await self.session.execute(
+                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
             )
             images = list(result.scalars().all())
+
+            # 如果指定版本没有图片，尝试回退到历史图片（仅作为降级策略）
+            if not images and request.chapter_version_id is not None:
+                logger.info(
+                    "版本 %s 无图片，尝试回退到历史图片",
+                    request.chapter_version_id
+                )
+                fallback_query = select(GeneratedImage).where(
+                    GeneratedImage.project_id == project_id,
+                    GeneratedImage.chapter_number == chapter_number,
+                    GeneratedImage.chapter_version_id.is_(None),
+                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
+                result = await self.session.execute(fallback_query)
+                images = list(result.scalars().all())
 
             if not images:
                 return ChapterMangaPDFResponse(
@@ -292,13 +370,8 @@ class PDFExportService:
             file_name = f"manga_{project_id}_ch{chapter_number}_{timestamp}.pdf"
             file_path = EXPORT_DIR / file_name
 
-            # 选择页面大小
-            page_sizes = {
-                "A4": A4,
-                "A3": A3,
-                "Letter": letter,
-            }
-            page_size = page_sizes.get(request.page_size, A4)
+            # P2修复: 使用统一的页面尺寸定义
+            page_size = get_page_size(request.page_size)
             page_width, page_height = page_size
 
             # 创建PDF
@@ -356,13 +429,14 @@ class PDFExportService:
                     )
 
                     # 绘制场景标签（左上角）
-                    c.setFont("Helvetica-Bold", 10)
+                    _register_chinese_font()  # 确保字体已注册
+                    c.setFont(_CHINESE_FONT_BOLD, 10)
                     c.setFillColorRGB(0.3, 0.3, 0.3)
                     c.drawString(margin, page_height - margin - 10, f"Scene {img.scene_id}")
 
                     # 绘制提示词（底部）
                     if request.include_prompts and img.prompt:
-                        c.setFont("Helvetica", 8)
+                        c.setFont(_CHINESE_FONT_NAME, 8)
                         c.setFillColorRGB(0.5, 0.5, 0.5)
                         # 截断过长的提示词
                         prompt_text = img.prompt[:150] + "..." if len(img.prompt) > 150 else img.prompt
@@ -459,16 +533,40 @@ class PDFExportService:
                 logger.info("排版信息为空，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
-            # 获取章节所有图片
-            result = await self.session.execute(
-                select(GeneratedImage)
-                .where(
-                    GeneratedImage.project_id == project_id,
-                    GeneratedImage.chapter_number == chapter_number,
+            # 获取章节所有图片（支持版本过滤）
+            query = select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+            )
+
+            # P1修复: 版本过滤逻辑优化 - 严格按版本过滤，不混入历史数据
+            if request.chapter_version_id is not None:
+                query = query.where(
+                    GeneratedImage.chapter_version_id == request.chapter_version_id
                 )
-                .order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
+            else:
+                query = query.where(
+                    GeneratedImage.chapter_version_id.is_(None)
+                )
+
+            result = await self.session.execute(
+                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
             )
             all_images = list(result.scalars().all())
+
+            # 如果指定版本没有图片，尝试回退到历史图片
+            if not all_images and request.chapter_version_id is not None:
+                logger.info(
+                    "版本 %s 无图片，尝试回退到历史图片",
+                    request.chapter_version_id
+                )
+                fallback_query = select(GeneratedImage).where(
+                    GeneratedImage.project_id == project_id,
+                    GeneratedImage.chapter_number == chapter_number,
+                    GeneratedImage.chapter_version_id.is_(None),
+                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
+                result = await self.session.execute(fallback_query)
+                all_images = list(result.scalars().all())
 
             if not all_images:
                 return ChapterMangaPDFResponse(
@@ -634,7 +732,7 @@ class PDFExportService:
 
                 # 绘制页码
                 c.setFillColorRGB(0.5, 0.5, 0.5)
-                c.setFont("Helvetica", 9)
+                c.setFont(_CHINESE_FONT_NAME, 9)
                 c.drawCentredString(page_width / 2, 15, str(page_num))
 
                 # 新页面

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories.blueprint_repository import NovelBlueprintRepository
 from ..services.llm_service import LLMService
+from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import parse_llm_json_or_fail
 from ..exceptions import ResourceNotFoundError, InvalidParameterError
@@ -83,12 +84,12 @@ class AvatarService:
 
         # 3. 调用LLM生成
         logger.info("项目 %s 开始生成头像", project_id)
-        response = await self.llm_service.get_llm_response(
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.CREATIVE,
             system_prompt=system_prompt,
-            conversation_history=[{"role": "user", "content": user_prompt}],
-            temperature=0.7,  # 允许一定创意
+            user_content=user_prompt,
             user_id=user_id,
-            response_format="json_object",
         )
 
         # 4. 解析响应

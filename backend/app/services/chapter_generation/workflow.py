@@ -73,14 +73,59 @@ class ChapterGenerationWorkflow:
     async def _initialize(self) -> None:
         """阶段1: 初始化和验证"""
         from ...core.state_machine import ProjectStatus
-        from ...exceptions import ResourceNotFoundError
+        from ...exceptions import ResourceNotFoundError, InvalidStateTransitionError, InvalidParameterError
 
         # 验证项目所有权
         self._project = await self.novel_service.ensure_project_owner(
             self.project_id, self.user_id
         )
 
-        # 状态转换
+        # 强制校验项目状态：只允许在大纲就绪或写作中状态下生成章节
+        allowed_states = [
+            ProjectStatus.CHAPTER_OUTLINES_READY.value,
+            ProjectStatus.WRITING.value,
+            ProjectStatus.COMPLETED.value,  # 允许在完成状态下继续编辑
+        ]
+        if self._project.status not in allowed_states:
+            current_status = self._project.status
+            # 提供友好的错误信息，引导用户完成前置步骤
+            if current_status == ProjectStatus.DRAFT.value:
+                hint = "请先完成灵感对话并生成蓝图"
+            elif current_status == ProjectStatus.BLUEPRINT_READY.value:
+                hint = "请先生成章节大纲"
+            elif current_status == ProjectStatus.PART_OUTLINES_READY.value:
+                hint = "请先生成章节大纲（基于分部大纲）"
+            else:
+                hint = "请确保已完成章节大纲生成"
+            raise InvalidStateTransitionError(
+                f"当前项目状态为 {current_status}，无法生成章节正文。{hint}"
+            )
+
+        # P0修复: 连贯性校验 - 只允许生成下一章或重生成已有章节
+        # 获取已完成生成的最大章节号（有selected_version_id表示已选择版本）
+        max_generated = 0
+        existing_chapter_numbers = set()
+        for ch in self._project.chapters:
+            existing_chapter_numbers.add(ch.chapter_number)
+            if ch.selected_version_id is not None:
+                max_generated = max(max_generated, ch.chapter_number)
+
+        # 允许的情况：
+        # 1. 重生成已有章节（chapter_number在existing_chapter_numbers中）
+        # 2. 生成下一章（chapter_number == max_generated + 1）
+        # 3. 第一章（chapter_number == 1 且 max_generated == 0）
+        is_regenerate = self.chapter_number in existing_chapter_numbers
+        is_next_chapter = self.chapter_number == max_generated + 1
+        is_first_chapter = self.chapter_number == 1 and max_generated == 0
+
+        if not (is_regenerate or is_next_chapter or is_first_chapter):
+            raise InvalidParameterError(
+                f"章节生成必须按顺序进行。当前已生成到第{max_generated}章，"
+                f"请先生成第{max_generated + 1}章，或选择重生成已有章节。",
+                "chapter_number"
+            )
+
+        # 状态转换：从大纲就绪进入写作状态
         if self._project.status == ProjectStatus.CHAPTER_OUTLINES_READY.value:
             await self.novel_service.transition_project_status(
                 self._project, ProjectStatus.WRITING.value
@@ -147,23 +192,11 @@ class ChapterGenerationWorkflow:
             vector_store=self.vector_store,
         )
 
-        # 获取RAG上下文
-        rag_context = (
-            gen_context.enhanced_rag_context.get_legacy_context()
-            if gen_context.enhanced_rag_context else None
-        )
-
         # 提取场景状态（新增）
         scene_extractor = SceneStateExtractor()
         scene_state = scene_extractor.extract(
             prev_chapter_analysis=gen_context.prev_chapter_analysis,
             previous_tail_excerpt=previous_tail,
-        )
-
-        # 获取生成上下文（用于提取涉及角色、伏笔等）
-        generation_context = (
-            gen_context.enhanced_rag_context.generation_context
-            if gen_context.enhanced_rag_context else None
         )
 
         # 构建用户提示词（场景聚焦结构）
@@ -172,12 +205,12 @@ class ChapterGenerationWorkflow:
             blueprint_dict=blueprint_dict,
             previous_summary_text=previous_summary,
             previous_tail_excerpt=previous_tail,
-            rag_context=rag_context,
+            rag_context=gen_context.rag_context,
             writing_notes=self.writing_notes,
             chapter_number=self.chapter_number,
             completed_chapters=completed_chapters,
             scene_state=scene_state,
-            generation_context=generation_context,
+            generation_context=gen_context.generation_context,
         )
 
         return writer_prompt, prompt_input

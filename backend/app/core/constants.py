@@ -30,7 +30,9 @@ class NovelConstants:
 
     # 部分大纲配置
     CHAPTERS_PER_PART = 25  # 每部分包含的章节数（长篇小说分部阈值）
-    LONG_NOVEL_THRESHOLD = 50  # 长篇小说阈值（章节数>=此值需使用部分大纲）
+    # 注意: 长篇小说阈值已改为可配置，实际使用 settings.part_outline_threshold
+    # 此常量仅作为默认参考值保留，业务逻辑应使用 settings.part_outline_threshold
+    LONG_NOVEL_THRESHOLD = 50  # 默认长篇小说阈值（仅供参考，实际值见settings）
 
     # 默认章节数（基于对话轮次推断）
     DEFAULT_CHAPTERS_SHORT = 30  # 简单短篇故事（对话轮次 ≤ 5）
@@ -52,8 +54,12 @@ class LLMConstants:
     # 超时配置（秒）
     BLUEPRINT_GENERATION_TIMEOUT = 480.0  # 蓝图生成超时（8分钟）
     CHAPTER_GENERATION_TIMEOUT = 600.0  # 章节生成超时（10分钟）
+    CHAPTER_OUTLINE_TIMEOUT = 360.0  # 章节大纲生成超时（6分钟）
     PART_OUTLINE_GENERATION_TIMEOUT = 300.0  # 分部大纲生成超时（5分钟）
+    INSPIRATION_TIMEOUT = 240.0  # 灵感对话超时（4分钟）
+    EVALUATION_TIMEOUT = 360.0  # 章节评估超时（6分钟）
     SUMMARY_GENERATION_TIMEOUT = 180.0  # 摘要生成超时（3分钟）
+    COHERENCE_CHECK_TIMEOUT = 120.0  # 连贯性检查超时（2分钟）
     DEFAULT_TIMEOUT = 120.0  # 默认超时（2分钟）
 
     # Token限制

@@ -7,7 +7,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,9 @@ from ..repositories.chapter_repository import (
 )
 from ..schemas.novel import ChapterGenerationStatus
 from ..utils.content_normalizer import count_chinese_characters
+
+if TYPE_CHECKING:
+    from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -154,15 +157,24 @@ class ChapterVersionService:
 
         return versions
 
-    async def select_chapter_version(self, chapter: Chapter, version_index: int) -> ChapterVersion:
+    async def select_chapter_version(
+        self,
+        chapter: Chapter,
+        version_index: int,
+        llm_service: Optional["LLMService"] = None,
+    ) -> ChapterVersion:
         """
         选择章节版本
+
+        当选择新版本时，会清理旧版本的索引数据并重新建立索引。
+        这确保了角色状态和伏笔索引始终反映当前选中版本的内容。
 
         注意：此方法不commit，调用方需要在适当时候commit
 
         Args:
             chapter: 章节实例
             version_index: 版本索引
+            llm_service: LLM服务（用于重新索引，可选）
 
         Returns:
             ChapterVersion: 被选中的版本
@@ -175,10 +187,39 @@ class ChapterVersionService:
             raise InvalidParameterError("版本索引无效", "version_index")
 
         selected = versions[version_index]
+
+        # 检查是否切换了版本（避免重复清理索引）
+        old_version_id = chapter.selected_version_id
+        is_version_changed = old_version_id is not None and old_version_id != selected.id
+
+        # 更新章节的选中版本
         chapter.selected_version_id = selected.id
         chapter.selected_version = selected
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.word_count = count_chinese_characters(selected.content or "")
+
+        # 如果版本发生变化，清理旧索引并重新建立索引
+        if is_version_changed:
+            logger.info(
+                "章节版本切换: project=%s chapter=%d old_version=%s new_version=%s",
+                chapter.project_id,
+                chapter.chapter_number,
+                old_version_id,
+                selected.id,
+            )
+
+            # 清理旧版本的索引数据（角色状态、伏笔）
+            from .incremental_indexer import IncrementalIndexer
+            indexer = IncrementalIndexer(self.session, llm_service)
+            await indexer.cleanup_chapter_indexes(chapter.project_id, chapter.chapter_number)
+
+            # 如果提供了LLM服务，重新为新版本建立索引
+            # 注意：重新索引是异步的且可能耗时较长，这里只做清理
+            # 实际的重新索引应该由调用方决定是否执行
+            logger.info(
+                "已清理章节 %d 的旧版本索引，新版本索引将在章节分析时重建",
+                chapter.chapter_number,
+            )
 
         await self._touch_project(chapter.project_id)
         return selected

@@ -141,8 +141,8 @@ async def converse_with_inspiration_stream(
                             })
                             await asyncio.sleep(0.15)
 
-                    # 提交事务
-                    await session.commit()
+                    # 注意：事务已在InspirationService中提交，此处无需再commit
+                    # 这避免了SSE生成器中的事务管理风险
 
                     # 发送完成事件
                     yield sse_event("complete", {

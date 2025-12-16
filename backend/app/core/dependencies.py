@@ -296,3 +296,50 @@ async def get_avatar_service(
     from ..services.avatar_service import AvatarService
     return AvatarService(session, llm_service, prompt_service)
 
+
+class VerifiedProjectDep:
+    """
+    验证项目所有权的依赖注入类
+
+    用于简化路由函数中重复的 ensure_project_owner 调用模式。
+    通过依赖注入自动验证项目存在性和所有权，减少样板代码。
+
+    Example:
+        ```python
+        @router.post("/{project_id}/blueprint/generate")
+        async def generate_blueprint(
+            project: NovelProject = Depends(VerifiedProjectDep()),
+            ...
+        ):
+            # project 已经验证过所有权
+            ...
+        ```
+    """
+
+    async def __call__(
+        self,
+        project_id: str,
+        novel_service: "NovelService" = Depends(get_novel_service),
+        desktop_user: UserInDB = Depends(get_default_user),
+    ) -> "NovelProject":
+        """
+        验证项目所有权并返回项目实例
+
+        Args:
+            project_id: 项目ID（从路径参数自动注入）
+            novel_service: NovelService实例
+            desktop_user: 当前用户
+
+        Returns:
+            已验证所有权的NovelProject实例
+
+        Raises:
+            ResourceNotFoundError: 项目不存在
+            PermissionDeniedError: 无权访问该项目
+        """
+        return await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+
+# 创建全局实例，便于使用
+get_verified_project = VerifiedProjectDep()
+

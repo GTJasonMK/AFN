@@ -249,6 +249,10 @@ class GenerateChapterRequest(BaseModel):
 class SelectVersionRequest(BaseModel):
     chapter_number: int
     version_index: int
+    trigger_rag_processing: bool = Field(
+        default=False,
+        description="是否触发RAG数据处理（摘要生成、章节分析、索引更新、向量入库）"
+    )
 
 
 class EvaluateChapterRequest(BaseModel):

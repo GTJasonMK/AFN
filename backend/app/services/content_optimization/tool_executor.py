@@ -90,6 +90,7 @@ class ToolExecutor:
         embedding_service: Optional[Any] = None,  # EmbeddingService
         character_index: Any = None,  # CharacterStateIndex model
         foreshadowing_index: Any = None,  # ForeshadowingIndex model
+        llm_service: Optional[Any] = None,  # LLMService，用于深度检查
     ):
         self.session = session
         self.vector_store = vector_store
@@ -97,6 +98,7 @@ class ToolExecutor:
         self.embedding_service = embedding_service
         self.character_index = character_index
         self.foreshadowing_index = foreshadowing_index
+        self.llm_service = llm_service
 
         # 初始化时序感知检索器
         self.temporal_retriever: Optional[TemporalAwareRetriever] = None
@@ -158,6 +160,7 @@ class ToolExecutor:
             ToolName.CHECK_COHERENCE: self._handle_check_coherence,
             ToolName.CHECK_CHARACTER: self._handle_check_character,
             ToolName.CHECK_TIMELINE: self._handle_check_timeline,
+            ToolName.DEEP_CHECK: self._handle_deep_check,
             ToolName.GENERATE_SUGGESTION: self._handle_generate_suggestion,
             ToolName.RECORD_OBSERVATION: self._handle_record_observation,
             ToolName.NEXT_PARAGRAPH: self._handle_next_paragraph,
@@ -564,6 +567,139 @@ class ToolExecutor:
             "issues_found": len(issues),
             "issues": issues,
         }
+
+    async def _handle_deep_check(
+        self,
+        params: Dict[str, Any],
+        state: AgentState,
+    ) -> Dict[str, Any]:
+        """
+        使用LLM进行深度内容检查
+
+        调用CoherenceChecker进行深度分析，返回详细的问题列表和修改建议。
+        """
+        from .coherence_checker import CoherenceChecker
+        from .schemas import CheckDimension, RAGContext, OptimizationContext
+
+        paragraph = state.current_paragraph
+        if not paragraph:
+            return {"error": "没有当前段落"}
+
+        # 解析检查维度
+        dimensions_param = params.get("dimensions", ["coherence"])
+        if isinstance(dimensions_param, str):
+            dimensions_param = [d.strip() for d in dimensions_param.split(",")]
+
+        dimensions = []
+        dimension_map = {
+            "coherence": CheckDimension.COHERENCE,
+            "character": CheckDimension.CHARACTER,
+            "foreshadow": CheckDimension.FORESHADOW,
+            "timeline": CheckDimension.TIMELINE,
+            "style": CheckDimension.STYLE,
+            "scene": CheckDimension.SCENE,
+        }
+        for d in dimensions_param:
+            if d in dimension_map:
+                dimensions.append(dimension_map[d])
+
+        if not dimensions:
+            dimensions = [CheckDimension.COHERENCE]
+
+        # 获取前文段落
+        prev_paragraphs = []
+        start_idx = max(0, state.current_index - 3)
+        for i in range(start_idx, state.current_index):
+            if i < len(state.paragraphs):
+                prev_paragraphs.append(state.paragraphs[i])
+
+        # 构建RAG上下文（如果有缓存的信息）
+        rag_context = RAGContext(
+            retrieved_chunks=[],  # 可以从之前的RAG检索结果中获取
+            character_states=state.character_states,
+            foreshadowings=[],
+        )
+
+        # 构建优化上下文
+        context = OptimizationContext(
+            project_id=state.project_id,
+            chapter_number=state.chapter_number,
+            total_chapters=state.total_chapters,
+            blueprint_summary="",  # 可以从外部传入
+            chapter_outline="",
+        )
+
+        # P1修复: 改进LLM服务可用性检查和降级策略
+        if self.llm_service is None:
+            # LLM服务未注入，返回提示并建议使用快速检查
+            logger.warning("深度检查请求但LLM服务未注入")
+            return {
+                "success": False,
+                "message": "深度检查需要LLM服务，当前未配置。建议使用快速检查工具（check_coherence等）进行基础分析。",
+                "fallback": True,
+                "fallback_reason": "llm_service_not_configured",
+                "dimensions_requested": [d.value for d in dimensions],
+                "alternative_tools": ["check_coherence", "check_character", "check_timeline"],
+            }
+
+        try:
+            checker = CoherenceChecker(self.llm_service)
+            suggestions = await checker.check_paragraph(
+                paragraph=paragraph,
+                paragraph_index=state.current_index,
+                prev_paragraphs=prev_paragraphs,
+                context=context,
+                rag_context=rag_context,
+                dimensions=dimensions,
+                user_id=1,  # 默认用户ID
+            )
+
+            # 转换建议为返回格式
+            issues = []
+            for suggestion in suggestions:
+                issues.append({
+                    "type": suggestion.category.value if hasattr(suggestion.category, 'value') else str(suggestion.category),
+                    "description": suggestion.description,
+                    "severity": suggestion.priority.value if hasattr(suggestion.priority, 'value') else str(suggestion.priority),
+                    "original_text": suggestion.original_text,
+                    "suggested_text": suggestion.suggested_text,
+                    "reason": suggestion.reason,
+                })
+
+            return {
+                "success": True,
+                "dimensions_checked": [d.value for d in dimensions],
+                "issues_found": len(issues),
+                "issues": issues,
+                "analysis_mode": "llm_deep_check",
+            }
+
+        except Exception as e:
+            error_str = str(e).lower()
+            logger.error("深度检查失败: %s", e, exc_info=True)
+
+            # P1修复: 根据错误类型提供更好的降级建议
+            fallback_reason = "unknown_error"
+            fallback_message = f"深度检查执行失败: {str(e)}"
+
+            if "quota" in error_str or "limit" in error_str or "rate" in error_str:
+                fallback_reason = "quota_exceeded"
+                fallback_message = "LLM服务配额已用尽，建议使用快速检查工具进行基础分析"
+            elif "timeout" in error_str:
+                fallback_reason = "timeout"
+                fallback_message = "深度检查超时，建议使用快速检查工具或稍后重试"
+            elif "connection" in error_str or "network" in error_str:
+                fallback_reason = "network_error"
+                fallback_message = "网络连接失败，请检查网络后重试"
+
+            return {
+                "success": False,
+                "message": fallback_message,
+                "fallback": True,
+                "fallback_reason": fallback_reason,
+                "dimensions_requested": [d.value for d in dimensions],
+                "alternative_tools": ["check_coherence", "check_character", "check_timeline"],
+            }
 
     # ==================== 输出工具 ====================
 

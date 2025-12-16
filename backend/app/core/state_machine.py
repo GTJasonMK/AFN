@@ -3,11 +3,15 @@
 统一管理项目状态转换，确保状态流转的一致性和可靠性
 """
 import logging
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from enum import Enum
 from app.exceptions import InvalidStateTransitionError
 
 logger = logging.getLogger(__name__)
+
+# 类型别名：清理钩子函数类型
+# 函数签名：(project_id: str, from_status: str, to_status: str) -> None
+CleanupHookType = Callable[[str, str, str], None]
 
 
 class ProjectStatus(str, Enum):
@@ -25,7 +29,7 @@ class ProjectStateMachine:
     项目状态机
     管理项目状态的转换规则和验证逻辑
     """
-    
+
     # 状态转换规则：当前状态 -> 允许转换到的状态列表
     TRANSITIONS: Dict[str, List[str]] = {
         ProjectStatus.DRAFT: [
@@ -54,7 +58,18 @@ class ProjectStateMachine:
             ProjectStatus.WRITING,  # 允许继续编辑
         ],
     }
-    
+
+    # 回退转换：标识哪些状态转换是回退操作，需要触发清理
+    # 格式：{(from_status, to_status)} - 表示需要清理的回退转换
+    BACKWARD_TRANSITIONS: Set[Tuple[str, str]] = {
+        (ProjectStatus.BLUEPRINT_READY, ProjectStatus.DRAFT),
+        (ProjectStatus.PART_OUTLINES_READY, ProjectStatus.BLUEPRINT_READY),
+        (ProjectStatus.CHAPTER_OUTLINES_READY, ProjectStatus.BLUEPRINT_READY),
+        (ProjectStatus.CHAPTER_OUTLINES_READY, ProjectStatus.PART_OUTLINES_READY),
+        (ProjectStatus.WRITING, ProjectStatus.CHAPTER_OUTLINES_READY),
+        (ProjectStatus.COMPLETED, ProjectStatus.WRITING),
+    }
+
     # 状态描述（用于日志和错误提示）
     STATUS_DESCRIPTIONS: Dict[str, str] = {
         ProjectStatus.DRAFT: "草稿（灵感对话中）",
@@ -64,29 +79,55 @@ class ProjectStateMachine:
         ProjectStatus.WRITING: "写作中",
         ProjectStatus.COMPLETED: "已完成",
     }
-    
+
     def __init__(self, current_status: str):
         """
         初始化状态机
-        
+
         Args:
             current_status: 当前项目状态
         """
         self.current_status = current_status
-        
+
     def can_transition_to(self, new_status: str) -> bool:
         """
         检查是否可以转换到目标状态
-        
+
         Args:
             new_status: 目标状态
-            
+
         Returns:
             bool: 是否允许转换
         """
         allowed_transitions = self.TRANSITIONS.get(self.current_status, [])
         return new_status in allowed_transitions
-    
+
+    def is_backward_transition(self, new_status: str) -> bool:
+        """
+        检查是否是回退转换（需要触发清理）
+
+        Args:
+            new_status: 目标状态
+
+        Returns:
+            bool: 是否是回退转换
+        """
+        return (self.current_status, new_status) in self.BACKWARD_TRANSITIONS
+
+    @classmethod
+    def check_backward_transition(cls, from_status: str, to_status: str) -> bool:
+        """
+        静态方法：检查状态转换是否是回退操作
+
+        Args:
+            from_status: 源状态
+            to_status: 目标状态
+
+        Returns:
+            bool: 是否是回退转换
+        """
+        return (from_status, to_status) in cls.BACKWARD_TRANSITIONS
+
     def transition_to(self, new_status: str, force: bool = False) -> str:
         """
         执行状态转换
@@ -113,47 +154,51 @@ class ProjectStateMachine:
             )
             raise InvalidStateTransitionError(current_desc, new_desc, allowed_str)
 
+        # 检查是否是回退转换
+        is_backward = self.is_backward_transition(new_status)
+
         logger.info(
-            "项目状态转换: %s -> %s%s",
+            "项目状态转换: %s -> %s%s%s",
             self.STATUS_DESCRIPTIONS.get(self.current_status, self.current_status),
             self.STATUS_DESCRIPTIONS.get(new_status, new_status),
-            " (强制)" if force else ""
+            " (强制)" if force else "",
+            " [回退]" if is_backward else ""
         )
 
         self.current_status = new_status
         return new_status
-    
+
     def get_allowed_transitions(self) -> List[str]:
         """
         获取当前状态允许转换到的所有状态
-        
+
         Returns:
             List[str]: 允许的目标状态列表
         """
         return self.TRANSITIONS.get(self.current_status, [])
-    
+
     def get_status_description(self, status: Optional[str] = None) -> str:
         """
         获取状态描述
-        
+
         Args:
             status: 要查询的状态（None表示查询当前状态）
-            
+
         Returns:
             str: 状态描述
         """
         target_status = status if status is not None else self.current_status
         return self.STATUS_DESCRIPTIONS.get(target_status, target_status)
-    
+
     @classmethod
     def validate_transition(cls, current_status: str, new_status: str) -> bool:
         """
         静态方法：验证状态转换是否合法
-        
+
         Args:
             current_status: 当前状态
             new_status: 目标状态
-            
+
         Returns:
             bool: 是否合法
         """

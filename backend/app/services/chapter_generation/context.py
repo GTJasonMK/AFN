@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..chapter_context_service import EnhancedRAGContext
+    from ..chapter_context_service import EnhancedRAGContext, ChapterRAGContext
     from ..rag.context_builder import BlueprintInfo
 
 
@@ -31,6 +31,34 @@ class ChapterGenerationContext:
     pending_foreshadowing: Optional[List[Dict[str, Any]]]
     total_chapters: int
     enhanced_rag_context: Optional["EnhancedRAGContext"] = None
+
+    @property
+    def rag_context(self) -> Optional["ChapterRAGContext"]:
+        """
+        获取传统RAG上下文（兼容旧接口）
+
+        封装空值检查逻辑，简化调用方代码。
+
+        Returns:
+            ChapterRAGContext: 传统RAG上下文，无增强上下文时返回None
+        """
+        if self.enhanced_rag_context is None:
+            return None
+        return self.enhanced_rag_context.get_legacy_context()
+
+    @property
+    def generation_context(self) -> Optional[Any]:
+        """
+        获取生成上下文信息
+
+        封装空值检查逻辑，用于提取涉及角色、伏笔等信息。
+
+        Returns:
+            生成上下文，无增强上下文时返回None
+        """
+        if self.enhanced_rag_context is None:
+            return None
+        return self.enhanced_rag_context.generation_context
 
 
 @dataclass

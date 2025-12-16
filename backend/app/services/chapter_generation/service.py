@@ -302,7 +302,7 @@ class ChapterGenerationService:
                             chapter.selected_version.content,
                             temperature=settings.llm_temp_summary,
                             user_id=user_id,
-                            timeout=180.0,
+                            timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
                         )
                         return (chapter, remove_think_tags(summary), None)
                     except Exception as exc:
@@ -490,7 +490,7 @@ class ChapterGenerationService:
                     conversation_history=[{"role": "user", "content": prompt_input}],
                     temperature=settings.llm_temp_writing,
                     user_id=user_id,
-                    timeout=600.0,
+                    timeout=LLMConstants.CHAPTER_GENERATION_TIMEOUT,
                     max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
                     response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
                     skip_usage_tracking=skip_usage_tracking,

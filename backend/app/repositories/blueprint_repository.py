@@ -53,17 +53,21 @@ class NovelBlueprintRepository(BaseRepository[NovelBlueprint]):
         await self.session.flush()
         return blueprint
 
-    async def delete_by_project_id(self, project_id: str) -> None:
+    async def delete_by_project_id(self, project_id: str) -> int:
         """
         删除项目的蓝图
 
         Args:
             project_id: 项目ID
+
+        Returns:
+            删除的记录数
         """
-        await self.session.execute(
-            delete(NovelBlueprint).where(NovelBlueprint.project_id == project_id)
-        )
+        # NovelBlueprint使用project_id作为主键，需要特殊处理
+        stmt = delete(NovelBlueprint).where(NovelBlueprint.project_id == project_id)
+        result = await self.session.execute(stmt)
         await self.session.flush()
+        return result.rowcount
 
 
 class BlueprintCharacterRepository(BaseRepository[BlueprintCharacter]):
@@ -83,18 +87,17 @@ class BlueprintCharacterRepository(BaseRepository[BlueprintCharacter]):
         """
         return await self.list(filters={"project_id": project_id})
 
-    async def delete_by_project(self, project_id: str) -> None:
+    async def delete_by_project(self, project_id: str) -> int:
         """
         删除项目的所有角色
 
         Args:
             project_id: 项目ID
+
+        Returns:
+            删除的记录数
         """
-        await self.session.execute(
-            delete(BlueprintCharacter).where(
-                BlueprintCharacter.project_id == project_id
-            )
-        )
+        return await self.delete_by_project_id(project_id)
 
     async def bulk_create(
         self,
@@ -147,18 +150,17 @@ class BlueprintRelationshipRepository(BaseRepository[BlueprintRelationship]):
         """
         return await self.list(filters={"project_id": project_id})
 
-    async def delete_by_project(self, project_id: str) -> None:
+    async def delete_by_project(self, project_id: str) -> int:
         """
         删除项目的所有关系
 
         Args:
             project_id: 项目ID
+
+        Returns:
+            删除的记录数
         """
-        await self.session.execute(
-            delete(BlueprintRelationship).where(
-                BlueprintRelationship.project_id == project_id
-            )
-        )
+        return await self.delete_by_project_id(project_id)
 
     async def bulk_create(
         self,

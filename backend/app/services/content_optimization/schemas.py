@@ -170,11 +170,154 @@ class ParagraphCompleteEvent(BaseModel):
     suggestion_count: int = Field(default=0, description="该段落的建议数")
 
 
-class ThinkingEvent(BaseModel):
-    """思考过程事件"""
-    paragraph_index: int = Field(..., description="段落索引")
+class ThinkingStepType(str, Enum):
+    """思考步骤类型"""
+    ANALYSIS = "analysis"       # 分析当前内容
+    RETRIEVAL = "retrieval"     # 检索相关信息
+    COMPARISON = "comparison"   # 对比前后文
+    DECISION = "decision"       # 做出决策
+    VERIFICATION = "verification"  # 验证结论
+
+
+class ThinkingStep(BaseModel):
+    """
+    P2-3: 结构化思考步骤
+
+    将Agent的思考过程拆分为可追踪的步骤，便于：
+    - 前端展示结构化的思考链
+    - 调试Agent的决策过程
+    - 评估Agent的推理质量
+    """
+    step_type: ThinkingStepType = Field(..., description="步骤类型")
     content: str = Field(..., description="思考内容")
-    step: str = Field(..., description="当前步骤")
+    evidence: List[str] = Field(default_factory=list, description="支撑证据")
+    confidence: float = Field(default=0.5, ge=0, le=1, description="置信度(0-1)")
+    related_dimension: Optional[str] = Field(default=None, description="相关检查维度")
+
+
+class StructuredThinking(BaseModel):
+    """
+    结构化思考过程
+
+    将原始思考文本解析为结构化步骤序列。
+    """
+    raw_content: str = Field(..., description="原始思考内容")
+    steps: List[ThinkingStep] = Field(default_factory=list, description="结构化步骤")
+    summary: str = Field(default="", description="思考总结")
+    next_action_hint: Optional[str] = Field(default=None, description="下一步行动提示")
+
+    @classmethod
+    def parse_from_text(cls, raw_text: str) -> "StructuredThinking":
+        """
+        从原始思考文本解析出结构化步骤
+
+        解析策略：
+        1. 按句号或换行分割文本
+        2. 根据关键词识别步骤类型
+        3. 提取证据（引号内容、具体引用）
+        4. 估算置信度（基于确定性词汇）
+        """
+        if not raw_text:
+            return cls(raw_content="", steps=[], summary="")
+
+        steps = []
+        lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+
+        # 关键词到步骤类型的映射
+        type_keywords = {
+            ThinkingStepType.ANALYSIS: ["分析", "观察", "发现", "注意到", "段落", "内容"],
+            ThinkingStepType.RETRIEVAL: ["检索", "查询", "获取", "RAG", "前文", "历史"],
+            ThinkingStepType.COMPARISON: ["对比", "比较", "与之前", "前后", "变化", "差异"],
+            ThinkingStepType.DECISION: ["决定", "选择", "需要", "应该", "计划", "下一步"],
+            ThinkingStepType.VERIFICATION: ["验证", "确认", "检查", "核实", "没有问题", "一致"],
+        }
+
+        # 置信度关键词
+        high_confidence_words = ["明显", "确定", "肯定", "必须", "严重", "重要"]
+        low_confidence_words = ["可能", "也许", "似乎", "好像", "不确定", "待"]
+
+        for line in lines:
+            if not line:
+                continue
+
+            # 识别步骤类型
+            step_type = ThinkingStepType.ANALYSIS  # 默认
+            for stype, keywords in type_keywords.items():
+                if any(kw in line for kw in keywords):
+                    step_type = stype
+                    break
+
+            # 提取证据（引号内容）
+            import re
+            evidence = re.findall(r'["\u201c\u300c]([^"\u201d\u300d]+)["\u201d\u300d]', line)
+
+            # 估算置信度
+            confidence = 0.5
+            if any(word in line for word in high_confidence_words):
+                confidence = 0.8
+            elif any(word in line for word in low_confidence_words):
+                confidence = 0.3
+
+            # 识别相关维度
+            dimension = None
+            dimension_keywords = {
+                "coherence": ["连贯", "逻辑", "过渡"],
+                "character": ["角色", "人物", "性格"],
+                "foreshadow": ["伏笔", "铺垫", "呼应"],
+                "timeline": ["时间", "顺序", "先后"],
+                "style": ["风格", "语气", "文风"],
+                "scene": ["场景", "地点", "环境"],
+            }
+            for dim, kws in dimension_keywords.items():
+                if any(kw in line for kw in kws):
+                    dimension = dim
+                    break
+
+            steps.append(ThinkingStep(
+                step_type=step_type,
+                content=line,
+                evidence=evidence,
+                confidence=confidence,
+                related_dimension=dimension,
+            ))
+
+        # 生成总结（取最后一个decision类型的步骤，或最后一步）
+        summary = ""
+        for step in reversed(steps):
+            if step.step_type == ThinkingStepType.DECISION:
+                summary = step.content
+                break
+        if not summary and steps:
+            summary = steps[-1].content
+
+        # 提取下一步行动提示
+        next_action = None
+        for step in steps:
+            if step.step_type == ThinkingStepType.DECISION and "使用" in step.content:
+                next_action = step.content
+                break
+
+        return cls(
+            raw_content=raw_text,
+            steps=steps,
+            summary=summary[:200] if summary else "",
+            next_action_hint=next_action,
+        )
+
+
+class ThinkingEvent(BaseModel):
+    """
+    思考过程事件
+
+    P2-3优化: 支持结构化思考步骤展示
+    """
+    paragraph_index: int = Field(..., description="段落索引")
+    content: str = Field(..., description="思考内容（原始文本）")
+    step: str = Field(..., description="当前步骤标识")
+    # P2-3: 新增结构化字段
+    structured: Optional[StructuredThinking] = Field(default=None, description="结构化思考过程")
+    step_count: int = Field(default=0, description="思考步骤数")
+    primary_dimension: Optional[str] = Field(default=None, description="主要关注维度")
 
 
 class ActionEvent(BaseModel):

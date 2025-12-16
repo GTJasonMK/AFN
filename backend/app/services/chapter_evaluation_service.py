@@ -18,8 +18,10 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.constants import LLMConstants
 from ..models.novel import Chapter, ChapterEvaluation, ChapterOutline, NovelProject
 from ..utils.json_utils import remove_think_tags, unwrap_markdown_json
+from .llm_wrappers import call_llm, LLMProfile
 
 if TYPE_CHECKING:
     from .llm_service import LLMService
@@ -321,14 +323,12 @@ class ChapterEvaluationService:
 
         # 5. 调用LLM进行评估
         try:
-            evaluation_raw = await self.llm_service.get_llm_response(
+            evaluation_raw = await call_llm(
+                self.llm_service,
+                LLMProfile.EVALUATION,
                 system_prompt=evaluator_prompt,
-                conversation_history=[
-                    {"role": "user", "content": json.dumps(evaluator_payload, ensure_ascii=False)}
-                ],
-                temperature=settings.llm_temp_evaluation,
+                user_content=json.dumps(evaluator_payload, ensure_ascii=False),
                 user_id=user_id,
-                timeout=360.0,
             )
 
             # 清理响应

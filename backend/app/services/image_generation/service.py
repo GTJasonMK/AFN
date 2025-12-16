@@ -2,14 +2,13 @@
 图片生成服务
 
 主服务入口，协调配置管理和图片生成。
-支持多厂商的图片生成API调用。
+支持多厂商的图片生成API调用，使用工厂模式管理供应商。
 """
 
-import re
 import time
+import uuid
 import hashlib
 import logging
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -24,18 +23,53 @@ from .schemas import (
     ImageConfigCreate,
     ImageConfigUpdate,
     ProviderType,
-    STYLE_SUFFIXES,
-    QUALITY_PARAMS,
-    RESOLUTION_SUFFIXES,
 )
+from .providers import ImageProviderFactory
 from ...models.image_config import ImageGenerationConfig, GeneratedImage
+from ...core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 计算存储目录路径（与 config.py 中 SQLite 路径计算方式一致）
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # backend/app/services/image_generation -> 项目根目录
-STORAGE_DIR = _PROJECT_ROOT / "backend" / "storage"
-IMAGES_ROOT = STORAGE_DIR / "generated_images"
+# 使用统一的路径配置
+IMAGES_ROOT = settings.generated_images_dir
+
+
+# ============================================================================
+# HTTP客户端管理（连接池复用）
+# ============================================================================
+
+class HTTPClientManager:
+    """
+    HTTP客户端管理器
+
+    提供全局共享的httpx.AsyncClient，支持连接池复用。
+    避免每次请求都创建新的TCP连接，提高性能。
+    """
+    _client: Optional[httpx.AsyncClient] = None
+
+    @classmethod
+    async def get_client(cls) -> httpx.AsyncClient:
+        """获取共享的HTTP客户端（懒加载）"""
+        if cls._client is None:
+            cls._client = httpx.AsyncClient(
+                timeout=60.0,
+                limits=httpx.Limits(
+                    max_keepalive_connections=20,  # 保持活跃的连接数
+                    max_connections=50,            # 最大连接数
+                    keepalive_expiry=30.0,         # 连接过期时间（秒）
+                ),
+                http2=True,  # 启用HTTP/2（如果服务器支持）
+            )
+            logger.info("HTTP客户端已创建，连接池配置: max_connections=50, keepalive=20")
+        return cls._client
+
+    @classmethod
+    async def close_client(cls) -> None:
+        """关闭HTTP客户端（应用关闭时调用）"""
+        if cls._client is not None:
+            await cls._client.aclose()
+            cls._client = None
+            logger.info("HTTP客户端已关闭")
 
 
 class ImageGenerationService:
@@ -152,19 +186,23 @@ class ImageGenerationService:
         return True
 
     async def test_config(self, config_id: int, user_id: int) -> Dict[str, Any]:
-        """测试配置连接"""
+        """测试配置连接（使用工厂模式）"""
         config = await self.get_config(config_id, user_id)
         if not config:
             return {"success": False, "message": "配置不存在"}
 
         try:
-            # 根据提供商类型测试连接
-            if config.provider_type == ProviderType.OPENAI_COMPATIBLE.value:
-                result = await self._test_openai_compatible(config)
-            elif config.provider_type == ProviderType.STABILITY.value:
-                result = await self._test_stability(config)
-            else:
+            # 使用工厂获取对应的供应商
+            provider = ImageProviderFactory.get_provider(config.provider_type)
+            if not provider:
                 result = {"success": False, "message": f"不支持的提供商类型: {config.provider_type}"}
+            else:
+                test_result = await provider.test_connection(config)
+                result = {
+                    "success": test_result.success,
+                    "message": test_result.message,
+                    **test_result.extra_info
+                }
 
             # 更新测试状态
             config.last_test_at = datetime.utcnow()
@@ -183,36 +221,6 @@ class ImageGenerationService:
             await self.session.flush()
             return {"success": False, "message": str(e)}
 
-    async def _test_openai_compatible(self, config: ImageGenerationConfig) -> Dict[str, Any]:
-        """测试OpenAI兼容接口"""
-        if not config.api_base_url or not config.api_key:
-            return {"success": False, "message": "API URL或API Key未配置"}
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                # 尝试获取模型列表来验证连接
-                response = await client.get(
-                    f"{config.api_base_url.rstrip('/')}/v1/models",
-                    headers={"Authorization": f"Bearer {config.api_key}"},
-                )
-
-                if response.status_code == 200:
-                    return {"success": True, "message": "连接成功"}
-                elif response.status_code == 401:
-                    return {"success": False, "message": "API Key无效"}
-                else:
-                    return {"success": False, "message": f"连接失败: HTTP {response.status_code}"}
-
-        except httpx.TimeoutException:
-            return {"success": False, "message": "连接超时"}
-        except Exception as e:
-            return {"success": False, "message": f"连接错误: {str(e)}"}
-
-    async def _test_stability(self, config: ImageGenerationConfig) -> Dict[str, Any]:
-        """测试Stability AI接口"""
-        # TODO: 实现Stability AI测试
-        return {"success": False, "message": "Stability AI暂未实现"}
-
     # ==================== 图片生成 ====================
 
     async def generate_image(
@@ -224,7 +232,7 @@ class ImageGenerationService:
         request: ImageGenerationRequest,
     ) -> ImageGenerationResult:
         """
-        生成图片
+        生成图片（使用工厂模式）
 
         Args:
             user_id: 用户ID
@@ -247,18 +255,24 @@ class ImageGenerationService:
             )
 
         try:
-            # 根据提供商类型调用不同的生成方法
-            if config.provider_type == ProviderType.OPENAI_COMPATIBLE.value:
-                image_urls = await self._generate_openai_compatible(config, request)
-            elif config.provider_type == ProviderType.STABILITY.value:
-                image_urls = await self._generate_stability(config, request)
-            else:
+            # 使用工厂获取对应的供应商
+            provider = ImageProviderFactory.get_provider(config.provider_type)
+            if not provider:
                 return ImageGenerationResult(
                     success=False,
                     error_message=f"不支持的提供商类型: {config.provider_type}",
                 )
 
-            if not image_urls:
+            # 调用供应商生成图片
+            gen_result = await provider.generate(config, request)
+
+            if not gen_result.success:
+                return ImageGenerationResult(
+                    success=False,
+                    error_message=gen_result.error_message,
+                )
+
+            if not gen_result.image_urls:
                 return ImageGenerationResult(
                     success=False,
                     error_message="未能获取到生成的图片",
@@ -266,7 +280,7 @@ class ImageGenerationService:
 
             # 下载并保存图片
             saved_images = await self._download_and_save_images(
-                image_urls=image_urls,
+                image_urls=gen_result.image_urls,
                 project_id=project_id,
                 chapter_number=chapter_number,
                 scene_id=scene_id,
@@ -274,6 +288,7 @@ class ImageGenerationService:
                 negative_prompt=request.negative_prompt,
                 model_name=config.model_name,
                 style=request.style,
+                chapter_version_id=request.chapter_version_id,
             )
 
             generation_time = time.time() - start_time
@@ -292,110 +307,6 @@ class ImageGenerationService:
                 error_message=error_msg,
             )
 
-    async def _generate_openai_compatible(
-        self,
-        config: ImageGenerationConfig,
-        request: ImageGenerationRequest,
-    ) -> List[str]:
-        """
-        使用OpenAI兼容接口生成图片
-
-        Returns:
-            图片URL列表
-        """
-        # 构建完整提示词
-        full_prompt = self._build_prompt(request)
-
-        # 获取质量参数
-        quality_params = QUALITY_PARAMS.get(request.quality or "standard", QUALITY_PARAMS["standard"])
-
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                f"{config.api_base_url.rstrip('/')}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": config.model_name or "nano-banana-pro",
-                    "messages": [{"role": "user", "content": full_prompt}],
-                    "max_tokens": quality_params["max_tokens"],
-                    "temperature": quality_params["temperature"],
-                    "n": request.count,
-                },
-            )
-
-            if response.status_code != 200:
-                error_msg = f"API错误({response.status_code})"
-                try:
-                    error_data = response.json()
-                    if "error" in error_data:
-                        error_msg = error_data["error"].get("message", error_msg)
-                except:
-                    pass
-                raise Exception(error_msg)
-
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
-
-            # 从Markdown格式中提取图片URL
-            urls = []
-
-            # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
-            full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content)
-            urls.extend(full_urls)
-
-            # 提取本地路径: ![xxx](/images/xxx/xxx.png)
-            local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content)
-            for path in local_paths:
-                urls.append(f"{config.api_base_url.rstrip('/')}{path}")
-
-            return urls
-
-    async def _generate_stability(
-        self,
-        config: ImageGenerationConfig,
-        request: ImageGenerationRequest,
-    ) -> List[str]:
-        """使用Stability AI生成图片"""
-        # TODO: 实现Stability AI生成
-        raise NotImplementedError("Stability AI暂未实现")
-
-    # 使用场景上下文前缀 - 向图像生成模型说明这是合法的漫画创作用途
-    # 这有助于避免某些看起来敏感但实际上是正常故事情节的提示词被误判为违规
-    CONTEXT_PREFIX = (
-        "[Context: This is a professional manga/comic illustration for a licensed novel adaptation. "
-        "The artwork is for legitimate storytelling purposes in a published creative work. "
-        "Please generate appropriate manga-style artwork for the following scene description.]\n\n"
-    )
-
-    def _build_prompt(self, request: ImageGenerationRequest) -> str:
-        """构建完整提示词"""
-        # 添加使用场景上下文前缀
-        prompt = self.CONTEXT_PREFIX + request.prompt
-
-        # 添加风格后缀
-        if request.style:
-            style_suffix = STYLE_SUFFIXES.get(request.style, "")
-            if style_suffix:
-                prompt = f"{prompt}, {style_suffix}"
-
-        # 添加分辨率后缀
-        if request.resolution:
-            res_suffix = RESOLUTION_SUFFIXES.get(request.resolution, "")
-            if res_suffix:
-                prompt = f"{prompt}{res_suffix}"
-
-        # 添加宽高比
-        if request.ratio:
-            prompt = f"{prompt}, aspect ratio {request.ratio}"
-
-        # 添加负面提示词
-        if request.negative_prompt:
-            prompt = f"{prompt}\n\nNegative: {request.negative_prompt}"
-
-        return prompt
-
     async def _download_and_save_images(
         self,
         image_urls: List[str],
@@ -406,68 +317,115 @@ class ImageGenerationService:
         negative_prompt: Optional[str],
         model_name: Optional[str],
         style: Optional[str],
+        chapter_version_id: Optional[int] = None,
     ) -> List[GeneratedImageInfo]:
-        """下载并保存图片"""
+        """下载并保存图片
+
+        支持两种URL格式：
+        1. 标准HTTP(S) URL：从远程服务器下载图片
+        2. Base64数据URL（data:image/png;base64,...）：直接解码保存
+
+        Args:
+            chapter_version_id: 章节版本ID，用于版本追溯
+        """
+        import base64
+
         saved_images = []
 
         # 确保目录存在
         save_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}"
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for i, url in enumerate(image_urls):
-                try:
+        # 使用共享的HTTP客户端（连接池复用）
+        client = await HTTPClientManager.get_client()
+
+        for i, url in enumerate(image_urls):
+            try:
+                # 检查是否是Base64数据URL
+                if url.startswith("data:image/"):
+                    # 解析Base64数据URL
+                    # 格式: data:image/png;base64,<base64_data>
+                    try:
+                        header, b64_data = url.split(",", 1)
+                        # 安全检查：限制Base64数据大小（50MB）
+                        MAX_BASE64_SIZE = 50 * 1024 * 1024  # 50MB
+                        if len(b64_data) > MAX_BASE64_SIZE:
+                            logger.warning(
+                                "Base64图片数据过大: %d bytes (max: %d), scene_id=%d",
+                                len(b64_data), MAX_BASE64_SIZE, scene_id
+                            )
+                            continue
+                        image_content = base64.b64decode(b64_data)
+                    except Exception as e:
+                        logger.warning(
+                            "解析Base64图片数据失败: %s, scene_id=%d", e, scene_id
+                        )
+                        continue
+                else:
+                    # 标准HTTP下载
                     response = await client.get(url)
                     if response.status_code != 200:
                         logger.warning(f"下载图片失败: {url}, status={response.status_code}")
                         continue
+                    image_content = response.content
 
-                    # 生成文件名
-                    content_hash = hashlib.md5(response.content).hexdigest()[:8]
-                    timestamp = int(time.time())
-                    file_name = f"img_{timestamp}_{content_hash}_{i}.png"
-                    file_path = save_dir / file_name
+                # 生成唯一文件名（使用UUID保证唯一性，避免并发冲突）
+                unique_id = uuid.uuid4().hex[:12]  # 12位足够避免冲突
+                content_hash = hashlib.md5(image_content).hexdigest()[:8]
+                file_name = f"img_{unique_id}_{content_hash}.png"
+                file_path = save_dir / file_name
 
-                    # 保存文件
-                    file_path.write_bytes(response.content)
+                # 原子写入：先写入临时文件，再重命名（防止写入中断导致文件损坏）
+                temp_path = save_dir / f".tmp_{unique_id}.png"
+                try:
+                    temp_path.write_bytes(image_content)
+                    temp_path.rename(file_path)  # rename在大多数文件系统上是原子操作
+                except Exception:
+                    # 清理临时文件
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    raise
 
-                    # 创建数据库记录
-                    image_record = GeneratedImage(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        scene_id=scene_id,
+                # 创建数据库记录
+                # 对于Base64数据URL，source_url存储为空（数据太大）
+                source_url_to_save = url if not url.startswith("data:") else None
+                image_record = GeneratedImage(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    scene_id=scene_id,
+                    chapter_version_id=chapter_version_id,  # 版本追溯
+                    file_name=file_name,
+                    file_path=str(file_path.relative_to(IMAGES_ROOT)),
+                    file_size=len(image_content),
+                    mime_type="image/png",
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    model_name=model_name,
+                    style=style,
+                    source_url=source_url_to_save,
+                )
+                self.session.add(image_record)
+                await self.session.flush()
+
+                # 构建访问URL
+                access_url = f"/api/images/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"
+
+                saved_images.append(
+                    GeneratedImageInfo(
+                        id=image_record.id,
                         file_name=file_name,
-                        file_path=str(file_path.relative_to(IMAGES_ROOT)),
-                        file_size=len(response.content),
-                        mime_type="image/png",
+                        file_path=str(file_path),
+                        url=access_url,
+                        scene_id=scene_id,
                         prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        model_name=model_name,
-                        style=style,
-                        source_url=url,
+                        created_at=image_record.created_at,
                     )
-                    self.session.add(image_record)
-                    await self.session.flush()
+                )
 
-                    # 构建访问URL
-                    access_url = f"/api/images/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"
-
-                    saved_images.append(
-                        GeneratedImageInfo(
-                            id=image_record.id,
-                            file_name=file_name,
-                            file_path=str(file_path),
-                            url=access_url,
-                            scene_id=scene_id,
-                            prompt=prompt,
-                            created_at=image_record.created_at,
-                        )
-                    )
-
-                except Exception as e:
-                    error_msg = str(e) if str(e) else f"{type(e).__name__}"
-                    logger.error(f"保存图片失败: {error_msg}", exc_info=True)
-                    continue
+            except Exception as e:
+                error_msg = str(e) if str(e) else f"{type(e).__name__}"
+                logger.error(f"保存图片失败: {error_msg}", exc_info=True)
+                continue
 
         return saved_images
 
@@ -495,15 +453,47 @@ class ImageGenerationService:
         self,
         project_id: str,
         chapter_number: int,
+        version_id: Optional[int] = None,
+        include_legacy: bool = False,
     ) -> List[GeneratedImage]:
-        """获取章节的所有图片"""
+        """获取章节的图片
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            version_id: 章节版本ID，用于过滤特定版本的图片
+            include_legacy: 是否包含历史版本的图片（无版本ID的旧数据）
+
+        Returns:
+            图片列表，按场景ID和创建时间排序
+        """
+        from sqlalchemy import or_
+
+        query = select(GeneratedImage).where(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
+        )
+
+        # P1修复: 版本过滤逻辑
+        # - include_legacy=False（默认）: 严格匹配指定版本，不包含历史数据
+        # - include_legacy=True: 同时包含指定版本和无版本ID的历史数据（向后兼容）
+        if version_id is not None:
+            if include_legacy:
+                # 包含指定版本 + 无版本ID的历史数据
+                query = query.where(
+                    or_(
+                        GeneratedImage.chapter_version_id == version_id,
+                        GeneratedImage.chapter_version_id.is_(None),
+                    )
+                )
+            else:
+                # 严格匹配指定版本，不包含历史数据
+                query = query.where(
+                    GeneratedImage.chapter_version_id == version_id
+                )
+
         result = await self.session.execute(
-            select(GeneratedImage)
-            .where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-            )
-            .order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
+            query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
         )
         return list(result.scalars().all())
 

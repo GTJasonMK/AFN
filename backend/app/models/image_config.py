@@ -89,6 +89,13 @@ class GeneratedImage(Base):
     project_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     scene_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # 章节版本关联：追踪图片是基于哪个版本的内容生成的
+    chapter_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("chapter_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # 图片信息
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)

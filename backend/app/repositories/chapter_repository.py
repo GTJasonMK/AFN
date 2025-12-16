@@ -147,24 +147,19 @@ class ChapterRepository(BaseRepository[Chapter]):
         Returns:
             章节数量
         """
-        from sqlalchemy import func
-        stmt = (
-            select(func.count(Chapter.id))
-            .where(Chapter.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
+        return await self.count_by_field("project_id", project_id)
 
-    async def delete_by_project(self, project_id: str) -> None:
+    async def delete_by_project(self, project_id: str) -> int:
         """
         删除项目的所有章节
 
         Args:
             project_id: 项目ID
+
+        Returns:
+            删除的记录数
         """
-        await self.session.execute(
-            delete(Chapter).where(Chapter.project_id == project_id)
-        )
+        return await self.delete_by_project_id(project_id)
 
     async def get_or_create(
         self,

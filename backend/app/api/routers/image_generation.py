@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...core.dependencies import get_default_user
 from ...db.session import get_session
 from ...schemas.user import UserInDB
@@ -34,10 +35,8 @@ from ...services.image_generation.pdf_export import PDFExportService
 
 router = APIRouter(prefix="/image-generation", tags=["image-generation"])
 
-# 计算存储目录路径
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # backend/app/api/routers -> 项目根目录
-STORAGE_DIR = _PROJECT_ROOT / "backend" / "storage"
-IMAGES_ROOT = STORAGE_DIR / "generated_images"
+# 使用统一的路径配置
+IMAGES_ROOT = settings.generated_images_dir
 
 
 # ==================== 配置管理 ====================
@@ -323,7 +322,7 @@ async def get_latest_chapter_manga_pdf(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取章节最新的漫画PDF（如果存在）"""
-    export_dir = STORAGE_DIR / "exports"
+    export_dir = settings.exports_dir
 
     if not export_dir.exists():
         return ChapterMangaPDFResponse(
@@ -365,7 +364,7 @@ async def download_export_file(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """下载导出的PDF文件"""
-    export_dir = STORAGE_DIR / "exports"
+    export_dir = settings.exports_dir
     file_path = export_dir / file_name
 
     if not file_path.exists():

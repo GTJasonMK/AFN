@@ -6,6 +6,7 @@ from __future__ import annotations
 本文件中的注释均使用中文，便于团队成员快速理解 RAG 相关逻辑。
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -23,6 +24,11 @@ except ImportError:  # pragma: no cover - 在未安装依赖时提供友好提�
     libsql_client = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+# P2修复: RAG检索超时和重试配置
+RAG_QUERY_TIMEOUT = 10.0  # 单次查询超时时间（秒）
+RAG_MAX_RETRIES = 2  # 最大重试次数
+RAG_RETRY_DELAY = 0.5  # 重试间隔基础时间（秒），实际使用指数退避
 
 
 @dataclass
@@ -176,6 +182,77 @@ class VectorStoreService:
                 self._vector_func_available = True
                 logger.warning("向量函数检测时发生未知错误: %s", exc)
 
+    async def _execute_with_retry(
+        self,
+        operation: Callable[[], Any],
+        operation_name: str,
+        timeout: float = RAG_QUERY_TIMEOUT,
+        max_retries: int = RAG_MAX_RETRIES,
+    ) -> Any:
+        """
+        P2修复: 带超时和重试的操作执行器
+
+        Args:
+            operation: 要执行的异步操作（无参数的协程函数）
+            operation_name: 操作名称（用于日志）
+            timeout: 单次操作超时时间（秒）
+            max_retries: 最大重试次数
+
+        Returns:
+            操作结果
+
+        Raises:
+            最后一次尝试的异常（如果所有重试都失败）
+        """
+        last_exception = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                # 使用 asyncio.wait_for 添加超时控制
+                return await asyncio.wait_for(operation(), timeout=timeout)
+
+            except asyncio.TimeoutError:
+                last_exception = asyncio.TimeoutError(
+                    f"{operation_name} 超时（{timeout}秒）"
+                )
+                logger.warning(
+                    "%s 第 %d/%d 次尝试超时",
+                    operation_name,
+                    attempt + 1,
+                    max_retries + 1,
+                )
+
+            except Exception as exc:
+                last_exception = exc
+                # 检查是否为可重试的错误（网络错误、连接错误等）
+                error_str = str(exc).lower()
+                is_retryable = any(
+                    keyword in error_str
+                    for keyword in ["timeout", "connection", "network", "temporary", "busy"]
+                )
+
+                if not is_retryable:
+                    # 不可重试的错误，直接抛出
+                    raise
+
+                logger.warning(
+                    "%s 第 %d/%d 次尝试失败: %s",
+                    operation_name,
+                    attempt + 1,
+                    max_retries + 1,
+                    exc,
+                )
+
+            # 如果还有重试机会，等待后重试（指数退避）
+            if attempt < max_retries:
+                delay = RAG_RETRY_DELAY * (2 ** attempt)
+                await asyncio.sleep(delay)
+
+        # 所有重试都失败，抛出最后一个异常
+        if last_exception:
+            raise last_exception
+        raise RuntimeError(f"{operation_name} 失败，原因未知")
+
     async def query_chunks(
         self,
         *,
@@ -183,7 +260,11 @@ class VectorStoreService:
         embedding: Sequence[float],
         top_k: Optional[int] = None,
     ) -> List[RetrievedChunk]:
-        """根据查询向量检索剧情片段，结果已按相似度排序。"""
+        """
+        根据查询向量检索剧情片段，结果已按相似度排序。
+
+        P2修复: 增加超时和重试机制，提高检索稳定性。
+        """
         if not self._client or not embedding:
             return []
 
@@ -213,8 +294,9 @@ class VectorStoreService:
         ORDER BY distance ASC
         LIMIT :limit
         """
-        try:
-            result = await self._client.execute(  # type: ignore[union-attr]
+
+        async def _do_query():
+            return await self._client.execute(  # type: ignore[union-attr]
                 sql,
                 {
                     "project_id": project_id,
@@ -222,6 +304,16 @@ class VectorStoreService:
                     "limit": top_k,
                 },
             )
+
+        try:
+            # P2修复: 使用超时重试机制执行查询
+            result = await self._execute_with_retry(
+                _do_query,
+                "RAG检索剧情片段",
+            )
+        except asyncio.TimeoutError:
+            logger.warning("RAG检索剧情片段超时，返回空结果")
+            return []
         except Exception as exc:  # pragma: no cover - 查询异常时仅记录
             if "no such function: vector_distance_cosine" in str(exc).lower():
                 # 更新缓存状态，后续查询直接使用Python计算
@@ -255,7 +347,11 @@ class VectorStoreService:
         embedding: Sequence[float],
         top_k: Optional[int] = None,
     ) -> List[RetrievedSummary]:
-        """根据查询向量检索章节摘要列表。"""
+        """
+        根据查询向量检索章节摘要列表。
+
+        P2修复: 增加超时和重试机制，提高检索稳定性。
+        """
         if not self._client or not embedding:
             return []
 
@@ -284,8 +380,9 @@ class VectorStoreService:
         ORDER BY distance ASC
         LIMIT :limit
         """
-        try:
-            result = await self._client.execute(  # type: ignore[union-attr]
+
+        async def _do_query():
+            return await self._client.execute(  # type: ignore[union-attr]
                 sql,
                 {
                     "project_id": project_id,
@@ -293,6 +390,16 @@ class VectorStoreService:
                     "limit": top_k,
                 },
             )
+
+        try:
+            # P2修复: 使用超时重试机制执行查询
+            result = await self._execute_with_retry(
+                _do_query,
+                "RAG检索章节摘要",
+            )
+        except asyncio.TimeoutError:
+            logger.warning("RAG检索章节摘要超时，返回空结果")
+            return []
         except Exception as exc:  # pragma: no cover - 查询异常时仅记录
             if "no such function: vector_distance_cosine" in str(exc).lower():
                 # 更新缓存状态，后续查询直接使用Python计算
@@ -514,6 +621,73 @@ class VectorStoreService:
             )
         except Exception as exc:  # pragma: no cover - 删除失败时记录日志
             logger.error("删除章节向量失败: project=%s chapters=%s error=%s", project_id, chapter_numbers, exc)
+
+    async def get_chapter_chunks_metadata(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        获取章节所有chunk的元数据（用于增量更新检测）
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            chunk元数据列表，每个元素包含id、content、metadata等字段
+        """
+        if not self._client:
+            return []
+
+        await self.ensure_schema()
+        sql = """
+        SELECT id, content, COALESCE(metadata, '{}') AS metadata
+        FROM rag_chunks
+        WHERE project_id = :project_id AND chapter_number = :chapter_number
+        """
+        try:
+            result = await self._client.execute(  # type: ignore[union-attr]
+                sql,
+                {"project_id": project_id, "chapter_number": chapter_number},
+            )
+            chunks = []
+            for row in self._iter_rows(result):
+                chunks.append({
+                    "id": row.get("id", ""),
+                    "content": row.get("content", ""),
+                    "metadata": self._parse_metadata(row.get("metadata")),
+                })
+            return chunks
+        except Exception as exc:
+            logger.warning(
+                "获取章节chunk元数据失败: project=%s chapter=%s error=%s",
+                project_id, chapter_number, exc
+            )
+            return []
+
+    async def delete_chunks_by_ids(self, chunk_ids: Sequence[str]) -> None:
+        """
+        按ID删除指定的chunk（用于增量更新时删除过时内容）
+
+        Args:
+            chunk_ids: 要删除的chunk ID列表
+        """
+        if not self._client or not chunk_ids:
+            return
+
+        await self.ensure_schema()
+
+        # 构建批量删除的SQL
+        placeholders = ",".join(f":id_{idx}" for idx in range(len(chunk_ids)))
+        params = {f"id_{idx}": cid for idx, cid in enumerate(chunk_ids)}
+        sql = f"DELETE FROM rag_chunks WHERE id IN ({placeholders})"
+
+        try:
+            await self._client.execute(sql, params)  # type: ignore[union-attr]
+            logger.info("已删除 %d 个过时的chunk", len(chunk_ids))
+        except Exception as exc:
+            logger.warning("按ID删除chunk失败: count=%d error=%s", len(chunk_ids), exc)
 
     @staticmethod
     def _to_f32_blob(embedding: Sequence[float]) -> bytes:

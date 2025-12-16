@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..schemas.novel import ChapterAnalysisData
 from ..services.llm_service import LLMService
+from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import parse_llm_json_safe, remove_think_tags
 
@@ -102,13 +103,13 @@ class ChapterAnalysisService:
             )
 
             # 调用LLM进行分析
-            response = await self.llm_service.get_llm_response(
+            response = await call_llm_json(
+                self.llm_service,
+                LLMProfile.SUMMARY,
                 system_prompt=system_prompt,
-                conversation_history=[{"role": "user", "content": user_message}],
-                temperature=settings.llm_temp_summary,  # 使用摘要温度，保持稳定性
-                user_id=user_id,
-                timeout=timeout,
-                response_format="json_object",
+                user_content=user_message,
+                user_id=user_id or 0,
+                timeout_override=timeout,
             )
 
             # 解析JSON响应
