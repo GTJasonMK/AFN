@@ -209,6 +209,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
             # 章节大纲列表
             self._chapter_list = OutlineListView(self.outline, item_type="chapter")
+            self._chapter_list.editRequested.connect(self._on_chapter_edit_requested)
             chapter_layout.addWidget(self._chapter_list, stretch=1)
 
             # Tab标题显示当前进度和可生成范围
@@ -245,6 +246,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
             # 章节大纲列表
             self._chapter_list = OutlineListView(self.outline, item_type="chapter")
+            self._chapter_list.editRequested.connect(self._on_chapter_edit_requested)
             self._main_layout.addWidget(self._chapter_list, stretch=1)
 
     def _apply_theme(self):
@@ -673,8 +675,57 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def _on_generate_chapter_outlines(self):
         """生成章节大纲"""
+        # 检查蓝图是否设置了总章节数
+        total_chapters = self.blueprint.get('total_chapters')
+        if not total_chapters:
+            # 提示用户输入总章节数
+            self._prompt_total_chapters_then_generate()
+            return
+
+        # 已有总章节数，直接生成
+        self._do_generate_chapter_outlines()
+
+    def _prompt_total_chapters_then_generate(self):
+        """提示用户输入总章节数，然后生成大纲"""
+        dialog = IntInputDialog(
+            parent=self,
+            title="设置章节数量",
+            label="请输入计划的总章节数：",
+            value=20,
+            min_value=1,
+            max_value=500
+        )
+
+        if dialog.exec():
+            total_chapters = dialog.getValue()
+            if total_chapters > 0:
+                # 先保存总章节数到蓝图
+                self._save_total_chapters_then_generate(total_chapters)
+
+    def _save_total_chapters_then_generate(self, total_chapters: int):
+        """保存总章节数后生成大纲"""
+        # 使用异步方式保存
         self.async_helper.execute(
-            self.api_client.generate_all_chapter_outlines_async,
+            self.api_client.update_blueprint,
+            self.project_id,
+            {'total_chapters': total_chapters},
+            loading_message="正在保存章节数量...",
+            success_message=None,
+            error_context="保存章节数量",
+            on_success=lambda r: self._on_total_chapters_saved(total_chapters)
+        )
+
+    def _on_total_chapters_saved(self, total_chapters: int):
+        """总章节数保存成功后继续生成"""
+        # 更新本地蓝图数据
+        self.blueprint['total_chapters'] = total_chapters
+        # 继续生成章节大纲
+        self._do_generate_chapter_outlines()
+
+    def _do_generate_chapter_outlines(self):
+        """执行生成章节大纲"""
+        self.async_helper.execute(
+            self.api_client.generate_all_chapter_outlines,
             self.project_id,
             async_mode=False,
             loading_message="正在生成章节大纲...",
@@ -688,6 +739,51 @@ class ChapterOutlineSection(ThemeAwareWidget):
         total = result.get('total_chapters', 0)
         MessageService.show_operation_success(self, f"章节大纲生成完成，共{total}章")
         self.refreshRequested.emit()
+
+    def _on_chapter_edit_requested(self, chapter_data: dict):
+        """处理章节大纲编辑请求"""
+        from .chapter_edit_dialog import ChapterOutlineEditDialog
+        from PyQt6.QtWidgets import QDialog
+
+        chapter_number = chapter_data.get('chapter_number', 0)
+        title = chapter_data.get('title', '')
+        summary = chapter_data.get('summary', '')
+
+        dialog = ChapterOutlineEditDialog(
+            chapter_number=chapter_number,
+            title=title,
+            summary=summary,
+            is_new=False,
+            parent=self
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_title, new_summary = dialog.get_values()
+            # 通过editRequested信号传递给父组件（NovelDetail）处理
+            # 格式：(field, label, value) - 这里我们使用一个特殊格式来传递章节大纲更新
+            # 为了兼容现有的editRequested信号格式，我们使用特殊的field名称
+            self.editRequested.emit(
+                f"chapter_outline:{chapter_number}",
+                f"第{chapter_number}章大纲",
+                {
+                    'chapter_number': chapter_number,
+                    'original_title': title,
+                    'original_summary': summary,
+                    'new_title': new_title,
+                    'new_summary': new_summary
+                }
+            )
+
+            # 更新本地数据显示
+            for i, outline in enumerate(self.outline):
+                if outline.get('chapter_number') == chapter_number:
+                    self.outline[i]['title'] = new_title
+                    self.outline[i]['summary'] = new_summary
+                    break
+
+            # 刷新列表显示
+            if self._chapter_list:
+                self._chapter_list.update_data(self.outline)
 
     def _on_continue_generate_chapters(self):
         """继续生成N个章节大纲"""

@@ -27,6 +27,7 @@ from .schemas import (
 from .providers import ImageProviderFactory
 from ...models.image_config import ImageGenerationConfig, GeneratedImage
 from ...core.config import settings
+from ...services.queue import ImageRequestQueue
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class HTTPClientManager:
                     max_connections=50,            # 最大连接数
                     keepalive_expiry=30.0,         # 连接过期时间（秒）
                 ),
-                http2=True,  # 启用HTTP/2（如果服务器支持）
+                http2=False,  # 禁用HTTP/2，避免需要额外安装h2包
             )
             logger.info("HTTP客户端已创建，连接池配置: max_connections=50, keepalive=20")
         return cls._client
@@ -263,8 +264,11 @@ class ImageGenerationService:
                     error_message=f"不支持的提供商类型: {config.provider_type}",
                 )
 
-            # 调用供应商生成图片
-            gen_result = await provider.generate(config, request)
+            # 通过队列控制并发
+            queue = ImageRequestQueue.get_instance()
+            async with queue.request_slot():
+                # 调用供应商生成图片
+                gen_result = await provider.generate(config, request)
 
             if not gen_result.success:
                 return ImageGenerationResult(
@@ -515,6 +519,70 @@ class ImageGenerationService:
         await self.session.delete(image)
         await self.session.flush()
         return True
+
+    async def delete_chapter_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> int:
+        """删除章节的所有图片
+
+        用于重新生成漫画提示词时清理旧图片。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            删除的图片数量
+        """
+        # 查询该章节的所有图片
+        result = await self.session.execute(
+            select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+            )
+        )
+        images = list(result.scalars().all())
+
+        if not images:
+            return 0
+
+        deleted_count = 0
+        for image in images:
+            # 删除文件
+            file_path = IMAGES_ROOT / image.file_path
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except Exception as e:
+                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
+
+            # 删除数据库记录
+            await self.session.delete(image)
+            deleted_count += 1
+
+        await self.session.flush()
+
+        # 尝试清理空目录
+        try:
+            chapter_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}"
+            if chapter_dir.exists():
+                # 删除空的场景子目录
+                for scene_dir in chapter_dir.iterdir():
+                    if scene_dir.is_dir() and not any(scene_dir.iterdir()):
+                        scene_dir.rmdir()
+                # 如果章节目录也空了，删除它
+                if not any(chapter_dir.iterdir()):
+                    chapter_dir.rmdir()
+        except Exception as e:
+            logger.warning("清理空目录失败: %s", e)
+
+        logger.info(
+            "已删除章节图片: project_id=%s, chapter=%d, count=%d",
+            project_id, chapter_number, deleted_count
+        )
+        return deleted_count
 
     async def toggle_image_selection(self, image_id: int, selected: bool) -> bool:
         """切换图片选中状态（用于PDF导出）"""

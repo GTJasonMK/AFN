@@ -5,7 +5,8 @@
       "Bash(alembic revision:*)",
       "Bash(source:*)",
       "Bash(.venvScriptspython.exe -c \"from app.services.image_generation.service import IMAGES_ROOT, STORAGE_DIR; print(''STORAGE_DIR:'', STORAGE_DIR); print(''IMAGES_ROOT:'', IMAGES_ROOT); print(''Path exists:'', STORAGE_DIR.parent.exists())\")",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(python -c:*)"
     ]
   }
 }

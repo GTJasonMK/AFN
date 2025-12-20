@@ -16,6 +16,7 @@ from .llm_settings_widget import LLMSettingsWidget
 from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
 from .image_settings_widget import ImageSettingsWidget
+from .queue_settings_widget import QueueSettingsWidget
 
 
 class SettingsView(BasePage):
@@ -72,6 +73,7 @@ class SettingsView(BasePage):
         self._add_nav_item("LLM 服务")
         self._add_nav_item("嵌入模型")
         self._add_nav_item("生图模型")
+        self._add_nav_item("请求队列")
         self._add_nav_item("高级配置")
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
@@ -104,6 +106,9 @@ class SettingsView(BasePage):
 
         self.image_settings = ImageSettingsWidget()
         self.page_stack.addWidget(self.image_settings)
+
+        self.queue_settings = QueueSettingsWidget()
+        self.page_stack.addWidget(self.queue_settings)
 
         self.advanced_settings = AdvancedSettingsWidget()
         self.page_stack.addWidget(self.advanced_settings)

@@ -96,8 +96,8 @@ class StabilityProvider(BaseImageProvider):
         api_host = config.api_base_url or self.API_HOST
         model = config.model_name or "stable-diffusion-xl-1024-v1-0"
 
-        # 构建提示词
-        prompt = self.build_prompt(request, add_context=False)
+        # 构建提示词（Stability AI有内容审核，启用上下文说明）
+        prompt = self.build_prompt(request, add_context=True)
 
         # 获取额外参数
         extra_params = config.extra_params or {}

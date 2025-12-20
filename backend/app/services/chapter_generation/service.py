@@ -283,7 +283,7 @@ class ChapterGenerationService:
             else:
                 chapters_need_summary.append(existing)
 
-        # 第2步：批量并行生成缺失的摘要（使用信号量控制并发数）
+        # 第2步：批量并行生成缺失的摘要（LLM队列已在llm_service层控制并发）
         if chapters_need_summary:
             logger.info(
                 "项目 %s 需要生成 %d 个章节摘要，开始批量并行处理",
@@ -291,35 +291,31 @@ class ChapterGenerationService:
                 len(chapters_need_summary)
             )
 
-            # 使用信号量限制并发数（与并行章节生成一致）
-            semaphore = asyncio.Semaphore(settings.writer_max_parallel_requests)
-
-            async def generate_summary_with_limit(chapter):
-                """带并发限制的摘要生成"""
-                async with semaphore:
-                    try:
-                        summary = await self.llm_service.get_summary(
-                            chapter.selected_version.content,
-                            temperature=settings.llm_temp_summary,
-                            user_id=user_id,
-                            timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
-                        )
-                        return (chapter, remove_think_tags(summary), None)
-                    except Exception as exc:
-                        log_exception(
-                            exc,
-                            "生成章节摘要",
-                            level="warning",
-                            include_traceback=False,
-                            project_id=project_id,
-                            chapter_number=chapter.chapter_number,
-                            user_id=user_id
-                        )
-                        return (chapter, "摘要生成失败，请稍后手动生成", exc)
+            async def generate_summary_for_chapter(chapter):
+                """单个章节的摘要生成（并发控制由llm_service层统一管理）"""
+                try:
+                    summary = await self.llm_service.get_summary(
+                        chapter.selected_version.content,
+                        temperature=settings.llm_temp_summary,
+                        user_id=user_id,
+                        timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
+                    )
+                    return (chapter, remove_think_tags(summary), None)
+                except Exception as exc:
+                    log_exception(
+                        exc,
+                        "生成章节摘要",
+                        level="warning",
+                        include_traceback=False,
+                        project_id=project_id,
+                        chapter_number=chapter.chapter_number,
+                        user_id=user_id
+                    )
+                    return (chapter, "摘要生成失败，请稍后手动生成", exc)
 
             # 并行生成所有摘要
             results = await asyncio.gather(
-                *[generate_summary_with_limit(ch) for ch in chapters_need_summary],
+                *[generate_summary_for_chapter(ch) for ch in chapters_need_summary],
                 return_exceptions=False  # 单个失败不影响其他任务
             )
 
@@ -576,27 +572,25 @@ class ChapterGenerationService:
             )
 
         if can_parallel:
-            # 并行模式
+            # 并行模式（并发控制由llm_service层统一管理）
             logger.info(
-                "项目 %s 第 %s 章进入并行生成模式\n  - 版本数: %s\n  - 最大并发数: %s\n"
+                "项目 %s 第 %s 章进入并行生成模式\n  - 版本数: %s\n"
                 "  - cached_config 是否存在: %s\n  - skip_usage_tracking: %s\n  - session.autoflush: %s",
-                project_id, chapter_number, version_count, settings.writer_max_parallel_requests,
+                project_id, chapter_number, version_count,
                 bool(llm_config), skip_usage_tracking, self.session.autoflush,
             )
 
-            semaphore = asyncio.Semaphore(settings.writer_max_parallel_requests)
-
-            async def _generate_with_semaphore(idx: int) -> Dict:
-                async with semaphore:
-                    logger.info("项目 %s 第 %s 章开始生成版本 %s/%s", project_id, chapter_number, idx + 1, version_count)
-                    result = await _generate_single_version(idx)
-                    logger.info("项目 %s 第 %s 章版本 %s/%s 生成完成", project_id, chapter_number, idx + 1, version_count)
-                    return result
+            async def _generate_version(idx: int) -> Dict:
+                """单个版本的生成（并发控制由llm_service层统一管理）"""
+                logger.info("项目 %s 第 %s 章开始生成版本 %s/%s", project_id, chapter_number, idx + 1, version_count)
+                result = await _generate_single_version(idx)
+                logger.info("项目 %s 第 %s 章版本 %s/%s 生成完成", project_id, chapter_number, idx + 1, version_count)
+                return result
 
             logger.info("项目 %s 第 %s 章开始并行执行，进入 no_autoflush 上下文", project_id, chapter_number)
             with self.session.no_autoflush:
                 logger.info("session.no_autoflush 已启用，session.autoflush=%s", self.session.autoflush)
-                tasks = [_generate_with_semaphore(idx) for idx in range(version_count)]
+                tasks = [_generate_version(idx) for idx in range(version_count)]
                 logger.info("项目 %s 第 %s 章创建了 %s 个并行任务，开始执行 gather", project_id, chapter_number, len(tasks))
                 raw_versions = await asyncio.gather(*tasks, return_exceptions=True)
                 logger.info("项目 %s 第 %s 章 gather 执行完成，退出 no_autoflush 上下文", project_id, chapter_number)

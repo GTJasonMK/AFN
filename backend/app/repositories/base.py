@@ -89,8 +89,8 @@ class BaseRepository(Generic[ModelType]):
         return instance
 
     async def delete(self, instance: ModelType) -> None:
-        # 注意：session.delete() 不是异步方法，不需要await
-        self.session.delete(instance)
+        # SQLAlchemy 2.0的AsyncSession.delete()是协程，需要await
+        await self.session.delete(instance)
         await self.session.flush()
 
     async def update_fields(self, instance: ModelType, **values: Any) -> ModelType:
@@ -197,6 +197,36 @@ class BaseRepository(Generic[ModelType]):
         stmt = select(func.count(self.model.id)).where(field == value)
         result = await self.session.execute(stmt)
         return result.scalar() or 0
+
+    async def list_by_user(
+        self,
+        user_id: int,
+        order_by: Optional[str] = "created_at",
+        order_desc: bool = True,
+    ) -> Iterable[ModelType]:
+        """
+        按用户ID查询记录
+
+        大多数配置类模型都关联到用户，此方法提供统一的按用户查询入口。
+
+        Args:
+            user_id: 用户ID
+            order_by: 排序字段名（默认created_at）
+            order_desc: 是否降序（默认True）
+
+        Returns:
+            查询结果列表
+
+        Raises:
+            ValueError: 如果模型没有user_id字段
+        """
+        if not hasattr(self.model, "user_id"):
+            raise ValueError(f"模型 {self.model.__name__} 没有 user_id 字段")
+        return await self.list(
+            filters={"user_id": user_id},
+            order_by=order_by,
+            order_desc=order_desc,
+        )
 
     async def delete_from_value(
         self,

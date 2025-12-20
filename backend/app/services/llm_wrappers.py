@@ -5,12 +5,25 @@ LLM调用包装器
 通过预定义配置简化各服务中的LLM调用。
 """
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from ..core.config import settings
 from ..core.constants import LLMConstants
+
+logger = logging.getLogger(__name__)
+
+# Gemini JSON模式不支持或异常的错误关键词
+_JSON_MODE_UNSUPPORTED_KEYWORDS = [
+    "response mime type",
+    "json_object",
+    "response_format",
+    "unsupported",
+    "未返回有效内容",  # Gemini可能返回空响应而不报错
+    "empty response",
+]
 
 
 class LLMProfile(str, Enum):
@@ -198,7 +211,17 @@ async def call_llm(
     # 确定最终参数
     temperature = temperature_override if temperature_override is not None else config.temperature
     timeout = timeout_override if timeout_override is not None else config.timeout
-    fmt = response_format if response_format is not None else config.response_format
+
+    # 响应格式处理：
+    # - 空字符串 "" 表示显式禁用JSON模式（用于降级重试）
+    # - None 表示使用配置档案的默认值
+    # - 其他值直接使用
+    if response_format == "":
+        fmt = None  # 显式禁用
+    elif response_format is not None:
+        fmt = response_format
+    else:
+        fmt = config.response_format
 
     # 统一user_id类型
     uid = int(user_id) if isinstance(user_id, str) else user_id
@@ -222,9 +245,10 @@ async def call_llm_json(
     **kwargs,
 ) -> str:
     """
-    调用LLM并期望JSON响应
+    调用LLM并期望JSON响应（带自动降级）
 
-    便捷方法，自动设置response_format为json_object。
+    首先尝试使用 response_format="json_object" 调用，如果模型不支持
+    （如 Gemini），则自动降级为不使用 JSON 模式重试。
 
     Args:
         与call_llm相同
@@ -232,15 +256,62 @@ async def call_llm_json(
     Returns:
         str: LLM响应文本（JSON格式）
     """
-    return await call_llm(
-        llm_service,
-        profile,
-        system_prompt,
-        user_content,
-        user_id,
-        response_format="json_object",
-        **kwargs,
-    )
+    from ..exceptions import LLMServiceError
+
+    try:
+        # 首先尝试使用 JSON 模式
+        return await call_llm(
+            llm_service,
+            profile,
+            system_prompt,
+            user_content,
+            user_id,
+            response_format="json_object",
+            **kwargs,
+        )
+    except LLMServiceError as e:
+        # 检查是否是 JSON 模式不支持的错误
+        error_detail = str(e.detail).lower() if hasattr(e, 'detail') else str(e).lower()
+        logger.info(
+            "call_llm_json 捕获到 LLMServiceError, detail=%s",
+            error_detail[:200]
+        )
+        is_json_mode_error = any(
+            keyword in error_detail for keyword in _JSON_MODE_UNSUPPORTED_KEYWORDS
+        )
+        logger.info(
+            "JSON模式错误检测: is_json_mode_error=%s, keywords=%s",
+            is_json_mode_error,
+            _JSON_MODE_UNSUPPORTED_KEYWORDS
+        )
+
+        if is_json_mode_error:
+            logger.warning(
+                "JSON模式不被支持，降级为普通调用: %s",
+                error_detail[:100]
+            )
+            # 降级：显式禁用 JSON 模式重试（使用空字符串表示显式禁用）
+            return await call_llm(
+                llm_service,
+                profile,
+                system_prompt,
+                user_content,
+                user_id,
+                response_format="",  # 空字符串 = 显式禁用JSON模式
+                **kwargs,
+            )
+        else:
+            # 其他 LLM 错误，继续抛出
+            logger.info("非JSON模式错误，继续抛出异常")
+            raise
+    except Exception as e:
+        # 捕获其他类型的异常，记录日志
+        logger.error(
+            "call_llm_json 捕获到非 LLMServiceError 异常: type=%s, error=%s",
+            type(e).__name__,
+            str(e)[:200]
+        )
+        raise
 
 
 def build_conversation_history(

@@ -37,6 +37,7 @@ from .layout_schemas import (
 )
 from .schemas import MangaStyle
 from ...utils.json_utils import parse_llm_json_safe
+from ...utils.prompt_helpers import ensure_prompt
 from ..llm_wrappers import call_llm_json, LLMProfile
 
 logger = logging.getLogger(__name__)
@@ -118,101 +119,14 @@ class LayoutService:
 
     async def _get_layout_prompt(self) -> str:
         """获取排版提示词模板"""
+        prompt = None
         if self.prompt_service:
             try:
-                template = await self.prompt_service.get_prompt("manga_layout")
-                if template:
-                    return template
+                prompt = await self.prompt_service.get_prompt("manga_layout")
             except Exception as e:
-                logger.warning("获取排版提示词模板失败: %s, 使用默认模板", e)
+                logger.error("获取排版提示词模板失败: %s", e)
 
-        return self._get_default_layout_prompt()
-
-    def _get_default_layout_prompt(self) -> str:
-        """获取默认排版提示词模板"""
-        return """# 角色
-你是专业的漫画分镜师和排版设计师。你精通：
-- 漫画分镜和页面布局设计
-- 视觉引导和阅读节奏控制
-- 不同漫画风格的排版规范（日漫、美漫、条漫）
-- 将文字叙述转化为视觉叙事结构
-
-# 任务
-根据章节内容和场景列表，设计专业的漫画排版方案。你需要决定：
-1. 每个场景应该占多大的格子（重要程度）
-2. 每页放置几个场景
-3. 格子的排列方式
-4. 每个场景的推荐构图类型
-
-# 排版原则
-
-## 1. 格子大小分配
-- **主角镜头 (hero)**: 情感高潮、关键转折、震撼场景 -> 占页面50%以上，甚至整页
-- **重要场景 (major)**: 重要对话、动作关键帧 -> 占页面25-40%
-- **标准场景 (standard)**: 普通叙事、对话 -> 占页面15-25%
-- **次要场景 (minor)**: 过渡、反应镜头 -> 占页面10-15%
-
-## 2. 每页格数建议
-- 节奏紧凑的场景：5-7格
-- 普通叙事：4-6格
-- 重要场景/战斗：2-4格
-- 高潮/转折：1-2格（大格子）
-
-## 3. 构图类型选择
-| 场景类型 | 推荐构图 |
-|---------|---------|
-| 表情特写 | extreme close-up, close-up |
-| 对话场景 | medium shot, over the shoulder |
-| 动作场景 | full shot, wide shot |
-| 环境介绍 | establishing shot, wide shot |
-| 心理刻画 | close-up, point of view |
-| 威压感 | worm's eye view (仰视) |
-| 俯瞰全局 | bird's eye view |
-
-# 输出格式
-必须输出严格符合以下结构的JSON对象：
-
-```json
-{
-  "layout_analysis": "用中文简述你的排版设计思路",
-  "layout_type": "traditional_manga",
-  "reading_direction": "ltr",
-  "total_pages": 5,
-  "pages": [
-    {
-      "page_number": 1,
-      "page_note": "开篇建立镜头",
-      "panels": [
-        {
-          "panel_id": 1,
-          "scene_id": 1,
-          "importance": "major",
-          "composition": "establishing shot",
-          "position": "top-full",
-          "size_hint": "占页面上半部分",
-          "x": 0,
-          "y": 0,
-          "width": 1.0,
-          "height": 0.45
-        }
-      ]
-    }
-  ],
-  "scene_composition_guide": {
-    "1": {
-      "composition": "establishing shot",
-      "camera_angle": "slightly high angle",
-      "framing_note": "展示整体环境"
-    }
-  }
-}
-```
-
-# 字段说明
-- importance: hero/major/standard/minor
-- composition: 构图类型
-- x,y,width,height: 0-1的相对值，(0,0)为左上角
-- 确保格子不重叠，留出适当间距(约0.02-0.04)"""
+        return ensure_prompt(prompt, "manga_layout")
 
     def _build_user_prompt(
         self,
@@ -254,13 +168,18 @@ class LayoutService:
 - 类型: {layout_type_map.get(request.layout_type, "传统漫画")}
 - 页面尺寸: {request.page_size.value}
 - 阅读方向: {"从左到右" if request.reading_direction == "ltr" else "从右到左"}
-- 每页平均格数: {request.panels_per_page}
+- 每页平均格数: {request.panels_per_page}（必须>=4）
 
 ## 重点场景（需要更大格子）
 {request.emphasis_scenes if request.emphasis_scenes else "无指定"}
 
 ## 动作场景（需要动感排版）
 {request.action_scenes if request.action_scenes else "无指定"}
+
+## 核心约束提醒
+- 普通页面必须包含4-6个格子
+- 整页单格极其罕见，仅用于最震撼的高潮瞬间
+- 禁止每页只有1-2个格子（这是插图不是漫画）
 
 请设计专业的漫画排版方案。"""
 
@@ -572,6 +491,26 @@ class LayoutService:
                 mapping[scene_id].append(panel.panel_id)
 
         return mapping
+
+    def _get_layout_type_enum(self, value: str) -> LayoutType:
+        """从字符串获取排版类型枚举"""
+        mapping = {
+            "traditional_manga": LayoutType.TRADITIONAL_MANGA,
+            "webtoon": LayoutType.WEBTOON,
+            "comic": LayoutType.COMIC,
+            "four_panel": LayoutType.FOUR_PANEL,
+        }
+        return mapping.get(value, LayoutType.TRADITIONAL_MANGA)
+
+    def _get_page_size_enum(self, value: str) -> PageSize:
+        """从字符串获取页面尺寸枚举"""
+        mapping = {
+            "A4": PageSize.A4,
+            "B5": PageSize.B5,
+            "US_LETTER": PageSize.US_LETTER,
+            "WEBTOON": PageSize.WEBTOON,
+        }
+        return mapping.get(value, PageSize.A4)
 
     def get_composition_for_scene(
         self,

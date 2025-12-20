@@ -194,9 +194,10 @@ class ChapterMangaPDFResponse(BaseModel):
 # ==================== 常量定义 ====================
 
 # 风格映射（中文 -> 英文后缀）
+# 注意：强调线稿风格，避免厚涂/塑料感
 STYLE_SUFFIXES = {
     "none": "",
-    "anime": "anime cartoon style",
+    "anime": "anime style, clean line art, cel shading, flat colors",
     "realistic": "realistic photography style",
     "oil_painting": "oil painting art style",
     "watercolor": "watercolor illustration style",
@@ -204,8 +205,31 @@ STYLE_SUFFIXES = {
     "pixel": "pixel art style",
     "cyberpunk": "cyberpunk style",
     "minimalist": "minimalist style",
-    "manga": "Japanese manga style, black and white ink drawing",
+    "manga": "manga style, clean bold outlines, ink drawing, screentone shading, black and white, high contrast",
+    "manga_color": "manga style, clean line art, flat cel shading, minimal highlights, vibrant colors",
+    "comic": "comic book style, strong black outlines, flat colors, graphic novel art",
+    "webtoon": "webtoon style, clean digital lines, soft cel shading, minimal rendering",
 }
+
+# 漫画专用默认负面提示词（避免AI常见问题）
+DEFAULT_MANGA_NEGATIVE_PROMPT = (
+    # 质量问题
+    "low quality, blurry, pixelated, jpeg artifacts, watermark, signature, "
+    # AI常见缺陷（塑料感、僵硬）
+    "plastic skin, waxy skin, shiny skin, overly smooth skin, doll-like appearance, "
+    "uncanny valley, stiff expression, lifeless eyes, dead eyes, "
+    # 解剖错误
+    "bad anatomy, wrong proportions, deformed hands, extra fingers, missing fingers, "
+    "fused fingers, malformed limbs, extra limbs, floating limbs, "
+    # 风格问题（避免厚涂/过度渲染）
+    "3D render, CGI, photorealistic, hyper-realistic, overly rendered, "
+    "excessive highlights, too much contrast, oil painting texture, heavy impasto, "
+    "thick paint strokes, painterly, subsurface scattering, volumetric lighting, "
+    # 文字错误
+    "wrong text, misspelled words, garbled text, unreadable text, text errors, gibberish text, "
+    # 面部问题
+    "ugly face, deformed face, asymmetrical face, crossed eyes"
+)
 
 # 质量预设参数
 QUALITY_PARAMS = {

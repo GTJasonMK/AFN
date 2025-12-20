@@ -9,6 +9,7 @@ from .outline_row import OutlineRow
 from .outline_list import OutlineListView
 from .action_bar import OutlineActionBar
 from .chapter_detail_dialog import ChapterOutlineDetailDialog
+from .chapter_edit_dialog import ChapterOutlineEditDialog
 from .part_detail_dialog import PartOutlineDetailDialog
 from .empty_states import LongNovelEmptyState, ShortNovelEmptyState
 from .async_helper import AsyncOperationHelper
@@ -25,6 +26,7 @@ __all__ = [
     'OutlineListView',
     'OutlineActionBar',
     'ChapterOutlineDetailDialog',
+    'ChapterOutlineEditDialog',
     'PartOutlineDetailDialog',
     'LongNovelEmptyState',
     'ShortNovelEmptyState',

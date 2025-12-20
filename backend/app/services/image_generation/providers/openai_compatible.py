@@ -8,7 +8,7 @@ OpenAI兼容图片生成供应商
 
 import re
 import logging
-from typing import List
+from typing import List, Dict, Any
 
 import httpx
 
@@ -18,6 +18,74 @@ from ....models.image_config import ImageGenerationConfig
 from ..schemas import ImageGenerationRequest, QUALITY_PARAMS
 
 logger = logging.getLogger(__name__)
+
+
+def fix_base_url(base_url: str) -> str:
+    """
+    修复base_url中可能存在的问题
+
+    - 移除尾部斜杠
+    - 修复双斜杠问题
+    """
+    if not base_url:
+        return base_url
+
+    fixed_url = base_url.rstrip('/')
+
+    # 检查是否存在双斜杠（排除协议部分的://）
+    url_without_protocol = fixed_url.replace('https://', '').replace('http://', '')
+    if '//' in url_without_protocol:
+        # 修复双斜杠
+        fixed_url = fixed_url.replace('//v1', '/v1').replace('//chat', '/chat').replace('//images', '/images')
+        logger.warning("base_url包含双斜杠，已自动修复: %s -> %s", base_url, fixed_url)
+
+    return fixed_url
+
+
+def build_chat_endpoint(base_url: str) -> str:
+    """
+    构建聊天API端点
+
+    智能处理各种base_url格式：
+    - http://api.example.com -> http://api.example.com/v1/chat/completions
+    - http://api.example.com/v1 -> http://api.example.com/v1/chat/completions
+    - http://api.example.com/v1/chat/completions -> 保持不变
+    """
+    base = fix_base_url(base_url)
+
+    if base.endswith('/chat/completions'):
+        return base
+    elif base.endswith('/v1'):
+        return f"{base}/chat/completions"
+    else:
+        return f"{base}/v1/chat/completions"
+
+
+def build_image_endpoint(base_url: str) -> str:
+    """
+    构建图片生成API端点
+
+    智能处理各种base_url格式：
+    - http://api.example.com -> http://api.example.com/v1/images/generations
+    - http://api.example.com/v1 -> http://api.example.com/v1/images/generations
+    """
+    base = fix_base_url(base_url)
+
+    if base.endswith('/images/generations'):
+        return base
+    elif base.endswith('/v1'):
+        return f"{base}/images/generations"
+    else:
+        return f"{base}/v1/images/generations"
+
+
+def get_browser_headers() -> Dict[str, str]:
+    """获取模拟浏览器的请求头，帮助绕过一些API限制"""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    }
 
 
 @ImageProviderFactory.register("openai_compatible")
@@ -36,12 +104,18 @@ class OpenAICompatibleProvider(BaseImageProvider):
             )
 
         try:
+            # 构建模型列表端点
+            base = fix_base_url(config.api_base_url)
+            if base.endswith('/v1'):
+                models_url = f"{base}/models"
+            else:
+                models_url = f"{base}/v1/models"
+
             async with self.create_http_client(config, for_test=True) as client:
-                # 尝试获取模型列表来验证连接
-                response = await client.get(
-                    f"{config.api_base_url.rstrip('/')}/v1/models",
-                    headers=self.get_auth_headers(config, content_type="", accept=""),
-                )
+                # 合并认证头和浏览器头
+                headers = {**self.get_auth_headers(config, content_type="", accept=""), **get_browser_headers()}
+
+                response = await client.get(models_url, headers=headers)
 
                 if response.status_code == 200:
                     return ProviderTestResult(success=True, message="连接成功")
@@ -73,12 +147,18 @@ class OpenAICompatibleProvider(BaseImageProvider):
         extra_params = config.extra_params or {}
         use_image_api = extra_params.get("use_image_api", False)
 
+        logger.info(
+            "开始生成图片: model=%s, use_image_api=%s, api_base_url=%s",
+            config.model_name, use_image_api, config.api_base_url
+        )
+
         try:
             if use_image_api:
                 urls = await self._generate_with_image_api(config, request)
             else:
                 urls = await self._generate_with_chat_api(config, request)
 
+            logger.info("图片生成完成: 获取到 %d 个URL", len(urls))
             return ProviderGenerateResult(success=True, image_urls=urls)
 
         except Exception as e:
@@ -102,6 +182,10 @@ class OpenAICompatibleProvider(BaseImageProvider):
         size = extra_params.get("size", "1024x1024")
         response_format = extra_params.get("response_format", "url")
 
+        # 构建API端点
+        api_url = build_image_endpoint(config.api_base_url)
+        logger.info("图片生成API请求URL: %s", api_url)
+
         async with self.create_http_client(config) as client:
             request_body = {
                 "model": config.model_name or "dall-e-3",
@@ -117,20 +201,22 @@ class OpenAICompatibleProvider(BaseImageProvider):
             if extra_params.get("style"):
                 request_body["style"] = extra_params["style"]
 
-            response = await client.post(
-                f"{config.api_base_url.rstrip('/')}/v1/images/generations",
-                headers=self.get_auth_headers(config),
-                json=request_body,
-            )
+            # 合并认证头和浏览器头
+            headers = {**self.get_auth_headers(config), **get_browser_headers()}
+
+            response = await client.post(api_url, headers=headers, json=request_body)
+
+            logger.info("图片生成API响应状态码: %d", response.status_code)
 
             if response.status_code != 200:
                 error_msg = f"图片生成API错误({response.status_code})"
                 try:
                     error_data = response.json()
+                    logger.error("图片生成API错误响应: %s", error_data)
                     if "error" in error_data:
                         error_msg = error_data["error"].get("message", error_msg)
                 except Exception:
-                    pass
+                    logger.error("图片生成API错误响应(非JSON): %s", response.text[:500])
                 raise Exception(error_msg)
 
             result = response.json()
@@ -163,31 +249,44 @@ class OpenAICompatibleProvider(BaseImageProvider):
             QUALITY_PARAMS["standard"]
         )
 
+        # 构建完整的API URL（智能处理各种base_url格式）
+        api_url = build_chat_endpoint(config.api_base_url)
+        logger.info("聊天API请求URL: %s", api_url)
+        logger.info("聊天API请求模型: %s", config.model_name)
+
         async with self.create_http_client(config) as client:
-            response = await client.post(
-                f"{config.api_base_url.rstrip('/')}/v1/chat/completions",
-                headers=self.get_auth_headers(config),
-                json={
-                    "model": config.model_name or "nano-banana-pro",
-                    "messages": [{"role": "user", "content": full_prompt}],
-                    "max_tokens": quality_params["max_tokens"],
-                    "temperature": quality_params["temperature"],
-                    "n": request.count,
-                },
-            )
+            request_body = {
+                "model": config.model_name or "nano-banana-pro",
+                "messages": [{"role": "user", "content": full_prompt}],
+                "max_tokens": quality_params["max_tokens"],
+                "temperature": quality_params["temperature"],
+                "n": request.count,
+            }
+            logger.debug("聊天API请求体: %s", {**request_body, "messages": "[省略]"})
+
+            # 合并认证头和浏览器头
+            headers = {**self.get_auth_headers(config), **get_browser_headers()}
+
+            response = await client.post(api_url, headers=headers, json=request_body)
+
+            logger.info("聊天API响应状态码: %d", response.status_code)
 
             if response.status_code != 200:
                 error_msg = f"API错误({response.status_code})"
                 try:
                     error_data = response.json()
+                    logger.error("聊天API错误响应: %s", error_data)
                     if "error" in error_data:
                         error_msg = error_data["error"].get("message", error_msg)
                 except Exception:
-                    pass
+                    logger.error("聊天API错误响应(非JSON): %s", response.text[:500])
                 raise Exception(error_msg)
 
             result = response.json()
+            logger.debug("聊天API原始响应: %s", result)
+
             content = result["choices"][0]["message"]["content"]
+            logger.info("聊天API返回内容(前500字符): %s", content[:500] if content else "(空)")
 
             # 从Markdown格式中提取图片URL
             urls = []
@@ -195,10 +294,20 @@ class OpenAICompatibleProvider(BaseImageProvider):
             # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
             full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content)
             urls.extend(full_urls)
+            logger.debug("提取到的完整URL: %s", full_urls)
 
             # 提取本地路径: ![xxx](/images/xxx/xxx.png)
             local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content)
             for path in local_paths:
                 urls.append(f"{config.api_base_url.rstrip('/')}{path}")
+            logger.debug("提取到的本地路径: %s", local_paths)
 
+            # 如果没有找到Markdown格式的URL，尝试提取纯URL
+            if not urls:
+                # 尝试提取任何http(s)图片URL
+                plain_urls = re.findall(r'(https?://[^\s\"\'\)]+\.(?:png|jpg|jpeg|gif|webp))', content, re.IGNORECASE)
+                urls.extend(plain_urls)
+                logger.debug("提取到的纯URL: %s", plain_urls)
+
+            logger.info("最终提取到的图片URL数量: %d", len(urls))
             return urls

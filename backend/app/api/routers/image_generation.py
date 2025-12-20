@@ -30,6 +30,7 @@ from ...services.image_generation.schemas import (
     PDFExportResult,
     ChapterMangaPDFRequest,
     ChapterMangaPDFResponse,
+    DEFAULT_MANGA_NEGATIVE_PROMPT,
 )
 from ...services.image_generation.pdf_export import PDFExportService
 
@@ -157,14 +158,38 @@ async def generate_scene_image(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
-    """为场景生成图片"""
+    """为场景生成图片
+
+    自动合并默认的漫画负面提示词，避免AI常见的渲染问题（塑料感、解剖错误等）。
+    """
+    # 合并默认负面提示词与用户提供的负面提示词
+    if request.negative_prompt:
+        # 用户提供了负面提示词，与默认合并
+        merged_negative = f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {request.negative_prompt}"
+    else:
+        # 使用默认负面提示词
+        merged_negative = DEFAULT_MANGA_NEGATIVE_PROMPT
+
+    # 创建合并后的请求
+    merged_request = ImageGenerationRequest(
+        prompt=request.prompt,
+        negative_prompt=merged_negative,
+        style=request.style,
+        ratio=request.ratio,
+        resolution=request.resolution,
+        quality=request.quality,
+        count=request.count,
+        seed=request.seed,
+        chapter_version_id=request.chapter_version_id,
+    )
+
     service = ImageGenerationService(session)
     result = await service.generate_image(
         user_id=desktop_user.id,
         project_id=project_id,
         chapter_number=chapter_number,
         scene_id=scene_id,
-        request=request,
+        request=merged_request,
     )
     await session.commit()
     return result

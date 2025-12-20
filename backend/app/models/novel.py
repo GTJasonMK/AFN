@@ -352,6 +352,7 @@ class ChapterMangaPrompt(Base):
 
     存储将章节内容转化为文生图模型所需的提示词序列。
     用于实现小说到漫画的转化功能。
+    支持断点续传：如果生成过程中断，可以从上次完成的步骤继续。
     """
 
     __tablename__ = "chapter_manga_prompts"
@@ -366,6 +367,14 @@ class ChapterMangaPrompt(Base):
     source_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True, index=True
     )
+
+    # 生成状态：pending(未开始), scene_extracted(场景提取完成),
+    # layout_generated(排版完成), completed(全部完成), failed(失败)
+    generation_status: Mapped[str] = mapped_column(String(32), default="completed")
+
+    # 生成进度（JSON对象，存储中间结果用于断点续传）
+    # 包含: scene_summaries(场景概要), layout_result(排版结果), request_params(请求参数)
+    generation_progress: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     # 角色外观配置（JSON字典，确保角色在所有画面中外观一致）
     # 格式: {"角色名": "详细的英文外观描述"}

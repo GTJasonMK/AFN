@@ -40,6 +40,7 @@ from ....schemas.novel import (
     BlueprintGenerationResponse,
     BlueprintPatch,
     BlueprintRefineRequest,
+    BatchBlueprintUpdate,
     NovelProject as NovelProjectSchema,
 )
 from ....schemas.user import UserInDB
@@ -54,7 +55,6 @@ from ....services.vector_store_service import VectorStoreService
 from ....services.chapter_ingest_service import ChapterIngestionService
 from ....services.avatar_service import AvatarService
 from ....utils.json_utils import (
-    remove_think_tags,
     parse_llm_json_or_fail,
     parse_llm_json_safe,
 )
@@ -69,13 +69,21 @@ router = APIRouter()
 async def generate_blueprint(
     project_id: str,
     force_regenerate: bool = False,
+    allow_incomplete: bool = False,
     novel_service: NovelService = Depends(get_novel_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> BlueprintGenerationResponse:
-    """根据完整对话生成可执行的小说蓝图。"""
+    """
+    根据完整对话生成可执行的小说蓝图。
+
+    Args:
+        project_id: 项目ID
+        force_regenerate: 是否强制重新生成（会删除已有章节大纲）
+        allow_incomplete: 是否允许在灵感对话未完成时生成蓝图（随机生成模式）
+    """
     start_time = time.time()
     logger.info("=== 蓝图生成接口调用 CODE_VERSION=2025-10-27-v2 ===")
 
@@ -103,12 +111,66 @@ async def generate_blueprint(
 
     history_records = await conversation_service.list_conversations(project_id)
     if not history_records:
-        raise InvalidParameterError("缺少对话历史，无法生成蓝图")
+        raise InvalidParameterError("缺少对话历史，无法生成蓝图。请先进行灵感对话。")
+
+    # 检查灵感对话是否已完成（最后一条助手消息中is_complete应为true）
+    # 如果allow_incomplete=True，则跳过此检查（用于随机生成模式）
+    if not allow_incomplete:
+        last_assistant_msg = None
+        for record in reversed(history_records):
+            if record.role == "assistant":
+                last_assistant_msg = record.content
+                break
+
+        if last_assistant_msg:
+            # 尝试解析最后一条助手消息，检查is_complete状态
+            last_msg_data = parse_llm_json_safe(last_assistant_msg)
+            if last_msg_data and not last_msg_data.get("is_complete", False):
+                logger.warning(
+                    "项目 %s 灵感对话未完成就尝试生成蓝图，最后一条消息: %s",
+                    project_id, last_assistant_msg[:200]
+                )
+                raise InvalidParameterError(
+                    "灵感对话还未完成。请继续与AI对话，完成所有必要信息的收集后，"
+                    "当AI提示可以生成蓝图时，再点击「生成蓝图」按钮。\n\n"
+                    "如果您想基于当前对话直接生成蓝图，可以选择「随机生成」模式。"
+                )
+    else:
+        logger.info("项目 %s 使用随机生成模式（allow_incomplete=True）", project_id)
 
     # 使用ConversationService格式化对话历史
     formatted_history = conversation_service.format_conversation_history(history_records)
 
     system_prompt = ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
+
+    # 随机生成模式：添加特殊指令让LLM补全缺失信息
+    if allow_incomplete:
+        random_gen_instruction = """
+
+## 随机生成模式（重要）
+
+用户选择了「随机生成」模式，这意味着对话信息可能不完整。你必须：
+
+1. **绝对不要继续提问或要求更多信息** - 直接生成蓝图
+2. **基于已有信息创作** - 利用对话中提到的任何线索
+3. **随机补全缺失部分** - 对于对话中未提及的设定，发挥你的创意随机生成：
+   - 如果没有明确类型，随机选择一个有趣的类型
+   - 如果没有明确角色，创造有趣的角色
+   - 如果没有明确章节数，根据故事复杂度给出合理值
+   - 如果没有明确世界观，构建一个独特的世界
+4. **保持创意和趣味性** - 让生成的内容有惊喜感
+5. **输出必须是JSON格式** - 严格遵循蓝图结构，不要输出任何对话文本
+
+记住：你的任务是生成一个完整的蓝图JSON，不是继续对话！
+"""
+        system_prompt += random_gen_instruction
+        logger.info("项目 %s 使用随机生成模式，已添加随机生成指令", project_id)
+
+        # 在对话历史末尾添加明确的生成请求，打断LLM的对话模式
+        formatted_history.append({
+            "role": "user",
+            "content": "【系统指令】用户选择了随机生成模式。请立即根据以上对话内容生成完整的小说蓝图JSON。对于缺失的信息，请发挥创意随机补全。不要再提问，直接输出JSON。"
+        })
 
     # 记录LLM调用准备信息
     logger.info(
@@ -134,8 +196,7 @@ async def generate_blueprint(
         "项目 %s LLM响应获取成功，耗时 %.2f 秒，响应长度 %d 字符",
         project_id, llm_elapsed, len(blueprint_raw)
     )
-    # 解析蓝图JSON
-    blueprint_raw = remove_think_tags(blueprint_raw)
+    # 解析蓝图JSON（parse_llm_json_or_fail 内部已处理 think 标签）
     blueprint_data = parse_llm_json_or_fail(
         blueprint_raw,
         f"项目{project_id}的蓝图生成失败"
@@ -304,8 +365,7 @@ async def refine_blueprint(
         timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
         max_tokens=None,  # 移除限制，让模型输出完整蓝图
     )
-    # 解析优化后的蓝图JSON
-    blueprint_raw = remove_think_tags(blueprint_raw)
+    # 解析优化后的蓝图JSON（parse_llm_json_or_fail 内部已处理 think 标签）
     blueprint_data = parse_llm_json_or_fail(
         blueprint_raw,
         f"项目{project_id}的蓝图优化失败"
@@ -364,6 +424,65 @@ async def patch_blueprint(
     await blueprint_service.patch_blueprint(project_id, update_data)
     await session.commit()
     logger.info("项目 %s 局部更新蓝图字段：%s", project_id, list(update_data.keys()))
+    return await novel_service.get_project_schema(project_id, desktop_user.id)
+
+
+@router.post("/{project_id}/blueprint/batch-update", response_model=NovelProjectSchema)
+async def batch_update_blueprint(
+    project_id: str,
+    payload: BatchBlueprintUpdate,
+    novel_service: NovelService = Depends(get_novel_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> NovelProjectSchema:
+    """批量更新蓝图字段和章节大纲
+
+    支持同时更新蓝图字段和章节大纲，用于前端批量保存功能。
+    所有更新在一个事务中完成，确保数据一致性。
+
+    Args:
+        project_id: 项目ID
+        payload: 批量更新数据，包含：
+            - blueprint_updates: 蓝图字段更新（可选）
+            - chapter_outline_updates: 章节大纲更新列表（可选）
+
+    Returns:
+        更新后的项目完整信息
+    """
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    blueprint_service = BlueprintService(session)
+    chapter_outline_repo = ChapterOutlineRepository(session)
+
+    updated_fields = []
+
+    # 1. 更新蓝图字段
+    if payload.blueprint_updates:
+        await blueprint_service.patch_blueprint(project_id, payload.blueprint_updates)
+        updated_fields.extend(list(payload.blueprint_updates.keys()))
+        logger.info("项目 %s 批量更新蓝图字段：%s", project_id, list(payload.blueprint_updates.keys()))
+
+    # 2. 更新章节大纲
+    if payload.chapter_outline_updates:
+        for outline_update in payload.chapter_outline_updates:
+            # 使用upsert方法更新或创建章节大纲
+            await chapter_outline_repo.upsert_outline(
+                project_id=project_id,
+                chapter_number=outline_update.chapter_number,
+                title=outline_update.title,
+                summary=outline_update.summary
+            )
+
+        updated_fields.append(f"chapter_outlines({len(payload.chapter_outline_updates)})")
+        logger.info(
+            "项目 %s 批量更新章节大纲：%d 个",
+            project_id,
+            len(payload.chapter_outline_updates)
+        )
+
+    # 统一提交事务
+    await session.commit()
+    logger.info("项目 %s 批量更新完成：%s", project_id, updated_fields)
+
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 
 

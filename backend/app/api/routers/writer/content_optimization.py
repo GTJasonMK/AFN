@@ -8,7 +8,6 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +25,7 @@ from ....services.content_optimization.session_manager import get_session_manage
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
+from ....utils.sse_helpers import create_sse_response
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,7 +41,7 @@ async def optimize_chapter_content(
     prompt_service: PromptService = Depends(get_prompt_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
     desktop_user: UserInDB = Depends(get_default_user),
-) -> StreamingResponse:
+):
     """
     流式优化章节内容
 
@@ -84,19 +84,13 @@ async def optimize_chapter_content(
         embedding_service=llm_service.embedding_service,
     )
 
-    return StreamingResponse(
+    return create_sse_response(
         service.optimize_chapter_stream(
             project_id=project_id,
             chapter_number=chapter_number,
             request=request,
             user_id=desktop_user.id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        )
     )
 
 

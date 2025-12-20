@@ -10,7 +10,6 @@ import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import (
@@ -28,8 +27,7 @@ from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
 from ....services.conversation_service import ConversationService
 from ....services.inspiration_service import InspirationService
-from ....utils.sse_helpers import sse_event
-from ....utils.exception_helpers import get_safe_error_message
+from ....utils.sse_helpers import sse_event, sse_error_event, create_sse_response
 
 logger = logging.getLogger(__name__)
 
@@ -153,24 +151,9 @@ async def converse_with_inspiration_stream(
                     })
 
         except Exception as exc:
-            logger.error(
-                "项目 %s 灵感对话流式响应错误: %s",
-                project_id,
-                str(exc),
-                exc_info=True
-            )
-            safe_message = get_safe_error_message(exc, "灵感对话服务异常，请稍后重试")
-            yield sse_event("error", {"message": safe_message})
+            yield sse_error_event(exc, "灵感对话")
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return create_sse_response(event_generator())
 
 
 @router.get("/{project_id}/inspiration/history", response_model=List[Dict[str, Any]])

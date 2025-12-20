@@ -120,6 +120,18 @@ class BlueprintService:
             blueprint_data["one_sentence_summary"] = patch["one_sentence_summary"]
         if "full_synopsis" in patch:
             blueprint_data["full_synopsis"] = patch["full_synopsis"]
+        if "total_chapters" in patch:
+            blueprint_data["total_chapters"] = patch["total_chapters"]
+        if "genre" in patch:
+            blueprint_data["genre"] = patch["genre"]
+        if "style" in patch:
+            blueprint_data["style"] = patch["style"]
+        if "tone" in patch:
+            blueprint_data["tone"] = patch["tone"]
+        if "target_audience" in patch:
+            blueprint_data["target_audience"] = patch["target_audience"]
+        if "title" in patch:
+            blueprint_data["title"] = patch["title"]
 
         # world_setting需要特殊处理：merge而不是替换
         if "world_setting" in patch and patch["world_setting"] is not None:

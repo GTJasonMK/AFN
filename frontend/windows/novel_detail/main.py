@@ -32,6 +32,7 @@ from .chapter_outline import ChapterOutlineSection
 from .chapters_section import ChaptersSection
 from .edit_dialog import EditDialog
 from .refine_dialog import RefineDialog
+from .dirty_tracker import DirtyTracker
 
 
 class NovelDetail(BasePage):
@@ -51,6 +52,9 @@ class NovelDetail(BasePage):
 
         # 异步任务管理
         self.refine_worker = None  # 蓝图优化异步worker
+
+        # 脏数据追踪器
+        self.dirty_tracker = DirtyTracker()
 
         self.setupUI()
         self.loadProjectBasicInfo()
@@ -194,6 +198,14 @@ class NovelDetail(BasePage):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(dp(12))
 
+        # 保存按钮（初始禁用）
+        self.save_btn = QPushButton("保存")
+        self.save_btn.setObjectName("save_btn")
+        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self.onSaveAll)
+        btn_layout.addWidget(self.save_btn)
+
         # 返回按钮 - 返回写作台
         self.back_btn = QPushButton("返回写作台")
         self.back_btn.setObjectName("back_btn")
@@ -331,6 +343,10 @@ class NovelDetail(BasePage):
             self.refine_btn.setStyleSheet(btn_style)
         if hasattr(self, 'create_btn') and self.create_btn:
             self.create_btn.setStyleSheet(primary_btn_style)
+
+        # 保存按钮样式（特殊处理，有修改时高亮）
+        if hasattr(self, 'save_btn') and self.save_btn:
+            self._updateSaveButtonStyle()
 
     def createTabBar(self):
         """创建Tab导航栏"""
@@ -856,10 +872,14 @@ class NovelDetail(BasePage):
 
     def openWritingDesk(self):
         """打开写作台"""
+        if not self._checkUnsavedChanges():
+            return
         self.navigateTo('WRITING_DESK', project_id=self.project_id)
 
     def goBackToWorkspace(self):
         """返回首页"""
+        if not self._checkUnsavedChanges():
+            return
         self.navigateTo('HOME')
 
     def goToWorkspace(self):
@@ -867,10 +887,106 @@ class NovelDetail(BasePage):
         import logging
         logger = logging.getLogger(__name__)
         logger.info("goToWorkspace called, navigating to HOME")
+        if not self._checkUnsavedChanges():
+            return
         self.navigateTo('HOME')
 
+    def _updateSaveButtonStyle(self):
+        """更新保存按钮样式和状态"""
+        if not hasattr(self, 'save_btn') or not self.save_btn:
+            return
+
+        ui_font = theme_manager.ui_font()
+        text_primary = theme_manager.book_text_primary()
+        text_secondary = theme_manager.book_text_secondary()
+        border_color = theme_manager.book_border_color()
+        accent_color = theme_manager.book_accent_color()
+
+        is_dirty = self.dirty_tracker.is_dirty()
+        self.save_btn.setEnabled(is_dirty)
+
+        if is_dirty:
+            # 有修改时，高亮显示
+            self.save_btn.setText("保存*")
+            self.save_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {accent_color};
+                    color: #FFFFFF;
+                    border: 1px solid {accent_color};
+                    border-radius: {dp(4)}px;
+                    font-family: {ui_font};
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {text_primary};
+                    border-color: {text_primary};
+                }}
+            """)
+        else:
+            # 无修改时，普通样式
+            self.save_btn.setText("保存")
+            self.save_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(4)}px;
+                    font-family: {ui_font};
+                    padding: {dp(6)}px {dp(12)}px;
+                }}
+                QPushButton:hover {{
+                    color: {accent_color};
+                    border-color: {accent_color};
+                    background-color: rgba(0,0,0,0.05);
+                }}
+                QPushButton:disabled {{
+                    color: {border_color};
+                    border-color: {border_color};
+                    background-color: transparent;
+                }}
+            """)
+
     def onEditRequested(self, field, label, value):
-        """处理编辑请求"""
+        """处理编辑请求 - 暂存修改，不立即保存
+
+        支持的字段类型：
+        1. 章节大纲: chapter_outline:N
+        2. 简单文本字段: one_sentence_summary, genre, style, tone, target_audience, full_synopsis
+        3. 世界观文本字段: world_setting.core_rules
+        4. 世界观列表字段: world_setting.key_locations, world_setting.factions
+        5. 角色列表: characters
+        6. 关系列表: relationships
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"onEditRequested: field={field}, label={label}, value_type={type(value).__name__}")
+
+        # 1. 章节大纲编辑请求（来自ChapterOutlineSection）
+        if field.startswith('chapter_outline:'):
+            self._stageChapterOutlineEdit(value)
+            return
+
+        # 2. 世界观相关字段
+        if field.startswith('world_setting.'):
+            self._handleWorldSettingEdit(field, label, value)
+            return
+
+        # 3. 角色列表
+        if field == 'characters':
+            self._handleCharactersEdit(label, value)
+            return
+
+        # 4. 关系列表
+        if field == 'relationships':
+            self._handleRelationshipsEdit(label, value)
+            return
+
+        # 5. 简单蓝图字段 - 使用EditDialog
+        self._handleSimpleFieldEdit(field, label, value)
+
+    def _handleSimpleFieldEdit(self, field, label, value):
+        """处理简单文本字段编辑"""
         # 确定是否多行编辑（长文本字段）
         multiline_fields = ['full_synopsis', 'one_sentence_summary']
         multiline = field in multiline_fields
@@ -884,12 +1000,321 @@ class NovelDetail(BasePage):
         if not new_value or new_value == str(value):
             return
 
-        # 保存修改
-        self._saveFieldEdit(field, new_value, label)
+        # 暂存修改到脏数据追踪器
+        self._stageFieldEdit(field, value, new_value, label)
+
+    def _handleWorldSettingEdit(self, field, label, value):
+        """处理世界观字段编辑"""
+        # world_setting.core_rules - 文本字段
+        if field == 'world_setting.core_rules':
+            dialog = EditDialog(label, value or '', multiline=True, parent=self)
+            if dialog.exec() != EditDialog.DialogCode.Accepted:
+                return
+
+            new_value = dialog.getValue()
+            if new_value == (value or ''):
+                return
+
+            self._stageFieldEdit(field, value, new_value, label)
+            return
+
+        # world_setting.key_locations, world_setting.factions - 列表字段
+        if field in ['world_setting.key_locations', 'world_setting.factions']:
+            from .list_edit_dialog import ListEditDialog
+
+            items = value if isinstance(value, list) else []
+            dialog = ListEditDialog(
+                title=f"编辑{label}",
+                items=items,
+                item_fields=['name', 'description'],
+                field_labels={'name': '名称', 'description': '描述'},
+                parent=self
+            )
+
+            if dialog.exec() != ListEditDialog.DialogCode.Accepted:
+                return
+
+            new_items = dialog.get_items()
+            # 简单比较（可能不完美但足够）
+            if new_items == items:
+                return
+
+            self._stageFieldEdit(field, value, new_items, label)
+
+    def _handleCharactersEdit(self, label, value):
+        """处理角色列表编辑"""
+        from .character_edit_dialog import CharacterListEditDialog
+
+        characters = value if isinstance(value, list) else []
+        dialog = CharacterListEditDialog(characters=characters, parent=self)
+
+        if dialog.exec() != CharacterListEditDialog.DialogCode.Accepted:
+            return
+
+        new_characters = dialog.get_characters()
+        if new_characters == characters:
+            return
+
+        self._stageFieldEdit('characters', value, new_characters, label)
+
+    def _handleRelationshipsEdit(self, label, value):
+        """处理关系列表编辑"""
+        from .relationship_edit_dialog import RelationshipListEditDialog
+
+        # 获取角色列表用于选择
+        characters = []
+        if self.project_data and self.project_data.get('blueprint'):
+            characters = self.project_data['blueprint'].get('characters', [])
+
+        relationships = value if isinstance(value, list) else []
+        dialog = RelationshipListEditDialog(
+            relationships=relationships,
+            characters=characters,
+            parent=self
+        )
+
+        if dialog.exec() != RelationshipListEditDialog.DialogCode.Accepted:
+            return
+
+        new_relationships = dialog.get_relationships()
+        if new_relationships == relationships:
+            return
+
+        self._stageFieldEdit('relationships', value, new_relationships, label)
+
+    def _stageChapterOutlineEdit(self, edit_data: dict):
+        """暂存章节大纲编辑（不立即保存到后端）"""
+        chapter_number = edit_data.get('chapter_number')
+        original_title = edit_data.get('original_title', '')
+        original_summary = edit_data.get('original_summary', '')
+        new_title = edit_data.get('new_title', '')
+        new_summary = edit_data.get('new_summary', '')
+
+        # 标记为脏数据
+        self.dirty_tracker.mark_outline_dirty(
+            chapter_number=chapter_number,
+            original_title=original_title,
+            original_summary=original_summary,
+            current_title=new_title,
+            current_summary=new_summary,
+            is_new=False
+        )
+
+        # 更新保存按钮状态
+        self._updateSaveButtonStyle()
+
+    def _stageFieldEdit(self, field, original_value, new_value, label):
+        """暂存字段修改（不立即保存到后端）
+
+        支持的字段类型：
+        1. 简单蓝图字段: one_sentence_summary, genre, style, tone, target_audience, full_synopsis, title
+        2. 世界观字段: world_setting.core_rules, world_setting.key_locations, world_setting.factions
+        3. 复杂列表字段: characters, relationships
+        """
+        # 所有支持的字段
+        simple_blueprint_fields = [
+            'one_sentence_summary', 'genre', 'style', 'tone',
+            'target_audience', 'full_synopsis', 'title'
+        ]
+        world_setting_fields = [
+            'world_setting.core_rules',
+            'world_setting.key_locations',
+            'world_setting.factions'
+        ]
+        complex_list_fields = ['characters', 'relationships']
+
+        all_supported_fields = simple_blueprint_fields + world_setting_fields + complex_list_fields
+
+        if field not in all_supported_fields:
+            MessageService.show_warning(self, f"暂不支持编辑该字段：{label}", "提示")
+            return
+
+        # 标记为脏数据
+        self.dirty_tracker.mark_field_dirty(
+            section=self.active_section,
+            field=field,
+            original_value=original_value,
+            current_value=new_value
+        )
+
+        # 更新保存按钮状态
+        self._updateSaveButtonStyle()
+
+        # 更新当前section的显示（本地更新，不重新从后端加载）
+        self._updateSectionDisplay(field, new_value)
+
+    def _updateSectionDisplay(self, field, new_value):
+        """更新当前section的显示（本地更新）
+
+        支持的字段类型：
+        1. 简单蓝图字段: one_sentence_summary, genre, style, tone等
+        2. 世界观字段: world_setting.core_rules, world_setting.key_locations等
+        3. 复杂列表字段: characters, relationships
+        """
+        if not self.project_data or not self.project_data.get('blueprint'):
+            return
+
+        blueprint = self.project_data.get('blueprint', {})
+
+        # 更新本地缓存
+        if field.startswith('world_setting.'):
+            # 世界观嵌套字段
+            sub_field = field.replace('world_setting.', '')
+            if 'world_setting' not in blueprint:
+                blueprint['world_setting'] = {}
+            blueprint['world_setting'][sub_field] = new_value
+        else:
+            # 简单字段或复杂列表字段
+            blueprint[field] = new_value
+
+        # 刷新对应的section显示
+        if self.active_section not in self.section_widgets:
+            return
+
+        widget = self.section_widgets[self.active_section]
+        scroll_widget = widget.widget()
+        if not scroll_widget:
+            return
+
+        layout = scroll_widget.layout()
+        if not layout or layout.count() == 0:
+            return
+
+        section = layout.itemAt(0).widget()
+
+        # 尝试调用section的局部更新方法
+        if hasattr(section, 'updateField'):
+            section.updateField(field, new_value)
+        elif hasattr(section, 'updateData'):
+            # 根据当前section类型调用updateData
+            if self.active_section == 'overview':
+                section.updateData(blueprint)
+            elif self.active_section == 'world_setting':
+                world_setting = blueprint.get('world_setting', {})
+                section.updateData(world_setting)
+            elif self.active_section == 'characters':
+                characters = blueprint.get('characters', [])
+                section.updateData(characters)
+            elif self.active_section == 'relationships':
+                relationships = blueprint.get('relationships', [])
+                section.updateData(relationships)
+
+    def onSaveAll(self):
+        """批量保存所有修改"""
+        if not self.dirty_tracker.is_dirty():
+            MessageService.show_info(self, "没有需要保存的修改", "提示")
+            return
+
+        # 获取脏数据
+        dirty_data = self.dirty_tracker.get_dirty_data()
+        summary = self.dirty_tracker.get_dirty_summary()
+
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("开始批量保存: %s", summary)
+
+        # 异步保存
+        self._doSaveAll(dirty_data)
+
+    def _doSaveAll(self, dirty_data):
+        """执行批量保存（异步）"""
+        from components.dialogs import LoadingDialog
+
+        # 创建加载对话框
+        loading_dialog = LoadingDialog(
+            parent=self,
+            title="请稍候",
+            message="正在保存修改...",
+            cancelable=False
+        )
+        loading_dialog.show()
+
+        # 创建异步worker
+        worker = AsyncAPIWorker(
+            self.api_client.batch_update_blueprint,
+            self.project_id,
+            dirty_data.get("blueprint_updates"),
+            dirty_data.get("chapter_outline_updates")
+        )
+
+        def on_success(result):
+            loading_dialog.close()
+            # 重置脏数据追踪器
+            self.dirty_tracker.reset()
+            # 更新保存按钮状态
+            self._updateSaveButtonStyle()
+            # 更新本地数据
+            self.project_data = result
+            # 刷新当前section
+            self._refreshCurrentSection()
+            MessageService.show_success(self, "保存成功")
+
+        def on_error(error_msg):
+            loading_dialog.close()
+            MessageService.show_api_error(self, error_msg, "保存修改")
+
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(worker)
+        worker.start()
+
+    def _checkUnsavedChanges(self) -> bool:
+        """检查未保存的修改，返回是否可以继续
+
+        Returns:
+            True: 可以继续（无修改或用户选择不保存/已保存）
+            False: 用户取消操作
+        """
+        if not self.dirty_tracker.is_dirty():
+            return True
+
+        summary = self.dirty_tracker.get_dirty_summary()
+
+        # 显示三按钮对话框
+        from components.dialogs import ConfirmDialog
+        from PyQt6.QtWidgets import QMessageBox
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("确认离开")
+        msg.setText(f"有未保存的修改（{summary}）")
+        msg.setInformativeText("是否保存修改？")
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Save |
+            QMessageBox.StandardButton.Discard |
+            QMessageBox.StandardButton.Cancel
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.Save)
+
+        result = msg.exec()
+
+        if result == QMessageBox.StandardButton.Save:
+            # 同步保存（阻塞）
+            try:
+                dirty_data = self.dirty_tracker.get_dirty_data()
+                self.api_client.batch_update_blueprint(
+                    self.project_id,
+                    dirty_data.get("blueprint_updates"),
+                    dirty_data.get("chapter_outline_updates")
+                )
+                self.dirty_tracker.reset()
+                return True
+            except Exception as e:
+                MessageService.show_error(self, f"保存失败：{str(e)}", "错误")
+                return False
+        elif result == QMessageBox.StandardButton.Discard:
+            # 不保存，直接继续
+            self.dirty_tracker.reset()
+            return True
+        else:
+            # 取消
+            return False
 
     @handle_errors("保存修改")
     def _saveFieldEdit(self, field, new_value, label):
-        """保存字段修改到后端"""
+        """保存字段修改到后端（已废弃，保留兼容性）"""
         # 构建更新数据
         blueprint_fields = [
             'one_sentence_summary', 'genre', 'style', 'tone',
@@ -1150,5 +1575,10 @@ class NovelDetail(BasePage):
 
     def closeEvent(self, event):
         """窗口关闭时清理资源"""
+        # 检查未保存的修改
+        if self.dirty_tracker.is_dirty():
+            if not self._checkUnsavedChanges():
+                event.ignore()
+                return
         self.onHide()
         super().closeEvent(event)

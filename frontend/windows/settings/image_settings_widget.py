@@ -7,7 +7,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QFrame, QDialog, QFormLayout,
-    QLineEdit, QComboBox, QDialogButtonBox
+    QLineEdit, QComboBox, QDialogButtonBox, QCheckBox
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
@@ -117,7 +117,17 @@ class ImageConfigDialog(QDialog):
         # 模型选择
         self.model_combo = QComboBox()
         self.model_combo.setEditable(True)
+        # 禁用自动补全，避免将用户输入的大小写转换为预设项的大小写
+        self.model_combo.setCompleter(None)
         form.addRow("默认模型:", self.model_combo)
+
+        # API模式选择（仅OpenAI兼容接口显示）
+        self.use_image_api_checkbox = QCheckBox("使用图片生成API (DALL-E等需要勾选)")
+        self.use_image_api_checkbox.setToolTip(
+            "勾选: 使用 /v1/images/generations 端点 (适用于DALL-E、Gemini等图片生成模型)\n"
+            "不勾选: 使用 /v1/chat/completions 端点 (适用于支持图片输出的聊天模型)"
+        )
+        form.addRow("API模式:", self.use_image_api_checkbox)
 
         # 默认风格
         self.style_combo = QComboBox()
@@ -196,6 +206,10 @@ class ImageConfigDialog(QDialog):
         self.model_combo.clear()
         self.model_combo.addItems(models)
 
+        # 只有OpenAI兼容接口需要选择API模式
+        is_openai_compatible = provider == "openai_compatible"
+        self.use_image_api_checkbox.setVisible(is_openai_compatible)
+
     def _load_config(self):
         """加载配置数据"""
         if not self.config:
@@ -240,6 +254,11 @@ class ImageConfigDialog(QDialog):
                 self.quality_combo.setCurrentIndex(i)
                 break
 
+        # 设置API模式
+        extra_params = self.config.get('extra_params', {}) or {}
+        use_image_api = extra_params.get('use_image_api', False)
+        self.use_image_api_checkbox.setChecked(use_image_api)
+
     def getData(self) -> dict:
         """获取表单数据"""
         return {
@@ -252,6 +271,9 @@ class ImageConfigDialog(QDialog):
             'default_ratio': self.ratio_combo.currentText(),
             'default_resolution': self.resolution_combo.currentText(),
             'default_quality': self.quality_combo.currentData(),
+            'extra_params': {
+                'use_image_api': self.use_image_api_checkbox.isChecked(),
+            },
         }
 
 

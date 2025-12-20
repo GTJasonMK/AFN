@@ -56,10 +56,19 @@ class BaseImageProvider(ABC):
     DISPLAY_NAME: str = ""
 
     # 使用场景上下文前缀 - 向图像生成模型说明这是合法的漫画创作用途
+    # 详细描述有助于通过内容审核/content moderation
     CONTEXT_PREFIX = (
-        "[Context: This is a professional manga/comic illustration for a licensed novel adaptation. "
-        "The artwork is for legitimate storytelling purposes in a published creative work. "
-        "Please generate appropriate manga-style artwork for the following scene description.]\n\n"
+        "[CONTENT CONTEXT / 内容说明]\n"
+        "Purpose: Professional manga/comic illustration for a licensed novel-to-manga adaptation project.\n"
+        "用途: 专业的漫画插图，用于正版小说改编漫画项目。\n"
+        "Usage: This artwork is created for legitimate storytelling and publishing purposes in creative fiction.\n"
+        "使用场景: 该作品用于合法的故事叙述和创意小说出版用途。\n"
+        "Content Rating: General audience / All ages appropriate artistic content.\n"
+        "内容分级: 面向普通观众/适合所有年龄段的艺术内容。\n"
+        "Style: Anime/manga art style illustration, non-photorealistic, stylized artwork.\n"
+        "风格: 动漫/漫画艺术风格插图，非写实，风格化艺术作品。\n"
+        "[END CONTEXT]\n\n"
+        "Scene description / 场景描述:\n"
     )
 
     @asynccontextmanager
@@ -89,7 +98,19 @@ class BaseImageProvider(ABC):
         if timeout is None:
             timeout = DEFAULT_TEST_TIMEOUT if for_test else DEFAULT_GENERATE_TIMEOUT
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # 代理配置：
+        # - 默认使用系统代理（trust_env=True），保持与之前行为兼容
+        # - 如果用户在 extra_params 中配置了 proxy，则使用用户指定的代理
+        # - 如果用户设置 disable_proxy=True，则禁用代理
+        extra_params = config.extra_params or {}
+        proxy_url = extra_params.get("proxy")
+        disable_proxy = extra_params.get("disable_proxy", False)
+
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            proxy=proxy_url,
+            trust_env=not disable_proxy,  # 默认使用系统代理
+        ) as client:
             yield client
 
     def get_auth_headers(

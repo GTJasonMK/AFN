@@ -1,15 +1,308 @@
 # -*- coding: utf-8 -*-
-"""OpenAI 兼容型 LLM 工具封装，提供统一的请求、收集、重试机制。"""
+"""LLM 工具封装，提供统一的请求、收集、重试机制。
 
+支持：
+1. OpenAI Chat Completions API格式（GPT、通义千问、DeepSeek等）
+2. Anthropic Messages API格式（Claude系列模型）
+
+自动检测：根据模型名称自动选择API格式
+- 模型名包含'claude' -> 使用Anthropic格式 (/v1/messages)
+- 其他模型 -> 使用OpenAI格式 (/v1/chat/completions)
+"""
+
+import json
 import logging
 import os
+import time
+import uuid
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
+import httpx
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+# ============== 请求日志记录器 ==============
+
+class LLMRequestLogger:
+    """
+    LLM请求日志记录器
+
+    将每次请求的详细信息保存到JSONL文件，方便调试和分析。
+    日志文件位置：backend/storage/llm_requests.jsonl
+    """
+
+    def __init__(self, log_dir: Optional[str] = None, max_entries: int = 1000):
+        """
+        初始化日志记录器
+
+        Args:
+            log_dir: 日志目录，默认为 backend/storage/
+            max_entries: 最大保留条目数，超过后自动清理旧记录
+        """
+        if log_dir is None:
+            # 默认使用 backend/storage/ 目录
+            log_dir = Path(__file__).parent.parent.parent / "storage"
+        self.log_dir = Path(log_dir)
+        self.log_file = self.log_dir / "llm_requests.jsonl"
+        self.max_entries = max_entries
+
+        # 确保目录存在
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
+    def _truncate_content(self, content: str, max_length: int = 200) -> str:
+        """截断内容，保留前后部分"""
+        if not content or len(content) <= max_length:
+            return content
+        half = max_length // 2
+        return f"{content[:half]}...({len(content)}chars)...{content[-half:]}"
+
+    def _mask_api_key(self, api_key: str) -> str:
+        """遮蔽API Key，仅显示前后4位"""
+        if not api_key or len(api_key) < 12:
+            return "***"
+        return f"{api_key[:4]}...{api_key[-4:]}"
+
+    def log_request(
+        self,
+        request_id: str,
+        api_format: str,
+        endpoint: str,
+        model: str,
+        messages: List[Dict],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        timeout: int,
+        base_url: str,
+        api_key: str,
+        extra_params: Optional[Dict] = None,
+    ) -> Dict:
+        """
+        记录请求开始
+
+        Returns:
+            请求日志字典（用于后续更新）
+        """
+        log_entry = {
+            "request_id": request_id,
+            "timestamp": datetime.now().isoformat(),
+            "api_format": api_format,
+            "endpoint": endpoint,
+            "base_url": base_url,
+            "api_key_masked": self._mask_api_key(api_key),
+            "model": model,
+            "messages_count": len(messages),
+            "messages_preview": [
+                {
+                    "role": msg.get("role", "unknown"),
+                    "content_preview": self._truncate_content(msg.get("content", ""))
+                }
+                for msg in messages[:3]  # 仅保留前3条消息预览
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timeout": timeout,
+            "extra_params": extra_params,
+            "status": "pending",
+            "start_time": time.time(),
+        }
+        return log_entry
+
+    def log_success(
+        self,
+        log_entry: Dict,
+        response_length: int,
+        chunk_count: int,
+        response_preview: str = "",
+    ):
+        """记录请求成功"""
+        log_entry["status"] = "success"
+        log_entry["duration_ms"] = int((time.time() - log_entry["start_time"]) * 1000)
+        log_entry["response_length"] = response_length
+        log_entry["chunk_count"] = chunk_count
+        log_entry["response_preview"] = self._truncate_content(response_preview, 300)
+        del log_entry["start_time"]  # 移除临时字段
+
+        self._write_log(log_entry)
+
+    def log_error(
+        self,
+        log_entry: Dict,
+        error_type: str,
+        error_message: str,
+        status_code: Optional[int] = None,
+    ):
+        """记录请求失败"""
+        log_entry["status"] = "error"
+        log_entry["duration_ms"] = int((time.time() - log_entry["start_time"]) * 1000)
+        log_entry["error_type"] = error_type
+        log_entry["error_message"] = self._truncate_content(error_message, 500)
+        if status_code:
+            log_entry["status_code"] = status_code
+        del log_entry["start_time"]  # 移除临时字段
+
+        self._write_log(log_entry)
+
+    def _write_log(self, log_entry: Dict):
+        """写入日志文件"""
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+            # 检查是否需要清理
+            self._cleanup_if_needed()
+        except Exception as e:
+            logger.warning("写入LLM请求日志失败: %s", e)
+
+    def _cleanup_if_needed(self):
+        """清理过多的日志条目"""
+        try:
+            if not self.log_file.exists():
+                return
+
+            # 读取所有条目
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # 如果超过最大条目数，保留最新的
+            if len(lines) > self.max_entries:
+                keep_lines = lines[-self.max_entries:]
+                with open(self.log_file, "w", encoding="utf-8") as f:
+                    f.writelines(keep_lines)
+                logger.info("清理LLM请求日志，保留最新 %d 条", self.max_entries)
+        except Exception as e:
+            logger.warning("清理LLM请求日志失败: %s", e)
+
+    def get_recent_logs(self, count: int = 50) -> List[Dict]:
+        """获取最近的日志条目"""
+        try:
+            if not self.log_file.exists():
+                return []
+
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            recent_lines = lines[-count:]
+            return [json.loads(line) for line in recent_lines if line.strip()]
+        except Exception as e:
+            logger.warning("读取LLM请求日志失败: %s", e)
+            return []
+
+
+# 全局日志记录器实例
+_request_logger: Optional[LLMRequestLogger] = None
+
+
+def get_request_logger() -> LLMRequestLogger:
+    """获取全局请求日志记录器"""
+    global _request_logger
+    if _request_logger is None:
+        _request_logger = LLMRequestLogger()
+    return _request_logger
+
+
+class APIFormat(Enum):
+    """API格式枚举"""
+    OPENAI = "openai"          # OpenAI Chat Completions API
+    ANTHROPIC = "anthropic"    # Anthropic Messages API
+
+
+def detect_api_format(model_name: str) -> APIFormat:
+    """
+    根据模型名称自动检测API格式
+
+    Args:
+        model_name: 模型名称
+
+    Returns:
+        APIFormat: 检测到的API格式
+    """
+    if not model_name:
+        return APIFormat.OPENAI
+
+    model_lower = model_name.lower()
+
+    # Claude系列模型使用Anthropic格式
+    if 'claude' in model_lower:
+        return APIFormat.ANTHROPIC
+
+    # 其他模型使用OpenAI格式
+    return APIFormat.OPENAI
+
+
+def fix_base_url(base_url: str) -> str:
+    """
+    修复base_url中可能存在的问题
+
+    - 移除尾部斜杠
+    - 修复双斜杠问题
+    """
+    if not base_url:
+        return base_url
+
+    fixed_url = base_url.rstrip('/')
+
+    # 检查是否存在双斜杠（排除协议部分的://）
+    url_without_protocol = fixed_url.replace('https://', '').replace('http://', '')
+    if '//' in url_without_protocol:
+        # 修复双斜杠
+        fixed_url = fixed_url.replace('//v1', '/v1').replace('//messages', '/messages').replace('//chat', '/chat')
+        logger.warning("base_url包含双斜杠，已自动修复: %s -> %s", base_url, fixed_url)
+
+    return fixed_url
+
+
+def build_anthropic_endpoint(base_url: str) -> str:
+    """
+    构建Anthropic Messages API端点
+
+    智能处理各种base_url格式：
+    - http://api.example.com -> http://api.example.com/v1/messages
+    - http://api.example.com/v1 -> http://api.example.com/v1/messages
+    - http://api.example.com/v1/messages -> 保持不变
+    """
+    base = fix_base_url(base_url)
+
+    if base.endswith('/messages'):
+        return base
+    elif base.endswith('/v1'):
+        return f"{base}/messages"
+    else:
+        return f"{base}/v1/messages"
+
+
+def build_openai_endpoint(base_url: str) -> str:
+    """
+    构建OpenAI Chat Completions API端点
+
+    智能处理各种base_url格式：
+    - http://api.example.com -> http://api.example.com/v1/chat/completions
+    - http://api.example.com/v1 -> http://api.example.com/v1/chat/completions
+    - http://api.example.com/v1/chat/completions -> 保持不变
+    """
+    base = fix_base_url(base_url)
+
+    if base.endswith('/chat/completions'):
+        return base
+    elif base.endswith('/v1'):
+        return f"{base}/chat/completions"
+    else:
+        return f"{base}/v1/chat/completions"
+
+
+def get_browser_headers() -> Dict[str, str]:
+    """获取模拟浏览器的请求头，帮助绕过一些API限制"""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'DNT': '1',
+    }
 
 
 class ContentCollectMode(Enum):
@@ -49,7 +342,7 @@ class StreamCollectResult:
 
 
 class LLMClient:
-    """异步流式调用封装，兼容 OpenAI SDK。"""
+    """异步流式调用封装，支持OpenAI和Anthropic API格式。"""
 
     def __init__(
         self,
@@ -80,6 +373,11 @@ class LLMClient:
                 raise ValueError("缺少 OPENAI_API_KEY 配置，请在数据库或环境变量中补全。")
             url = base_url or os.environ.get("OPENAI_API_BASE")
 
+        # 保存api_key和base_url供直接HTTP调用使用（Anthropic格式需要）
+        self._api_key = key
+        self._base_url = url
+        self._simulate_browser = simulate_browser
+
         # 如果需要模拟浏览器，添加浏览器请求头
         default_headers = {}
         if simulate_browser:
@@ -101,7 +399,205 @@ class LLMClient:
             default_headers=default_headers if default_headers else None
         )
 
-    async def stream_chat(
+    def _get_anthropic_headers(self) -> Dict[str, str]:
+        """获取Anthropic API请求头"""
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self._api_key}',
+            'anthropic-version': '2023-06-01',  # Anthropic API版本头
+        }
+
+        if self._simulate_browser:
+            headers.update(get_browser_headers())
+
+        return headers
+
+    async def _stream_chat_anthropic(
+        self,
+        messages: List[ChatMessage],
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: int = 120,
+        **kwargs,
+    ) -> AsyncGenerator[Dict[str, str], None]:
+        """
+        使用Anthropic Messages API进行流式聊天请求
+
+        Args:
+            messages: 消息列表
+            model: 模型名称
+            temperature: 温度参数
+            max_tokens: 最大token数
+            timeout: 超时时间（秒）
+
+        Yields:
+            字典格式的流式响应
+        """
+        # 构建Anthropic API端点
+        endpoint = build_anthropic_endpoint(self._base_url)
+        headers = self._get_anthropic_headers()
+
+        # 将ChatMessage转换为Anthropic格式
+        # Anthropic格式：[{"role": "user/assistant", "content": "..."}]
+        # 注意：Anthropic不支持system role在messages中，需要单独传递
+        system_content = None
+        anthropic_messages = []
+
+        for msg in messages:
+            if msg.role == "system":
+                system_content = msg.content
+            else:
+                anthropic_messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
+
+        # 构建请求体
+        payload = {
+            "model": model,
+            "messages": anthropic_messages,
+            "stream": True,
+            "max_tokens": max_tokens or 4096,
+        }
+
+        if system_content:
+            payload["system"] = system_content
+
+        if temperature is not None:
+            payload["temperature"] = temperature
+
+        # 创建请求日志
+        request_id = str(uuid.uuid4())[:8]
+        req_logger = get_request_logger()
+        all_messages = [{"role": "system", "content": system_content}] if system_content else []
+        all_messages.extend(anthropic_messages)
+        log_entry = req_logger.log_request(
+            request_id=request_id,
+            api_format="anthropic",
+            endpoint=endpoint,
+            model=model,
+            messages=all_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            base_url=self._base_url,
+            api_key=self._api_key,
+        )
+
+        logger.info(
+            "Anthropic API请求[%s]: endpoint=%s, model=%s",
+            request_id, endpoint, model
+        )
+
+        # 用于收集响应信息
+        collected_content = ""
+        chunk_count = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=float(timeout)) as client:
+                async with client.stream(
+                    'POST',
+                    endpoint,
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        error_msg = error_text.decode('utf-8', errors='replace')[:500]
+                        logger.error(
+                            "Anthropic API错误[%s]: status=%d, response=%s",
+                            request_id, response.status_code, error_msg
+                        )
+                        req_logger.log_error(
+                            log_entry,
+                            error_type="HTTPError",
+                            error_message=error_msg,
+                            status_code=response.status_code,
+                        )
+                        raise Exception(f"Anthropic API错误({response.status_code}): {error_msg}")
+
+                    # 解析SSE流式响应
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith('data: '):
+                            continue
+
+                        data_str = line[6:]  # 移除 "data: " 前缀
+
+                        if data_str == '[DONE]':
+                            break
+
+                        try:
+                            chunk = json.loads(data_str)
+
+                            # Anthropic流式响应格式解析
+                            event_type = chunk.get('type', '')
+
+                            if event_type == 'content_block_delta':
+                                delta = chunk.get('delta', {})
+                                if delta.get('type') == 'text_delta':
+                                    text = delta.get('text', '')
+                                    if text:
+                                        chunk_count += 1
+                                        collected_content += text
+                                        yield {
+                                            "content": text,
+                                            "finish_reason": None,
+                                        }
+                            elif event_type == 'message_delta':
+                                # 消息结束
+                                stop_reason = chunk.get('delta', {}).get('stop_reason')
+                                if stop_reason:
+                                    yield {
+                                        "content": None,
+                                        "finish_reason": stop_reason,
+                                    }
+                            elif event_type == 'message_stop':
+                                # 流结束
+                                yield {
+                                    "content": None,
+                                    "finish_reason": "stop",
+                                }
+
+                        except json.JSONDecodeError:
+                            continue
+
+            # 请求成功，记录日志
+            req_logger.log_success(
+                log_entry,
+                response_length=len(collected_content),
+                chunk_count=chunk_count,
+                response_preview=collected_content,
+            )
+            logger.info(
+                "Anthropic API成功[%s]: chunks=%d, length=%d",
+                request_id, chunk_count, len(collected_content)
+            )
+
+        except httpx.TimeoutException:
+            logger.error("Anthropic API请求超时[%s]: model=%s, timeout=%d", request_id, model, timeout)
+            req_logger.log_error(
+                log_entry,
+                error_type="TimeoutError",
+                error_message=f"请求超时({timeout}秒)",
+            )
+            raise
+        except Exception as e:
+            # 如果不是已经记录过的HTTP错误
+            if "Anthropic API错误" not in str(e):
+                req_logger.log_error(
+                    log_entry,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                )
+            logger.error(
+                "Anthropic API请求失败[%s]: model=%s, error_type=%s, error=%s",
+                request_id, model, type(e).__name__, str(e),
+                exc_info=True
+            )
+            raise
+
+    async def _stream_chat_openai(
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
@@ -113,7 +609,7 @@ class LLMClient:
         **kwargs,
     ) -> AsyncGenerator[Dict[str, str], None]:
         """
-        流式聊天请求。
+        使用OpenAI Chat Completions API进行流式聊天请求
 
         Args:
             messages: 消息列表
@@ -123,13 +619,13 @@ class LLMClient:
             top_p: Top-P 参数
             max_tokens: 最大token数
             timeout: 超时时间（秒）
-            **kwargs: 其他参数
 
         Yields:
-            字典格式的流式响应，包含 content、reasoning_content、finish_reason
+            字典格式的流式响应
         """
+        actual_model = model or os.environ.get("MODEL", "gpt-3.5-turbo")
         payload = {
-            "model": model or os.environ.get("MODEL", "gpt-3.5-turbo"),
+            "model": actual_model,
             "messages": [msg.to_dict() for msg in messages],
             "stream": True,
             **kwargs,
@@ -143,9 +639,42 @@ class LLMClient:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
-        # 使用 with_options() 设置超时，而不是放在payload中
-        # 这是OpenAI SDK v1.x的标准做法，兼容newapi等代理服务
+        # 创建请求日志
+        request_id = str(uuid.uuid4())[:8]
+        req_logger = get_request_logger()
+        endpoint = build_openai_endpoint(self._base_url) if self._base_url else "https://api.openai.com/v1/chat/completions"
+        log_entry = req_logger.log_request(
+            request_id=request_id,
+            api_format="openai",
+            endpoint=endpoint,
+            model=actual_model,
+            messages=[msg.to_dict() for msg in messages],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            base_url=self._base_url or "https://api.openai.com",
+            api_key=self._api_key,
+            extra_params={"top_p": top_p, "response_format": response_format} if (top_p or response_format) else None,
+        )
+
+        # 用于收集响应信息
+        collected_content = ""
+        chunk_count = 0
+
         try:
+            # 调试日志
+            http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+            https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+            all_proxy = os.environ.get("ALL_PROXY") or os.environ.get("all_proxy")
+            logger.info(
+                "OpenAI API请求[%s]: base_url=%s, model=%s, HTTP_PROXY=%s, HTTPS_PROXY=%s, ALL_PROXY=%s",
+                request_id,
+                self._client.base_url,
+                actual_model,
+                http_proxy,
+                https_proxy,
+                all_proxy
+            )
             stream = await self._client.with_options(timeout=float(timeout)).chat.completions.create(**payload)
             async for chunk in stream:
                 if not chunk.choices:
@@ -158,20 +687,108 @@ class LLMClient:
                     "finish_reason": choice.finish_reason,
                 }
 
+                # 收集响应内容
+                if choice.delta.content:
+                    chunk_count += 1
+                    collected_content += choice.delta.content
+
                 # 检查是否有reasoning_content（DeepSeek R1特有）
                 if hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content:
                     result["reasoning_content"] = choice.delta.reasoning_content
 
                 yield result
+
+            # 请求成功，记录日志
+            req_logger.log_success(
+                log_entry,
+                response_length=len(collected_content),
+                chunk_count=chunk_count,
+                response_preview=collected_content,
+            )
+            logger.info(
+                "OpenAI API成功[%s]: chunks=%d, length=%d",
+                request_id, chunk_count, len(collected_content)
+            )
+
         except Exception as e:
+            req_logger.log_error(
+                log_entry,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             logger.error(
-                "stream_chat error: model=%s error_type=%s error=%s",
-                model,
+                "OpenAI API请求失败[%s]: model=%s, error_type=%s, error=%s",
+                request_id,
+                actual_model,
                 type(e).__name__,
                 str(e),
                 exc_info=True
             )
             raise
+
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        model: Optional[str] = None,
+        response_format: Optional[str] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: int = 120,
+        **kwargs,
+    ) -> AsyncGenerator[Dict[str, str], None]:
+        """
+        流式聊天请求（自动检测API格式）
+
+        根据模型名称自动选择API格式：
+        - Claude模型 -> Anthropic Messages API
+        - 其他模型 -> OpenAI Chat Completions API
+
+        Args:
+            messages: 消息列表
+            model: 模型名称
+            response_format: 响应格式（如 "json_object"）- 仅OpenAI格式支持
+            temperature: 温度参数
+            top_p: Top-P 参数 - 仅OpenAI格式支持
+            max_tokens: 最大token数
+            timeout: 超时时间（秒）
+            **kwargs: 其他参数
+
+        Yields:
+            字典格式的流式响应，包含 content、reasoning_content、finish_reason
+        """
+        actual_model = model or os.environ.get("MODEL", "gpt-3.5-turbo")
+        api_format = detect_api_format(actual_model)
+
+        logger.info(
+            "LLM请求: model=%s, api_format=%s",
+            actual_model, api_format.value
+        )
+
+        if api_format == APIFormat.ANTHROPIC:
+            # 使用Anthropic Messages API
+            async for chunk in self._stream_chat_anthropic(
+                messages=messages,
+                model=actual_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                **kwargs,
+            ):
+                yield chunk
+        else:
+            # 使用OpenAI Chat Completions API
+            async for chunk in self._stream_chat_openai(
+                messages=messages,
+                model=actual_model,
+                response_format=response_format,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                **kwargs,
+            ):
+                yield chunk
 
     async def stream_and_collect(
         self,

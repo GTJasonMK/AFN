@@ -28,6 +28,7 @@ from ..exceptions import (
 )
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..services.prompt_service import PromptService
+from ..services.queue import LLMRequestQueue
 from ..utils.llm_tool import ChatMessage, ContentCollectMode, LLMClient
 from ..utils.encryption import decrypt_api_key
 from ..utils.exception_helpers import log_exception
@@ -139,24 +140,27 @@ class LLMService:
             len(messages),
         )
 
-        try:
-            async for chunk in client.stream_chat(
-                messages=chat_messages,
-                model=config.get("model"),
-                temperature=temperature,
-                timeout=int(timeout),
-                response_format=response_format,
-                max_tokens=max_tokens,
-            ):
-                yield chunk
-        except Exception as exc:
-            logger.error(
-                "LLM stream error: model=%s user_id=%s error=%s",
-                config.get("model"),
-                user_id,
-                exc,
-            )
-            raise LLMServiceError(f"流式响应失败: {exc}", config.get("model")) from exc
+        # 通过队列控制并发
+        queue = LLMRequestQueue.get_instance()
+        async with queue.request_slot():
+            try:
+                async for chunk in client.stream_chat(
+                    messages=chat_messages,
+                    model=config.get("model"),
+                    temperature=temperature,
+                    timeout=int(timeout),
+                    response_format=response_format,
+                    max_tokens=max_tokens,
+                ):
+                    yield chunk
+            except Exception as exc:
+                logger.error(
+                    "LLM stream error: model=%s user_id=%s error=%s",
+                    config.get("model"),
+                    user_id,
+                    exc,
+                )
+                raise LLMServiceError(f"流式响应失败: {exc}", config.get("model")) from exc
 
     async def get_summary(
         self,
@@ -229,6 +233,35 @@ class LLMService:
         else:
             config = await self._resolve_llm_config(user_id, skip_daily_limit_check=skip_daily_limit_check)
 
+        # 通过队列控制并发
+        queue = LLMRequestQueue.get_instance()
+        async with queue.request_slot():
+            return await self._do_stream_and_collect(
+                messages=messages,
+                config=config,
+                temperature=temperature,
+                user_id=user_id,
+                timeout=timeout,
+                response_format=response_format,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+            )
+
+    async def _do_stream_and_collect(
+        self,
+        messages: List[Dict[str, str]],
+        config: Dict[str, Optional[str]],
+        *,
+        temperature: float,
+        user_id: Optional[int],
+        timeout: float,
+        response_format: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        max_retries: int = LLMConstants.MAX_RETRIES,
+    ) -> str:
+        """
+        实际执行流式收集的内部方法（在队列槽位内执行）
+        """
         last_error: Optional[Exception] = None
 
         for attempt in range(max_retries + 1):

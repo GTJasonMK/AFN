@@ -16,6 +16,7 @@ class OutlineRow(QFrame):
     """大纲横条 - 紧凑的单行显示"""
 
     detailClicked = pyqtSignal(dict)  # 点击查看详情
+    editRequested = pyqtSignal(dict)  # 点击编辑（仅章节大纲支持）
 
     def __init__(
         self,
@@ -48,6 +49,10 @@ class OutlineRow(QFrame):
             from .part_detail_dialog import PartOutlineDetailDialog
             dialog = PartOutlineDetailDialog(self.data, parent=self)
         dialog.exec()
+
+    def _on_edit_clicked(self):
+        """编辑按钮点击"""
+        self.editRequested.emit(self.data)
 
     def _setup_ui(self):
         """设置UI结构"""
@@ -112,6 +117,14 @@ class OutlineRow(QFrame):
 
         layout.addWidget(content_widget, stretch=1)
 
+        # 编辑按钮（仅章节大纲显示）
+        if self.row_type == "chapter":
+            self.edit_btn = QPushButton("编辑")
+            self.edit_btn.setFixedSize(dp(60), dp(28))
+            self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.edit_btn.clicked.connect(self._on_edit_clicked)
+            layout.addWidget(self.edit_btn, alignment=Qt.AlignmentFlag.AlignTop)
+
         # 查看详情按钮
         self.detail_btn = QPushButton("详情")
         self.detail_btn.setFixedSize(dp(60), dp(28))
@@ -164,6 +177,23 @@ class OutlineRow(QFrame):
             self.summary_label.setStyleSheet(
                 f"font-family: {self.ui_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
             )
+
+        # 编辑按钮样式（仅章节大纲有）
+        if hasattr(self, 'edit_btn'):
+            self.edit_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: {self.ui_font};
+                    background-color: transparent;
+                    color: {theme_manager.PRIMARY};
+                    border: 1px solid {theme_manager.PRIMARY};
+                    border-radius: {dp(4)}px;
+                    font-size: {sp(11)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme_manager.PRIMARY};
+                    color: {theme_manager.BUTTON_TEXT};
+                }}
+            """)
 
         # 详情按钮样式
         self.detail_btn.setStyleSheet(f"""

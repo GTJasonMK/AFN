@@ -145,7 +145,10 @@ class WorldSettingSection(ThemeAwareWidget):
             edit_btn.setObjectName("list_edit_btn")
             edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             edit_btn.setFixedSize(dp(48), dp(24))
-            edit_btn.clicked.connect(lambda: self.editRequested.emit(field, title, items))
+            # 注意：使用 _get_field_data 获取最新数据，避免闭包捕获旧值
+            edit_btn.clicked.connect(lambda _, f=field, t=title: self.editRequested.emit(
+                f, t, self._get_field_data(f)
+            ))
             header.addWidget(edit_btn)
 
         card_layout.addLayout(header)
@@ -182,6 +185,18 @@ class WorldSettingSection(ThemeAwareWidget):
         card.list_layout = list_layout
 
         return card
+
+    def _get_field_data(self, field: str):
+        """根据字段名获取最新数据（用于编辑时获取当前值）"""
+        if field == 'world_setting.key_locations':
+            data = self.data.get('key_locations', [])
+            return data if isinstance(data, list) else []
+        elif field == 'world_setting.factions':
+            data = self.data.get('factions', [])
+            return data if isinstance(data, list) else []
+        elif field == 'world_setting.core_rules':
+            return self.data.get('core_rules', '')
+        return None
 
     def _createListItem(self, title, description=''):
         """创建列表项"""

@@ -410,3 +410,210 @@ class DialogStyles:
     def scrollbar() -> str:
         """滚动条样式"""
         return theme_manager.scrollbar()
+
+    # ==================== 书籍风格样式 ====================
+    # 用于设置页面等需要书籍风格的对话框
+
+    @staticmethod
+    def book_dialog_background() -> str:
+        """书籍风格对话框背景"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QDialog {{
+                background-color: {palette.bg_primary};
+            }}
+        """
+
+    @staticmethod
+    def book_title(object_name: str) -> str:
+        """书籍风格标题"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            #{object_name} {{
+                font-family: {palette.serif_font};
+                font-size: {sp(24)}px;
+                font-weight: 700;
+                color: {palette.text_primary};
+                padding-bottom: {dp(12)}px;
+                border-bottom: 1px solid {palette.border_color};
+            }}
+        """
+
+    @staticmethod
+    def book_label(object_name: str) -> str:
+        """书籍风格标签"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            #{object_name} {{
+                font-family: {palette.ui_font};
+                font-size: {sp(14)}px;
+                color: {palette.text_secondary};
+                font-weight: 500;
+            }}
+        """
+
+    @staticmethod
+    def book_hint(object_name: str) -> str:
+        """书籍风格提示文字"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            #{object_name} {{
+                font-family: {palette.ui_font};
+                font-size: {sp(12)}px;
+                color: {palette.text_tertiary};
+                font-style: italic;
+                margin-top: {dp(4)}px;
+            }}
+        """
+
+    @staticmethod
+    def book_input() -> str:
+        """书籍风格输入框（通用）"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QLineEdit {{
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_secondary};
+                color: {palette.text_primary};
+                padding: {dp(10)}px {dp(14)}px;
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(6)}px;
+                font-size: {sp(14)}px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {palette.accent_color};
+                background-color: {palette.bg_primary};
+            }}
+            QLineEdit::placeholder {{
+                color: {palette.text_tertiary};
+            }}
+            QLineEdit:disabled {{
+                background-color: {palette.bg_primary};
+                color: {palette.text_tertiary};
+            }}
+        """
+
+    @staticmethod
+    def book_combobox() -> str:
+        """书籍风格下拉框"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QComboBox {{
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_secondary};
+                color: {palette.text_primary};
+                padding: {dp(10)}px {dp(14)}px;
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(6)}px;
+                font-size: {sp(14)}px;
+            }}
+            QComboBox:focus {{
+                border: 1px solid {palette.accent_color};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: {dp(8)}px;
+            }}
+            QComboBox::down-arrow {{
+                width: {dp(12)}px;
+                height: {dp(12)}px;
+            }}
+            QComboBox QAbstractItemView {{
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_primary};
+                color: {palette.text_primary};
+                border: 1px solid {palette.border_color};
+                selection-background-color: {palette.accent_color};
+                selection-color: {palette.bg_primary};
+            }}
+        """
+
+    @staticmethod
+    def book_spinbox() -> str:
+        """书籍风格数字输入框"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QSpinBox {{
+                font-family: {palette.ui_font};
+                background-color: {palette.bg_secondary};
+                color: {palette.text_primary};
+                padding: {dp(10)}px {dp(14)}px;
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(6)}px;
+                font-size: {sp(14)}px;
+            }}
+            QSpinBox:focus {{
+                border: 1px solid {palette.accent_color};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                width: {dp(20)}px;
+                background-color: transparent;
+                border: none;
+                border-radius: {dp(4)}px;
+            }}
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+                background-color: {palette.border_color};
+            }}
+        """
+
+    @staticmethod
+    def book_button_cancel() -> str:
+        """书籍风格取消按钮"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QPushButton {{
+                font-family: {palette.ui_font};
+                background-color: transparent;
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(24)}px;
+                font-size: {sp(14)}px;
+                min-width: {dp(80)}px;
+            }}
+            QPushButton:hover {{
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_secondary};
+            }}
+        """
+
+    @staticmethod
+    def book_button_save() -> str:
+        """书籍风格保存按钮"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QPushButton {{
+                font-family: {palette.ui_font};
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
+                border: none;
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(24)}px;
+                font-size: {sp(14)}px;
+                font-weight: 600;
+                min-width: {dp(80)}px;
+            }}
+            QPushButton:hover {{
+                background-color: {palette.text_primary};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.accent_light};
+            }}
+        """
+
+    @staticmethod
+    def book_info_card() -> str:
+        """书籍风格信息卡片"""
+        palette = theme_manager.get_book_palette()
+        return f"""
+            QLabel {{
+                font-family: {palette.ui_font};
+                font-size: {sp(12)}px;
+                color: {palette.text_secondary};
+                background-color: {palette.bg_secondary};
+                padding: {dp(12)}px;
+                border-radius: {dp(8)}px;
+                border: 1px dashed {palette.border_color};
+            }}
+        """

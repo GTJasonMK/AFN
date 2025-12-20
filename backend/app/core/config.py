@@ -198,6 +198,22 @@ class Settings(BaseSettings):
         description="摘要生成的temperature值（精确性）",
     )
 
+    # -------------------- 请求队列配置 --------------------
+    llm_max_concurrent: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        env="LLM_MAX_CONCURRENT",
+        description="LLM请求最大并发数",
+    )
+    image_max_concurrent: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        env="IMAGE_MAX_CONCURRENT",
+        description="图片生成请求最大并发数",
+    )
+
     model_config = SettingsConfigDict(
         env_file=("new-backend/.env", ".env", "backend/.env"),
         env_file_encoding="utf-8",
@@ -345,6 +361,11 @@ def get_settings() -> Settings:
             instance.writer_parallel_generation = json_config['writer_parallel_generation']
         if 'part_outline_threshold' in json_config:
             instance.part_outline_threshold = json_config['part_outline_threshold']
+        # 队列配置
+        if 'llm_max_concurrent' in json_config:
+            instance.llm_max_concurrent = json_config['llm_max_concurrent']
+        if 'image_max_concurrent' in json_config:
+            instance.image_max_concurrent = json_config['image_max_concurrent']
 
     return instance
 

@@ -32,10 +32,7 @@ from ....repositories.chapter_repository import ChapterOutlineRepository
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
-from ....utils.json_utils import (
-    remove_think_tags,
-    parse_llm_json_or_fail,
-)
+from ....utils.json_utils import parse_llm_json_or_fail
 from ....utils.prompt_helpers import ensure_prompt
 
 logger = logging.getLogger(__name__)
@@ -161,10 +158,9 @@ async def generate_chapter_outlines(
             max_tokens=None,
         )
 
-        # 解析章节大纲JSON
-        response_cleaned = remove_think_tags(response)
+        # 解析章节大纲JSON（parse_llm_json_or_fail 内部已处理 think 标签）
         result = parse_llm_json_or_fail(
-            response_cleaned,
+            response,
             f"项目{project_id}的章节大纲生成失败"
         )
 

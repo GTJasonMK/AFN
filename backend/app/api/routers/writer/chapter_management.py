@@ -431,6 +431,7 @@ async def update_chapter(
     project_id: str,
     chapter_number: int,
     content: str = Body(..., embed=True),
+    trigger_rag: bool = Body(False, embed=True),
     novel_service: NovelService = Depends(get_novel_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
@@ -440,67 +441,95 @@ async def update_chapter(
     """
     更新章节内容（RESTful风格端点）
 
-    智能RAG处理策略：
-    - 如果内容有变化：执行完整RAG处理（摘要、分析、索引、向量入库）
-    - 如果内容没变化且RAG数据已存在：跳过RAG处理
-    - 如果内容没变化但RAG数据缺失：补充生成RAG数据
+    支持两种场景：
+    1. 更新已有章节的内容（覆盖当前选中版本）
+    2. 为尚未生成的章节创建内容（手动创作模式）
+
+    RAG处理策略：
+    - trigger_rag=False（默认）：仅保存内容和字数，不执行RAG处理
+    - trigger_rag=True：执行完整RAG处理（摘要、分析、索引、向量入库）
 
     Args:
         project_id: 项目ID
         chapter_number: 章节号
         content: 新内容
+        trigger_rag: 是否触发RAG处理（默认False，仅保存内容）
 
     Returns:
         更新后的项目信息
     """
+    from ....models.novel import ChapterVersion  # 延迟导入避免循环
+
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    chapter = next((ch for ch in project.chapters if ch.chapter_number == chapter_number), None)
-    if not chapter or chapter.selected_version is None:
-        logger.warning("项目 %s 第 %s 章尚未生成或未选择版本，无法编辑", project_id, chapter_number)
-        raise ChapterNotGeneratedError(project_id, chapter_number)
 
-    # 检测内容是否有变化
-    old_content = chapter.selected_version.content or ""
-    content_changed = old_content != content
+    # 获取或创建章节
+    chapter_repo = ChapterRepository(session)
+    chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
 
-    # 检测RAG数据是否已存在
-    has_summary = bool(chapter.real_summary)
-    has_analysis = bool(chapter.analysis_data)
-    rag_data_exists = has_summary and has_analysis
-
-    # 决定是否需要RAG处理
-    need_rag_processing = content_changed or not rag_data_exists
-
-    if not content_changed and rag_data_exists:
-        logger.info(
-            "项目 %s 第 %s 章内容未变化且RAG数据已存在，跳过RAG处理",
-            project_id, chapter_number
+    is_new_chapter = False
+    if not chapter:
+        # 章节不存在，创建新章节（手动创作模式）
+        logger.info("项目 %s 第 %s 章不存在，创建新章节", project_id, chapter_number)
+        chapter = Chapter(
+            project_id=project_id,
+            chapter_number=chapter_number,
         )
-        # 即使跳过RAG处理，也要更新字数统计（以防万一）
-        chapter.word_count = count_chinese_characters(content)
+        session.add(chapter)
+        await session.flush()  # 获取chapter.id
+        is_new_chapter = True
+
+    # 如果没有选中版本，创建新版本
+    if chapter.selected_version is None:
+        # 新创建的章节直接用v1，否则查询已有版本数量（避免懒加载问题）
+        if is_new_chapter:
+            new_version_label = "v1"
+        else:
+            from sqlalchemy import select, func
+            version_count_result = await session.execute(
+                select(func.count()).select_from(ChapterVersion).where(
+                    ChapterVersion.chapter_id == chapter.id
+                )
+            )
+            version_count = version_count_result.scalar() or 0
+            new_version_label = f"v{version_count + 1}"
+
+        new_version = ChapterVersion(
+            chapter_id=chapter.id,
+            version_label=new_version_label,
+            content=content,
+            provider="manual",  # 标记为手动编辑
+        )
+        session.add(new_version)
+        await session.flush()  # 获取version.id
+
+        chapter.selected_version_id = new_version.id
+        logger.info(
+            "项目 %s 第 %s 章创建新版本 %s（手动编辑）",
+            project_id, chapter_number, new_version_label
+        )
+    else:
+        # 更新现有选中版本的内容
+        chapter.selected_version.content = content
+        logger.info("用户 %s 更新了项目 %s 第 %s 章内容", desktop_user.id, project_id, chapter_number)
+
+    # 更新字数（只统计中文字符）
+    chapter.word_count = count_chinese_characters(content)
+
+    # 如果不触发RAG处理，直接提交并返回
+    if not trigger_rag:
         await session.commit()
+        logger.info("项目 %s 第 %s 章仅保存内容，跳过RAG处理", project_id, chapter_number)
         return await novel_service.get_project_schema(project_id, desktop_user.id)
 
-    # 记录处理原因
-    if content_changed:
-        logger.info("项目 %s 第 %s 章内容有变化，执行RAG处理", project_id, chapter_number)
-    else:
-        logger.info(
-            "项目 %s 第 %s 章内容未变化但RAG数据缺失(摘要=%s,分析=%s)，补充生成",
-            project_id, chapter_number, has_summary, has_analysis
-        )
-
-    # 1. 更新章节内容
-    chapter.selected_version.content = content
-    chapter.word_count = count_chinese_characters(content)
-    logger.info("用户 %s 更新了项目 %s 第 %s 章内容", desktop_user.id, project_id, chapter_number)
+    # 以下为RAG处理流程（仅当trigger_rag=True时执行）
+    logger.info("项目 %s 第 %s 章开始RAG处理", project_id, chapter_number)
 
     # 获取章节标题
     outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
     chapter_title = outline.title if outline and outline.title else f"第{chapter_number}章"
 
-    # 2. 生成摘要（使用统一的SummaryService，内容变化时重新生成，或摘要缺失时补充）
-    if content.strip() and (content_changed or not has_summary):
+    # 2. 生成摘要
+    if content.strip():
         summary_service = SummaryService(llm_service)
         await summary_service.generate_and_save_summary(
             chapter=chapter,
@@ -510,9 +539,9 @@ async def update_chapter(
             use_fallback=False,
         )
 
-    # 3. 章节分析（内容变化时重新分析，或分析数据缺失时补充）
+    # 3. 章节分析
     analysis_data = None
-    if content.strip() and (content_changed or not has_analysis):
+    if content.strip():
         try:
             analysis_service = ChapterAnalysisService(session)
             analysis_data = await analysis_service.analyze_chapter(
@@ -545,26 +574,21 @@ async def update_chapter(
         except Exception as exc:
             logger.error("项目 %s 第 %s 章索引更新失败: %s", project_id, chapter_number, exc)
 
-    # 5. 向量入库（仅在内容变化或刚执行了分析时）
-    # 如果内容没变且没有执行分析，说明RAG数据已完整，无需重复入库
+    # 5. 向量入库
     if vector_store and chapter.selected_version and chapter.selected_version.content:
-        should_ingest = content_changed or analysis_data is not None
-        if should_ingest:
-            try:
-                ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
-                await ingestion_service.ingest_chapter(
-                    project_id=project_id,
-                    chapter_number=chapter.chapter_number,
-                    title=chapter_title,
-                    content=chapter.selected_version.content,
-                    summary=chapter.real_summary,
-                    user_id=desktop_user.id,
-                )
-                logger.info("项目 %s 第 %s 章已同步至向量库", project_id, chapter_number)
-            except Exception as exc:
-                logger.error("项目 %s 第 %s 章向量入库失败: %s", project_id, chapter_number, exc)
-        else:
-            logger.debug("项目 %s 第 %s 章内容未变化且分析数据已存在，跳过向量入库", project_id, chapter_number)
+        try:
+            ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+            await ingestion_service.ingest_chapter(
+                project_id=project_id,
+                chapter_number=chapter.chapter_number,
+                title=chapter_title,
+                content=chapter.selected_version.content,
+                summary=chapter.real_summary,
+                user_id=desktop_user.id,
+            )
+            logger.info("项目 %s 第 %s 章已同步至向量库", project_id, chapter_number)
+        except Exception as exc:
+            logger.error("项目 %s 第 %s 章向量入库失败: %s", project_id, chapter_number, exc)
 
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 

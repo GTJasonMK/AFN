@@ -289,21 +289,26 @@ class InspirationMode(BasePage):
         if not self._state.is_complete:
             if not confirm(
                 self,
-                "AI表示还需要更多信息来生成蓝图。\n\n确定要继续生成吗？这可能导致生成失败或蓝图质量不佳。",
+                "AI表示还需要更多信息来生成蓝图。\n\n"
+                "确定要继续生成吗？将使用「随机生成」模式，AI会自动补全缺失的设定。",
                 "对话未完成"
             ):
                 return
+            # 用户确认使用随机生成模式
+            self._do_generate_blueprint(allow_incomplete=True)
+            return
 
         if not confirm(self, "确定要根据当前对话生成蓝图吗？", "确认生成"):
             return
 
         self._do_generate_blueprint()
 
-    def _do_generate_blueprint(self, force_regenerate=False):
+    def _do_generate_blueprint(self, force_regenerate=False, allow_incomplete=False):
         """执行蓝图生成（异步方式，不阻塞UI）
 
         Args:
             force_regenerate: 是否强制重新生成（将删除所有章节大纲、部分大纲、章节内容）
+            allow_incomplete: 是否允许在灵感对话未完成时生成蓝图（随机生成模式）
         """
         # 防御性检查：确保项目ID存在
         if not self._state.project_id:
@@ -330,11 +335,12 @@ class InspirationMode(BasePage):
         # 清理之前的worker（如果有）
         self._cleanup_blueprint_worker()
 
-        # 创建异步worker（传递force_regenerate参数）
+        # 创建异步worker（传递force_regenerate和allow_incomplete参数）
         self.blueprint_worker = AsyncAPIWorker(
             self.api_client.generate_blueprint,
             self._state.project_id,
-            force_regenerate=force_regenerate
+            force_regenerate=force_regenerate,
+            allow_incomplete=allow_incomplete
         )
 
         self.blueprint_worker.success.connect(self._on_blueprint_success)

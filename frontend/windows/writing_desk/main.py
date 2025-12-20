@@ -126,6 +126,7 @@ class WritingDesk(BasePage):
         self.workspace.generateChapterRequested.connect(self.onGenerateChapter)
         self.workspace.previewPromptRequested.connect(self.onPreviewPrompt)
         self.workspace.saveContentRequested.connect(self.onSaveContent)
+        self.workspace.ragIngestRequested.connect(self.onRagIngest)
         self.workspace.selectVersion.connect(self.onSelectVersion)
         self.workspace.evaluateChapter.connect(self.onEvaluateChapter)
         self.workspace.retryVersion.connect(self.onRetryVersion)
@@ -571,6 +572,68 @@ class WritingDesk(BasePage):
             parent=self,
             title="保存失败",
             message=f"保存章节内容时出错：{error_msg}",
+            button_text="确定",
+            dialog_type="error"
+        )
+        dialog.exec()
+
+    def onRagIngest(self, chapter_number, content):
+        """RAG入库 - 保存章节内容并执行完整RAG处理（异步非阻塞）
+
+        RAG处理包括：生成摘要、分析角色状态和伏笔、更新索引、向量入库
+        """
+        # 显示处理中提示
+        self.show_loading(f"正在处理第{chapter_number}章RAG入库...\n（包括摘要生成、分析、索引、向量入库）")
+
+        # 创建异步工作线程并通过 WorkerManager 管理
+        worker = AsyncAPIWorker(
+            self.api_client.update_chapter,
+            self.project_id,
+            chapter_number,
+            content,
+            trigger_rag=True  # 触发RAG处理
+        )
+        worker.success.connect(
+            lambda r: self.onRagIngestSuccess(chapter_number)
+        )
+        worker.error.connect(self.onRagIngestError)
+
+        # 使用 WorkerManager 启动
+        self.worker_manager.start(worker, 'rag_ingest')
+
+    def onRagIngestSuccess(self, chapter_number):
+        """RAG入库成功回调"""
+        self.hide_loading()
+
+        # 使用对话框显示成功
+        from components.dialogs import AlertDialog
+        dialog = AlertDialog(
+            parent=self,
+            title="RAG入库完成",
+            message=f"第{chapter_number}章已完成RAG处理：\n\n"
+                    "- 章节内容已保存\n"
+                    "- 摘要已生成\n"
+                    "- 角色状态和伏笔已分析\n"
+                    "- 索引已更新\n"
+                    "- 向量库已同步",
+            button_text="确定",
+            dialog_type="success"
+        )
+        dialog.exec()
+
+        # 重新加载项目数据以更新显示
+        self.loadProject()
+
+    def onRagIngestError(self, error_msg):
+        """RAG入库失败回调"""
+        self.hide_loading()
+
+        # 使用对话框显示失败
+        from components.dialogs import AlertDialog
+        dialog = AlertDialog(
+            parent=self,
+            title="RAG入库失败",
+            message=f"处理第{self.selected_chapter_number}章RAG入库时出错：\n\n{error_msg}",
             button_text="确定",
             dialog_type="error"
         )

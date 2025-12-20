@@ -1,17 +1,19 @@
 """
 嵌入模型配置对话框 - 书籍风格
+
+使用 BookStyleDialog 基类和 DialogStyles 统一样式。
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QSpinBox
 )
 from PyQt6.QtCore import Qt
-from themes.theme_manager import theme_manager
-from utils.dpi_utils import dp, sp
+from components.dialogs import BookStyleDialog, DialogStyles
+from utils.dpi_utils import dp
 
 
-class EmbeddingConfigDialog(QDialog):
+class EmbeddingConfigDialog(BookStyleDialog):
     """嵌入模型配置创建/编辑对话框 - 书籍风格"""
 
     def __init__(self, config=None, providers=None, parent=None):
@@ -23,7 +25,6 @@ class EmbeddingConfigDialog(QDialog):
         self.setMinimumSize(500, 500)
         self._create_ui_structure()
         self._apply_theme()
-        theme_manager.theme_changed.connect(lambda _: self._apply_theme())
 
     def _create_ui_structure(self):
         """创建UI结构"""
@@ -33,6 +34,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # 标题
         self.title_label = QLabel("新增嵌入模型配置" if self.is_create else "编辑嵌入模型配置")
+        self.title_label.setObjectName("config_title")
         layout.addWidget(self.title_label)
 
         # 表单区域
@@ -43,6 +45,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # 配置名称
         self.name_label = QLabel("配置名称 *")
+        self.name_label.setObjectName("config_label")
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("如：OpenAI Embedding、本地 Ollama 等")
         self.name_input.setMinimumHeight(dp(40))
@@ -52,6 +55,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # 提供方选择
         self.provider_label = QLabel("提供方")
+        self.provider_label.setObjectName("config_label")
         self.provider_combo = QComboBox()
         self.provider_combo.setMinimumHeight(dp(40))
         self.provider_combo.addItem("OpenAI / 兼容 API", "openai")
@@ -66,6 +70,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # API Base URL
         self.url_label = QLabel("API Base URL")
+        self.url_label.setObjectName("config_label")
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("https://api.openai.com/v1")
         self.url_input.setMinimumHeight(dp(40))
@@ -75,6 +80,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # API Key
         self.key_label = QLabel("API Key")
+        self.key_label.setObjectName("config_label")
         self.key_input = QLineEdit()
         self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_input.setPlaceholderText("sk-..." if self.is_create else "留空表示不修改")
@@ -83,10 +89,12 @@ class EmbeddingConfigDialog(QDialog):
 
         # API Key 提示
         self.key_hint = QLabel("Ollama 本地模型无需 API Key")
+        self.key_hint.setObjectName("config_hint")
         form_layout.addRow("", self.key_hint)
 
         # 模型名称
         self.model_label = QLabel("模型名称")
+        self.model_label.setObjectName("config_label")
         self.model_input = QLineEdit()
         self.model_input.setPlaceholderText("text-embedding-3-small")
         self.model_input.setMinimumHeight(dp(40))
@@ -96,6 +104,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # 向量维度（可选）
         self.dim_label = QLabel("向量维度")
+        self.dim_label.setObjectName("config_label")
         self.vector_size_input = QSpinBox()
         self.vector_size_input.setMinimumHeight(dp(40))
         self.vector_size_input.setRange(0, 10000)
@@ -106,6 +115,7 @@ class EmbeddingConfigDialog(QDialog):
 
         # 向量维度提示
         self.dim_hint = QLabel("留空或设为0将在测试时自动检测")
+        self.dim_hint.setObjectName("config_hint")
         form_layout.addRow("", self.dim_hint)
 
         layout.addLayout(form_layout)
@@ -116,6 +126,7 @@ class EmbeddingConfigDialog(QDialog):
             "- OpenAI: text-embedding-3-small, text-embedding-3-large\n"
             "- Ollama: nomic-embed-text, mxbai-embed-large"
         )
+        self.hint_label.setObjectName("info_card")
         layout.addWidget(self.hint_label)
 
         layout.addStretch()
@@ -142,36 +153,12 @@ class EmbeddingConfigDialog(QDialog):
 
     def _apply_theme(self):
         """应用书籍风格主题"""
-        palette = theme_manager.get_book_palette()
-
-        # 对话框背景
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {palette.bg_primary};
-            }}
-        """)
-
-        # 标题样式
-        self.title_label.setStyleSheet(f"""
-            QLabel {{
-                font-family: {palette.serif_font};
-                font-size: {sp(24)}px;
-                font-weight: 700;
-                color: {palette.text_primary};
-                padding-bottom: {dp(12)}px;
-                border-bottom: 1px solid {palette.border_color};
-            }}
-        """)
+        # 使用 DialogStyles 的统一样式方法
+        self.setStyleSheet(DialogStyles.book_dialog_background())
+        self.title_label.setStyleSheet(DialogStyles.book_title("config_title"))
 
         # 标签样式
-        label_style = f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(14)}px;
-                color: {palette.text_secondary};
-                font-weight: 500;
-            }}
-        """
+        label_style = DialogStyles.book_label("config_label")
         self.name_label.setStyleSheet(label_style)
         self.provider_label.setStyleSheet(label_style)
         self.url_label.setStyleSheet(label_style)
@@ -180,155 +167,29 @@ class EmbeddingConfigDialog(QDialog):
         self.dim_label.setStyleSheet(label_style)
 
         # 提示文字样式
-        hint_style = f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(12)}px;
-                color: {palette.text_tertiary};
-                font-style: italic;
-                margin-top: {dp(4)}px;
-            }}
-        """
+        hint_style = DialogStyles.book_hint("config_hint")
         self.key_hint.setStyleSheet(hint_style)
         self.dim_hint.setStyleSheet(hint_style)
 
-        # 常用模型提示样式 - 柔和的卡片背景
-        self.hint_label.setStyleSheet(f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(12)}px;
-                color: {palette.text_secondary};
-                background-color: {palette.bg_secondary};
-                padding: {dp(12)}px;
-                border-radius: {dp(8)}px;
-                border: 1px dashed {palette.border_color};
-            }}
-        """)
+        # 常用模型提示样式
+        self.hint_label.setStyleSheet(DialogStyles.book_info_card())
 
         # 输入框样式
-        input_style = f"""
-            QLineEdit {{
-                font-family: {palette.ui_font};
-                background-color: {palette.bg_secondary};
-                color: {palette.text_primary};
-                padding: {dp(10)}px {dp(14)}px;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                font-size: {sp(14)}px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {palette.accent_color};
-                background-color: {palette.bg_primary};
-            }}
-            QLineEdit::placeholder {{
-                color: {palette.text_tertiary};
-            }}
-            QLineEdit:disabled {{
-                background-color: {palette.bg_primary};
-                color: {palette.text_tertiary};
-            }}
-        """
+        input_style = DialogStyles.book_input()
         self.name_input.setStyleSheet(input_style)
         self.url_input.setStyleSheet(input_style)
         self.key_input.setStyleSheet(input_style)
         self.model_input.setStyleSheet(input_style)
 
         # ComboBox样式
-        self.provider_combo.setStyleSheet(f"""
-            QComboBox {{
-                font-family: {palette.ui_font};
-                background-color: {palette.bg_secondary};
-                color: {palette.text_primary};
-                padding: {dp(10)}px {dp(14)}px;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                font-size: {sp(14)}px;
-            }}
-            QComboBox:focus {{
-                border: 1px solid {palette.accent_color};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                padding-right: {dp(8)}px;
-            }}
-            QComboBox::down-arrow {{
-                width: {dp(12)}px;
-                height: {dp(12)}px;
-            }}
-            QComboBox QAbstractItemView {{
-                font-family: {palette.ui_font};
-                background-color: {palette.bg_primary};
-                color: {palette.text_primary};
-                border: 1px solid {palette.border_color};
-                selection-background-color: {palette.accent_color};
-                selection-color: {palette.bg_primary};
-            }}
-        """)
+        self.provider_combo.setStyleSheet(DialogStyles.book_combobox())
 
         # SpinBox样式
-        self.vector_size_input.setStyleSheet(f"""
-            QSpinBox {{
-                font-family: {palette.ui_font};
-                background-color: {palette.bg_secondary};
-                color: {palette.text_primary};
-                padding: {dp(10)}px {dp(14)}px;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                font-size: {sp(14)}px;
-            }}
-            QSpinBox:focus {{
-                border: 1px solid {palette.accent_color};
-            }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                width: {dp(20)}px;
-                background-color: transparent;
-                border: none;
-                border-radius: {dp(4)}px;
-            }}
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
-                background-color: {palette.border_color};
-            }}
-        """)
+        self.vector_size_input.setStyleSheet(DialogStyles.book_spinbox())
 
-        # 取消按钮样式
-        self.cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: transparent;
-                color: {palette.text_secondary};
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(24)}px;
-                font-size: {sp(14)}px;
-                min-width: {dp(80)}px;
-            }}
-            QPushButton:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-                background-color: {palette.bg_secondary};
-            }}
-        """)
-
-        # 保存按钮样式
-        self.save_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: {palette.accent_color};
-                color: {palette.bg_primary};
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(24)}px;
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                min-width: {dp(80)}px;
-            }}
-            QPushButton:hover {{
-                background-color: {palette.text_primary};
-            }}
-            QPushButton:pressed {{
-                background-color: {palette.accent_light};
-            }}
-        """)
+        # 按钮样式
+        self.cancel_btn.setStyleSheet(DialogStyles.book_button_cancel())
+        self.save_btn.setStyleSheet(DialogStyles.book_button_save())
 
     def _on_provider_changed(self):
         """提供方切换时更新UI"""

@@ -143,14 +143,30 @@ A 25-year-old woman with long black hair, wearing school uniform, surprised expr
 - **不要在单个提示词中包含多个时间点的动作**
 - **文字内容要简短**：对话控制在15字以内，音效控制在4字以内
 
-## 5. 负面提示词
-根据场景类型添加适当的负面提示词：
-- 通用：`low quality, blurry, distorted face, extra limbs, bad anatomy, watermark`
-- 文字相关：`wrong text, misspelled words, garbled text, unreadable text, text errors`
-- 人物场景：`deformed hands, extra fingers, missing fingers, ugly face`
-- 动作场景：`motion blur, unclear action, static pose`
+## 5. 负面提示词（必须包含以下内容）
+每个场景的 negative_prompt 必须包含：
 
-## 6. 构图选择指南
+**基础质量问题**：
+`low quality, blurry, pixelated, jpeg artifacts, watermark, signature`
+
+**AI常见缺陷**：
+`plastic skin, waxy skin, shiny skin, overly smooth skin, doll-like appearance, uncanny valley, stiff expression, lifeless eyes, dead eyes`
+
+**解剖错误**：
+`bad anatomy, wrong proportions, deformed hands, extra fingers, missing fingers, fused fingers, malformed limbs, extra limbs, floating limbs`
+
+**风格问题（重要）**：
+`3D render, CGI, photorealistic, hyper-realistic, overly rendered, excessive highlights, too much contrast, oil painting texture, heavy impasto, thick paint strokes`
+
+**文字错误**：
+`wrong text, misspelled words, garbled text, unreadable text, text errors, gibberish text`
+
+根据场景类型添加：
+- 人物场景：`ugly face, deformed face, asymmetrical face, crossed eyes`
+- 动作场景：`motion blur, unclear action, static pose when action needed`
+- 背景场景：`empty background, flat background, inconsistent perspective`
+
+## 6. 构图选择指南（重要：避免连续使用相同构图）
 | 构图类型 | 英文关键词 | 适用场景 |
 |---------|-----------|---------|
 | 极特写 | extreme close-up | 眼睛、表情细节 |
@@ -162,18 +178,33 @@ A 25-year-old woman with long black hair, wearing school uniform, surprised expr
 | 仰视 | low angle shot | 展现角色威严或压迫感 |
 | 倾斜 | dutch angle | 紧张、不安、动态感 |
 
+**构图多样性要求**：
+- 连续3个场景内不应使用相同的构图类型
+- 特写镜头后应切换到中景或远景，形成视觉节奏
+- 对话场景应使用正反打（shot/reverse shot）手法
+- 避免连续多格都是"屏幕特写+人物"的相似构图
+
 ## 7. 光线描述
 - 室内：`soft indoor lighting`, `dim candlelight`, `harsh fluorescent light`
 - 室外白天：`bright sunlight`, `golden hour`, `overcast sky`
 - 室外夜晚：`moonlight`, `streetlight glow`, `neon lights`
 - 情绪渲染：`dramatic lighting`, `rim lighting`, `silhouette`, `high contrast shadows`
 
-## 8. 漫画风格关键词
-- 日漫：`manga style`, `screentone shading`, `clean line art`, `Japanese comic style`
-- 美漫：`comic book style`, `bold outlines`, `dynamic shading`, `American comic style`
-- 韩漫：`webtoon style`, `soft shading`, `vibrant colors`, `Korean manhwa style`
-- 黑白：`black and white`, `ink drawing`, `monochrome manga`
-- 彩色：`full color manga`, `cel shading`, `anime coloring`
+## 8. 漫画风格关键词（重要：强调线稿而非厚涂）
+
+**推荐使用（清晰的漫画线稿风格）**：
+- 日漫线稿：`manga style, clean line art, bold outlines, screentone shading, ink drawing style, pen and ink illustration`
+- 美漫线稿：`comic book style, strong black outlines, flat colors, cel shading, graphic novel art`
+- 韩漫风格：`webtoon style, clean digital lines, soft cel shading, minimal rendering`
+- 黑白漫画：`black and white manga, high contrast ink, dramatic shadows, halftone dots`
+
+**避免使用（会导致厚涂/塑料感）**：
+- `painterly, oil painting, heavy rendering, hyper-detailed skin, subsurface scattering, volumetric lighting, photorealistic shading`
+
+**推荐的风格组合示例**：
+```
+manga style, clean bold outlines, flat cel shading, minimal highlights, screentone texture, black and white ink drawing
+```
 
 # 漫画视觉效果关键词
 
@@ -189,9 +220,24 @@ A 25-year-old woman with long black hair, wearing school uniform, surprised expr
 - 集中线：`focus lines`, `impact lines`, `radial lines`
 - 冲击波：`impact effect`, `shockwave`, `explosion effect`
 
+# 数字和金额格式化规则（重要）
+在场景描述和对话中涉及数字时，必须使用正确的格式：
+
+**金额格式**：
+- 使用中文：50万、120万、1000万（推荐）
+- 使用国际格式：500,000、1,200,000（逗号在千位）
+- **禁止错误格式**：50,0000（错误）、1200,000（错误）
+
+**数字显示规则**：
+- 大于1万的数字使用"X万"格式
+- 或使用正确的千分位逗号：1,000、10,000、100,000
+- 屏幕上显示的数字要清晰可读，避免过小或模糊
+
 # 质量标准
 - 每个场景的提示词长度应在80-200个英文单词之间
 - 场景应当按照故事时间线顺序排列
 - 确保相邻场景之间有逻辑连贯性
 - 对话内容必须与原文保持一致
 - 音效要符合场景氛围
+- **构图必须有变化**，避免视觉疲劳
+- **negative_prompt必须完整**，包含AI常见缺陷

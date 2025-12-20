@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List
 
 from ...exceptions import JSONParseError
-from ...utils.json_utils import remove_think_tags, unwrap_markdown_json
+from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, repair_truncated_json
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,42 @@ class PartOutlineParser:
 
     负责解析LLM返回的部分大纲JSON，支持批量解析和单个解析两种模式。
     """
+
+    def _parse_json_with_repair(self, text: str, context: str) -> Dict:
+        """
+        解析JSON，失败时尝试修复
+
+        Args:
+            text: 待解析的JSON文本
+            context: 错误上下文描述
+
+        Returns:
+            Dict: 解析后的字典
+
+        Raises:
+            JSONParseError: 如果解析和修复都失败
+        """
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.warning("JSON解析失败，尝试修复: %s", exc)
+            # 尝试修复被截断的JSON
+            try:
+                repaired = repair_truncated_json(text)
+                result = json.loads(repaired)
+                logger.info("JSON修复成功: %s", context)
+                return result
+            except json.JSONDecodeError as repair_exc:
+                # 记录更详细的错误信息
+                logger.error(
+                    "解析%sJSON失败（修复后仍失败）: %s\n原始位置: 行%d 列%d\n内容预览: %s",
+                    context,
+                    str(repair_exc),
+                    exc.lineno,
+                    exc.colno,
+                    text[:500] if text else "空"
+                )
+                raise JSONParseError(context, "格式错误") from repair_exc
 
     def parse_multiple_parts(self, response: str) -> List[Dict]:
         """
@@ -36,11 +72,7 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        try:
-            result = json.loads(unwrapped)
-        except json.JSONDecodeError as exc:
-            logger.error("解析部分大纲JSON失败: %s", exc)
-            raise JSONParseError("部分大纲", str(exc))
+        result = self._parse_json_with_repair(unwrapped, "部分大纲")
 
         parts_data = result.get("parts", [])
         if not parts_data:
@@ -64,11 +96,7 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        try:
-            part_data = json.loads(unwrapped)
-        except json.JSONDecodeError as exc:
-            logger.error("解析部分大纲JSON失败: %s", exc)
-            raise JSONParseError("部分大纲", str(exc))
+        part_data = self._parse_json_with_repair(unwrapped, f"部分大纲第{expected_part_number}部分")
 
         # 验证part_number
         if part_data.get("part_number") != expected_part_number:
@@ -96,11 +124,7 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        try:
-            result = json.loads(unwrapped)
-        except json.JSONDecodeError as exc:
-            logger.error("解析章节大纲JSON失败: %s", exc)
-            raise JSONParseError("章节大纲", str(exc))
+        result = self._parse_json_with_repair(unwrapped, "章节大纲")
 
         chapters_data = result.get("chapter_outline", [])
         if not chapters_data:

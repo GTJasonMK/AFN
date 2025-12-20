@@ -35,44 +35,14 @@ COHERENCE_CHECK_USER_TEMPLATE = """## 当前段落（第{paragraph_index}段）
 
 请根据以上信息进行检查。"""
 
-DIMENSION_DESCRIPTIONS = {
-    CheckDimension.COHERENCE: """
-【逻辑连贯性】检查：
-- 事件因果是否合理
-- 行为动机是否充分
-- 情节推进是否自然
-- 前后逻辑是否矛盾""",
-
-    CheckDimension.CHARACTER: """
-【角色一致性】检查：
-- 角色位置是否与前文一致
-- 角色状态（情绪、体力等）是否合理
-- 角色性格表现是否一致
-- 角色行为是否符合其设定""",
-
-    CheckDimension.FORESHADOW: """
-【伏笔呼应】检查：
-- 是否有未回应的伏笔应该在此处回应
-- 新埋下的伏笔是否自然
-- 伏笔回收是否合理""",
-
-    CheckDimension.TIMELINE: """
-【时间线一致性】检查：
-- 时间流逝是否合理
-- 日夜变化是否正确
-- 事件顺序是否正确""",
-
-    CheckDimension.STYLE: """
-【风格一致性】检查：
-- 叙述视角是否一致
-- 用词风格是否统一
-- 节奏是否与整体协调""",
-
-    CheckDimension.SCENE: """
-【场景描写】检查：
-- 场景转换是否自然
-- 环境描述是否与前文一致
-- 空间感是否清晰""",
+# 维度简称映射（详细说明在 prompts/coherence_check.md 中）
+DIMENSION_LABELS = {
+    CheckDimension.COHERENCE: "逻辑连贯性（coherence）",
+    CheckDimension.CHARACTER: "角色一致性（character）",
+    CheckDimension.FORESHADOW: "伏笔呼应（foreshadow）",
+    CheckDimension.TIMELINE: "时间线一致性（timeline）",
+    CheckDimension.STYLE: "风格一致性（style）",
+    CheckDimension.SCENE: "场景描写（scene）",
 }
 
 
@@ -206,9 +176,9 @@ class CoherenceChecker:
 
         context_info = "\n\n".join(context_parts) if context_parts else "（无额外上下文）"
 
-        # 构建检查维度描述
+        # 构建检查维度描述（详细说明在系统提示词中，这里只列出维度名称）
         dimensions_text = "\n".join(
-            DIMENSION_DESCRIPTIONS.get(dim, f"【{dim}】")
+            f"- {DIMENSION_LABELS.get(dim, str(dim))}"
             for dim in dimensions
         )
 

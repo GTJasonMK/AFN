@@ -20,6 +20,7 @@ class OutlineListView(QWidget):
     """大纲列表视图 - 横条形式"""
 
     itemClicked = pyqtSignal(dict)  # 点击某个大纲项
+    editRequested = pyqtSignal(dict)  # 编辑大纲项请求（仅章节大纲支持）
 
     def __init__(
         self,
@@ -87,6 +88,9 @@ class OutlineListView(QWidget):
         for item in self.items:
             row = OutlineRow(data=item, row_type=self.item_type)
             row.detailClicked.connect(self.itemClicked.emit)
+            # 仅章节大纲支持编辑
+            if self.item_type == "chapter":
+                row.editRequested.connect(self.editRequested.emit)
             self.row_widgets.append(row)
             self.content_layout.addWidget(row)
 

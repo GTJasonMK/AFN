@@ -158,17 +158,37 @@ class NovelService:
     # 项目CRUD
     # ------------------------------------------------------------------
 
-    async def create_project(self, user_id: int, title: str, initial_prompt: str) -> NovelProject:
+    async def create_project(
+        self,
+        user_id: int,
+        title: str,
+        initial_prompt: str = "",
+        skip_inspiration: bool = False,
+    ) -> NovelProject:
         """
         创建新项目
 
+        Args:
+            user_id: 用户ID
+            title: 项目标题
+            initial_prompt: 灵感对话的初始提示词
+            skip_inspiration: 是否跳过灵感对话（自由创作模式）
+
         注意：此方法不commit，调用方需要在适当时候commit
         """
+        # 自由创作模式：跳过灵感对话，直接进入蓝图就绪状态
+        initial_status = (
+            ProjectStatus.BLUEPRINT_READY.value
+            if skip_inspiration
+            else ProjectStatus.DRAFT.value
+        )
+
         project = NovelProject(
             id=str(uuid.uuid4()),
             user_id=user_id,
             title=title,
             initial_prompt=initial_prompt,
+            status=initial_status,
         )
         blueprint = NovelBlueprint(project=project)
         self.session.add_all([project, blueprint])
@@ -332,6 +352,38 @@ class NovelService:
     async def get_outline(self, project_id: str, chapter_number: int) -> Optional[ChapterOutline]:
         """获取章节大纲"""
         return await self._chapter_version_service.get_outline(project_id, chapter_number)
+
+    async def get_outline_or_raise(self, project_id: str, chapter_number: int) -> "ChapterOutline":
+        """
+        获取章节大纲，不存在则抛出异常
+
+        统一的大纲获取和验证方法，消除路由层重复的验证代码。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节编号
+
+        Returns:
+            ChapterOutline: 章节大纲实例
+
+        Raises:
+            ResourceNotFoundError: 大纲不存在
+
+        Example:
+            # 之前：
+            outline = await novel_service.get_outline(project_id, chapter_number)
+            if not outline:
+                raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {chapter_number} 章")
+
+            # 之后：
+            outline = await novel_service.get_outline_or_raise(project_id, chapter_number)
+        """
+        from ..exceptions import ResourceNotFoundError
+
+        outline = await self.get_outline(project_id, chapter_number)
+        if not outline:
+            raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {chapter_number} 章")
+        return outline
 
     async def count_chapter_outlines(self, project_id: str) -> int:
         """统计项目的章节大纲数量"""

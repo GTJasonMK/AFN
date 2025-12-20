@@ -44,15 +44,27 @@ router = APIRouter(tags=["Novels"])
 @router.post("", response_model=NovelProjectSchema, status_code=status.HTTP_201_CREATED)
 async def create_novel(
     title: str = Body(...),
-    initial_prompt: str = Body(...),
+    initial_prompt: Optional[str] = Body(default=None),
+    skip_inspiration: bool = Body(default=False),
     novel_service: NovelService = Depends(get_novel_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> NovelProjectSchema:
-    """为当前用户创建一个新的小说项目"""
-    project = await novel_service.create_project(desktop_user.id, title, initial_prompt)
-    await session.commit()  # 提交项目创建事务
-    logger.info("用户 %s 创建项目 %s", desktop_user.id, project.id)
+    """为当前用户创建一个新的小说项目
+
+    Args:
+        title: 项目标题
+        initial_prompt: 灵感对话的初始提示词（自由创作模式时可为空）
+        skip_inspiration: 是否跳过灵感对话（自由创作模式）
+    """
+    project = await novel_service.create_project(
+        user_id=desktop_user.id,
+        title=title,
+        initial_prompt=initial_prompt or "",
+        skip_inspiration=skip_inspiration,
+    )
+    await session.commit()
+    logger.info("用户 %s 创建项目 %s (skip_inspiration=%s)", desktop_user.id, project.id, skip_inspiration)
     return await novel_service.get_project_schema(project.id, desktop_user.id)
 
 

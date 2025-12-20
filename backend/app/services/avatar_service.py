@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..repositories.blueprint_repository import NovelBlueprintRepository
+from ..repositories.blueprint_repository import NovelBlueprintRepository, BlueprintCharacterRepository
 from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
@@ -28,7 +28,8 @@ class AvatarService:
     """
 
     # SVG安全检查的危险标签和属性
-    DANGEROUS_TAGS = ['script', 'iframe', 'object', 'embed', 'link', 'style']
+    # 注意: style标签在SVG内是安全的（仅影响SVG内部样式），不列入危险标签
+    DANGEROUS_TAGS = ['script', 'iframe', 'object', 'embed', 'link']
     DANGEROUS_ATTRS = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus', 'onblur']
 
     def __init__(
@@ -47,6 +48,7 @@ class AvatarService:
         """
         self.session = session
         self.blueprint_repo = NovelBlueprintRepository(session)
+        self.character_repo = BlueprintCharacterRepository(session)
         self.llm_service = llm_service or LLMService(session)
         self.prompt_service = prompt_service or PromptService(session)
 
@@ -78,11 +80,14 @@ class AvatarService:
         if not blueprint:
             raise ResourceNotFoundError("蓝图", project_id)
 
-        # 2. 构建提示词
-        system_prompt = await self.prompt_service.get_prompt("avatar_generation")
-        user_prompt = self._build_user_prompt(blueprint)
+        # 2. 获取角色信息
+        characters = await self.character_repo.list_by_project(project_id)
 
-        # 3. 调用LLM生成
+        # 3. 构建提示词
+        system_prompt = await self.prompt_service.get_prompt("avatar_generation")
+        user_prompt = self._build_user_prompt(blueprint, list(characters))
+
+        # 4. 调用LLM生成
         logger.info("项目 %s 开始生成头像", project_id)
         response = await call_llm_json(
             self.llm_service,
@@ -92,17 +97,17 @@ class AvatarService:
             user_id=user_id,
         )
 
-        # 4. 解析响应
+        # 5. 解析响应
         result = parse_llm_json_or_fail(response, "头像生成失败")
 
         svg = result.get("svg", "")
         animal = result.get("animal", "")
         animal_cn = result.get("animal_cn", "")
 
-        # 5. 验证并清理SVG
+        # 6. 验证并清理SVG
         svg = self._validate_and_sanitize_svg(svg)
 
-        # 6. 保存到数据库
+        # 7. 保存到数据库
         await self._save_avatar(project_id, svg, animal)
         await self.session.commit()
 
@@ -119,36 +124,75 @@ class AvatarService:
             "animal_cn": animal_cn,
         }
 
-    def _build_user_prompt(self, blueprint) -> str:
+    def _build_user_prompt(self, blueprint, characters: list) -> str:
         """
         构建用户提示词
 
         Args:
             blueprint: 蓝图数据库对象
+            characters: 角色列表（BlueprintCharacter对象列表）
 
         Returns:
             str: 格式化的用户提示词
         """
+        title = blueprint.title or "未命名小说"
         genre = blueprint.genre or "未知类型"
         style = blueprint.style or "未知风格"
         tone = blueprint.tone or "未知氛围"
         target_audience = blueprint.target_audience or "一般读者"
         one_sentence_summary = blueprint.one_sentence_summary or "暂无简介"
-        title = blueprint.title or "未命名小说"
 
-        return f"""请为以下小说生成一个代表性的小动物SVG头像：
+        # 从角色列表获取主角信息
+        protagonist_info = ""
+        if characters and len(characters) > 0:
+            main_char = characters[0]
+            char_name = main_char.name or "未知"
+            char_personality = main_char.personality or ""
+            char_identity = main_char.identity or ""
+            protagonist_info = f"""
+## 主角信息
+- 名字：{char_name}
+- 身份：{char_identity}
+- 性格：{char_personality}
+"""
 
-## 小说信息
-- 标题：{title}
-- 类型：{genre}
-- 风格：{style}
-- 氛围：{tone}
-- 目标读者：{target_audience}
-- 一句话简介：{one_sentence_summary}
+        # 获取世界观核心设定
+        world_info = ""
+        if blueprint.world_setting:
+            try:
+                world = blueprint.world_setting if isinstance(blueprint.world_setting, dict) else {}
+                core_rules = world.get('core_rules', '')
+                if core_rules:
+                    # 截取前200字符，避免过长
+                    core_rules_preview = core_rules[:200] + "..." if len(core_rules) > 200 else core_rules
+                    world_info = f"""
+## 世界观
+{core_rules_preview}
+"""
+            except (TypeError, AttributeError):
+                pass
 
-## 要求
-根据小说的整体气质，选择一个最能代表这部作品的小动物，并生成其SVG头像。
-头像应该可爱、简洁、具有辨识度，配色要与小说氛围相符。
+        return f"""请为以下小说创作一个独特的动物图腾头像：
+
+## 作品信息
+- **标题**：{title}
+- **类型**：{genre}
+- **风格**：{style}
+- **氛围**：{tone}
+- **目标读者**：{target_audience}
+
+## 故事简介
+{one_sentence_summary}
+{protagonist_info}{world_info}
+## 创作要求
+
+1. 根据作品的整体气质，选择最能代表这部小说灵魂的动物
+2. 设计风格要与小说类型和氛围高度匹配
+3. 配色方案要能传达故事的情感基调
+4. 如果有主角信息，可以让头像体现主角的某些特质
+5. 追求简洁而有辨识度，让人一眼就能感受到作品的独特魅力
+
+请发挥你的创意，创作一个让人过目不忘的头像！
 """
 
     def _validate_and_sanitize_svg(self, svg: str) -> str:

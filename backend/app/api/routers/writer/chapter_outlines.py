@@ -50,7 +50,7 @@ from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
 from ....services.blueprint_service import BlueprintService
 from ....services.rag import get_outline_rag_retriever
-from ....utils.json_utils import remove_think_tags, parse_llm_json_or_fail
+from ....utils.json_utils import parse_llm_json_or_fail
 from ....utils.prompt_helpers import ensure_prompt
 from ....utils.sse_helpers import (
     sse_event,
@@ -272,10 +272,9 @@ async def generate_chapter_outlines_by_count(
                     timeout=LLMConstants.CHAPTER_OUTLINE_TIMEOUT,
                 )
 
-                # 解析LLM响应
-                response_cleaned = remove_think_tags(response)
+                # 解析LLM响应（parse_llm_json_or_fail 内部已处理 think 标签）
                 data = parse_llm_json_or_fail(
-                    response_cleaned,
+                    response,
                     f"项目{project_id}第{current_chapter}-{batch_end}章的章节大纲生成失败"
                 )
 
@@ -609,10 +608,9 @@ async def regenerate_chapter_outline(
         timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
     )
 
-    # 解析LLM响应
-    response_cleaned = remove_think_tags(response)
+    # 解析LLM响应（parse_llm_json_or_fail 内部已处理 think 标签）
     data = parse_llm_json_or_fail(
-        response_cleaned,
+        response,
         f"项目{project_id}第{chapter_number}章的章节大纲重新生成失败"
     )
 

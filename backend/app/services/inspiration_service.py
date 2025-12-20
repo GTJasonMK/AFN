@@ -78,9 +78,6 @@ class InspirationService:
             str: 系统提示词内容
         """
         system_prompt = await self.prompt_service.get_prompt("inspiration")
-        if not system_prompt:
-            # 向后兼容：fallback到旧名称
-            system_prompt = await self.prompt_service.get_prompt("concept")
         return ensure_prompt(system_prompt, "inspiration")
 
     async def build_conversation_context(

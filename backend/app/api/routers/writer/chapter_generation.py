@@ -8,7 +8,6 @@ import logging
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
@@ -28,7 +27,6 @@ from ....db.session import get_session
 from ....exceptions import (
     ChapterNotGeneratedError,
     InvalidParameterError,
-    ResourceNotFoundError,
 )
 from ....schemas.novel import (
     GenerateChapterRequest,
@@ -49,7 +47,7 @@ from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
 from ....utils.json_utils import extract_llm_content
 from ....utils.prompt_helpers import ensure_prompt
-from ....utils.sse_helpers import sse_event
+from ....utils.sse_helpers import sse_event, create_sse_response
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -136,9 +134,7 @@ async def retry_chapter_version(
         raise InvalidParameterError("版本索引无效")
 
     # 获取大纲
-    outline = await novel_service.get_outline(project_id, request.chapter_number)
-    if not outline:
-        raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {request.chapter_number} 章")
+    outline = await novel_service.get_outline_or_raise(project_id, request.chapter_number)
 
     # 准备蓝图
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
@@ -227,9 +223,7 @@ async def preview_chapter_prompt(
 
     # 1. 验证项目和大纲
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-    outline = await novel_service.get_outline(project_id, request.chapter_number)
-    if not outline:
-        raise ResourceNotFoundError("章节大纲", f"项目 {project_id} 第 {request.chapter_number} 章")
+    outline = await novel_service.get_outline_or_raise(project_id, request.chapter_number)
 
     # 2. 收集历史章节摘要
     completed_chapters, previous_summary_text, previous_tail_excerpt = await chapter_gen_service.collect_chapter_summaries(
@@ -383,7 +377,7 @@ async def generate_chapter_stream(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
-) -> StreamingResponse:
+):
     """
     生成章节内容（SSE流式返回进度）
 
@@ -436,12 +430,4 @@ async def generate_chapter_stream(
             else:
                 yield sse_event("progress", progress)
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
-    )
+    return create_sse_response(event_generator())

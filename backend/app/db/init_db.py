@@ -156,6 +156,22 @@ async def _run_migrations() -> None:
             "source_version_id",
             "ALTER TABLE chapter_manga_prompts ADD COLUMN source_version_id INTEGER REFERENCES chapter_versions(id) ON DELETE SET NULL"
         ),
+        (
+            "generated_images",
+            "chapter_version_id",
+            "ALTER TABLE generated_images ADD COLUMN chapter_version_id VARCHAR(36) REFERENCES chapter_versions(id) ON DELETE SET NULL"
+        ),
+        # 断点续传支持：添加生成状态和进度字段
+        (
+            "chapter_manga_prompts",
+            "generation_status",
+            "ALTER TABLE chapter_manga_prompts ADD COLUMN generation_status VARCHAR(32) DEFAULT 'completed'"
+        ),
+        (
+            "chapter_manga_prompts",
+            "generation_progress",
+            "ALTER TABLE chapter_manga_prompts ADD COLUMN generation_progress JSON DEFAULT NULL"
+        ),
     ]
 
     async with engine.begin() as conn:

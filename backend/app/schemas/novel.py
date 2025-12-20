@@ -314,6 +314,28 @@ class BlueprintPatch(BaseModel):
     characters: Optional[List[Dict[str, Any]]] = None
     relationships: Optional[List[Relationship]] = None
     chapter_outline: Optional[List[ChapterOutline]] = None
+    total_chapters: Optional[int] = None
+    genre: Optional[str] = None
+    style: Optional[str] = None
+    tone: Optional[str] = None
+    target_audience: Optional[str] = None
+    title: Optional[str] = None
+
+
+class ChapterOutlineUpdate(BaseModel):
+    """章节大纲更新请求"""
+    chapter_number: int
+    title: str
+    summary: str
+
+
+class BatchBlueprintUpdate(BaseModel):
+    """批量更新蓝图请求
+
+    支持同时更新蓝图字段和章节大纲，用于前端批量保存功能。
+    """
+    blueprint_updates: Optional[Dict[str, Any]] = None
+    chapter_outline_updates: Optional[List[ChapterOutlineUpdate]] = None
 
 
 class ImportChapterRequest(BaseModel):

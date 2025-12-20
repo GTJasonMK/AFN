@@ -29,15 +29,18 @@ class ContentPanelBuilder(BasePanelBuilder):
 
     def __init__(
         self,
-        on_save_content: Optional[Callable[[], None]] = None
+        on_save_content: Optional[Callable[[], None]] = None,
+        on_rag_ingest: Optional[Callable[[], None]] = None
     ):
         """初始化构建器
 
         Args:
-            on_save_content: 保存内容回调函数
+            on_save_content: 保存内容回调函数（仅保存，不触发RAG处理）
+            on_rag_ingest: RAG入库回调函数（执行摘要生成、分析、索引、向量入库）
         """
         super().__init__()  # 初始化 BasePanelBuilder，获取 _styler
         self._on_save_content = on_save_content
+        self._on_rag_ingest = on_rag_ingest
         self._content_text: Optional[QTextEdit] = None
 
     @property
@@ -134,14 +137,25 @@ class ContentPanelBuilder(BasePanelBuilder):
 
         toolbar_layout.addStretch()
 
-        # 保存按钮
+        # 保存按钮（仅保存内容，不触发RAG处理）
         save_btn = QPushButton("保存内容")
         save_btn.setObjectName("save_btn")
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.setStyleSheet(ButtonStyles.primary('SM'))
+        save_btn.setToolTip("保存章节内容（不执行RAG处理）")
         if self._on_save_content:
             save_btn.clicked.connect(self._on_save_content)
         toolbar_layout.addWidget(save_btn)
+
+        # RAG入库按钮（执行完整RAG处理：摘要、分析、索引、向量入库）
+        rag_btn = QPushButton("RAG入库")
+        rag_btn.setObjectName("rag_btn")
+        rag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        rag_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+        rag_btn.setToolTip("保存并执行RAG处理：生成摘要、分析角色状态和伏笔、更新索引、向量入库")
+        if self._on_rag_ingest:
+            rag_btn.clicked.connect(self._on_rag_ingest)
+        toolbar_layout.addWidget(rag_btn)
 
         return toolbar
 

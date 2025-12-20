@@ -52,6 +52,86 @@ def normalize_chinese_quotes(text: str) -> str:
     return text
 
 
+def repair_truncated_json(text: str) -> str:
+    """
+    尝试修复被截断的JSON字符串
+
+    当LLM响应被截断时，JSON可能缺少闭合括号。
+    此函数尝试通过添加缺失的闭合符号来修复。
+
+    Args:
+        text: 可能被截断的JSON字符串
+
+    Returns:
+        修复后的JSON字符串
+    """
+    if not text:
+        return text
+
+    text = text.rstrip()
+
+    # 统计未闭合的括号
+    open_braces = 0  # {
+    open_brackets = 0  # [
+    in_string = False
+    escape_next = False
+
+    for char in text:
+        if escape_next:
+            escape_next = False
+            continue
+        if char == '\\':
+            escape_next = True
+            continue
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == '{':
+            open_braces += 1
+        elif char == '}':
+            open_braces -= 1
+        elif char == '[':
+            open_brackets += 1
+        elif char == ']':
+            open_brackets -= 1
+
+    # 如果有未闭合的括号，尝试修复
+    if open_braces > 0 or open_brackets > 0:
+        # 移除可能被截断的不完整部分（如未闭合的字符串）
+        # 从末尾向前找到最后一个完整的值
+        last_valid_pos = len(text)
+
+        # 检查是否在字符串中间被截断
+        if in_string:
+            # 找到最后一个未闭合的引号位置
+            last_quote = text.rfind('"')
+            if last_quote > 0:
+                # 回退到引号前的逗号或冒号
+                for i in range(last_quote - 1, -1, -1):
+                    if text[i] in ',:[{':
+                        last_valid_pos = i + 1
+                        break
+                text = text[:last_valid_pos].rstrip()
+                # 重新统计
+                open_braces = text.count('{') - text.count('}')
+                open_brackets = text.count('[') - text.count(']')
+
+        # 移除末尾的逗号（如果有）
+        text = text.rstrip().rstrip(',')
+
+        # 添加缺失的闭合符号
+        # 按照JSON规范，先闭合内层再闭合外层
+        text += ']' * open_brackets
+        text += '}' * open_braces
+
+        logger.info("JSON修复: 添加了 %d 个 '}' 和 %d 个 ']'",
+                   max(0, open_braces), max(0, open_brackets))
+
+    return text
+
+
 def parse_llm_json_or_fail(
     raw_text: str,
     error_context: str,
@@ -102,9 +182,19 @@ def parse_llm_json_or_fail(
             raw_preview,
             cleaned_preview
         )
+
+        # 生成更友好的错误消息
+        # 检测是否返回的是普通文本而不是JSON
+        stripped = normalized.strip()
+        if stripped and not stripped.startswith('{') and not stripped.startswith('['):
+            # LLM返回了普通文本而不是JSON
+            user_message = f"{error_context}: AI返回了对话内容而不是预期的结构化数据，请重试或调整对话内容"
+        else:
+            user_message = f"{error_context}: LLM返回格式错误"
+
         raise HTTPException(
             status_code=status_code,
-            detail=f"{error_context}: LLM返回格式错误"
+            detail=user_message
         ) from exc
     except Exception as exc:
         logger.exception("JSON解析时发生未预期的错误: %s", error_context)
@@ -119,6 +209,7 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
     安全解析LLM返回的JSON，失败返回None（不抛异常）
 
     适用于循环中的容错解析场景。
+    会自动尝试修复被截断的JSON。
 
     Args:
         raw_text: LLM返回的原始文本
@@ -144,19 +235,27 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
         normalized = unwrap_markdown_json(cleaned)
         return json.loads(normalized)
     except json.JSONDecodeError as e:
-        # JSON解析失败，记录详细信息以便调试
-        logger.warning(
-            "JSON解析失败: %s, 位置: %d, 原文长度: %d, 预处理后长度: %d",
-            str(e)[:100], e.pos if hasattr(e, 'pos') else -1,
-            len(raw_text) if raw_text else 0,
-            len(normalized) if 'normalized' in dir() else 0
-        )
-        # 尝试记录解析失败的位置附近的内容
-        if hasattr(e, 'pos') and 'normalized' in dir() and normalized:
-            start = max(0, e.pos - 50)
-            end = min(len(normalized), e.pos + 50)
-            logger.warning("解析失败位置附近的内容: ...%s...", normalized[start:end])
-        return None
+        # 第一次解析失败，尝试修复被截断的JSON
+        try:
+            repaired = repair_truncated_json(normalized)
+            result = json.loads(repaired)
+            logger.info("JSON修复成功，原长度: %d, 修复后长度: %d",
+                       len(normalized), len(repaired))
+            return result
+        except json.JSONDecodeError:
+            # 修复也失败了，记录详细信息以便调试
+            logger.warning(
+                "JSON解析失败（修复后仍失败）: %s, 位置: %d, 原文长度: %d, 预处理后长度: %d",
+                str(e)[:100], e.pos if hasattr(e, 'pos') else -1,
+                len(raw_text) if raw_text else 0,
+                len(normalized) if normalized else 0
+            )
+            # 尝试记录解析失败的位置附近的内容
+            if hasattr(e, 'pos') and normalized:
+                start = max(0, e.pos - 50)
+                end = min(len(normalized), e.pos + 50)
+                logger.warning("解析失败位置附近的内容: ...%s...", normalized[start:end])
+            return None
     except (AttributeError, TypeError):
         # 预期的解析失败，静默返回None
         return None
@@ -271,3 +370,116 @@ def extract_llm_content(
 
     # 解析失败，返回清理后的纯文本
     return unwrap_markdown_json(cleaned), None
+
+
+# ==================== 数字格式化工具 ====================
+
+def fix_number_format(text: str, use_chinese_units: bool = True) -> str:
+    """
+    修复文本中的数字格式错误
+
+    常见错误模式：
+    - "50,0000" (错误的中式逗号分隔) -> "500,000" 或 "50万"
+    - "120,0000" -> "1,200,000" 或 "120万"
+    - "1000,0000" -> "10,000,000" 或 "1000万"
+
+    Args:
+        text: 需要处理的文本
+        use_chinese_units: 是否使用中文单位（万、亿），默认True
+
+    Returns:
+        修复后的文本
+    """
+    if not text:
+        return text
+
+    # 模式1: 匹配错误的逗号分隔格式 (如 50,0000 或 120,0000)
+    # 这种格式是每4位一个逗号，是错误的
+    pattern_wrong_comma = r'\b(\d{1,3}),(\d{4})\b'
+
+    def fix_wrong_comma(match):
+        """修复错误的逗号分隔"""
+        before_comma = match.group(1)
+        after_comma = match.group(2)
+
+        # 合并数字
+        full_number = int(before_comma + after_comma)
+
+        if use_chinese_units:
+            return format_number_chinese(full_number)
+        else:
+            return format_number_western(full_number)
+
+    result = re.sub(pattern_wrong_comma, fix_wrong_comma, text)
+
+    # 模式2: 匹配连续两个4位数字用逗号分隔的情况 (如 1000,0000,0000)
+    pattern_double_wrong = r'\b(\d{1,4}),(\d{4}),(\d{4})\b'
+
+    def fix_double_wrong(match):
+        """修复多个错误逗号的情况"""
+        full_number = int(match.group(1) + match.group(2) + match.group(3))
+        if use_chinese_units:
+            return format_number_chinese(full_number)
+        else:
+            return format_number_western(full_number)
+
+    result = re.sub(pattern_double_wrong, fix_double_wrong, result)
+
+    return result
+
+
+def format_number_chinese(number: int) -> str:
+    """
+    将数字格式化为中文格式
+
+    Args:
+        number: 数字
+
+    Returns:
+        格式化后的字符串，如 "50万"、"1.2亿"
+    """
+    if number >= 100000000:  # 亿
+        value = number / 100000000
+        if value == int(value):
+            return f"{int(value)}亿"
+        else:
+            return f"{value:.1f}亿"
+    elif number >= 10000:  # 万
+        value = number / 10000
+        if value == int(value):
+            return f"{int(value)}万"
+        else:
+            return f"{value:.1f}万"
+    else:
+        return str(number)
+
+
+def format_number_western(number: int) -> str:
+    """
+    将数字格式化为西方格式（千分位逗号）
+
+    Args:
+        number: 数字
+
+    Returns:
+        格式化后的字符串，如 "500,000"、"1,200,000"
+    """
+    return f"{number:,}"
+
+
+def normalize_number_display(text: str, prefer_chinese: bool = True) -> str:
+    """
+    规范化文本中的数字显示
+
+    这是一个综合函数，会：
+    1. 修复错误的逗号分隔格式
+    2. 统一数字显示风格
+
+    Args:
+        text: 需要处理的文本
+        prefer_chinese: 是否优先使用中文单位
+
+    Returns:
+        处理后的文本
+    """
+    return fix_number_format(text, use_chinese_units=prefer_chinese)

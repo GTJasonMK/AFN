@@ -5,7 +5,7 @@
 支持专业漫画排版：先生成排版方案，再基于排版生成提示词。
 """
 
-from .service import MangaPromptService
+from .core import MangaPromptService
 from .layout_service import LayoutService
 from .schemas import (
     MangaScene,

@@ -16,12 +16,7 @@ class LLMConfigRepository(BaseRepository[LLMConfig]):
         result = await self.session.execute(select(LLMConfig).where(LLMConfig.user_id == user_id))
         return result.scalars().first()
 
-    async def list_by_user(self, user_id: int) -> list[LLMConfig]:
-        """获取用户的所有LLM配置，按创建时间排序。"""
-        result = await self.session.execute(
-            select(LLMConfig).where(LLMConfig.user_id == user_id).order_by(LLMConfig.created_at.desc())
-        )
-        return list(result.scalars().all())
+    # list_by_user 继承自 BaseRepository，按 created_at 降序排列
 
     async def get_active_config(self, user_id: int) -> Optional[LLMConfig]:
         """获取用户当前激活的配置。"""
