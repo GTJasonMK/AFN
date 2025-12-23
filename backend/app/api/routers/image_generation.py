@@ -192,6 +192,65 @@ async def import_image_configs(
 
 # ==================== 图片生成 ====================
 
+# 用于检测负面提示词是否已包含关键质量词的关键词列表
+# 如果包含这些关键词，说明是LLM生成的完整负面提示词，不需要再追加默认值
+NEGATIVE_PROMPT_QUALITY_KEYWORDS = [
+    "low quality",
+    "bad anatomy",
+    "blurry",
+    "deformed",
+    "extra limbs",
+    "wrong proportions",
+]
+
+
+def _is_complete_negative_prompt(negative_prompt: str) -> bool:
+    """
+    检测负面提示词是否已经足够完整（由LLM生成）
+
+    判断标准：包含至少3个关键质量词，说明是经过智能生成的
+
+    Args:
+        negative_prompt: 负面提示词
+
+    Returns:
+        是否足够完整，不需要追加默认值
+    """
+    if not negative_prompt:
+        return False
+
+    prompt_lower = negative_prompt.lower()
+    match_count = sum(1 for kw in NEGATIVE_PROMPT_QUALITY_KEYWORDS if kw in prompt_lower)
+
+    # 如果匹配了至少3个关键词，认为是完整的LLM生成的负面提示词
+    return match_count >= 3
+
+
+def _smart_merge_negative_prompt(user_negative: str) -> str:
+    """
+    智能合并负面提示词
+
+    如果用户提供的负面提示词已经足够完整（包含关键质量词），
+    则直接使用，不追加默认值，避免重复。
+
+    Args:
+        user_negative: 用户/LLM提供的负面提示词
+
+    Returns:
+        合并后的负面提示词
+    """
+    if not user_negative:
+        # 没有提供，使用默认值
+        return DEFAULT_MANGA_NEGATIVE_PROMPT
+
+    if _is_complete_negative_prompt(user_negative):
+        # 已足够完整，直接使用（LLM生成的场景感知负面提示词）
+        return user_negative
+
+    # 不够完整，合并默认值
+    return f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {user_negative}"
+
+
 @router.post(
     "/novels/{project_id}/chapters/{chapter_number}/scenes/{scene_id}/generate",
     response_model=ImageGenerationResult,
@@ -206,15 +265,12 @@ async def generate_scene_image(
 ):
     """为场景生成图片
 
-    自动合并默认的漫画负面提示词，避免AI常见的渲染问题（塑料感、解剖错误等）。
+    智能合并负面提示词：
+    - 如果请求中的negative_prompt已包含关键质量词（说明是LLM智能生成的），则直接使用
+    - 否则，与默认漫画负面提示词合并，避免AI常见的渲染问题
     """
-    # 合并默认负面提示词与用户提供的负面提示词
-    if request.negative_prompt:
-        # 用户提供了负面提示词，与默认合并
-        merged_negative = f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {request.negative_prompt}"
-    else:
-        # 使用默认负面提示词
-        merged_negative = DEFAULT_MANGA_NEGATIVE_PROMPT
+    # 智能合并负面提示词
+    merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
 
     # 创建合并后的请求
     merged_request = ImageGenerationRequest(

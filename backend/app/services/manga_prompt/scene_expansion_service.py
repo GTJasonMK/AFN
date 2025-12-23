@@ -28,94 +28,18 @@ from .page_templates import (
     recommend_template,
     get_template,
 )
+from .language_config import (
+    LANGUAGE_HINTS,
+    SOUND_EFFECT_EXAMPLES,
+    FORBIDDEN_SFX_PATTERNS,
+    get_language_hint,
+    get_sfx_examples,
+    get_forbidden_patterns,
+    get_forbidden_hint,
+)
 from app.utils.json_utils import parse_llm_json_safe
 
 logger = logging.getLogger(__name__)
-
-# 语言提示映射
-LANGUAGE_HINTS = {
-    "chinese": "中文",
-    "japanese": "日语",
-    "english": "英文",
-    "korean": "韩语",
-}
-
-# 各语言的音效示例（详细版）
-SOUND_EFFECT_EXAMPLES = {
-    "chinese": """
-常用音效词（必须使用这些中文音效，禁止使用日语或英语）：
-- 撞击/爆炸: 砰、嘭、轰、咚、啪
-- 快速移动: 嗖、呼、唰、嗒嗒
-- 水/液体: 哗、滴答、咕嘟
-- 心跳: 咚咚、扑通扑通
-- 脚步: 哒哒、咚咚
-- 风声: 呼呼、飒飒
-- 碎裂: 咔嚓、哗啦
-- 其他: 嘶、咔、吱呀""",
-    "japanese": """
-常用音效词：
-- 衝撃/爆発: ドン、バン、ドカン、ガン
-- 高速移動: シュッ、ビュン、ヒュー
-- 水/液体: ザザ、ポタポタ、ゴボゴボ
-- 心臓の鼓動: ドキドキ、バクバク
-- 足音: タッタッ、ドタドタ
-- 風: ヒュー、ビュービュー
-- 破壊: バキ、ガシャン
-- その他: シーン、ゴゴゴ、ザワザワ""",
-    "english": """
-Common sound effects:
-- Impact/Explosion: BANG, BOOM, THUD, CRASH, SLAM
-- Fast movement: WHOOSH, ZOOM, SWOOSH, DASH
-- Water/Liquid: SPLASH, DRIP, GURGLE
-- Heartbeat: THUMP THUMP, BA-DUM
-- Footsteps: TAP TAP, STOMP
-- Wind: WHOOO, RUSTLE
-- Breaking: CRACK, SHATTER, CRUNCH
-- Others: SILENCE, RUMBLE, BUZZ""",
-    "korean": """
-자주 사용하는 효과음:
-- 충격/폭발: 쾅, 펑, 쿵, 탕
-- 빠른 이동: 슉, 휙, 쓩
-- 물/액체: 철퍼덕, 똑똑, 꼴깍
-- 심장박동: 두근두근, 쿵쾅쿵쾅
-- 발소리: 타닥타닥, 쿵쿵
-- 바람: 휘이익, 살랑살랑
-- 파괴: 쩍, 와장창
-- 기타: 조용, 우르릉, 윙윙""",
-}
-
-# 禁止使用的非目标语言音效词（用于后处理检测）
-FORBIDDEN_SFX_PATTERNS = {
-    "chinese": [
-        # 日语音效词
-        r"[ァ-ヶー]+",  # 片假名
-        r"[ぁ-ん]+",    # 平假名
-        # 英语音效词
-        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
-    ],
-    "japanese": [
-        # 中文音效词
-        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
-        # 英语音效词
-        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
-    ],
-    "english": [
-        # 日语音效词
-        r"[ァ-ヶー]+",
-        r"[ぁ-ん]+",
-        # 中文音效词
-        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
-    ],
-    "korean": [
-        # 日语音效词
-        r"[ァ-ヶー]+",
-        r"[ぁ-ん]+",
-        # 中文音效词
-        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
-        # 英语音效词
-        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
-    ],
-}
 
 
 # LLM提示词模板：场景分析
@@ -273,16 +197,18 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
   "panels": [
     {{
       "slot_id": 1,
-      "content_description": "这个画格展示什么内容",
+      "content_description": "这个画格展示什么内容（中文简述）",
+      "prompt_en": "完整的英文AI绘图提示词，包含：风格、构图、角度、角色外观、动作、表情、环境、光线、氛围等。要求专业、详细、适合AI图像生成。示例：manga style, medium shot, eye level, young woman with long black hair speaking excitedly, open mouth, bright smile, sparkle eyes, speech bubble at top right, warm lighting, cozy cafe interior, detailed background",
+      "negative_prompt": "负面提示词（英文），用于排除不想要的元素。示例：low quality, blurry, distorted face, extra limbs, bad anatomy, text, watermark",
       "narrative_purpose": "叙事目的",
       "characters": ["出场角色"],
       "character_emotions": {{"角色名": "情绪"}},
-      "composition": "构图方式",
-      "camera_angle": "镜头角度",
+      "composition": "构图方式（wide shot/medium shot/close-up/extreme close-up）",
+      "camera_angle": "镜头角度（eye level/low angle/high angle/dutch angle）",
       "dialogue": "对话内容（从原文提取，使用{language_hint}，不超过12字）",
       "dialogue_speaker": "说话者（必须是characters中的角色名）",
       "dialogue_bubble_type": "normal|shout|whisper|thought|narration|electronic",
-      "dialogue_position": "top-right|top-left|...",
+      "dialogue_position": "top-right|top-left|top-center|bottom-right|bottom-left|bottom-center",
       "dialogue_emotion": "说话时的情绪",
       "narration": "旁白（心理描写或环境描述，使用{language_hint}，不超过20字）",
       "narration_position": "top|bottom",
@@ -304,10 +230,76 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
 }}
 ```
 
+## 【极重要】prompt_en 生成要求
+prompt_en 是最关键的字段，必须是高质量的英文AI绘图提示词：
+
+1. **必须包含的元素**（按顺序）：
+   - 风格：manga style / anime style / comic style（根据场景情感选择最适合的风格）
+   - 构图：wide shot, medium shot, close-up, extreme close-up
+   - 角度：eye level, low angle, high angle, dutch angle
+   - 角色描述：外观特征、服装、姿态、表情
+   - 动作描述：如果有对话则包含 "speaking, open mouth" 等
+   - 情绪视觉效果：sparkle eyes, sweat drops, anger vein 等漫画符号
+   - 环境/背景：详细的场景描述
+   - 光线氛围：warm lighting, dramatic shadows 等
+
+2. **对话场景必须体现**：
+   - 说话者的说话动作：speaking, open mouth, talking
+   - 气泡类型视觉：speech bubble, thought bubble, shout bubble
+   - 说话时的表情和情绪
+
+3. **风格关键词要求**（必须包含在prompt_en开头）：
+   - 平静/日常场景：manga style, clean line art, soft shading, warm tones
+   - 动作/战斗场景：manga style, dynamic composition, speed lines, motion blur, high contrast
+   - 情感/浪漫场景：manga style, soft focus, dreamy atmosphere, gentle lighting, sparkle effects
+   - 紧张/悬疑场景：manga style, high contrast, dramatic shadows, tense atmosphere
+   - 恐怖场景：manga style, dark shadows, ominous lighting, horror atmosphere
+   - 搞笑场景：manga style, exaggerated expressions, comedic style, chibi elements
+
+4. **质量要求**：
+   - 使用专业的AI绘图术语
+   - 描述要具体，避免模糊词汇
+   - 长度适中（50-150个英文单词）
+
+## 【极重要】negative_prompt 生成要求
+negative_prompt 是防止生成质量问题的关键字段，必须根据场景智能生成：
+
+1. **通用质量问题（所有场景必须包含）**：
+   - low quality, blurry, pixelated, jpeg artifacts, watermark, signature
+
+2. **AI常见缺陷（所有场景必须包含）**：
+   - bad anatomy, wrong proportions, extra limbs, missing fingers, deformed hands
+   - plastic skin, waxy appearance, uncanny valley, lifeless eyes
+
+3. **场景特定的负面提示词**（根据场景类型添加）：
+
+   **动作场景**应额外排除：
+   - static pose, stiff movement, frozen action, no motion blur
+
+   **情感/浪漫场景**应额外排除：
+   - cold atmosphere, harsh lighting, aggressive expression
+
+   **恐怖场景**应额外排除：
+   - bright lighting, cheerful atmosphere, warm colors
+
+   **搞笑场景**应额外排除：
+   - serious expression, dark atmosphere, realistic style
+
+   **日常场景**应额外排除：
+   - dramatic lighting, intense expression, action poses
+
+4. **风格一致性排除**：
+   - 如果是黑白漫画风格，必须包含：color, colored, vibrant colors
+   - 如果是彩色漫画风格，必须包含：black and white, monochrome, grayscale
+   - 所有漫画风格必须排除：photorealistic, 3D render, CGI, hyper-realistic
+
+5. **负面提示词长度**：30-80个英文单词，不要太短也不要太长
+
 **重要提醒**：
 1. 所有dialogue、narration、sound_effects字段必须使用{language_hint}，禁止使用其他语言！
 2. dialogue字段应该从原文中提取角色的实际对话，不要遗漏！
-3. 如果原文有对话内容，必须至少在2-3个画格中体现！
+3. prompt_en必须是高质量的英文提示词，直接用于AI图像生成！
+4. negative_prompt必须根据场景情感智能生成，不要使用固定模板！
 """
 
 
@@ -616,10 +608,10 @@ class SceneExpansionService:
             panel_slots_desc = self._format_panel_slots(template)
             key_moments = analysis.get("key_moments", [])
 
-            # 获取语言相关信息
-            language_hint = LANGUAGE_HINTS.get(dialogue_language, "中文")
-            sfx_examples = SOUND_EFFECT_EXAMPLES.get(dialogue_language, SOUND_EFFECT_EXAMPLES["chinese"])
-            forbidden_languages = self._get_forbidden_languages_hint(dialogue_language)
+            # 获取语言相关信息（使用配置模块的辅助函数）
+            language_hint = get_language_hint(dialogue_language)
+            sfx_examples = get_sfx_examples(dialogue_language)
+            forbidden_languages = get_forbidden_hint(dialogue_language)
 
             prompt = PANEL_DISTRIBUTION_PROMPT.format(
                 scene_content=scene_content[:2000],
@@ -678,40 +670,6 @@ class SceneExpansionService:
             )
         return "\n".join(lines)
 
-    def _get_forbidden_languages_hint(self, dialogue_language: str) -> str:
-        """
-        生成禁止使用的语言提示
-
-        Args:
-            dialogue_language: 目标语言
-
-        Returns:
-            禁止语言提示文本
-        """
-        forbidden_hints = {
-            "chinese": """
-- 禁止使用日语（如：ドン、バン、ゴゴゴ、ドキドキ等片假名/平假名）
-- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
-- 禁止使用韩语（如：쾅、슉、두근두근等）
-- 只能使用中文拟声词（如：砰、嘭、轰、咚、嗖等）""",
-            "japanese": """
-- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
-- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
-- 禁止使用韩语（如：쾅、슉、두근두근等）
-- 只能使用日语拟声词（如：ドン、バン、シュッ等片假名）""",
-            "english": """
-- 禁止使用日语（如：ドン、バン、ゴゴゴ等片假名/平假名）
-- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
-- 禁止使用韩语（如：쾅、슉、두근두근等）
-- 只能使用英语（如：BANG、BOOM、WHOOSH、THUD等）""",
-            "korean": """
-- 禁止使用日语（如：ドン、バン、ゴゴゴ等片假名/平假名）
-- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
-- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
-- 只能使用韩语（如：쾅、슉、두근두근等）""",
-        }
-        return forbidden_hints.get(dialogue_language, forbidden_hints["chinese"])
-
     def _validate_language(self, text: str, dialogue_language: str) -> tuple[bool, str]:
         """
         验证文本是否符合目标语言
@@ -726,7 +684,8 @@ class SceneExpansionService:
         if not text:
             return False, ""
 
-        patterns = FORBIDDEN_SFX_PATTERNS.get(dialogue_language, [])
+        # 使用配置模块获取禁止模式
+        patterns = get_forbidden_patterns(dialogue_language)
         for pattern in patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return True, f"检测到非目标语言内容: {text}"
@@ -751,7 +710,8 @@ class SceneExpansionService:
         if not sound_effects:
             return []
 
-        patterns = FORBIDDEN_SFX_PATTERNS.get(dialogue_language, [])
+        # 使用配置模块获取禁止模式
+        patterns = get_forbidden_patterns(dialogue_language)
         cleaned = []
 
         for sfx in sound_effects:
@@ -836,6 +796,9 @@ class SceneExpansionService:
                 key_visual_elements=panel_data.get("key_visual_elements", []),
                 atmosphere=panel_data.get("atmosphere", ""),
                 lighting=panel_data.get("lighting", ""),
+                # LLM生成的提示词（优先使用）
+                prompt_en=panel_data.get("prompt_en", ""),
+                negative_prompt=panel_data.get("negative_prompt", ""),
             )
             panels.append(panel)
 

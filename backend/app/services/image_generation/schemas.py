@@ -242,8 +242,9 @@ class ChapterMangaPDFResponse(BaseModel):
 
 # ==================== 常量定义 ====================
 
-# 风格映射（中文 -> 英文后缀）
+# 风格映射（风格标识 -> 英文后缀）
 # 注意：强调线稿风格，避免厚涂/塑料感
+# 这是回退方案：当LLM生成的提示词已包含风格关键词时，不会添加这些后缀
 STYLE_SUFFIXES = {
     "none": "",
     "anime": "anime style, clean line art, cel shading, flat colors",
@@ -259,6 +260,32 @@ STYLE_SUFFIXES = {
     "comic": "comic book style, strong black outlines, flat colors, graphic novel art",
     "webtoon": "webtoon style, clean digital lines, soft cel shading, minimal rendering",
 }
+
+# 风格检测关键词：用于判断提示词是否已经包含风格描述
+# 如果提示词包含这些关键词之一，则跳过风格后缀添加（LLM优先）
+STYLE_DETECTION_KEYWORDS = [
+    "manga style", "anime style", "comic style", "webtoon style",
+    "clean line art", "cel shading", "ink drawing", "screentone",
+    "realistic photography", "oil painting", "watercolor illustration",
+    "3d render", "pixel art", "cyberpunk style", "minimalist style",
+]
+
+
+def has_style_keywords(prompt: str) -> bool:
+    """
+    检测提示词是否已包含风格关键词
+
+    如果返回True，表示提示词是由LLM智能生成的，已包含风格信息，
+    不需要再添加STYLE_SUFFIXES中的后缀。
+
+    Args:
+        prompt: 提示词文本
+
+    Returns:
+        bool: 是否包含风格关键词
+    """
+    prompt_lower = prompt.lower()
+    return any(kw in prompt_lower for kw in STYLE_DETECTION_KEYWORDS)
 
 # 漫画专用默认负面提示词（避免AI常见问题）
 DEFAULT_MANGA_NEGATIVE_PROMPT = (

@@ -63,8 +63,66 @@ class BaseImageProvider(ABC):
     # 供应商显示名称
     DISPLAY_NAME: str = ""
 
-    # 使用场景上下文前缀 - 向图像生成模型说明这是合法的漫画创作用途
-    # 详细描述有助于通过内容审核/content moderation
+    # 场景类型关键词映射 - 用于从提示词推断场景类型
+    SCENE_TYPE_KEYWORDS = {
+        "action": ["fight", "battle", "attack", "combat", "action", "speed lines", "motion blur", "dynamic"],
+        "romantic": ["romantic", "love", "kiss", "embrace", "tender", "gentle", "sparkle", "blush"],
+        "horror": ["horror", "scary", "dark", "ominous", "creepy", "shadow", "fear", "terror"],
+        "comedy": ["comedy", "funny", "laugh", "chibi", "exaggerated", "comedic", "silly"],
+        "emotional": ["emotional", "crying", "tears", "sad", "happy", "touching", "heartfelt"],
+        "mystery": ["mystery", "suspense", "tense", "dramatic shadows", "noir", "detective"],
+        "daily": ["daily", "casual", "slice of life", "peaceful", "calm", "relaxed", "everyday"],
+    }
+
+    # 场景类型到上下文描述的映射
+    SCENE_CONTEXT_MAP = {
+        "action": (
+            "Scene Type: Action/Battle sequence - dynamic combat or intense physical activity.\n"
+            "场景类型: 动作/战斗场景 - 动态战斗或激烈的身体活动。\n"
+        ),
+        "romantic": (
+            "Scene Type: Romantic/Emotional moment - tender interaction between characters.\n"
+            "场景类型: 浪漫/情感场景 - 角色之间的温柔互动。\n"
+        ),
+        "horror": (
+            "Scene Type: Horror/Suspense atmosphere - dark and mysterious mood.\n"
+            "场景类型: 恐怖/悬疑氛围 - 黑暗神秘的氛围。\n"
+        ),
+        "comedy": (
+            "Scene Type: Comedy/Light-hearted moment - humorous and playful scene.\n"
+            "场景类型: 喜剧/轻松场景 - 幽默有趣的画面。\n"
+        ),
+        "emotional": (
+            "Scene Type: Emotional/Dramatic moment - deep feelings and character development.\n"
+            "场景类型: 情感/戏剧性场景 - 深刻的情感和角色发展。\n"
+        ),
+        "mystery": (
+            "Scene Type: Mystery/Suspense scene - tense atmosphere with unknown elements.\n"
+            "场景类型: 悬疑/紧张场景 - 充满未知元素的紧张氛围。\n"
+        ),
+        "daily": (
+            "Scene Type: Daily life/Slice of life - peaceful everyday moment.\n"
+            "场景类型: 日常生活场景 - 平静的日常时刻。\n"
+        ),
+    }
+
+    # 基础上下文前缀模板
+    BASE_CONTEXT_TEMPLATE = (
+        "[CONTENT CONTEXT / 内容说明]\n"
+        "Purpose: Professional manga/comic illustration for a licensed novel-to-manga adaptation project.\n"
+        "用途: 专业的漫画插图，用于正版小说改编漫画项目。\n"
+        "Usage: This artwork is created for legitimate storytelling and publishing purposes in creative fiction.\n"
+        "使用场景: 该作品用于合法的故事叙述和创意小说出版用途。\n"
+        "Content Rating: General audience / All ages appropriate artistic content.\n"
+        "内容分级: 面向普通观众/适合所有年龄段的艺术内容。\n"
+        "Style: Anime/manga art style illustration, non-photorealistic, stylized artwork.\n"
+        "风格: 动漫/漫画艺术风格插图，非写实，风格化艺术作品。\n"
+        "{scene_context}"
+        "[END CONTEXT]\n\n"
+        "Scene description / 场景描述:\n"
+    )
+
+    # 保留静态 CONTEXT_PREFIX 作为回退
     CONTEXT_PREFIX = (
         "[CONTENT CONTEXT / 内容说明]\n"
         "Purpose: Professional manga/comic illustration for a licensed novel-to-manga adaptation project.\n"
@@ -78,6 +136,53 @@ class BaseImageProvider(ABC):
         "[END CONTEXT]\n\n"
         "Scene description / 场景描述:\n"
     )
+
+    def _detect_scene_type(self, prompt: str) -> str:
+        """
+        从提示词内容推断场景类型
+
+        Args:
+            prompt: 提示词内容
+
+        Returns:
+            场景类型字符串，如 "action", "romantic" 等
+        """
+        prompt_lower = prompt.lower()
+
+        # 统计每种场景类型的匹配关键词数量
+        scene_scores = {}
+        for scene_type, keywords in self.SCENE_TYPE_KEYWORDS.items():
+            score = sum(1 for kw in keywords if kw in prompt_lower)
+            if score > 0:
+                scene_scores[scene_type] = score
+
+        if not scene_scores:
+            return "daily"  # 默认为日常场景
+
+        # 返回得分最高的场景类型
+        return max(scene_scores, key=scene_scores.get)
+
+    def _build_context_prefix(self, prompt: str) -> str:
+        """
+        根据提示词内容动态构建上下文前缀
+
+        会分析提示词中的关键词，推断场景类型，
+        然后生成针对该场景类型的上下文描述。
+
+        Args:
+            prompt: 提示词内容
+
+        Returns:
+            动态生成的上下文前缀
+        """
+        # 检测场景类型
+        scene_type = self._detect_scene_type(prompt)
+
+        # 获取场景特定的上下文描述
+        scene_context = self.SCENE_CONTEXT_MAP.get(scene_type, "")
+
+        # 构建完整的上下文前缀
+        return self.BASE_CONTEXT_TEMPLATE.format(scene_context=scene_context)
 
     @asynccontextmanager
     async def create_http_client(
@@ -236,6 +341,10 @@ class BaseImageProvider(ABC):
         """
         构建完整提示词
 
+        智能检测：
+        - 根据提示词内容动态生成场景感知的上下文前缀
+        - 如果提示词已包含风格关键词（由LLM生成），则跳过风格后缀添加
+
         Args:
             request: 生成请求
             add_context: 是否添加上下文前缀
@@ -243,13 +352,21 @@ class BaseImageProvider(ABC):
         Returns:
             构建后的提示词
         """
-        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES, ASPECT_RATIO_TO_SIZE
+        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES, ASPECT_RATIO_TO_SIZE, has_style_keywords
 
-        # 添加使用场景上下文前缀
-        prompt = self.CONTEXT_PREFIX + request.prompt if add_context else request.prompt
+        # 动态生成场景感知的上下文前缀
+        if add_context:
+            context_prefix = self._build_context_prefix(request.prompt)
+            prompt = context_prefix + request.prompt
+        else:
+            prompt = request.prompt
 
-        # 添加风格后缀
-        if request.style:
+        # 智能检测：如果提示词已包含风格关键词，则跳过风格后缀添加
+        # 使用集中定义的风格检测函数，确保检测逻辑与STYLE_SUFFIXES保持一致
+        has_style = has_style_keywords(prompt)
+
+        # 只有当提示词不包含风格关键词时，才添加风格后缀
+        if not has_style and request.style:
             style_suffix = STYLE_SUFFIXES.get(request.style, "")
             if style_suffix:
                 prompt = f"{prompt}, {style_suffix}"

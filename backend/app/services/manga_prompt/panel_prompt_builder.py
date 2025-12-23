@@ -343,7 +343,80 @@ class PanelPromptBuilder:
         Returns:
             画格提示词
         """
-        # 构建英文提示词
+        # 优先使用LLM直接生成的提示词
+        if panel_content.prompt_en:
+            prompt_en = panel_content.prompt_en
+            logger.debug(f"使用LLM生成的提示词: {prompt_en[:100]}...")
+        else:
+            # 回退：使用硬编码映射表构建提示词
+            # 这种情况应该很少发生，如果频繁触发，说明LLM提示词需要优化
+            logger.warning(
+                f"画格 slot_id={slot.slot_id} 没有LLM生成的prompt_en，使用回退映射表。"
+                f"建议检查 scene_expansion_service.py 中的 PANEL_DISTRIBUTION_PROMPT 配置。"
+            )
+            prompt_en = self._build_prompt_from_mapping(panel_content, slot, mood, previous_panel)
+
+        # 优先使用LLM直接生成的负面提示词
+        if panel_content.negative_prompt:
+            negative_prompt = panel_content.negative_prompt
+        else:
+            logger.debug(f"画格 slot_id={slot.slot_id} 没有LLM生成的negative_prompt，使用默认值")
+            negative_prompt = self._build_negative_prompt(slot)
+
+        # 中文描述
+        prompt_zh = self._build_chinese_description(panel_content, slot)
+
+        # 获取画格中角色的立绘路径
+        reference_image_paths = self._get_character_portrait_paths(panel_content.characters)
+
+        return PanelPrompt(
+            panel_id=f"scene{scene_id}_page{page_number}_panel{slot.slot_id}",
+            scene_id=scene_id,
+            page_number=page_number,
+            slot_id=slot.slot_id,
+            aspect_ratio=slot.aspect_ratio,
+            composition=panel_content.composition,
+            camera_angle=panel_content.camera_angle,
+            prompt_en=prompt_en,
+            prompt_zh=prompt_zh,
+            negative_prompt=negative_prompt,
+            # 文字元素 - 基础字段
+            dialogue=panel_content.dialogue,
+            dialogue_speaker=panel_content.dialogue_speaker,
+            narration=panel_content.narration,
+            sound_effects=panel_content.sound_effects or [],
+            # 文字元素 - 扩展字段
+            dialogue_bubble_type=panel_content.dialogue_bubble_type,
+            dialogue_position=panel_content.dialogue_position,
+            dialogue_emotion=panel_content.dialogue_emotion,
+            narration_position=panel_content.narration_position,
+            sound_effect_details=panel_content.sound_effect_details or [],
+            # 视觉信息
+            characters=panel_content.characters or [],
+            is_key_panel=slot.is_key_panel,
+            # 参考图
+            reference_image_paths=reference_image_paths,
+        )
+
+    def _build_prompt_from_mapping(
+        self,
+        panel_content: PanelContent,
+        slot: PanelSlot,
+        mood: SceneMood,
+        previous_panel: Optional[PanelContent] = None,
+    ) -> str:
+        """
+        使用硬编码映射表构建提示词（回退方案）
+
+        此方法仅在LLM没有生成prompt_en时作为回退使用。
+        正常情况下，LLM应该通过 scene_expansion_service.py 的
+        PANEL_DISTRIBUTION_PROMPT 直接生成完整的 prompt_en。
+
+        如果此方法被频繁触发，请检查：
+        1. LLM是否正确响应了prompt_en字段要求
+        2. scene_expansion_service.py中的提示词指导是否足够清晰
+        3. LLM模型是否支持复杂的JSON输出
+        """
         prompt_parts = []
 
         # 1. 风格基础
@@ -403,17 +476,17 @@ class PanelPromptBuilder:
         if panel_effects:
             prompt_parts.append(panel_effects)
 
-        # 9. 对话气泡视觉效果（新增）
+        # 9. 对话气泡视觉效果
         dialogue_visual = self._build_dialogue_visual(panel_content)
         if dialogue_visual:
             prompt_parts.append(dialogue_visual)
 
-        # 10. 音效视觉效果（新增）
+        # 10. 音效视觉效果
         sfx_visual = self._build_sound_effects_visual(panel_content)
         if sfx_visual:
             prompt_parts.append(sfx_visual)
 
-        # 11. 旁白视觉效果（新增）
+        # 11. 旁白视觉效果
         narration_visual = self._build_narration_visual(panel_content)
         if narration_visual:
             prompt_parts.append(narration_visual)
@@ -424,46 +497,7 @@ class PanelPromptBuilder:
             "no empty space, fully composed frame"
         )
 
-        # 组合提示词
-        prompt_en = ", ".join(filter(None, prompt_parts))
-
-        # 中文描述
-        prompt_zh = self._build_chinese_description(panel_content, slot)
-
-        # 负向提示词
-        negative_prompt = self._build_negative_prompt(slot)
-
-        # 获取画格中角色的立绘路径
-        reference_image_paths = self._get_character_portrait_paths(panel_content.characters)
-
-        return PanelPrompt(
-            panel_id=f"scene{scene_id}_page{page_number}_panel{slot.slot_id}",
-            scene_id=scene_id,
-            page_number=page_number,
-            slot_id=slot.slot_id,
-            aspect_ratio=slot.aspect_ratio,
-            composition=panel_content.composition,
-            camera_angle=panel_content.camera_angle,
-            prompt_en=prompt_en,
-            prompt_zh=prompt_zh,
-            negative_prompt=negative_prompt,
-            # 文字元素 - 基础字段
-            dialogue=panel_content.dialogue,
-            dialogue_speaker=panel_content.dialogue_speaker,
-            narration=panel_content.narration,
-            sound_effects=panel_content.sound_effects or [],
-            # 文字元素 - 扩展字段
-            dialogue_bubble_type=panel_content.dialogue_bubble_type,
-            dialogue_position=panel_content.dialogue_position,
-            dialogue_emotion=panel_content.dialogue_emotion,
-            narration_position=panel_content.narration_position,
-            sound_effect_details=panel_content.sound_effect_details or [],
-            # 视觉信息
-            characters=panel_content.characters or [],
-            is_key_panel=slot.is_key_panel,
-            # 参考图
-            reference_image_paths=reference_image_paths,
-        )
+        return ", ".join(filter(None, prompt_parts))
 
     def _build_character_description(
         self,
@@ -604,19 +638,39 @@ class PanelPromptBuilder:
         """
         构建对话气泡的视觉提示词
 
-        根据对话内容、气泡类型和情绪生成相应的视觉描述
+        根据对话内容、气泡类型和情绪生成相应的视觉描述。
+        包括角色说话的动作描述和气泡视觉效果。
         """
         if not panel_content.dialogue:
             return ""
 
         parts = []
 
-        # 获取气泡类型
+        # 1. 添加说话动作描述（核心：让图片体现角色在说话）
+        if panel_content.dialogue_speaker:
+            parts.append(f"{panel_content.dialogue_speaker} speaking")
+        else:
+            parts.append("character speaking")
+
+        # 根据气泡类型添加不同的说话动作
         bubble_type = panel_content.get_bubble_type()
+        speaking_action_map = {
+            DialogueBubbleType.NORMAL: "open mouth, talking",
+            DialogueBubbleType.SHOUT: "shouting, wide open mouth, intense expression",
+            DialogueBubbleType.WHISPER: "whispering, leaning close, subtle lip movement",
+            DialogueBubbleType.THOUGHT: "thoughtful expression, inner monologue",
+            DialogueBubbleType.NARRATION: "",  # 旁白不需要说话动作
+            DialogueBubbleType.ELECTRONIC: "looking at device, phone conversation",
+        }
+        action = speaking_action_map.get(bubble_type, "talking")
+        if action:
+            parts.append(action)
+
+        # 2. 获取气泡类型视觉描述
         bubble_desc = self.BUBBLE_TYPE_MAP.get(bubble_type, "speech bubble")
         parts.append(bubble_desc)
 
-        # 添加气泡位置
+        # 3. 添加气泡位置
         position = panel_content.dialogue_position
         if position:
             position_map = {
@@ -633,22 +687,20 @@ class PanelPromptBuilder:
             if pos_desc:
                 parts.append(pos_desc)
 
-        # 添加说话者相关的视觉提示
-        if panel_content.dialogue_speaker:
-            parts.append(f"pointing to {panel_content.dialogue_speaker}")
-
-        # 根据情绪添加额外的视觉效果
+        # 4. 根据情绪添加额外的视觉效果
         emotion = panel_content.dialogue_emotion.lower() if panel_content.dialogue_emotion else ""
         if emotion:
             emotion_effects = {
-                "angry": "anger vein, intense expression",
-                "happy": "sparkle effect, bright expression",
-                "sad": "tear drop, melancholic expression",
-                "surprised": "shock lines, wide eyes",
-                "scared": "sweat drops, trembling",
-                "excited": "sparkle eyes, energetic pose",
-                "shy": "blush lines, embarrassed expression",
-                "determined": "focused eyes, firm expression",
+                "angry": "anger vein, intense expression, furrowed brows",
+                "happy": "sparkle effect, bright smile, joyful expression",
+                "sad": "tear drop, melancholic expression, downcast eyes",
+                "surprised": "shock lines, wide eyes, open mouth",
+                "scared": "sweat drops, trembling, fearful expression",
+                "excited": "sparkle eyes, energetic pose, enthusiastic",
+                "shy": "blush lines, embarrassed expression, looking away",
+                "determined": "focused eyes, firm expression, confident stance",
+                "confused": "question mark effect, puzzled expression",
+                "nervous": "sweat drop, anxious expression",
             }
             for key, effect in emotion_effects.items():
                 if key in emotion:

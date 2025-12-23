@@ -5,54 +5,67 @@
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field, field_validator
+
+
+# ==================== 维度配置（可扩展） ====================
+
+# 维度定义：标识符 -> 中文名称
+# 修改此配置可调整检查维度，无需修改代码逻辑
+DIMENSION_CONFIG: Dict[str, str] = {
+    "coherence": "逻辑连贯性",      # 核心维度（优先级最高）
+    "character": "角色一致性",      # 重要维度
+    "foreshadow": "伏笔呼应",       # 重要维度
+    "timeline": "时间线一致性",     # 重要维度
+    "style": "风格一致性",          # 辅助维度
+    "scene": "场景描写",            # 辅助维度
+}
+
+# 默认开启的维度（按优先级排序）
+DEFAULT_DIMENSIONS: List[str] = list(DIMENSION_CONFIG.keys())
+
+# 维度检测关键词：用于从思考文本中识别相关维度
+# 格式：维度标识 -> 关键词列表
+DIMENSION_KEYWORDS: Dict[str, List[str]] = {
+    "coherence": ["连贯", "逻辑", "过渡"],
+    "character": ["角色", "人物", "性格"],
+    "foreshadow": ["伏笔", "铺垫", "呼应"],
+    "timeline": ["时间", "顺序", "先后"],
+    "style": ["风格", "语气", "文风"],
+    "scene": ["场景", "地点", "环境"],
+}
+
+# 置信度检测关键词：用于估算思考步骤的置信度
+HIGH_CONFIDENCE_KEYWORDS: List[str] = ["明显", "确定", "肯定", "必须", "严重", "重要"]
+LOW_CONFIDENCE_KEYWORDS: List[str] = ["可能", "也许", "似乎", "好像", "不确定", "待"]
 
 
 class CheckDimension:
     """检查维度定义"""
 
-    # 核心维度（优先级最高）
+    # 从配置动态生成维度常量
     COHERENCE = "coherence"          # 逻辑连贯性（最主要）
-
-    # 重要维度
     CHARACTER = "character"          # 角色一致性
     FORESHADOW = "foreshadow"        # 伏笔呼应
     TIMELINE = "timeline"            # 时间线一致性
-
-    # 辅助维度
     STYLE = "style"                  # 风格一致性
     SCENE = "scene"                  # 场景描写一致性
 
     @classmethod
     def get_default_dimensions(cls) -> List[str]:
         """获取默认开启的维度（全部）"""
-        return [
-            cls.COHERENCE,    # 逻辑连贯性
-            cls.CHARACTER,    # 角色一致性
-            cls.FORESHADOW,   # 伏笔呼应
-            cls.TIMELINE,     # 时间线一致性
-            cls.STYLE,        # 风格一致性
-            cls.SCENE,        # 场景描写
-        ]
+        return DEFAULT_DIMENSIONS.copy()
 
     @classmethod
     def get_all_dimensions(cls) -> List[str]:
         """获取所有维度"""
-        return cls.get_default_dimensions()
+        return list(DIMENSION_CONFIG.keys())
 
     @classmethod
     def get_dimension_name(cls, dimension: str) -> str:
         """获取维度的中文名称"""
-        names = {
-            cls.COHERENCE: "逻辑连贯性",
-            cls.CHARACTER: "角色一致性",
-            cls.FORESHADOW: "伏笔呼应",
-            cls.TIMELINE: "时间线一致性",
-            cls.STYLE: "风格一致性",
-            cls.SCENE: "场景描写",
-        }
-        return names.get(dimension, dimension)
+        return DIMENSION_CONFIG.get(dimension, dimension)
 
 
 class AnalysisScope(str, Enum):
@@ -216,6 +229,8 @@ class StructuredThinking(BaseModel):
         2. 根据关键词识别步骤类型
         3. 提取证据（引号内容、具体引用）
         4. 估算置信度（基于确定性词汇）
+
+        关键词配置在文件顶部的常量中定义，便于维护和扩展。
         """
         if not raw_text:
             return cls(raw_content="", steps=[], summary="")
@@ -223,7 +238,7 @@ class StructuredThinking(BaseModel):
         steps = []
         lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
 
-        # 关键词到步骤类型的映射
+        # 步骤类型关键词映射（内部使用，与维度配置分离）
         type_keywords = {
             ThinkingStepType.ANALYSIS: ["分析", "观察", "发现", "注意到", "段落", "内容"],
             ThinkingStepType.RETRIEVAL: ["检索", "查询", "获取", "RAG", "前文", "历史"],
@@ -231,10 +246,6 @@ class StructuredThinking(BaseModel):
             ThinkingStepType.DECISION: ["决定", "选择", "需要", "应该", "计划", "下一步"],
             ThinkingStepType.VERIFICATION: ["验证", "确认", "检查", "核实", "没有问题", "一致"],
         }
-
-        # 置信度关键词
-        high_confidence_words = ["明显", "确定", "肯定", "必须", "严重", "重要"]
-        low_confidence_words = ["可能", "也许", "似乎", "好像", "不确定", "待"]
 
         for line in lines:
             if not line:
@@ -251,24 +262,16 @@ class StructuredThinking(BaseModel):
             import re
             evidence = re.findall(r'["\u201c\u300c]([^"\u201d\u300d]+)["\u201d\u300d]', line)
 
-            # 估算置信度
+            # 估算置信度（使用配置常量）
             confidence = 0.5
-            if any(word in line for word in high_confidence_words):
+            if any(word in line for word in HIGH_CONFIDENCE_KEYWORDS):
                 confidence = 0.8
-            elif any(word in line for word in low_confidence_words):
+            elif any(word in line for word in LOW_CONFIDENCE_KEYWORDS):
                 confidence = 0.3
 
-            # 识别相关维度
+            # 识别相关维度（使用配置常量）
             dimension = None
-            dimension_keywords = {
-                "coherence": ["连贯", "逻辑", "过渡"],
-                "character": ["角色", "人物", "性格"],
-                "foreshadow": ["伏笔", "铺垫", "呼应"],
-                "timeline": ["时间", "顺序", "先后"],
-                "style": ["风格", "语气", "文风"],
-                "scene": ["场景", "地点", "环境"],
-            }
-            for dim, kws in dimension_keywords.items():
+            for dim, kws in DIMENSION_KEYWORDS.items():
                 if any(kw in line for kw in kws):
                     dimension = dim
                     break

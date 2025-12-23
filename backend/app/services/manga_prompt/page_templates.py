@@ -779,6 +779,10 @@ class PanelContent:
     atmosphere: str = ""  # 氛围描述
     lighting: str = ""  # 光线描述
 
+    # LLM生成的提示词（优先使用，如果为空则由PanelPromptBuilder生成）
+    prompt_en: str = ""  # LLM直接生成的英文提示词
+    negative_prompt: str = ""  # LLM直接生成的负面提示词
+
     def get_bubble_type(self) -> DialogueBubbleType:
         """获取气泡类型枚举"""
         try:

@@ -197,8 +197,10 @@ class PartOutlineWorkflow:
                 status="completed",
             )
 
-        # 获取系统提示词
-        system_prompt = await self._part_service.prompt_service.get_prompt("part_outline")
+        # 获取系统提示词（使用新的单部分生成专用提示词，回退到旧版本）
+        system_prompt = await self._part_service.prompt_service.get_prompt("part_outline_single")
+        if not system_prompt:
+            system_prompt = await self._part_service.prompt_service.get_prompt("part_outline")
 
         # 串行生成每个部分
         part_outlines = list(self._existing_parts)

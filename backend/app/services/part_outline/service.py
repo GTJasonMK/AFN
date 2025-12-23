@@ -328,7 +328,10 @@ class PartOutlineService:
         await self.repo.delete_by_project_id(project_id)
 
         part_outlines = []
-        system_prompt = await self.prompt_service.get_prompt("part_outline")
+        # 使用新的单部分生成专用提示词，回退到旧版本
+        system_prompt = await self.prompt_service.get_prompt("part_outline_single")
+        if not system_prompt:
+            system_prompt = await self.prompt_service.get_prompt("part_outline")
 
         for current_part_num in range(1, total_parts + 1):
             logger.info("开始生成第 %d/%d 部分（串行模式）", current_part_num, total_parts)
@@ -604,7 +607,10 @@ class PartOutlineService:
         project = await self.novel_service.ensure_project_owner(project_id, user_id)
         world_setting, full_synopsis, characters = self._prepare_blueprint_data(project)
 
-        system_prompt = await self.prompt_service.get_prompt("part_outline")
+        # 使用新的单部分生成专用提示词，回退到旧版本
+        system_prompt = await self.prompt_service.get_prompt("part_outline_single")
+        if not system_prompt:
+            system_prompt = await self.prompt_service.get_prompt("part_outline")
 
         user_prompt = self.prompt_builder.build_part_outline_prompt(
             total_chapters=total_chapters,
