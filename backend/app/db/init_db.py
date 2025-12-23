@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+from typing import Dict, Optional, Tuple
 
 from pathlib import Path
 
@@ -15,6 +17,58 @@ from .base import Base
 from .session import AsyncSessionLocal, engine
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_yaml_frontmatter(content: str) -> Tuple[Dict[str, Optional[str]], str]:
+    """
+    解析Markdown文件的YAML前置元数据。
+
+    Args:
+        content: 完整的文件内容
+
+    Returns:
+        (metadata, body) 元组，metadata包含title、description、tags
+    """
+    metadata: Dict[str, Optional[str]] = {
+        "title": None,
+        "description": None,
+        "tags": None,
+    }
+
+    # 匹配 YAML 前置元数据块
+    # 格式：---\n...\n---
+    frontmatter_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+    match = frontmatter_pattern.match(content)
+
+    if not match:
+        # 没有前置元数据，返回原始内容
+        return metadata, content
+
+    yaml_block = match.group(1)
+    body = content[match.end():]
+
+    # 简单解析YAML（不引入pyyaml依赖）
+    for line in yaml_block.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # 解析 key: value 格式
+        if ":" in line:
+            key, _, value = line.partition(":")
+            key = key.strip()
+            value = value.strip()
+
+            # 移除引号
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+            elif value.startswith("'") and value.endswith("'"):
+                value = value[1:-1]
+
+            if key in metadata:
+                metadata[key] = value if value else None
+
+    return metadata, body
 
 
 async def init_db() -> None:
@@ -99,8 +153,9 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
     确保默认提示词存在，并同步文件更新到数据库。
 
     策略：
-    - 新提示词：插入数据库
-    - 已存在的提示词：如果文件内容不同，更新数据库
+    - 新提示词：插入数据库（包含元数据）
+    - 已存在且未修改的提示词：如果文件内容不同，更新数据库
+    - 已存在且已修改的提示词：只更新元数据（title、description、tags），保留用户修改的content
     """
     from ..services.prompt_service import get_prompt_cache
 
@@ -124,16 +179,43 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
         name = prompt_file.stem
         file_content = prompt_file.read_text(encoding="utf-8")
 
+        # 解析YAML前置元数据
+        metadata, body_content = _parse_yaml_frontmatter(file_content)
+
         if name in existing_prompts:
-            # 已存在：检查内容是否需要更新
+            # 已存在：检查是否需要更新
             existing = existing_prompts[name]
-            if existing.content != file_content:
-                existing.content = file_content
+            needs_update = False
+
+            # 更新元数据（无论用户是否修改过content）
+            if existing.title != metadata["title"]:
+                existing.title = metadata["title"]
+                needs_update = True
+            if existing.description != metadata["description"]:
+                existing.description = metadata["description"]
+                needs_update = True
+            if existing.tags != metadata["tags"]:
+                existing.tags = metadata["tags"]
+                needs_update = True
+
+            # 只有用户未修改时才更新content
+            if not existing.is_modified and existing.content != body_content:
+                existing.content = body_content
+                needs_update = True
+                logger.info(f"提示词 '{name}' 内容已从文件同步更新")
+
+            if needs_update:
                 updated_count += 1
-                logger.info(f"提示词 '{name}' 已从文件同步更新")
         else:
-            # 新提示词：插入
-            session.add(Prompt(name=name, content=file_content))
+            # 新提示词：插入（包含元数据）
+            session.add(Prompt(
+                name=name,
+                title=metadata["title"],
+                description=metadata["description"],
+                tags=metadata["tags"],
+                content=body_content,
+                is_modified=False,
+            ))
             logger.info(f"提示词 '{name}' 已从文件加载")
 
     # 如果有更新，使全局缓存失效
@@ -177,6 +259,17 @@ async def _run_migrations() -> None:
             "generated_images",
             "panel_id",
             "ALTER TABLE generated_images ADD COLUMN panel_id VARCHAR(100)"
+        ),
+        # 提示词管理：添加description和is_modified字段
+        (
+            "prompts",
+            "description",
+            "ALTER TABLE prompts ADD COLUMN description TEXT"
+        ),
+        (
+            "prompts",
+            "is_modified",
+            "ALTER TABLE prompts ADD COLUMN is_modified BOOLEAN DEFAULT 0"
         ),
     ]
 

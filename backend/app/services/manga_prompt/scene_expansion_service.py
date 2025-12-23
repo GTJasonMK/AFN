@@ -310,14 +310,40 @@ class SceneExpansionService:
     将单个叙事场景展开为专业漫画分镜
     """
 
-    def __init__(self, llm_service=None):
+    def __init__(self, llm_service=None, prompt_service=None):
         """
         初始化服务
 
         Args:
             llm_service: LLM服务实例（用于智能分析）
+            prompt_service: 提示词服务实例（用于加载可配置提示词）
         """
         self.llm_service = llm_service
+        self.prompt_service = prompt_service
+        self._cached_layout_prompt = None  # 缓存布局提示词
+
+    async def _get_layout_system_prompt(self) -> str:
+        """
+        获取布局系统提示词
+
+        优先从提示词服务加载，失败则返回默认值
+        """
+        # 使用缓存
+        if self._cached_layout_prompt:
+            return self._cached_layout_prompt
+
+        # 尝试从提示词服务加载
+        if self.prompt_service:
+            try:
+                prompt = await self.prompt_service.get_prompt("manga_layout")
+                if prompt:
+                    self._cached_layout_prompt = prompt
+                    return prompt
+            except Exception as e:
+                logger.warning(f"无法加载 manga_layout 提示词: {e}")
+
+        # 返回默认值
+        return "你是专业的漫画分镜师，擅长分析叙事场景并转化为视觉表现。"
 
     async def expand_scene(
         self,
@@ -466,10 +492,13 @@ class SceneExpansionService:
             try:
                 from app.services.llm_wrappers import call_llm, LLMProfile
 
+                # 使用可配置的布局提示词
+                system_prompt = await self._get_layout_system_prompt()
+
                 response = await call_llm(
                     self.llm_service,
                     LLMProfile.ANALYTICAL,
-                    system_prompt="你是专业的漫画分镜师，擅长分析叙事场景并转化为视觉表现。",
+                    system_prompt=system_prompt,
                     user_content=prompt,
                     user_id=user_id,
                 )
@@ -629,10 +658,17 @@ class SceneExpansionService:
             try:
                 from app.services.llm_wrappers import call_llm, LLMProfile
 
+                # 获取语言提示
+                language_hint = get_language_hint(dialogue_language)
+
+                # 使用可配置的布局提示词，并添加语言约束
+                base_prompt = await self._get_layout_system_prompt()
+                system_prompt = f"{base_prompt}\n\n重要：所有对话、旁白、音效必须使用{language_hint}，禁止使用其他语言。"
+
                 response = await call_llm(
                     self.llm_service,
                     LLMProfile.MANGA,
-                    system_prompt=f"你是专业的漫画分镜师，擅长将叙事内容转化为视觉画面。重要：所有对话、旁白、音效必须使用{language_hint}，禁止使用其他语言。",
+                    system_prompt=system_prompt,
                     user_content=prompt,
                     user_id=user_id,
                 )

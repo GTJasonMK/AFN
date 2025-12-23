@@ -6,7 +6,10 @@
 
 import asyncio
 import logging
-from typing import Dict, Optional
+import os
+import re
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -208,3 +211,186 @@ class PromptService:
         await self.session.commit()
         await self._cache.remove(name)
         return True
+
+    def _get_prompts_dir(self) -> Path:
+        """获取提示词目录路径"""
+        prompts_dir_env = os.environ.get('PROMPTS_DIR')
+        if prompts_dir_env:
+            return Path(prompts_dir_env)
+        return Path(__file__).resolve().parents[2] / "prompts"
+
+    def _parse_yaml_frontmatter(self, content: str) -> Tuple[Dict[str, Optional[str]], str]:
+        """
+        解析Markdown文件的YAML前置元数据。
+
+        Args:
+            content: 完整的文件内容
+
+        Returns:
+            (metadata, body) 元组
+        """
+        metadata: Dict[str, Optional[str]] = {
+            "title": None,
+            "description": None,
+            "tags": None,
+        }
+
+        frontmatter_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+        match = frontmatter_pattern.match(content)
+
+        if not match:
+            return metadata, content
+
+        yaml_block = match.group(1)
+        body = content[match.end():]
+
+        for line in yaml_block.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            if ":" in line:
+                key, _, value = line.partition(":")
+                key = key.strip()
+                value = value.strip()
+
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                elif value.startswith("'") and value.endswith("'"):
+                    value = value[1:-1]
+
+                if key in metadata:
+                    metadata[key] = value if value else None
+
+        return metadata, body
+
+    async def get_default_content(self, name: str) -> Optional[str]:
+        """
+        获取提示词的默认内容（从文件读取）
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            默认内容（不含YAML元数据），不存在返回None
+        """
+        prompts_dir = self._get_prompts_dir()
+        prompt_file = prompts_dir / f"{name}.md"
+
+        if not prompt_file.is_file():
+            return None
+
+        file_content = prompt_file.read_text(encoding="utf-8")
+        _, body_content = self._parse_yaml_frontmatter(file_content)
+        return body_content
+
+    async def reset_prompt(self, name: str) -> Optional[PromptRead]:
+        """
+        恢复单个提示词到默认值
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            恢复后的提示词，不存在返回None
+        """
+        # 获取数据库中的提示词
+        instance = await self.repo.get_by_name(name)
+        if not instance:
+            return None
+
+        # 获取默认内容
+        default_content = await self.get_default_content(name)
+        if default_content is None:
+            logger.warning(f"无法找到提示词 '{name}' 的默认文件")
+            return None
+
+        # 更新内容并标记为未修改
+        await self.repo.update_fields(
+            instance,
+            content=default_content,
+            is_modified=False,
+        )
+        await self.session.commit()
+
+        prompt_read = PromptRead.model_validate(instance)
+        await self._cache.set(prompt_read.name, prompt_read)
+        logger.info(f"提示词 '{name}' 已恢复默认值")
+        return prompt_read
+
+    async def reset_all_prompts(self) -> int:
+        """
+        恢复所有提示词到默认值
+
+        Returns:
+            恢复的提示词数量
+        """
+        prompts_dir = self._get_prompts_dir()
+        if not prompts_dir.is_dir():
+            logger.warning(f"提示词目录不存在: {prompts_dir}")
+            return 0
+
+        reset_count = 0
+        for prompt_file in prompts_dir.glob("*.md"):
+            name = prompt_file.stem
+            result = await self.reset_prompt(name)
+            if result:
+                reset_count += 1
+
+        logger.info(f"已恢复 {reset_count} 个提示词到默认值")
+        return reset_count
+
+    async def update_prompt_content(self, name: str, content: str) -> Optional[PromptRead]:
+        """
+        更新提示词内容（用户编辑）
+
+        Args:
+            name: 提示词名称
+            content: 新内容
+
+        Returns:
+            更新后的提示词，不存在返回None
+        """
+        instance = await self.repo.get_by_name(name)
+        if not instance:
+            return None
+
+        # 更新内容并标记为已修改
+        await self.repo.update_fields(
+            instance,
+            content=content,
+            is_modified=True,
+        )
+        await self.session.commit()
+
+        prompt_read = PromptRead.model_validate(instance)
+        await self._cache.set(prompt_read.name, prompt_read)
+        logger.info(f"提示词 '{name}' 已更新")
+        return prompt_read
+
+    async def get_prompt_by_name(self, name: str) -> Optional[PromptRead]:
+        """
+        根据名称获取提示词完整信息
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            提示词信息，不存在返回None
+        """
+        # 确保缓存已加载
+        await self._cache.ensure_loaded(self.repo.list_all)
+
+        # 从缓存获取
+        cached = self._cache.get(name)
+        if cached:
+            return cached
+
+        # 缓存未命中，从数据库加载
+        prompt = await self.repo.get_by_name(name)
+        if not prompt:
+            return None
+
+        prompt_read = PromptRead.model_validate(prompt)
+        await self._cache.set(name, prompt_read)
+        return prompt_read

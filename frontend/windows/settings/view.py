@@ -19,6 +19,7 @@ from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
 from .image_settings_widget import ImageSettingsWidget
 from .queue_settings_widget import QueueSettingsWidget
+from .prompt_settings_widget import PromptSettingsWidget
 import json
 
 
@@ -93,6 +94,7 @@ class SettingsView(BasePage):
         self._add_nav_item("嵌入模型")
         self._add_nav_item("生图模型")
         self._add_nav_item("请求队列")
+        self._add_nav_item("提示词管理")
         self._add_nav_item("高级配置")
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
@@ -128,6 +130,9 @@ class SettingsView(BasePage):
 
         self.queue_settings = QueueSettingsWidget()
         self.page_stack.addWidget(self.queue_settings)
+
+        self.prompt_settings = PromptSettingsWidget()
+        self.page_stack.addWidget(self.prompt_settings)
 
         self.advanced_settings = AdvancedSettingsWidget()
         self.page_stack.addWidget(self.advanced_settings)
@@ -254,6 +259,8 @@ class SettingsView(BasePage):
             self.embedding_settings.loadConfigs()
         if hasattr(self, 'image_settings'):
             self.image_settings.loadConfigs()
+        if hasattr(self, 'prompt_settings'):
+            self.prompt_settings.loadPrompts()
         if hasattr(self, 'advanced_settings'):
             self.advanced_settings.loadConfig()
 

@@ -323,3 +323,62 @@ class ConfigMixin:
             导入结果
         """
         return self._request('POST', '/api/settings/import/all', import_data)
+
+    # ==================== 提示词管理 ====================
+
+    def get_prompts(self) -> List[Dict[str, Any]]:
+        """
+        获取所有提示词列表
+
+        Returns:
+            提示词列表，包含 id、name、title、description、content、tags、is_modified
+        """
+        return self._request('GET', '/api/prompts')
+
+    def get_prompt(self, name: str) -> Dict[str, Any]:
+        """
+        获取指定提示词详情
+
+        Args:
+            name: 提示词名称（如 inspiration, writing 等）
+
+        Returns:
+            提示词详情
+        """
+        return self._request('GET', f'/api/prompts/{name}')
+
+    def update_prompt(self, name: str, content: str) -> Dict[str, Any]:
+        """
+        更新提示词内容
+
+        用户编辑提示词后，内容会被保存并标记为已修改。
+
+        Args:
+            name: 提示词名称
+            content: 新内容
+
+        Returns:
+            更新后的提示词
+        """
+        return self._request('PUT', f'/api/prompts/{name}', {"content": content})
+
+    def reset_prompt(self, name: str) -> Dict[str, Any]:
+        """
+        恢复单个提示词到默认值
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            恢复后的提示词
+        """
+        return self._request('POST', f'/api/prompts/{name}/reset')
+
+    def reset_all_prompts(self) -> Dict[str, Any]:
+        """
+        恢复所有提示词到默认值
+
+        Returns:
+            恢复结果，包含 reset_count 和 message
+        """
+        return self._request('POST', '/api/prompts/reset-all')

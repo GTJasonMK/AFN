@@ -233,8 +233,8 @@ class MangaPromptServiceV2:
         # 图片服务（用于清理旧图片）
         self.image_service = ImageGenerationService(session)
 
-        # 子服务
-        self.expansion_service = SceneExpansionService(llm_service)
+        # 子服务（传递 prompt_service 以支持可配置提示词）
+        self.expansion_service = SceneExpansionService(llm_service, prompt_service)
 
     async def generate(
         self,
@@ -696,10 +696,21 @@ class MangaPromptServiceV2:
             dialogue_language=dialogue_language,
         )
 
+        # 尝试从提示词服务获取系统提示词，否则使用默认值
+        system_prompt = None
+        if self.prompt_service:
+            try:
+                system_prompt = await self.prompt_service.get_prompt("manga_prompt")
+            except Exception as e:
+                logger.warning(f"无法加载 manga_prompt 提示词: {e}")
+
+        if not system_prompt:
+            system_prompt = "你是专业的漫画分镜师，擅长将文字叙事转化为视觉场景。"
+
         response = await call_llm(
             self.llm_service,
             LLMProfile.ANALYTICAL,
-            system_prompt="你是专业的漫画分镜师，擅长将文字叙事转化为视觉场景。",
+            system_prompt=system_prompt,
             user_content=prompt,
             user_id=user_id,
         )
@@ -885,6 +896,7 @@ async def generate_manga_prompts(
     chapter_content: str,
     style: str = MangaStyle.MANGA,
     user_id: Optional[int] = None,
+    prompt_service: Optional[PromptService] = None,
 ) -> MangaGenerationResult:
     """
     便捷函数：生成漫画分镜
@@ -897,11 +909,12 @@ async def generate_manga_prompts(
         chapter_content: 章节内容
         style: 漫画风格
         user_id: 用户ID
+        prompt_service: 提示词服务（可选，用于加载可配置提示词）
 
     Returns:
         漫画生成结果
     """
-    service = MangaPromptServiceV2(session, llm_service)
+    service = MangaPromptServiceV2(session, llm_service, prompt_service)
     return await service.generate(
         project_id=project_id,
         chapter_number=chapter_number,

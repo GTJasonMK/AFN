@@ -9,6 +9,7 @@ class PromptBase(BaseModel):
     name: str = Field(..., description="唯一标识，用于代码引用")
     title: Optional[str] = Field(default=None, description="可读标题")
     content: str = Field(..., description="提示词具体内容")
+    description: Optional[str] = Field(default=None, description="使用场景描述")
     tags: Optional[List[str]] = Field(default=None, description="标签集合")
 
 
@@ -19,17 +20,16 @@ class PromptCreate(PromptBase):
 
 
 class PromptUpdate(BaseModel):
-    """更新 Prompt 时使用的模型。"""
+    """更新 Prompt 时使用的模型（用户只能更新内容）。"""
 
-    title: Optional[str] = Field(default=None)
-    content: Optional[str] = Field(default=None)
-    tags: Optional[List[str]] = Field(default=None)
+    content: str = Field(..., description="提示词内容")
 
 
 class PromptRead(PromptBase):
     """对外暴露的 Prompt 数据结构。"""
 
     id: int
+    is_modified: bool = Field(default=False, description="是否已被用户修改")
 
     class Config:
         from_attributes = True
@@ -50,7 +50,9 @@ class PromptRead(PromptBase):
                 "name": getattr(obj, "name"),
                 "title": getattr(obj, "title", None),
                 "content": getattr(obj, "content", None),
+                "description": getattr(obj, "description", None),
                 "tags": processed,
+                "is_modified": getattr(obj, "is_modified", False),
             }
             return super().model_validate(data, *args, **kwargs)
         return super().model_validate(obj, *args, **kwargs)
