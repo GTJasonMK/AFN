@@ -11,6 +11,7 @@
 4. 生成画格级别的内容描述
 """
 
+import re
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -39,12 +40,81 @@ LANGUAGE_HINTS = {
     "korean": "韩语",
 }
 
-# 各语言的音效示例
+# 各语言的音效示例（详细版）
 SOUND_EFFECT_EXAMPLES = {
-    "chinese": "砰、嗖、咚、哗、轰、咚咚（心跳）、沙沙",
-    "japanese": "ドン、シュッ、バン、ザザ、ゴゴゴ、ドキドキ（心跳）、サラサラ",
-    "english": "BANG, WHOOSH, THUD, SPLASH, BOOM, THUMP THUMP (heartbeat), RUSTLE",
-    "korean": "쾅, 슉, 쿵, 철퍼덕, 콰광, 두근두근 (심장), 사각사각",
+    "chinese": """
+常用音效词（必须使用这些中文音效，禁止使用日语或英语）：
+- 撞击/爆炸: 砰、嘭、轰、咚、啪
+- 快速移动: 嗖、呼、唰、嗒嗒
+- 水/液体: 哗、滴答、咕嘟
+- 心跳: 咚咚、扑通扑通
+- 脚步: 哒哒、咚咚
+- 风声: 呼呼、飒飒
+- 碎裂: 咔嚓、哗啦
+- 其他: 嘶、咔、吱呀""",
+    "japanese": """
+常用音效词：
+- 衝撃/爆発: ドン、バン、ドカン、ガン
+- 高速移動: シュッ、ビュン、ヒュー
+- 水/液体: ザザ、ポタポタ、ゴボゴボ
+- 心臓の鼓動: ドキドキ、バクバク
+- 足音: タッタッ、ドタドタ
+- 風: ヒュー、ビュービュー
+- 破壊: バキ、ガシャン
+- その他: シーン、ゴゴゴ、ザワザワ""",
+    "english": """
+Common sound effects:
+- Impact/Explosion: BANG, BOOM, THUD, CRASH, SLAM
+- Fast movement: WHOOSH, ZOOM, SWOOSH, DASH
+- Water/Liquid: SPLASH, DRIP, GURGLE
+- Heartbeat: THUMP THUMP, BA-DUM
+- Footsteps: TAP TAP, STOMP
+- Wind: WHOOO, RUSTLE
+- Breaking: CRACK, SHATTER, CRUNCH
+- Others: SILENCE, RUMBLE, BUZZ""",
+    "korean": """
+자주 사용하는 효과음:
+- 충격/폭발: 쾅, 펑, 쿵, 탕
+- 빠른 이동: 슉, 휙, 쓩
+- 물/액체: 철퍼덕, 똑똑, 꼴깍
+- 심장박동: 두근두근, 쿵쾅쿵쾅
+- 발소리: 타닥타닥, 쿵쿵
+- 바람: 휘이익, 살랑살랑
+- 파괴: 쩍, 와장창
+- 기타: 조용, 우르릉, 윙윙""",
+}
+
+# 禁止使用的非目标语言音效词（用于后处理检测）
+FORBIDDEN_SFX_PATTERNS = {
+    "chinese": [
+        # 日语音效词
+        r"[ァ-ヶー]+",  # 片假名
+        r"[ぁ-ん]+",    # 平假名
+        # 英语音效词
+        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
+    ],
+    "japanese": [
+        # 中文音效词
+        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
+        # 英语音效词
+        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
+    ],
+    "english": [
+        # 日语音效词
+        r"[ァ-ヶー]+",
+        r"[ぁ-ん]+",
+        # 中文音效词
+        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
+    ],
+    "korean": [
+        # 日语音效词
+        r"[ァ-ヶー]+",
+        r"[ぁ-ん]+",
+        # 中文音效词
+        r"[砰嘭轰咚啪嗖呼唰哗咕咔嚓吱呀]+",
+        # 英语音效词
+        r"\b(BANG|BOOM|WHOOSH|THUD|CRASH|SLAM|SPLASH|CRACK|THUMP|RUSTLE)\b",
+    ],
 }
 
 
@@ -103,17 +173,25 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
 ## 画格槽位
 {panel_slots_description}
 
-## 语言设置（极其重要，必须严格遵守！）
-**目标语言：{language_hint}**
+#############################################
+## 【最重要】语言设置 - 违反将导致结果被拒绝
+#############################################
 
-### 强制语言规则 ###
-1. dialogue（对话）: 必须且只能使用{language_hint}
-2. narration（旁白）: 必须且只能使用{language_hint}
-3. sound_effects（音效）: 必须且只能使用{language_hint}
-4. **严禁混用其他语言！即使原文是其他语言，也必须翻译为{language_hint}**
+**唯一允许使用的语言：{language_hint}**
 
-### 音效示例（{language_hint}）###
+### 绝对禁止的语言错误 ###
+{forbidden_languages}
+
+### 强制语言规则（必须100%遵守）###
+1. dialogue（对话）: 只能使用{language_hint}，禁止任何其他语言
+2. narration（旁白）: 只能使用{language_hint}，禁止任何其他语言
+3. sound_effects（音效）: 只能使用{language_hint}的拟声词，禁止任何其他语言
+4. sound_effect_details中的text: 只能使用{language_hint}，禁止任何其他语言
+
+### 正确的{language_hint}音效词示例 ###
 {sfx_examples}
+
+#############################################
 
 ## 要求
 1. 为每个画格分配具体内容
@@ -123,6 +201,46 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
 5. 对话要简短有力（每句不超过12字）
 6. 根据说话内容和情绪选择合适的气泡类型
 7. 为动作场景添加适当的音效
+
+## 【重要】对话提取要求
+漫画的核心是角色对话，请严格遵循以下规则：
+
+1. **必须提取原文对话**: 仔细阅读场景内容，将原文中的对话分配到合适的画格
+   - 原文中用引号（"" 或 「」）标注的内容是角色对话
+   - 原文中的"说"、"道"、"问"等动词前后通常是对话内容
+   - 不要遗漏任何重要对话
+
+2. **对话分配原则**:
+   - 每个有对话的画格只放1-2句话，保持简洁
+   - 对话较长时，拆分到多个画格中
+   - 确保对话的说话者(dialogue_speaker)正确对应
+
+3. **对话必填检查**: 如果场景内容中包含对话，至少要有2-3个画格包含dialogue字段
+   - 检查原文中的引号内容
+   - 确保重要对话不被遗漏
+
+4. **旁白使用**: 对于原文中的心理描写、环境描述，使用narration字段
+
+## 【重要】镜头连贯性要求
+为确保相邻画格之间的视觉连贯性，请遵循以下原则：
+
+1. **渐进式镜头变化**: 避免突然的大跨度镜头跳跃
+   - 推荐: 全景 -> 中景 -> 特写（逐步推进）
+   - 避免: 大特写直接跳到全景（除非有意制造强烈对比）
+
+2. **角色视觉锚定**: 当同一角色出现在连续画格中时
+   - 保持角色的服装、发型、位置的视觉连贯
+   - 在content_description中明确描述角色的关键视觉特征
+
+3. **环境连续性**: 同一场景内的画格应保持环境一致
+   - 在key_visual_elements中保留场景标志性元素
+   - 确保光线和氛围的连贯
+
+4. **镜头过渡逻辑**:
+   - 全景(wide) -> 中景(medium): 从环境介绍过渡到人物聚焦
+   - 中景(medium) -> 特写(close-up): 强调情感或细节
+   - 特写(close-up) -> 中景/全景: 展示反应或揭示场景
+   - 相同镜头连续: 保持节奏，用于对话场景
 
 ## 对话气泡类型说明
 - normal: 普通对话（圆形边框）
@@ -161,17 +279,17 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
       "character_emotions": {{"角色名": "情绪"}},
       "composition": "构图方式",
       "camera_angle": "镜头角度",
-      "dialogue": "对话内容（必须使用{language_hint}，可选，不超过12字）",
-      "dialogue_speaker": "说话者",
+      "dialogue": "对话内容（从原文提取，使用{language_hint}，不超过12字）",
+      "dialogue_speaker": "说话者（必须是characters中的角色名）",
       "dialogue_bubble_type": "normal|shout|whisper|thought|narration|electronic",
       "dialogue_position": "top-right|top-left|...",
       "dialogue_emotion": "说话时的情绪",
-      "narration": "旁白（必须使用{language_hint}，可选，不超过20字）",
+      "narration": "旁白（心理描写或环境描述，使用{language_hint}，不超过20字）",
       "narration_position": "top|bottom",
-      "sound_effects": ["音效文字（必须使用{language_hint}）"],
+      "sound_effects": ["音效文字（只能使用{language_hint}拟声词）"],
       "sound_effect_details": [
         {{
-          "text": "音效文字（必须使用{language_hint}）",
+          "text": "音效文字（只能使用{language_hint}拟声词）",
           "type": "impact",
           "intensity": "large",
           "position": "画面中央"
@@ -186,7 +304,10 @@ PANEL_DISTRIBUTION_PROMPT = """你是专业的漫画分镜师。请将场景内�
 }}
 ```
 
-**再次强调：所有dialogue、narration、sound_effects字段必须使用{language_hint}，禁止使用其他语言！**
+**重要提醒**：
+1. 所有dialogue、narration、sound_effects字段必须使用{language_hint}，禁止使用其他语言！
+2. dialogue字段应该从原文中提取角色的实际对话，不要遗漏！
+3. 如果原文有对话内容，必须至少在2-3个画格中体现！
 """
 
 
@@ -498,6 +619,7 @@ class SceneExpansionService:
             # 获取语言相关信息
             language_hint = LANGUAGE_HINTS.get(dialogue_language, "中文")
             sfx_examples = SOUND_EFFECT_EXAMPLES.get(dialogue_language, SOUND_EFFECT_EXAMPLES["chinese"])
+            forbidden_languages = self._get_forbidden_languages_hint(dialogue_language)
 
             prompt = PANEL_DISTRIBUTION_PROMPT.format(
                 scene_content=scene_content[:2000],
@@ -509,6 +631,7 @@ class SceneExpansionService:
                 panel_slots_description=panel_slots_desc,
                 language_hint=language_hint,
                 sfx_examples=sfx_examples,
+                forbidden_languages=forbidden_languages,
             )
 
             try:
@@ -517,14 +640,16 @@ class SceneExpansionService:
                 response = await call_llm(
                     self.llm_service,
                     LLMProfile.MANGA,
-                    system_prompt="你是专业的漫画分镜师，擅长将叙事内容转化为视觉画面。",
+                    system_prompt=f"你是专业的漫画分镜师，擅长将叙事内容转化为视觉画面。重要：所有对话、旁白、音效必须使用{language_hint}，禁止使用其他语言。",
                     user_content=prompt,
                     user_id=user_id,
                 )
 
                 result = parse_llm_json_safe(response)
                 if result and "panels" in result:
-                    panels = self._parse_panel_contents(result["panels"], template)
+                    panels = self._parse_panel_contents(
+                        result["panels"], template, dialogue_language
+                    )
                     return PagePlan(
                         page_number=1,
                         template=template,
@@ -553,12 +678,101 @@ class SceneExpansionService:
             )
         return "\n".join(lines)
 
+    def _get_forbidden_languages_hint(self, dialogue_language: str) -> str:
+        """
+        生成禁止使用的语言提示
+
+        Args:
+            dialogue_language: 目标语言
+
+        Returns:
+            禁止语言提示文本
+        """
+        forbidden_hints = {
+            "chinese": """
+- 禁止使用日语（如：ドン、バン、ゴゴゴ、ドキドキ等片假名/平假名）
+- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
+- 禁止使用韩语（如：쾅、슉、두근두근等）
+- 只能使用中文拟声词（如：砰、嘭、轰、咚、嗖等）""",
+            "japanese": """
+- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
+- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
+- 禁止使用韩语（如：쾅、슉、두근두근等）
+- 只能使用日语拟声词（如：ドン、バン、シュッ等片假名）""",
+            "english": """
+- 禁止使用日语（如：ドン、バン、ゴゴゴ等片假名/平假名）
+- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
+- 禁止使用韩语（如：쾅、슉、두근두근等）
+- 只能使用英语（如：BANG、BOOM、WHOOSH、THUD等）""",
+            "korean": """
+- 禁止使用日语（如：ドン、バン、ゴゴゴ等片假名/平假名）
+- 禁止使用中文（如：砰、嘭、轰、咚、嗖等汉字拟声词）
+- 禁止使用英语（如：BANG、BOOM、WHOOSH等）
+- 只能使用韩语（如：쾅、슉、두근두근等）""",
+        }
+        return forbidden_hints.get(dialogue_language, forbidden_hints["chinese"])
+
+    def _validate_language(self, text: str, dialogue_language: str) -> tuple[bool, str]:
+        """
+        验证文本是否符合目标语言
+
+        Args:
+            text: 要验证的文本
+            dialogue_language: 目标语言
+
+        Returns:
+            (是否有问题, 问题描述)
+        """
+        if not text:
+            return False, ""
+
+        patterns = FORBIDDEN_SFX_PATTERNS.get(dialogue_language, [])
+        for pattern in patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True, f"检测到非目标语言内容: {text}"
+
+        return False, ""
+
+    def _clean_sound_effects(
+        self,
+        sound_effects: List[str],
+        dialogue_language: str,
+    ) -> List[str]:
+        """
+        清理音效列表，移除非目标语言的音效
+
+        Args:
+            sound_effects: 原始音效列表
+            dialogue_language: 目标语言
+
+        Returns:
+            清理后的音效列表
+        """
+        if not sound_effects:
+            return []
+
+        patterns = FORBIDDEN_SFX_PATTERNS.get(dialogue_language, [])
+        cleaned = []
+
+        for sfx in sound_effects:
+            is_invalid = False
+            for pattern in patterns:
+                if re.search(pattern, sfx, re.IGNORECASE):
+                    is_invalid = True
+                    logger.warning(f"移除非目标语言音效: {sfx} (目标语言: {dialogue_language})")
+                    break
+            if not is_invalid:
+                cleaned.append(sfx)
+
+        return cleaned
+
     def _parse_panel_contents(
         self,
         panels_data: List[Dict[str, Any]],
         template: PageTemplate,
+        dialogue_language: str = "chinese",
     ) -> List[PanelContent]:
-        """解析LLM返回的画格内容"""
+        """解析LLM返回的画格内容，并验证/清理语言"""
         panels = []
         template_slot_ids = {s.slot_id for s in template.panel_slots}
 
@@ -566,6 +780,38 @@ class SceneExpansionService:
             slot_id = panel_data.get("slot_id")
             if slot_id not in template_slot_ids:
                 continue
+
+            # 获取原始音效列表并清理非目标语言的音效
+            raw_sound_effects = panel_data.get("sound_effects", [])
+            cleaned_sound_effects = self._clean_sound_effects(
+                raw_sound_effects, dialogue_language
+            )
+
+            # 清理 sound_effect_details 中的非目标语言音效
+            raw_sfx_details = panel_data.get("sound_effect_details", [])
+            cleaned_sfx_details = []
+            for detail in raw_sfx_details:
+                if isinstance(detail, dict):
+                    sfx_text = detail.get("text", "")
+                    # 检查是否有非目标语言
+                    is_invalid, _ = self._validate_language(sfx_text, dialogue_language)
+                    if not is_invalid:
+                        cleaned_sfx_details.append(detail)
+                    else:
+                        logger.warning(f"移除非目标语言音效详情: {sfx_text} (目标语言: {dialogue_language})")
+
+            # 验证对话和旁白语言（只记录警告，不移除）
+            dialogue = panel_data.get("dialogue")
+            if dialogue:
+                is_invalid, msg = self._validate_language(dialogue, dialogue_language)
+                if is_invalid:
+                    logger.warning(f"对话可能包含非目标语言: {msg}")
+
+            narration = panel_data.get("narration")
+            if narration:
+                is_invalid, msg = self._validate_language(narration, dialogue_language)
+                if is_invalid:
+                    logger.warning(f"旁白可能包含非目标语言: {msg}")
 
             panel = PanelContent(
                 slot_id=slot_id,
@@ -575,17 +821,17 @@ class SceneExpansionService:
                 character_emotions=panel_data.get("character_emotions", {}),
                 composition=panel_data.get("composition", "medium shot"),
                 camera_angle=panel_data.get("camera_angle", "eye level"),
-                # 文字元素 - 基础字段
-                dialogue=panel_data.get("dialogue"),
+                # 文字元素 - 基础字段（使用清理后的音效）
+                dialogue=dialogue,
                 dialogue_speaker=panel_data.get("dialogue_speaker"),
-                narration=panel_data.get("narration"),
-                sound_effects=panel_data.get("sound_effects", []),
-                # 文字元素 - 扩展字段（新增）
+                narration=narration,
+                sound_effects=cleaned_sound_effects,
+                # 文字元素 - 扩展字段（使用清理后的详情）
                 dialogue_bubble_type=panel_data.get("dialogue_bubble_type", "normal"),
                 dialogue_position=panel_data.get("dialogue_position", "top-right"),
                 dialogue_emotion=panel_data.get("dialogue_emotion", ""),
                 narration_position=panel_data.get("narration_position", "top"),
-                sound_effect_details=panel_data.get("sound_effect_details", []),
+                sound_effect_details=cleaned_sfx_details,
                 # 视觉指导
                 key_visual_elements=panel_data.get("key_visual_elements", []),
                 atmosphere=panel_data.get("atmosphere", ""),

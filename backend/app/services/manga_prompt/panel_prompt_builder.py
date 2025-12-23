@@ -201,6 +201,35 @@ class PanelPromptBuilder:
         },
     }
 
+    # 镜头过渡描述映射（从什么到什么）
+    SHOT_TRANSITION_MAP = {
+        # 从远到近
+        ("wide shot", "medium shot"): "smooth transition from establishing shot, maintaining scene context",
+        ("wide shot", "close-up"): "dramatic cut-in from wide view, focusing attention",
+        ("wide shot", "extreme close-up"): "stark contrast jump, dramatic emphasis shift",
+        ("medium shot", "close-up"): "gentle push-in, increasing intimacy",
+        ("medium shot", "extreme close-up"): "dramatic zoom to detail",
+        # 从近到远
+        ("close-up", "medium shot"): "pulling back to show context",
+        ("close-up", "wide shot"): "reveal shot, expanding view",
+        ("extreme close-up", "medium shot"): "releasing tension, showing reaction",
+        ("extreme close-up", "wide shot"): "dramatic reveal of full scene",
+        # 相同镜头
+        ("wide shot", "wide shot"): "consistent wide framing, scene continuity",
+        ("medium shot", "medium shot"): "matched framing, conversational flow",
+        ("close-up", "close-up"): "maintained intimacy, emotional continuity",
+    }
+
+    # 角度过渡描述
+    ANGLE_TRANSITION_MAP = {
+        ("eye level", "low angle"): "shifting to heroic perspective",
+        ("eye level", "high angle"): "moving to vulnerable viewpoint",
+        ("low angle", "eye level"): "returning to neutral perspective",
+        ("high angle", "eye level"): "leveling the perspective",
+        ("eye level", "dutch angle"): "adding visual tension",
+        ("dutch angle", "eye level"): "stabilizing the frame",
+    }
+
     def __init__(
         self,
         style: str = "manga",
@@ -260,6 +289,7 @@ class PanelPromptBuilder:
             画格提示词列表
         """
         prompts = []
+        previous_panel: Optional[PanelContent] = None  # 追踪前一个画格
 
         for page in expansion.pages:
             for panel_content in page.panels:
@@ -274,8 +304,12 @@ class PanelPromptBuilder:
                     scene_id=expansion.scene_id,
                     page_number=page.page_number,
                     mood=expansion.mood,
+                    previous_panel=previous_panel,  # 传递前一个画格用于连贯性
                 )
                 prompts.append(prompt)
+
+                # 更新前一个画格引用
+                previous_panel = panel_content
 
         return prompts
 
@@ -293,6 +327,7 @@ class PanelPromptBuilder:
         scene_id: int,
         page_number: int,
         mood: SceneMood,
+        previous_panel: Optional[PanelContent] = None,
     ) -> PanelPrompt:
         """
         为单个画格生成提示词
@@ -303,6 +338,7 @@ class PanelPromptBuilder:
             scene_id: 场景ID
             page_number: 页码
             mood: 场景情感
+            previous_panel: 前一个画格内容，用于生成连贯性描述
 
         Returns:
             画格提示词
@@ -330,6 +366,13 @@ class PanelPromptBuilder:
         mood_style = self.MOOD_STYLE_MAP.get(mood, "")
         if mood_style:
             prompt_parts.append(mood_style)
+
+        # 3.5 镜头过渡连贯性（基于前一画格）
+        continuity_desc = self._build_continuity_description(
+            panel_content, previous_panel
+        )
+        if continuity_desc:
+            prompt_parts.append(continuity_desc)
 
         # 4. 角色描述
         character_desc = self._build_character_description(
@@ -485,6 +528,77 @@ class PanelPromptBuilder:
         # 简单翻译/转换常见中文描述
         # 实际项目中可以使用翻译API
         return desc
+
+    def _build_continuity_description(
+        self,
+        current_panel: PanelContent,
+        previous_panel: Optional[PanelContent],
+    ) -> str:
+        """
+        构建镜头连贯性描述
+
+        基于前一画格的构图和角度，生成过渡描述以保持视觉连贯性。
+        这有助于AI图像生成时保持相邻画格之间的视觉流畅。
+
+        Args:
+            current_panel: 当前画格内容
+            previous_panel: 前一个画格内容
+
+        Returns:
+            连贯性描述字符串
+        """
+        if not previous_panel:
+            # 第一个画格，无需连贯性描述，但添加场景建立提示
+            return "establishing shot, scene introduction"
+
+        parts = []
+
+        # 1. 镜头过渡描述
+        prev_comp = previous_panel.composition
+        curr_comp = current_panel.composition
+        transition_key = (prev_comp, curr_comp)
+        if transition_key in self.SHOT_TRANSITION_MAP:
+            parts.append(self.SHOT_TRANSITION_MAP[transition_key])
+        elif prev_comp != curr_comp:
+            # 未在映射中的过渡，提供通用描述
+            parts.append(f"transitioning from {prev_comp}")
+
+        # 2. 角度过渡描述
+        prev_angle = previous_panel.camera_angle
+        curr_angle = current_panel.camera_angle
+        angle_key = (prev_angle, curr_angle)
+        if angle_key in self.ANGLE_TRANSITION_MAP:
+            parts.append(self.ANGLE_TRANSITION_MAP[angle_key])
+
+        # 3. 角色一致性锚定
+        # 如果前后画格有相同角色，强调视觉一致性
+        prev_chars = set(previous_panel.characters or [])
+        curr_chars = set(current_panel.characters or [])
+        shared_chars = prev_chars & curr_chars
+        if shared_chars:
+            char_names = ", ".join(list(shared_chars)[:2])  # 最多列出2个
+            parts.append(f"maintaining visual consistency for {char_names}")
+
+        # 4. 环境连贯性
+        # 如果前后画格有相同的关键视觉元素，强调场景连续
+        prev_elements = set(previous_panel.key_visual_elements or [])
+        curr_elements = set(current_panel.key_visual_elements or [])
+        shared_elements = prev_elements & curr_elements
+        if shared_elements:
+            parts.append("continuous environment, same scene")
+
+        # 5. 氛围连贯性
+        # 如果前后氛围相同，强调氛围延续
+        if previous_panel.atmosphere and current_panel.atmosphere:
+            if previous_panel.atmosphere == current_panel.atmosphere:
+                parts.append("maintaining atmosphere from previous panel")
+
+        # 6. 光线连贯性
+        if previous_panel.lighting and current_panel.lighting:
+            if previous_panel.lighting == current_panel.lighting:
+                parts.append("consistent lighting")
+
+        return ", ".join(parts) if parts else ""
 
     def _build_dialogue_visual(self, panel_content: PanelContent) -> str:
         """
