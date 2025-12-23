@@ -1,8 +1,6 @@
 """集中导出 ORM 模型，确保 SQLAlchemy 元数据在初始化时被正确加载。"""
 
-from .embedding_config import EmbeddingConfig
-from .image_config import ImageGenerationConfig, GeneratedImage
-from .llm_config import LLMConfig
+# 注意：导入顺序很重要！被其他模型外键引用的模型必须先导入
 from .novel import (
     BlueprintCharacter,
     BlueprintRelationship,
@@ -17,11 +15,16 @@ from .novel import (
     NovelConversation,
     NovelProject,
 )
+from .character_portrait import CharacterPortrait
+from .embedding_config import EmbeddingConfig
+from .image_config import ImageGenerationConfig, GeneratedImage
+from .llm_config import LLMConfig
 from .part_outline import PartOutline
 from .prompt import Prompt
 from .user import User
 
 __all__ = [
+    "CharacterPortrait",
     "EmbeddingConfig",
     "GeneratedImage",
     "ImageGenerationConfig",

@@ -143,7 +143,10 @@ class ImageMixin:
         style: Optional[str] = None,
         aspect_ratio: Optional[str] = None,
         quality: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
         panel_id: Optional[str] = None,
+        reference_image_paths: Optional[List[str]] = None,
+        reference_strength: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         为场景生成图片
@@ -156,7 +159,10 @@ class ImageMixin:
             style: 图片风格（可选）
             aspect_ratio: 宽高比（可选，如 "16:9", "4:3", "1:1" 等）
             quality: 质量预设（可选）
+            negative_prompt: 负面提示词（可选）
             panel_id: 画格ID，格式如 scene1_page1_panel1（可选）
+            reference_image_paths: 参考图片路径列表（角色立绘等）
+            reference_strength: 参考强度 0.0-1.0（可选）
 
         Returns:
             生成结果，包含图片URL和信息
@@ -169,8 +175,14 @@ class ImageMixin:
             data['ratio'] = aspect_ratio
         if quality:
             data['quality'] = quality
+        if negative_prompt:
+            data['negative_prompt'] = negative_prompt
         if panel_id:
             data['panel_id'] = panel_id
+        if reference_image_paths:
+            data['reference_image_paths'] = reference_image_paths
+        if reference_strength is not None:
+            data['reference_strength'] = reference_strength
 
         return self._request(
             'POST',

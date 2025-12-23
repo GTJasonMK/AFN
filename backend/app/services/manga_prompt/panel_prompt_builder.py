@@ -72,6 +72,9 @@ class PanelPrompt:
     characters: Optional[List[str]] = None
     is_key_panel: bool = False
 
+    # 参考图（用于 img2img）
+    reference_image_paths: Optional[List[str]] = None  # 角色立绘路径列表
+
 
 class PanelPromptBuilder:
     """
@@ -203,6 +206,7 @@ class PanelPromptBuilder:
         style: str = "manga",
         character_profiles: Optional[Dict[str, str]] = None,
         dialogue_language: str = "chinese",
+        character_portraits: Optional[Dict[str, str]] = None,
     ):
         """
         初始化构建器
@@ -211,10 +215,12 @@ class PanelPromptBuilder:
             style: 漫画风格 (manga/anime/comic/webtoon)
             character_profiles: 角色外观描述字典
             dialogue_language: 对话/音效语言（chinese/japanese/english/korean）
+            character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
         """
         self.style = style
         self.character_profiles = character_profiles or {}
         self.dialogue_language = dialogue_language
+        self.character_portraits = character_portraits or {}
 
         # 风格基础提示词
         self.style_prompts = {
@@ -384,6 +390,9 @@ class PanelPromptBuilder:
         # 负向提示词
         negative_prompt = self._build_negative_prompt(slot)
 
+        # 获取画格中角色的立绘路径
+        reference_image_paths = self._get_character_portrait_paths(panel_content.characters)
+
         return PanelPrompt(
             panel_id=f"scene{scene_id}_page{page_number}_panel{slot.slot_id}",
             scene_id=scene_id,
@@ -409,6 +418,8 @@ class PanelPromptBuilder:
             # 视觉信息
             characters=panel_content.characters or [],
             is_key_panel=slot.is_key_panel,
+            # 参考图
+            reference_image_paths=reference_image_paths,
         )
 
     def _build_character_description(
@@ -441,6 +452,29 @@ class PanelPromptBuilder:
             return parts[0]
         else:
             return f"characters: {', '.join(parts)}"
+
+    def _get_character_portrait_paths(
+        self,
+        characters: Optional[List[str]],
+    ) -> Optional[List[str]]:
+        """
+        获取画格中角色的立绘路径
+
+        Args:
+            characters: 画格中的角色名列表
+
+        Returns:
+            角色立绘路径列表，如果没有则返回 None
+        """
+        if not characters or not self.character_portraits:
+            return None
+
+        paths = []
+        for char in characters:
+            if char in self.character_portraits:
+                paths.append(self.character_portraits[char])
+
+        return paths if paths else None
 
     def _build_content_description(self, panel_content: PanelContent) -> str:
         """构建内容描述"""
@@ -669,6 +703,7 @@ def build_prompts_for_expansion(
     expansion: SceneExpansion,
     style: str = "manga",
     character_profiles: Optional[Dict[str, str]] = None,
+    character_portraits: Optional[Dict[str, str]] = None,
 ) -> List[PanelPrompt]:
     """
     便捷函数：为场景展开生成所有画格提示词
@@ -677,6 +712,7 @@ def build_prompts_for_expansion(
         expansion: 场景展开结果
         style: 漫画风格
         character_profiles: 角色外观描述
+        character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
 
     Returns:
         画格提示词列表
@@ -684,6 +720,7 @@ def build_prompts_for_expansion(
     builder = PanelPromptBuilder(
         style=style,
         character_profiles=character_profiles,
+        character_portraits=character_portraits,
     )
     return builder.build_panel_prompts(expansion)
 
@@ -692,6 +729,7 @@ def build_prompts_for_expansions(
     expansions: List[SceneExpansion],
     style: str = "manga",
     character_profiles: Optional[Dict[str, str]] = None,
+    character_portraits: Optional[Dict[str, str]] = None,
 ) -> List[PanelPrompt]:
     """
     便捷函数：为多个场景展开生成所有画格提示词
@@ -700,6 +738,7 @@ def build_prompts_for_expansions(
         expansions: 场景展开结果列表
         style: 漫画风格
         character_profiles: 角色外观描述
+        character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
 
     Returns:
         所有画格提示词列表
@@ -707,6 +746,7 @@ def build_prompts_for_expansions(
     builder = PanelPromptBuilder(
         style=style,
         character_profiles=character_profiles,
+        character_portraits=character_portraits,
     )
 
     all_prompts = []

@@ -11,6 +11,7 @@ import uuid
 import base64
 import hashlib
 import logging
+from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
 
 import httpx
@@ -23,6 +24,7 @@ from .schemas import (
     GeneratedImageInfo,
 )
 from .providers import ImageProviderFactory
+from .providers.base import ReferenceImageInfo
 from ...models.image_config import GeneratedImage
 from ...core.config import settings
 from ...services.queue import ImageRequestQueue
@@ -137,6 +139,9 @@ class ImageGenerationService:
         """
         生成图片（使用工厂模式）
 
+        支持普通文生图和 img2img（使用参考图）。
+        当 request.reference_image_paths 不为空时，自动使用 img2img 模式。
+
         Args:
             user_id: 用户ID
             project_id: 项目ID
@@ -148,6 +153,19 @@ class ImageGenerationService:
             ImageGenerationResult: 生成结果
         """
         start_time = time.time()
+
+        # 如果指定了panel_id，先删除该画格的旧图片（保持每个画格只有一张图片）
+        if request.panel_id:
+            deleted_count = await self.delete_panel_images(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                panel_id=request.panel_id,
+            )
+            if deleted_count > 0:
+                logger.info(
+                    "重新生成前已删除旧图片: panel_id=%s, count=%d",
+                    request.panel_id, deleted_count
+                )
 
         # 获取激活的配置（通过配置服务）
         config = await self.config_service.get_active_config(user_id)
@@ -182,8 +200,33 @@ class ImageGenerationService:
             # 通过队列控制并发
             queue = ImageRequestQueue.get_instance()
             async with queue.request_slot():
-                # 调用供应商生成图片
-                gen_result = await provider.generate(config, request)
+                # 检查是否需要使用 img2img
+                if request.reference_image_paths and len(request.reference_image_paths) > 0:
+                    # 准备参考图信息
+                    reference_images = await self._prepare_reference_images(
+                        request.reference_image_paths,
+                        request.reference_strength,
+                    )
+
+                    if reference_images and provider.supports_img2img():
+                        # 使用 img2img 模式
+                        logger.info(
+                            "使用 img2img 模式生成图片: provider=%s, reference_count=%d",
+                            config.provider_type, len(reference_images)
+                        )
+                        gen_result = await provider.generate_with_reference(
+                            config, request, reference_images
+                        )
+                    else:
+                        # 供应商不支持 img2img，降级为普通生成
+                        logger.warning(
+                            "供应商 %s 不支持 img2img，降级为普通生成",
+                            config.provider_type
+                        )
+                        gen_result = await provider.generate(config, request)
+                else:
+                    # 普通文生图
+                    gen_result = await provider.generate(config, request)
 
             if not gen_result.success:
                 return ImageGenerationResult(
@@ -226,6 +269,59 @@ class ImageGenerationService:
                 success=False,
                 error_message=error_msg,
             )
+
+    async def _prepare_reference_images(
+        self,
+        image_paths: List[str],
+        strength: float = 0.7,
+    ) -> List[ReferenceImageInfo]:
+        """
+        准备参考图信息
+
+        读取图片文件并转换为 Base64 格式。
+
+        Args:
+            image_paths: 图片路径列表
+            strength: 参考强度
+
+        Returns:
+            参考图信息列表
+        """
+        reference_images = []
+
+        for path in image_paths:
+            try:
+                # 处理相对路径和绝对路径
+                if path.startswith("/"):
+                    # 相对于 IMAGES_ROOT
+                    full_path = IMAGES_ROOT / path.lstrip("/")
+                else:
+                    full_path = Path(path)
+
+                if not full_path.exists():
+                    # 尝试 IMAGES_ROOT 下查找
+                    full_path = IMAGES_ROOT / path
+                    if not full_path.exists():
+                        logger.warning("参考图片不存在: %s", path)
+                        continue
+
+                # 读取并转换为 Base64
+                image_content = full_path.read_bytes()
+                b64_data = base64.b64encode(image_content).decode("utf-8")
+
+                reference_images.append(ReferenceImageInfo(
+                    file_path=str(full_path),
+                    base64_data=b64_data,
+                    strength=strength,
+                ))
+
+                logger.debug("已加载参考图: %s", path)
+
+            except Exception as e:
+                logger.warning("加载参考图失败: %s - %s", path, e)
+                continue
+
+        return reference_images
 
     async def _download_and_save_images(
         self,
@@ -437,6 +533,60 @@ class ImageGenerationService:
         await self.session.delete(image)
         await self.session.flush()
         return True
+
+    async def delete_panel_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+        panel_id: str,
+    ) -> int:
+        """删除画格的所有图片
+
+        用于重新生成画格图片时清理旧图片，确保每个画格只保留最新生成的图片。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            panel_id: 画格ID
+
+        Returns:
+            删除的图片数量
+        """
+        # 查询该画格的所有图片
+        result = await self.session.execute(
+            select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+                GeneratedImage.panel_id == panel_id,
+            )
+        )
+        images = list(result.scalars().all())
+
+        if not images:
+            return 0
+
+        deleted_count = 0
+        for image in images:
+            # 删除文件
+            file_path = IMAGES_ROOT / image.file_path
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                    logger.debug("已删除图片文件: %s", file_path)
+                except Exception as e:
+                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
+
+            # 删除数据库记录
+            await self.session.delete(image)
+            deleted_count += 1
+
+        await self.session.flush()
+
+        logger.info(
+            "已删除画格旧图片: project_id=%s, chapter=%d, panel_id=%s, count=%d",
+            project_id, chapter_number, panel_id, deleted_count
+        )
+        return deleted_count
 
     async def delete_chapter_images(
         self,

@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
+from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult, ReferenceImageInfo
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
 from ..schemas import ImageGenerationRequest, get_size_for_ratio
@@ -109,6 +109,72 @@ class ComfyUIProvider(BaseImageProvider):
             "inputs": {
                 "filename_prefix": "AFN",
                 "images": ["8", 0]
+            }
+        }
+    }
+
+    # img2img 工作流模板 - 使用参考图进行生成
+    IMG2IMG_WORKFLOW = {
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "cfg": 7,
+                "denoise": 0.7,  # 参考图影响强度的反向（1 - strength）
+                "latent_image": ["11", 0],  # 使用 VAEEncode 的输出
+                "model": ["4", 0],
+                "negative": ["7", 0],
+                "positive": ["6", 0],
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "seed": -1,
+                "steps": 20
+            }
+        },
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {
+                "ckpt_name": "v1-5-pruned.safetensors"
+            }
+        },
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": ""
+            }
+        },
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": ""
+            }
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["3", 0],
+                "vae": ["4", 2]
+            }
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "filename_prefix": "AFN_img2img",
+                "images": ["8", 0]
+            }
+        },
+        "10": {
+            "class_type": "LoadImage",
+            "inputs": {
+                "image": ""  # 参考图文件名（需要先上传到 ComfyUI）
+            }
+        },
+        "11": {
+            "class_type": "VAEEncode",
+            "inputs": {
+                "pixels": ["10", 0],
+                "vae": ["4", 2]
             }
         }
     }
@@ -568,4 +634,224 @@ class ComfyUIProvider(BaseImageProvider):
             "scheduler": True,
             "checkpoint": True,
             "custom_workflow": True,  # 支持自定义工作流
+            "img2img": True,  # 支持 img2img
         }
+
+    async def generate_with_reference(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List[ReferenceImageInfo],
+    ) -> ProviderGenerateResult:
+        """
+        使用参考图生成图片（img2img）
+
+        ComfyUI 实现：
+        1. 上传参考图到 ComfyUI 的 input 目录
+        2. 使用 LoadImage + VAEEncode 节点加载并编码图片
+        3. 通过 KSampler 的 denoise 参数控制参考强度
+
+        Args:
+            config: 供应商配置
+            request: 生成请求
+            reference_images: 参考图列表
+
+        Returns:
+            ProviderGenerateResult: 生成结果
+        """
+        if not reference_images:
+            # 没有参考图，降级为普通生成
+            return await self.generate(config, request)
+
+        try:
+            # 使用第一张参考图
+            ref_image = reference_images[0]
+            urls = await self._generate_images_img2img(config, request, ref_image)
+            return ProviderGenerateResult(success=True, image_urls=urls)
+        except asyncio.TimeoutError:
+            logger.error("ComfyUI img2img 生成超时")
+            return ProviderGenerateResult(
+                success=False,
+                error_message=f"生成超时（超过{COMFYUI_MAX_POLL_TIME}秒）"
+            )
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"{type(e).__name__}"
+            logger.error("ComfyUI img2img 生成失败: %s", error_msg, exc_info=True)
+            return ProviderGenerateResult(success=False, error_message=error_msg)
+
+    async def _generate_images_img2img(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        ref_image: ReferenceImageInfo,
+    ) -> List[str]:
+        """执行 img2img 图片生成流程"""
+        base_url = self._get_base_url(config)
+        extra_params = config.extra_params or {}
+
+        async with self.create_http_client(config) as client:
+            # 1. 上传参考图到 ComfyUI
+            uploaded_filename = await self._upload_reference_image(
+                client, base_url, ref_image, config
+            )
+            logger.info("ComfyUI 参考图已上传: %s", uploaded_filename)
+
+            # 2. 构建 img2img 工作流
+            workflow = self._build_img2img_workflow(
+                config, request, uploaded_filename, ref_image.strength
+            )
+
+            # 3. 生成客户端ID
+            client_id = str(uuid.uuid4())
+
+            # 4. 提交工作流
+            prompt_id = await self._queue_prompt(
+                client, base_url, workflow, client_id, config
+            )
+            logger.info("ComfyUI img2img 任务已提交: prompt_id=%s", prompt_id)
+
+            # 5. 轮询等待完成
+            outputs = await self._poll_for_completion(
+                client, base_url, prompt_id, config
+            )
+            logger.info("ComfyUI img2img 任务完成: prompt_id=%s", prompt_id)
+
+            # 6. 获取生成的图片
+            image_urls = await self._fetch_images(
+                client, base_url, outputs, config
+            )
+
+            return image_urls
+
+    async def _upload_reference_image(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        ref_image: ReferenceImageInfo,
+        config: ImageGenerationConfig,
+    ) -> str:
+        """
+        上传参考图到 ComfyUI
+
+        Returns:
+            上传后的文件名
+        """
+        # 生成唯一文件名
+        unique_id = uuid.uuid4().hex[:12]
+        filename = f"ref_{unique_id}.png"
+
+        # 解码 Base64 数据
+        if ref_image.base64_data:
+            image_data = base64.b64decode(ref_image.base64_data)
+        else:
+            # 从文件读取
+            from pathlib import Path
+            image_data = Path(ref_image.file_path).read_bytes()
+
+        # 上传到 ComfyUI 的 /upload/image 端点
+        files = {
+            "image": (filename, image_data, "image/png"),
+        }
+        data = {
+            "overwrite": "true",
+        }
+
+        response = await client.post(
+            f"{base_url}/upload/image",
+            files=files,
+            data=data,
+        )
+
+        if response.status_code != 200:
+            error_msg = f"上传参考图失败: HTTP {response.status_code}"
+            try:
+                error_data = response.json()
+                if "error" in error_data:
+                    error_msg = error_data["error"]
+            except Exception:
+                pass
+            raise Exception(error_msg)
+
+        result = response.json()
+        return result.get("name", filename)
+
+    def _build_img2img_workflow(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_filename: str,
+        strength: float,
+    ) -> Dict[str, Any]:
+        """
+        构建 img2img 工作流
+
+        Args:
+            config: 配置
+            request: 请求
+            reference_filename: 上传的参考图文件名
+            strength: 参考图强度 (0.0-1.0)
+
+        Returns:
+            工作流 JSON
+        """
+        extra_params = config.extra_params or {}
+
+        # 检查是否有自定义 img2img 工作流
+        custom_workflow = extra_params.get("img2img_workflow_template")
+        if custom_workflow:
+            if isinstance(custom_workflow, str):
+                try:
+                    workflow = json.loads(custom_workflow)
+                except json.JSONDecodeError:
+                    logger.warning("自定义 img2img 工作流模板解析失败，使用默认模板")
+                    workflow = self._get_img2img_workflow()
+            else:
+                workflow = custom_workflow.copy()
+        else:
+            workflow = self._get_img2img_workflow()
+
+        # 构建提示词
+        prompt = self.build_prompt(request, add_context=False)
+        negative_prompt = request.negative_prompt or "low quality, blurry, distorted"
+
+        # 获取参数
+        seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)
+        steps = extra_params.get("steps", 20)
+        cfg_scale = extra_params.get("cfg_scale", 7)
+        sampler_name = extra_params.get("sampler_name", "euler")
+        scheduler = extra_params.get("scheduler", "normal")
+        checkpoint = extra_params.get("checkpoint", "v1-5-pruned.safetensors")
+
+        # denoise = 1 - strength (strength 越高，参考图影响越大，denoise 越小)
+        denoise = 1.0 - strength
+
+        # 更新工作流参数
+        for node_id, node in workflow.items():
+            class_type = node.get("class_type", "")
+            inputs = node.get("inputs", {})
+
+            if class_type == "KSampler":
+                inputs["seed"] = seed
+                inputs["steps"] = steps
+                inputs["cfg"] = cfg_scale
+                inputs["sampler_name"] = sampler_name
+                inputs["scheduler"] = scheduler
+                inputs["denoise"] = denoise
+
+            elif class_type == "CheckpointLoaderSimple":
+                inputs["ckpt_name"] = checkpoint
+
+            elif class_type == "LoadImage":
+                inputs["image"] = reference_filename
+
+            elif class_type == "CLIPTextEncode":
+                # 根据连接判断是正向还是负向提示词
+                is_negative = self._is_negative_prompt_node(workflow, node_id)
+                if not inputs.get("text") or inputs.get("text") == "":
+                    inputs["text"] = negative_prompt if is_negative else prompt
+
+        return workflow
+
+    def _get_img2img_workflow(self) -> Dict[str, Any]:
+        """获取 img2img 工作流的深拷贝"""
+        return json.loads(json.dumps(self.IMG2IMG_WORKFLOW))

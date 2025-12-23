@@ -640,9 +640,10 @@ class PromptTabMixin:
             if self._on_generate_image:
                 negative_prompt = panel.get('negative_prompt', '')
                 panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
+                ref_paths = panel.get('reference_image_paths', [])
                 regenerate_btn.clicked.connect(
-                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio:
-                    self._on_generate_image(pid, p, n, ar)
+                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio, refs=ref_paths:
+                    self._on_generate_image(pid, p, n, ar, refs)
                 )
             btn_inner_layout.addWidget(regenerate_btn)
             generate_btn = regenerate_btn  # 保存引用用于状态控制
@@ -655,9 +656,10 @@ class PromptTabMixin:
             if self._on_generate_image:
                 negative_prompt = panel.get('negative_prompt', '')
                 panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
+                ref_paths = panel.get('reference_image_paths', [])
                 generate_btn.clicked.connect(
-                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio:
-                    self._on_generate_image(pid, p, n, ar)
+                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio, refs=ref_paths:
+                    self._on_generate_image(pid, p, n, ar, refs)
                 )
             btn_inner_layout.addWidget(generate_btn)
 

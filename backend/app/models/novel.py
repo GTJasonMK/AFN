@@ -62,6 +62,9 @@ class NovelProject(Base):
     part_outlines: Mapped[list["PartOutline"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="PartOutline.part_number"
     )
+    character_portraits: Mapped[list["CharacterPortrait"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="CharacterPortrait.created_at"
+    )
 
 
 class NovelConversation(Base):

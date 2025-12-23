@@ -160,6 +160,9 @@ class ImageGenerationRequest(BaseModel):
     chapter_version_id: Optional[int] = Field(default=None, description="章节版本ID，用于版本追溯")
     # 画格ID：精确标识图片属于哪个画格
     panel_id: Optional[str] = Field(default=None, description="画格ID，格式如 scene1_page1_panel1")
+    # img2img 参考图支持
+    reference_image_paths: Optional[List[str]] = Field(default=None, description="参考图片路径列表（用于img2img）")
+    reference_strength: float = Field(default=0.7, ge=0.0, le=1.0, description="参考图影响强度（0.0-1.0）")
 
 
 class GeneratedImageInfo(BaseModel):

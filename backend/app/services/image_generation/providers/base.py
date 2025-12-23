@@ -37,6 +37,14 @@ class ProviderGenerateResult:
     extra_info: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class ReferenceImageInfo:
+    """参考图信息（用于img2img）"""
+    file_path: str  # 图片文件路径
+    base64_data: Optional[str] = None  # Base64编码数据（可选，运行时填充）
+    strength: float = 0.7  # 参考图影响强度
+
+
 class BaseImageProvider(ABC):
     """
     图片生成供应商抽象基类
@@ -183,7 +191,46 @@ class BaseImageProvider(ABC):
             "quality": True,
             "resolution": True,
             "ratio": True,
+            "img2img": False,  # 默认不支持 img2img
         }
+
+    def supports_img2img(self) -> bool:
+        """
+        检查供应商是否支持 img2img
+
+        Returns:
+            是否支持 img2img 功能
+        """
+        return self.get_supported_features().get("img2img", False)
+
+    async def generate_with_reference(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List["ReferenceImageInfo"],
+    ) -> ProviderGenerateResult:
+        """
+        使用参考图生成图片（img2img）
+
+        子类如果支持 img2img，应该重写此方法。
+        默认实现降级为普通的 text-to-image。
+
+        Args:
+            config: 供应商配置
+            request: 生成请求
+            reference_images: 参考图列表
+
+        Returns:
+            ProviderGenerateResult: 生成结果
+        """
+        # 默认降级为普通生成
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "供应商 %s 不支持 img2img，降级为普通 text-to-image",
+            self.PROVIDER_TYPE
+        )
+        return await self.generate(config, request)
 
     def build_prompt(self, request: ImageGenerationRequest, add_context: bool = True) -> str:
         """

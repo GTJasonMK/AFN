@@ -118,8 +118,13 @@ async def import_chapter(
     # 更新章节选中版本、字数和状态
     chapter.selected_version_id = new_version.id
     chapter.word_count = count_chinese_characters(request.content)
-    # 导入章节后状态设为 successful（已选择版本）
-    chapter.status = "successful"
+    # 根据内容是否为空设置状态：
+    # - 有内容：successful（已选择版本）
+    # - 空内容：waiting_for_confirm（等待用户编辑）
+    if request.content.strip():
+        chapter.status = "successful"
+    else:
+        chapter.status = "waiting_for_confirm"
 
     # 空白项目状态转换：如果项目状态为 BLUEPRINT_READY，自动转换到 WRITING
     # 这适用于跳过灵感对话创建的空白项目

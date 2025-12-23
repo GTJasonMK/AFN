@@ -519,7 +519,7 @@ class NovelDetail(BasePage):
                 if not isinstance(characters, list):
                     logger.warning("characters数据类型错误，期望list，实际为%s，使用空列表", type(characters).__name__)
                     characters = []
-                section = CharactersSection(data=characters, editable=True)
+                section = CharactersSection(data=characters, editable=True, project_id=self.project_id)
                 section.editRequested.connect(self.onEditRequested)
             elif section_id == 'relationships':
                 relationships = self._safe_get_nested(self._safe_get_blueprint(), 'relationships', [])

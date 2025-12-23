@@ -36,11 +36,11 @@ class MangaPanelBuilder(
 
     def __init__(
         self,
-        on_generate: Optional[Callable[[str, int, int, str], None]] = None,
+        on_generate: Optional[Callable[[str, int, int, str, bool], None]] = None,
         on_copy_prompt: Optional[Callable[[str], None]] = None,
         on_edit_scene: Optional[Callable[[int, dict], None]] = None,
         on_delete: Optional[Callable[[], None]] = None,
-        on_generate_image: Optional[Callable[[str, str, str, str], None]] = None,
+        on_generate_image: Optional[Callable[[str, str, str, str, List[str]], None]] = None,
         on_load_images: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         on_generate_pdf: Optional[Callable[[], None]] = None,
         on_load_pdf: Optional[Callable[[], Dict[str, Any]]] = None,
@@ -50,11 +50,11 @@ class MangaPanelBuilder(
         """初始化构建器
 
         Args:
-            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少场景数, 最多场景数, 语言)
+            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少场景数, 最多场景数, 语言, 是否使用角色立绘)
             on_copy_prompt: 复制提示词回调函数，参数为提示词内容
             on_edit_scene: 编辑场景回调函数，参数为(场景ID, 更新数据)
             on_delete: 删除漫画分镜回调函数
-            on_generate_image: 生成图片回调函数，参数为(画格ID, 提示词, 负面提示词, 宽高比)
+            on_generate_image: 生成图片回调函数，参数为(画格ID, 提示词, 负面提示词, 宽高比, 参考图路径列表)
             on_load_images: 加载章节图片的回调函数，返回图片列表
             on_generate_pdf: 生成漫画PDF回调函数
             on_load_pdf: 加载PDF信息回调函数，返回PDF信息

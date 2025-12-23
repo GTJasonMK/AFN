@@ -228,6 +228,8 @@ async def generate_scene_image(
         seed=request.seed,
         chapter_version_id=request.chapter_version_id,
         panel_id=request.panel_id,
+        reference_image_paths=request.reference_image_paths,  # 转发参考图路径
+        reference_strength=request.reference_strength,        # 转发参考强度
     )
 
     service = ImageGenerationService(session)
@@ -468,4 +470,45 @@ async def get_image_file(
     return FileResponse(
         path=file_path,
         media_type="image/png",
+    )
+
+
+@router.get("/files/{image_path:path}")
+async def get_image_by_path(
+    image_path: str,
+):
+    """
+    通过相对路径获取图片文件
+
+    用于立绘等任意路径的图片访问
+    """
+    # 安全检查：防止路径遍历攻击
+    if ".." in image_path:
+        raise HTTPException(status_code=400, detail="非法路径")
+
+    file_path = IMAGES_ROOT / image_path
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    # 确保文件在IMAGES_ROOT目录下（安全检查）
+    try:
+        file_path.resolve().relative_to(IMAGES_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="禁止访问")
+
+    # 根据扩展名确定media_type
+    suffix = file_path.suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
     )

@@ -1,39 +1,52 @@
 """
-角色列表 Section - 垂直列表布局
+角色列表 Section - 带Tab的双面板布局
 
-展示主要角色的信息，采用横条式垂直列表布局（无水平滚动）
+展示主要角色信息和角色立绘，采用Tab切换方式。
+- 基本信息Tab：显示角色列表
+- 角色立绘Tab：生成和管理角色立绘
 """
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QWidget, QScrollArea
+    QWidget, QScrollArea, QTabBar, QStackedWidget
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from components.base import ThemeAwareWidget
-from utils.dpi_utils import dp
+from themes.theme_manager import theme_manager
+from utils.dpi_utils import dp, sp
 
 from .character_row import CharacterRow
 from .section_styles import SectionStyles
+from .character_portraits_widget import CharacterPortraitsWidget
 
 
 class CharactersSection(ThemeAwareWidget):
-    """主要角色组件 - 垂直列表布局"""
+    """主要角色组件 - 带Tab的双面板布局"""
 
     editRequested = pyqtSignal(str, str, object)
 
-    def __init__(self, data=None, editable=True, parent=None):
+    def __init__(self, data=None, editable=True, project_id: str = "", parent=None):
         self.data = data or []
         self.editable = editable
+        self.project_id = project_id
 
         # 保存组件引用
         self.header_widget = None
         self.count_label = None
         self.edit_btn = None
+        self.tab_bar = None
+        self.stacked_widget = None
+
+        # 基本信息Tab的组件
+        self.info_widget = None
         self.scroll_area = None
         self.content_widget = None
         self.content_layout = None
         self.no_data_widget = None
         self.character_rows = []
+
+        # 角色立绘Tab的组件
+        self.portraits_widget = None
 
         super().__init__(parent)
         self.setupUI()
@@ -42,13 +55,28 @@ class CharactersSection(ThemeAwareWidget):
         """创建UI结构"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(16))
+        layout.setSpacing(dp(12))
 
-        # 顶部标题栏
+        # 顶部标题栏（包含Tab）
         self._create_header(layout)
 
-        # 内容区域（带滚动）
-        self._create_content_area(layout)
+        # Tab内容区域
+        self.stacked_widget = QStackedWidget()
+
+        # Tab 0: 基本信息
+        self.info_widget = QWidget()
+        info_layout = QVBoxLayout(self.info_widget)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(dp(8))
+        self._create_content_area(info_layout)
+        self.stacked_widget.addWidget(self.info_widget)
+
+        # Tab 1: 角色立绘
+        self.portraits_widget = CharacterPortraitsWidget(self.project_id)
+        self.portraits_widget.setCharacters(self.data)
+        self.stacked_widget.addWidget(self.portraits_widget)
+
+        layout.addWidget(self.stacked_widget, stretch=1)
 
     def _create_header(self, parent_layout):
         """创建标题栏"""
@@ -67,6 +95,14 @@ class CharactersSection(ThemeAwareWidget):
         self.count_label.setObjectName("count_label")
         header_layout.addWidget(self.count_label)
 
+        # Tab切换栏
+        self.tab_bar = QTabBar()
+        self.tab_bar.addTab("基本信息")
+        self.tab_bar.addTab("角色立绘")
+        self.tab_bar.setObjectName("section_tab_bar")
+        self.tab_bar.currentChanged.connect(self._on_tab_changed)
+        header_layout.addWidget(self.tab_bar)
+
         header_layout.addStretch()
 
         # 编辑按钮
@@ -80,6 +116,15 @@ class CharactersSection(ThemeAwareWidget):
             header_layout.addWidget(self.edit_btn)
 
         parent_layout.addWidget(self.header_widget)
+
+    def _on_tab_changed(self, index: int):
+        """Tab切换处理"""
+        if self.stacked_widget:
+            self.stacked_widget.setCurrentIndex(index)
+
+        # 切换到立绘Tab时刷新数据
+        if index == 1 and self.portraits_widget:
+            self.portraits_widget._load_data()
 
     def _create_content_area(self, parent_layout):
         """创建内容区域"""
@@ -141,9 +186,37 @@ class CharactersSection(ThemeAwareWidget):
         self.scroll_area.setStyleSheet(SectionStyles.scroll_area_stylesheet())
         self.content_widget.setStyleSheet(SectionStyles.transparent_background())
 
+        # TabBar样式
+        if self.tab_bar:
+            self.tab_bar.setStyleSheet(f"""
+                QTabBar {{
+                    background: transparent;
+                }}
+                QTabBar::tab {{
+                    background: transparent;
+                    color: {theme_manager.TEXT_SECONDARY};
+                    padding: {dp(6)}px {dp(12)}px;
+                    margin-right: {dp(4)}px;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    font-size: {sp(13)}px;
+                }}
+                QTabBar::tab:selected {{
+                    color: {theme_manager.ACCENT};
+                    border-bottom: 2px solid {theme_manager.ACCENT};
+                }}
+                QTabBar::tab:hover {{
+                    color: {theme_manager.TEXT_PRIMARY};
+                }}
+            """)
+
         # 更新所有角色横条样式
         for row in self.character_rows:
             row.update_theme()
+
+        # 更新立绘widget样式
+        if self.portraits_widget:
+            self.portraits_widget.refresh_theme()
 
     def updateData(self, new_data):
         """更新数据并刷新显示"""
@@ -170,3 +243,13 @@ class CharactersSection(ThemeAwareWidget):
 
         self.content_layout.addStretch()
         self._apply_theme()
+
+        # 更新立绘widget的角色数据
+        if self.portraits_widget:
+            self.portraits_widget.setCharacters(new_data)
+
+    def setProjectId(self, project_id: str):
+        """设置项目ID"""
+        self.project_id = project_id
+        if self.portraits_widget:
+            self.portraits_widget.setProjectId(project_id)

@@ -142,6 +142,8 @@ class MangaGenerationResult:
                     # 视觉信息
                     "characters": p.characters,
                     "is_key_panel": p.is_key_panel,
+                    # 参考图（用于 img2img）
+                    "reference_image_paths": p.reference_image_paths or [],
                 }
                 for p in self.panel_prompts
             ],
@@ -245,6 +247,7 @@ class MangaPromptServiceV2:
         user_id: Optional[int] = None,
         resume: bool = True,  # 是否从断点恢复
         dialogue_language: str = "chinese",  # 对话/音效语言
+        character_portraits: Optional[Dict[str, str]] = None,  # 角色立绘路径
     ) -> MangaGenerationResult:
         """
         生成漫画分镜（支持断点续传）
@@ -259,6 +262,7 @@ class MangaPromptServiceV2:
             user_id: 用户ID
             resume: 是否从断点恢复（默认True）
             dialogue_language: 对话/音效语言（chinese/japanese/english/korean）
+            character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
 
         Returns:
             漫画生成结果
@@ -379,6 +383,7 @@ class MangaPromptServiceV2:
             style=style,
             character_profiles=character_profiles,
             dialogue_language=dialogue_language,
+            character_portraits=character_portraits,
         )
         panel_prompts = []
         for expansion in expansions:

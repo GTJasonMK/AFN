@@ -212,7 +212,7 @@ class MangaHandlersMixin:
         except Exception:
             return []
 
-    def _onGenerateMangaPrompt(self, style: str = "manga", min_scenes: int = 5, max_scenes: int = 15, language: str = "chinese"):
+    def _onGenerateMangaPrompt(self, style: str = "manga", min_scenes: int = 5, max_scenes: int = 15, language: str = "chinese", use_portraits: bool = True):
         """
         生成漫画分镜回调
 
@@ -221,8 +221,9 @@ class MangaHandlersMixin:
             min_scenes: 最少场景数 (3-10)
             max_scenes: 最多场景数 (5-25)
             language: 对话/音效语言 (chinese/japanese/english/korean)
+            use_portraits: 是否使用角色立绘作为参考图（img2img）
         """
-        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_scenes={min_scenes}, max_scenes={max_scenes}, language={language}")
+        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_scenes={min_scenes}, max_scenes={max_scenes}, language={language}, use_portraits={use_portraits}")
 
         if not self.project_id or not self.current_chapter:
             MessageService.show_warning(self, "请先选择章节")
@@ -284,6 +285,7 @@ class MangaHandlersMixin:
                 min_scenes=min_scenes,
                 max_scenes=max_scenes,
                 language=language,
+                use_portraits=use_portraits,
             )
 
         def on_success(result):
@@ -357,7 +359,7 @@ class MangaHandlersMixin:
 
         self._manga_delete_worker = worker
 
-    def _onGenerateImage(self, panel_id: str, prompt: str, negative_prompt: str, aspect_ratio: str = "16:9"):
+    def _onGenerateImage(self, panel_id: str, prompt: str, negative_prompt: str, aspect_ratio: str = "16:9", reference_image_paths: list = None):
         """
         生成画格图片回调
 
@@ -366,6 +368,7 @@ class MangaHandlersMixin:
             prompt: 正面提示词
             negative_prompt: 负面提示词
             aspect_ratio: 宽高比 (如 "16:9", "4:3", "1:1" 等)
+            reference_image_paths: 参考图片路径列表 (角色立绘等)
         """
         if not self.project_id or not self.current_chapter:
             return
@@ -381,14 +384,19 @@ class MangaHandlersMixin:
         # 显示加载动画
         self._manga_builder.set_panel_loading(panel_id, True, "正在生成图片...")
 
+        # 准备参考图路径
+        ref_paths = reference_image_paths if reference_image_paths else []
+
         def do_generate():
             return self.api_client.generate_scene_image(
                 project_id=self.project_id,
                 chapter_number=self.current_chapter,
                 scene_id=scene_id,
                 prompt=prompt,
+                negative_prompt=negative_prompt,
                 panel_id=panel_id,
                 aspect_ratio=aspect_ratio,
+                reference_image_paths=ref_paths if ref_paths else None,
             )
 
         def on_success(result):
@@ -588,6 +596,7 @@ class MangaHandlersMixin:
         prompt_en = panel.get('prompt_en', '')
         negative_prompt = panel.get('negative_prompt', '')
         panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
+        ref_paths = panel.get('reference_image_paths', [])
 
         # 从panel_id解析scene_id
         try:
@@ -611,8 +620,10 @@ class MangaHandlersMixin:
                 chapter_number=self.current_chapter,
                 scene_id=scene_id,
                 prompt=prompt_en,
+                negative_prompt=negative_prompt,
                 panel_id=panel_id,
                 aspect_ratio=panel_aspect_ratio,
+                reference_image_paths=ref_paths if ref_paths else None,
             )
 
         def on_success(result):

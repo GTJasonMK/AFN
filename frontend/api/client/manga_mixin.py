@@ -42,6 +42,7 @@ class MangaMixin:
         min_scenes: int = 5,
         max_scenes: int = 15,
         language: str = "chinese",
+        use_portraits: bool = True,
     ) -> Dict[str, Any]:
         """
         生成章节的漫画分镜（支持断点续传）
@@ -60,6 +61,7 @@ class MangaMixin:
             min_scenes: 最少场景数 (3-10)
             max_scenes: 最多场景数 (5-25)
             language: 对话/音效语言 (chinese/japanese/english/korean)
+            use_portraits: 是否使用角色立绘作为参考图（img2img）
 
         Returns:
             漫画分镜结果，包含：
@@ -76,6 +78,7 @@ class MangaMixin:
             'min_scenes': min_scenes,
             'max_scenes': max_scenes,
             'language': language,
+            'use_portraits': use_portraits,
         }
 
         return self._request(

@@ -12,7 +12,7 @@ from typing import List, Dict, Any
 
 import httpx
 
-from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
+from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult, ReferenceImageInfo
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
 from ..schemas import ImageGenerationRequest, QUALITY_PARAMS, get_size_for_ratio
@@ -94,6 +94,17 @@ class OpenAICompatibleProvider(BaseImageProvider):
 
     PROVIDER_TYPE = "openai_compatible"
     DISPLAY_NAME = "OpenAI兼容接口"
+
+    def get_supported_features(self) -> Dict[str, bool]:
+        """获取供应商支持的特性"""
+        return {
+            "negative_prompt": True,
+            "style": True,
+            "quality": True,
+            "resolution": True,
+            "ratio": True,
+            "img2img": True,  # 支持 img2img（通过聊天API的图片输入）
+        }
 
     async def test_connection(self, config: ImageGenerationConfig) -> ProviderTestResult:
         """测试OpenAI兼容接口连接"""
@@ -318,4 +329,178 @@ class OpenAICompatibleProvider(BaseImageProvider):
                 logger.debug("提取到的纯URL: %s", plain_urls)
 
             logger.info("最终提取到的图片URL数量: %d", len(urls))
+            return urls
+
+    async def generate_with_reference(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List[ReferenceImageInfo],
+    ) -> ProviderGenerateResult:
+        """
+        使用参考图生成图片（img2img）
+
+        通过聊天API的图片输入功能实现。
+        将参考图作为 image_url 类型的消息内容发送给API。
+
+        Args:
+            config: 供应商配置
+            request: 生成请求
+            reference_images: 参考图列表
+
+        Returns:
+            ProviderGenerateResult: 生成结果
+        """
+        if not reference_images:
+            # 没有参考图，降级为普通生成
+            return await self.generate(config, request)
+
+        logger.info(
+            "开始img2img生成: model=%s, 参考图数量=%d",
+            config.model_name, len(reference_images)
+        )
+
+        try:
+            urls = await self._generate_with_chat_api_and_images(
+                config, request, reference_images
+            )
+            logger.info("img2img生成完成: 获取到 %d 个URL", len(urls))
+            return ProviderGenerateResult(success=True, image_urls=urls)
+
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"{type(e).__name__}"
+            logger.error("OpenAI兼容接口img2img生成失败: %s", error_msg)
+            return ProviderGenerateResult(success=False, error_message=error_msg)
+
+    async def _generate_with_chat_api_and_images(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List[ReferenceImageInfo],
+    ) -> List[str]:
+        """
+        使用聊天API模式生成图片，包含参考图（img2img）
+
+        支持recons等OpenAI兼容API的图片输入格式。
+        """
+        # 构建完整提示词
+        full_prompt = self.build_prompt(request)
+
+        # 添加参考图说明
+        ref_count = len(reference_images)
+        if ref_count == 1:
+            ref_instruction = (
+                "\n\n[REFERENCE IMAGE INSTRUCTION]\n"
+                "Use the provided reference image as a style and character guide. "
+                "Maintain the character's appearance, clothing, and visual style from the reference. "
+                "Generate a new image following the scene description while keeping character consistency.\n"
+                "[END INSTRUCTION]\n"
+            )
+        else:
+            ref_instruction = (
+                f"\n\n[REFERENCE IMAGE INSTRUCTION]\n"
+                f"Use the provided {ref_count} reference images as character guides. "
+                "Maintain each character's appearance from their respective reference. "
+                "Generate a new image following the scene description while keeping character consistency.\n"
+                "[END INSTRUCTION]\n"
+            )
+        full_prompt = ref_instruction + full_prompt
+
+        # 获取质量参数
+        quality_params = QUALITY_PARAMS.get(
+            request.quality or "standard",
+            QUALITY_PARAMS["standard"]
+        )
+
+        # 构建消息内容（数组格式，包含文本和图片）
+        message_content = []
+
+        # 添加参考图（使用OpenAI的image_url格式）
+        for i, ref_image in enumerate(reference_images):
+            if ref_image.base64_data:
+                # 使用data URL格式
+                # 尝试从文件路径推断MIME类型
+                mime_type = "image/png"
+                if ref_image.file_path:
+                    file_ext = ref_image.file_path.lower().split('.')[-1]
+                    mime_map = {
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'gif': 'image/gif',
+                        'webp': 'image/webp',
+                    }
+                    mime_type = mime_map.get(file_ext, 'image/png')
+
+                data_url = f"data:{mime_type};base64,{ref_image.base64_data}"
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url}
+                })
+                logger.debug("添加参考图 %d: %s (base64, %s)", i + 1, ref_image.file_path, mime_type)
+
+        # 添加文本提示词
+        message_content.append({
+            "type": "text",
+            "text": full_prompt
+        })
+
+        # 构建完整的API URL
+        api_url = build_chat_endpoint(config.api_base_url)
+        logger.info("img2img聊天API请求URL: %s", api_url)
+        logger.info("img2img聊天API请求模型: %s, 参考图: %d张", config.model_name, len(reference_images))
+
+        async with self.create_http_client(config) as client:
+            request_body = {
+                "model": config.model_name or "nano-banana-pro",
+                "messages": [{"role": "user", "content": message_content}],
+                "max_tokens": quality_params["max_tokens"],
+                "temperature": quality_params["temperature"],
+                "n": request.count,
+            }
+            logger.debug("img2img请求体: model=%s, content_items=%d",
+                        request_body["model"], len(message_content))
+
+            # 合并认证头和浏览器头
+            headers = {**self.get_auth_headers(config), **get_browser_headers()}
+
+            response = await client.post(api_url, headers=headers, json=request_body)
+
+            logger.info("img2img API响应状态码: %d", response.status_code)
+
+            if response.status_code != 200:
+                error_msg = f"API错误({response.status_code})"
+                try:
+                    error_data = response.json()
+                    logger.error("img2img API错误响应: %s", error_data)
+                    if "error" in error_data:
+                        error_msg = error_data["error"].get("message", error_msg)
+                except Exception:
+                    logger.error("img2img API错误响应(非JSON): %s", response.text[:500])
+                raise Exception(error_msg)
+
+            result = response.json()
+            logger.debug("img2img API原始响应: %s", str(result)[:500])
+
+            content = result["choices"][0]["message"]["content"]
+            logger.info("img2img API返回内容(前500字符): %s", content[:500] if content else "(空)")
+
+            # 从Markdown格式中提取图片URL（与普通生成相同）
+            urls = []
+
+            # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
+            full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content)
+            urls.extend(full_urls)
+
+            # 提取本地路径: ![xxx](/images/xxx/xxx.png)
+            local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content)
+            for path in local_paths:
+                urls.append(f"{config.api_base_url.rstrip('/')}{path}")
+
+            # 如果没有找到Markdown格式的URL，尝试提取纯URL
+            if not urls:
+                plain_urls = re.findall(r'(https?://[^\s\"\'\)]+\.(?:png|jpg|jpeg|gif|webp))', content, re.IGNORECASE)
+                urls.extend(plain_urls)
+
+            logger.info("img2img最终提取到的图片URL数量: %d", len(urls))
             return urls

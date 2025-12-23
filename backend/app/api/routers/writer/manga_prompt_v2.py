@@ -28,6 +28,7 @@ from ....services.manga_prompt import (
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
 from ....repositories.chapter_repository import ChapterRepository
+from ....repositories.character_portrait_repository import CharacterPortraitRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,6 +44,7 @@ class GenerateRequest(BaseModel):
     min_scenes: int = Field(default=5, ge=3, le=10, description="最少场景数")
     max_scenes: int = Field(default=15, ge=5, le=25, description="最多场景数")
     language: str = Field(default="chinese", description="对话/音效语言: chinese/japanese/english/korean")
+    use_portraits: bool = Field(default=True, description="是否使用角色立绘作为参考图（img2img）")
 
 
 class PanelResponse(BaseModel):
@@ -71,6 +73,8 @@ class PanelResponse(BaseModel):
     # 视觉信息
     characters: List[str] = []
     is_key_panel: bool = False
+    # 参考图（用于 img2img）
+    reference_image_paths: List[str] = []
 
 
 class SceneResponse(BaseModel):
@@ -154,13 +158,14 @@ async def generate_manga_prompts(
             - style: 漫画风格 (manga/anime/comic/webtoon)
             - min_scenes: 最少场景数 (3-10)
             - max_scenes: 最多场景数 (5-25)
+            - use_portraits: 是否使用角色立绘作为参考图
 
     Returns:
         漫画分镜结果，包含场景、页面、画格及提示词
     """
     logger.info(
         f"生成漫画分镜: project={project_id}, chapter={chapter_number}, "
-        f"style={request.style}, language={request.language}"
+        f"style={request.style}, language={request.language}, use_portraits={request.use_portraits}"
     )
 
     # 创建服务
@@ -193,6 +198,20 @@ async def generate_manga_prompts(
             detail=f"章节 {chapter_number} 没有内容，请先生成章节"
         )
 
+    # 获取角色立绘（如果启用）
+    character_portraits = {}
+    if request.use_portraits:
+        portrait_repo = CharacterPortraitRepository(session)
+        portraits = await portrait_repo.get_all_active_by_project(project_id)
+        if portraits:
+            # 构建角色名到立绘路径的映射
+            character_portraits = {
+                p.character_name: p.image_path
+                for p in portraits
+                if p.image_path
+            }
+            logger.info(f"加载了 {len(character_portraits)} 个角色立绘用于 img2img")
+
     try:
         result = await service.generate(
             project_id=project_id,
@@ -203,6 +222,7 @@ async def generate_manga_prompts(
             max_scenes=request.max_scenes,
             user_id=desktop_user.id,
             dialogue_language=request.language,
+            character_portraits=character_portraits,
         )
 
         # 注意：generate内部已经在各个阶段commit了checkpoint
@@ -495,6 +515,8 @@ def _convert_to_response(result: MangaGenerationResult) -> GenerateResponse:
             # 视觉信息
             characters=p.characters or [],
             is_key_panel=p.is_key_panel,
+            # 参考图（用于 img2img）
+            reference_image_paths=getattr(p, 'reference_image_paths', []) or [],
         ))
 
     return GenerateResponse(
@@ -616,6 +638,8 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
             # 视觉信息
             characters=p.get("characters") or [],
             is_key_panel=p.get("is_key_panel", False),
+            # 参考图（用于 img2img）
+            reference_image_paths=p.get("reference_image_paths") or [],
         ))
 
     return GenerateResponse(

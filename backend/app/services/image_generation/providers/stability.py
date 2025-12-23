@@ -1,7 +1,7 @@
 """
 Stability AI图片生成供应商
 
-支持Stability AI的图片生成API。
+支持Stability AI的图片生成API，包括 text-to-image 和 image-to-image。
 """
 
 import logging
@@ -9,7 +9,7 @@ from typing import List
 
 import httpx
 
-from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
+from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult, ReferenceImageInfo
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
 from ..schemas import ImageGenerationRequest, get_size_for_ratio
@@ -173,4 +173,124 @@ class StabilityProvider(BaseImageProvider):
             "cfg_scale": True,
             "steps": True,
             "style_preset": True,
+            "img2img": True,  # 支持 img2img
         }
+
+    async def generate_with_reference(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List[ReferenceImageInfo],
+    ) -> ProviderGenerateResult:
+        """
+        使用参考图生成图片（img2img）
+
+        使用 Stability AI 的 image-to-image 端点。
+
+        Args:
+            config: 供应商配置
+            request: 生成请求
+            reference_images: 参考图列表
+
+        Returns:
+            ProviderGenerateResult: 生成结果
+        """
+        if not reference_images:
+            # 没有参考图，降级为普通生成
+            return await self.generate(config, request)
+
+        try:
+            # 使用第一张参考图
+            ref_image = reference_images[0]
+            urls = await self._generate_image_to_image(config, request, ref_image)
+            return ProviderGenerateResult(success=True, image_urls=urls)
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"{type(e).__name__}"
+            logger.error("Stability AI img2img 生成失败: %s", error_msg)
+            return ProviderGenerateResult(success=False, error_message=error_msg)
+
+    async def _generate_image_to_image(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        ref_image: ReferenceImageInfo,
+    ) -> List[str]:
+        """调用Stability AI image-to-image 端点生成图片"""
+        import base64
+
+        api_host = config.api_base_url or self.API_HOST
+        model = config.model_name or "stable-diffusion-xl-1024-v1-0"
+
+        # 构建提示词（Stability AI有内容审核，启用上下文说明）
+        prompt = self.build_prompt(request, add_context=True)
+
+        # 获取额外参数
+        extra_params = config.extra_params or {}
+
+        # 准备参考图数据
+        if ref_image.base64_data:
+            init_image_data = base64.b64decode(ref_image.base64_data)
+        else:
+            from pathlib import Path
+            init_image_data = Path(ref_image.file_path).read_bytes()
+
+        # 计算 image_strength (与 denoise 相反)
+        # strength 0.7 表示参考图影响 70%，对应 image_strength 0.7
+        image_strength = ref_image.strength
+
+        async with self.create_http_client(config) as client:
+            # 使用 multipart/form-data 格式
+            files = {
+                "init_image": ("init_image.png", init_image_data, "image/png"),
+            }
+            data = {
+                "text_prompts[0][text]": prompt,
+                "text_prompts[0][weight]": "1.0",
+                "cfg_scale": str(extra_params.get("cfg_scale", 7)),
+                "samples": str(request.count),
+                "steps": str(extra_params.get("steps", 30)),
+                "image_strength": str(image_strength),
+            }
+
+            # 添加负面提示词
+            if request.negative_prompt:
+                data["text_prompts[1][text]"] = request.negative_prompt
+                data["text_prompts[1][weight]"] = "-1.0"
+
+            # 添加风格预设
+            if extra_params.get("style_preset"):
+                data["style_preset"] = extra_params["style_preset"]
+
+            headers = {
+                "Authorization": f"Bearer {config.api_key}",
+                "Accept": "application/json",
+            }
+
+            response = await client.post(
+                f"{api_host.rstrip('/')}/v1/generation/{model}/image-to-image",
+                headers=headers,
+                files=files,
+                data=data,
+            )
+
+            if response.status_code != 200:
+                error_msg = f"Stability API错误({response.status_code})"
+                try:
+                    error_data = response.json()
+                    if "message" in error_data:
+                        error_msg = error_data["message"]
+                except Exception:
+                    pass
+                raise Exception(error_msg)
+
+            result = response.json()
+            urls = []
+
+            # 从响应中提取Base64图片数据
+            for artifact in result.get("artifacts", []):
+                if artifact.get("finishReason") == "SUCCESS":
+                    b64_data = artifact.get("base64")
+                    if b64_data:
+                        urls.append(f"data:image/png;base64,{b64_data}")
+
+            return urls

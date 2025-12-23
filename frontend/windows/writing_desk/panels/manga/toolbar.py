@@ -7,7 +7,7 @@
 
 from typing import Optional
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox
+    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox, QCheckBox
 )
 from PyQt6.QtCore import Qt
 
@@ -25,6 +25,7 @@ class ToolbarMixin:
         self._language_combo: Optional[QComboBox] = None  # 语言选择
         self._min_scenes_spin: Optional[QSpinBox] = None
         self._max_scenes_spin: Optional[QSpinBox] = None
+        self._use_portraits_checkbox: Optional[QCheckBox] = None  # 使用角色立绘
         self._toolbar_btn_stack: Optional[QStackedWidget] = None
         self._toolbar_generate_btn: Optional[QPushButton] = None
         self._toolbar_spinner: Optional[CircularSpinner] = None
@@ -134,6 +135,42 @@ class ToolbarMixin:
         self._max_scenes_spin.setFixedWidth(dp(50))
         self._max_scenes_spin.setToolTip("最多场景数")
         config_row.addWidget(self._max_scenes_spin)
+
+        # 分隔符
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setStyleSheet(f"background-color: {s.border_light};")
+        separator.setFixedWidth(dp(1))
+        separator.setFixedHeight(dp(20))
+        config_row.addWidget(separator)
+
+        # 使用角色立绘复选框
+        self._use_portraits_checkbox = QCheckBox("角色立绘")
+        self._use_portraits_checkbox.setChecked(True)  # 默认启用
+        self._use_portraits_checkbox.setToolTip("使用角色立绘作为参考图（img2img）\n保持画格中角色外观一致")
+        self._use_portraits_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_secondary};
+                spacing: {dp(4)}px;
+            }}
+            QCheckBox::indicator {{
+                width: {dp(14)}px;
+                height: {dp(14)}px;
+                border: 1px solid {s.border_light};
+                border-radius: {dp(3)}px;
+                background-color: {s.bg_secondary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {s.accent_color};
+                border-color: {s.accent_color};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {s.accent_color};
+            }}
+        """)
+        config_row.addWidget(self._use_portraits_checkbox)
 
         config_row.addStretch()
         main_layout.addLayout(config_row)
@@ -348,12 +385,13 @@ class ToolbarMixin:
             language = language_map.get(language_text, "chinese")
             min_scenes = self._min_scenes_spin.value()
             max_scenes = self._max_scenes_spin.value()
+            use_portraits = self._use_portraits_checkbox.isChecked() if self._use_portraits_checkbox else True
 
             # 确保max >= min
             if max_scenes < min_scenes:
                 max_scenes = min_scenes
 
-            self._on_generate(style, min_scenes, max_scenes, language)
+            self._on_generate(style, min_scenes, max_scenes, language, use_portraits)
 
     # ==================== 工具栏加载状态控制 ====================
 
