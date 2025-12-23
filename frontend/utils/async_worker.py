@@ -7,9 +7,11 @@
 - 使用 threading.Event 实现线程安全的取消机制
 - 信号发射前检查取消状态
 - 自动在线程完成后清理资源
+- Windows 上初始化 COM 避免线程冲突
 """
 
 import logging
+import platform
 import threading
 import traceback
 from typing import Callable, Any, Optional, Dict
@@ -18,6 +20,50 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 
 logger = logging.getLogger(__name__)
+
+# Windows COM 支持
+_IS_WINDOWS = platform.system() == 'Windows'
+_pythoncom = None
+_ole32 = None
+
+if _IS_WINDOWS:
+    try:
+        import pythoncom
+        _pythoncom = pythoncom
+    except ImportError:
+        # pythoncom 不可用，使用 ctypes 作为回退
+        try:
+            import ctypes
+            _ole32 = ctypes.windll.ole32
+        except Exception:
+            pass
+
+
+def _com_initialize():
+    """初始化 COM（线程内调用）
+
+    使用 COINIT_MULTITHREADED (MTA) 模式，适合后台网络 I/O 线程。
+    避免使用 COINIT_APARTMENTTHREADED (STA) 因为它需要消息循环。
+    """
+    if _pythoncom:
+        # 使用 MTA 模式
+        _pythoncom.CoInitializeEx(_pythoncom.COINIT_MULTITHREADED)
+        return True
+    elif _ole32:
+        # COINIT_MULTITHREADED = 0x0 (MTA, 适合后台线程)
+        # COINIT_APARTMENTTHREADED = 0x2 (STA, 需要消息循环)
+        hr = _ole32.CoInitializeEx(None, 0x0)
+        # S_OK = 0, S_FALSE = 1 (already initialized)
+        return hr in (0, 1)
+    return False
+
+
+def _com_uninitialize():
+    """释放 COM（线程内调用）"""
+    if _pythoncom:
+        _pythoncom.CoUninitialize()
+    elif _ole32:
+        _ole32.CoUninitialize()
 
 
 class AsyncAPIWorker(QThread):
@@ -77,6 +123,16 @@ class AsyncAPIWorker(QThread):
         """线程执行入口"""
         logger.info("AsyncAPIWorker started: func=%s", self._func_name)
 
+        # Windows 上初始化 COM，避免线程冲突错误 (0x8001010d)
+        com_initialized = False
+        if _IS_WINDOWS:
+            try:
+                com_initialized = _com_initialize()
+                if com_initialized:
+                    logger.debug("COM initialized for worker thread")
+            except Exception as e:
+                logger.debug("COM initialization skipped: %s", e)
+
         try:
             # 检查是否已取消
             if self._cancel_event.is_set():
@@ -93,10 +149,21 @@ class AsyncAPIWorker(QThread):
 
             # 发射成功信号（检查取消状态）
             if not self._cancel_event.is_set():
-                self.success.emit(result)
+                try:
+                    self.success.emit(result)
+                except RuntimeError:
+                    # 接收者对象可能已被删除
+                    logger.debug("AsyncAPIWorker: receiver deleted, signal not emitted")
 
         except Exception as e:
             self._handle_exception(e)
+        finally:
+            # Windows 上释放 COM
+            if com_initialized:
+                try:
+                    _com_uninitialize()
+                except Exception:
+                    pass
 
     def _handle_exception(self, e: Exception):
         """处理异常并发射错误信号"""
@@ -113,9 +180,13 @@ class AsyncAPIWorker(QThread):
         # 构建错误详情
         error_detail = self._build_error_detail(e)
 
-        # 发射信号
-        self.error.emit(error_detail.get('message', str(e)))
-        self.error_detail.emit(error_detail)
+        # 发射信号（保护性处理，接收者可能已被删除）
+        try:
+            self.error.emit(error_detail.get('message', str(e)))
+            self.error_detail.emit(error_detail)
+        except RuntimeError:
+            # 接收者对象可能已被删除
+            logger.debug("AsyncAPIWorker: receiver deleted, error signal not emitted")
 
     def _build_error_detail(self, e: Exception) -> Dict[str, Any]:
         """构建详细错误信息

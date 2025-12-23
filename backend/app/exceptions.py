@@ -66,11 +66,27 @@ class InvalidParameterError(AFNException):
 
 
 class InvalidStateTransitionError(AFNException):
-    """非法状态转换（400）"""
+    """非法状态转换（400）
 
-    def __init__(self, current_status: str, target_status: str, allowed: str):
-        message = f"非法的状态转换: {current_status} → {target_status}"
-        detail = f"{message}. 当前状态只能转换到: {allowed}"
+    支持两种调用方式:
+    1. InvalidStateTransitionError(message) - 简单消息
+    2. InvalidStateTransitionError(current, target, allowed) - 详细状态转换信息
+    """
+
+    def __init__(
+        self,
+        current_status: str,
+        target_status: Optional[str] = None,
+        allowed: Optional[str] = None
+    ):
+        if target_status is None:
+            # 简单消息模式
+            message = current_status
+            detail = current_status
+        else:
+            # 详细状态转换模式
+            message = f"非法的状态转换: {current_status} → {target_status}"
+            detail = f"{message}. 当前状态只能转换到: {allowed}"
         super().__init__(
             message=message,
             status_code=400,

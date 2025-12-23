@@ -296,3 +296,46 @@ async def get_avatar_service(
     from ..services.avatar_service import AvatarService
     return AvatarService(session, llm_service, prompt_service)
 
+
+# ============================================================================
+# 配置服务依赖注入
+# ============================================================================
+
+async def get_llm_config_service(
+    session: AsyncSession = Depends(get_session),
+) -> "LLMConfigService":
+    """
+    获取LLMConfigService实例（依赖注入）
+
+    Returns:
+        LLMConfigService实例
+    """
+    from ..services.llm_config_service import LLMConfigService
+    return LLMConfigService(session)
+
+
+async def get_embedding_config_service(
+    session: AsyncSession = Depends(get_session),
+) -> "EmbeddingConfigService":
+    """
+    获取EmbeddingConfigService实例（依赖注入）
+
+    Returns:
+        EmbeddingConfigService实例
+    """
+    from ..services.embedding_config_service import EmbeddingConfigService
+    return EmbeddingConfigService(session)
+
+
+async def get_image_config_service(
+    session: AsyncSession = Depends(get_session),
+) -> "ImageConfigService":
+    """
+    获取ImageConfigService实例（依赖注入）
+
+    Returns:
+        ImageConfigService实例
+    """
+    from ..services.image_generation import ImageConfigService
+    return ImageConfigService(session)
+

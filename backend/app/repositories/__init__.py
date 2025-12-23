@@ -17,6 +17,7 @@ from .blueprint_repository import (
     BlueprintCharacterRepository,
     BlueprintRelationshipRepository,
 )
+from .manga_prompt_repository import MangaPromptRepository
 
 __all__ = [
     "BaseRepository",
@@ -32,4 +33,5 @@ __all__ = [
     "ChapterOutlineRepository",
     "BlueprintCharacterRepository",
     "BlueprintRelationshipRepository",
+    "MangaPromptRepository",
 ]

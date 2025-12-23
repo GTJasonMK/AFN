@@ -129,3 +129,38 @@ EMBEDDING_PROVIDERS = [
         default_base_url="http://localhost:11434",
     ),
 ]
+
+
+# ------------------------------------------------------------------
+# 导入导出相关
+# ------------------------------------------------------------------
+
+class EmbeddingConfigExport(BaseModel):
+    """导出的嵌入配置数据（不包含运行时状态）。"""
+
+    config_name: str
+    provider: str = "openai"
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    vector_size: Optional[int] = None
+
+
+class EmbeddingConfigExportData(BaseModel):
+    """导出文件的完整数据结构。"""
+
+    version: str = Field(default="1.0", description="导出格式版本")
+    export_time: str = Field(..., description="导出时间（ISO 8601格式）")
+    export_type: str = Field(default="embedding", description="导出类型")
+    configs: list[EmbeddingConfigExport] = Field(..., description="配置列表")
+
+
+class EmbeddingConfigImportResult(BaseModel):
+    """导入结果。"""
+
+    success: bool
+    message: str
+    imported_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    details: list[str] = []

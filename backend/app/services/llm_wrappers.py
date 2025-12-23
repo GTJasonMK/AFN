@@ -156,7 +156,7 @@ async def call_llm(
     profile: Union[LLMProfile, str],
     system_prompt: str,
     user_content: str,
-    user_id: Union[int, str],
+    user_id: Optional[int],
     *,
     temperature_override: Optional[float] = None,
     timeout_override: Optional[float] = None,
@@ -223,16 +223,13 @@ async def call_llm(
     else:
         fmt = config.response_format
 
-    # 统一user_id类型
-    uid = int(user_id) if isinstance(user_id, str) else user_id
-
     return await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=conversation_history,
         temperature=temperature,
         timeout=timeout,
         response_format=fmt,
-        user_id=uid,
+        user_id=user_id,
     )
 
 
@@ -241,7 +238,7 @@ async def call_llm_json(
     profile: Union[LLMProfile, str],
     system_prompt: str,
     user_content: str,
-    user_id: Union[int, str],
+    user_id: Optional[int],
     **kwargs,
 ) -> str:
     """

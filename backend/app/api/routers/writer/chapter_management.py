@@ -80,6 +80,7 @@ async def import_chapter(
     chapter_repo = ChapterRepository(session)
     chapter = await chapter_repo.get_by_project_and_number(project_id, request.chapter_number)
 
+    is_new_chapter = False
     if not chapter:
         # 创建新章节（Chapter模型不包含title字段，title存储在ChapterOutline中）
         chapter = Chapter(
@@ -88,15 +89,22 @@ async def import_chapter(
         )
         session.add(chapter)
         await session.flush()  # flush以获取ID，稍后统一commit
+        is_new_chapter = True
 
     # 3. 创建新的版本并设为选中
     from ....models.novel import ChapterVersion  # 延迟导入避免循环
 
     # 确定新版本标签
     new_version_label = "v1"
-    if chapter.versions:
-        # 基于现有版本数量生成新标签
-        new_version_label = f"v{len(chapter.versions) + 1}"
+    if not is_new_chapter:
+        # 查询现有版本数量（避免惰性加载问题）
+        from sqlalchemy import select, func
+        version_count_result = await session.execute(
+            select(func.count(ChapterVersion.id)).where(ChapterVersion.chapter_id == chapter.id)
+        )
+        version_count = version_count_result.scalar() or 0
+        if version_count > 0:
+            new_version_label = f"v{version_count + 1}"
 
     new_version = ChapterVersion(
         chapter_id=chapter.id,
@@ -107,9 +115,19 @@ async def import_chapter(
     session.add(new_version)
     await session.flush()  # flush以获取版本ID
 
-    # 更新章节选中版本和字数（只统计中文字符）
+    # 更新章节选中版本、字数和状态
     chapter.selected_version_id = new_version.id
     chapter.word_count = count_chinese_characters(request.content)
+    # 导入章节后状态设为 successful（已选择版本）
+    chapter.status = "successful"
+
+    # 空白项目状态转换：如果项目状态为 BLUEPRINT_READY，自动转换到 WRITING
+    # 这适用于跳过灵感对话创建的空白项目
+    from ....core.state_machine import ProjectStatus
+    if project.status == ProjectStatus.BLUEPRINT_READY.value:
+        await novel_service.transition_project_status(project, ProjectStatus.WRITING.value)
+        logger.info("空白项目 %s 首次导入章节，状态转换为 WRITING", project_id)
+
     await session.commit()
 
     logger.info(
@@ -503,6 +521,8 @@ async def update_chapter(
         await session.flush()  # 获取version.id
 
         chapter.selected_version_id = new_version.id
+        # 手动创建版本后状态设为 successful
+        chapter.status = "successful"
         logger.info(
             "项目 %s 第 %s 章创建新版本 %s（手动编辑）",
             project_id, chapter_number, new_version_label
@@ -510,10 +530,20 @@ async def update_chapter(
     else:
         # 更新现有选中版本的内容
         chapter.selected_version.content = content
+        # 确保状态为 successful（可能之前是其他状态）
+        if chapter.status != "successful":
+            chapter.status = "successful"
         logger.info("用户 %s 更新了项目 %s 第 %s 章内容", desktop_user.id, project_id, chapter_number)
 
     # 更新字数（只统计中文字符）
     chapter.word_count = count_chinese_characters(content)
+
+    # 空白项目状态转换：如果项目状态为 BLUEPRINT_READY，自动转换到 WRITING
+    # 这适用于跳过灵感对话创建的空白项目
+    from ....core.state_machine import ProjectStatus
+    if project.status == ProjectStatus.BLUEPRINT_READY.value:
+        await novel_service.transition_project_status(project, ProjectStatus.WRITING.value)
+        logger.info("空白项目 %s 首次更新章节，状态转换为 WRITING", project_id)
 
     # 如果不触发RAG处理，直接提交并返回
     if not trigger_rag:
@@ -524,11 +554,14 @@ async def update_chapter(
     # 以下为RAG处理流程（仅当trigger_rag=True时执行）
     logger.info("项目 %s 第 %s 章开始RAG处理", project_id, chapter_number)
 
-    # 获取章节标题
-    outline = next((item for item in project.outlines if item.chapter_number == chapter.chapter_number), None)
+    # 创建大纲仓库（用于同步更新大纲摘要）
+    chapter_outline_repo = ChapterOutlineRepository(session)
+
+    # 从数据库直接查询大纲（避免使用可能过期的缓存数据）
+    outline = await chapter_outline_repo.get_by_project_and_number(project_id, chapter_number)
     chapter_title = outline.title if outline and outline.title else f"第{chapter_number}章"
 
-    # 2. 生成摘要
+    # 2. 生成摘要（同时同步更新大纲表）
     if content.strip():
         summary_service = SummaryService(llm_service)
         await summary_service.generate_and_save_summary(
@@ -536,6 +569,8 @@ async def update_chapter(
             content=content,
             project_id=project_id,
             user_id=desktop_user.id,
+            chapter_outline_repo=chapter_outline_repo,
+            chapter_title=chapter_title,
             use_fallback=False,
         )
 
@@ -544,11 +579,13 @@ async def update_chapter(
     if content.strip():
         try:
             analysis_service = ChapterAnalysisService(session)
+            # 确保项目标题不为空（空白项目也应该有标题）
+            novel_title = project.title or f"项目{project_id[:8]}"
             analysis_data = await analysis_service.analyze_chapter(
                 content=content,
                 title=chapter_title,
                 chapter_number=chapter_number,
-                novel_title=project.title,
+                novel_title=novel_title,
                 user_id=desktop_user.id,
                 timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
             )

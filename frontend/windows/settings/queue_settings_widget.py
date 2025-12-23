@@ -5,9 +5,10 @@
 """
 
 import logging
+import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSpinBox, QFrame, QGridLayout, QGroupBox
+    QSpinBox, QFrame, QGridLayout, QGroupBox, QFileDialog
 )
 from PyQt6.QtCore import Qt, QTimer
 from api.manager import APIClientManager
@@ -87,6 +88,25 @@ class QueueSettingsWidget(QWidget):
         hint_label.setObjectName("hint_label")
         hint_label.setWordWrap(True)
         layout.addWidget(hint_label)
+
+        # 导入导出按钮行
+        io_bar = QHBoxLayout()
+        io_bar.setSpacing(dp(12))
+
+        self.import_btn = QPushButton("导入配置")
+        self.import_btn.setObjectName("secondary_btn")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_btn.clicked.connect(self._import_config)
+        io_bar.addWidget(self.import_btn)
+
+        self.export_btn = QPushButton("导出配置")
+        self.export_btn.setObjectName("secondary_btn")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(self._export_config)
+        io_bar.addWidget(self.export_btn)
+
+        io_bar.addStretch()
+        layout.addLayout(io_bar)
 
         layout.addStretch()
 
@@ -248,6 +268,18 @@ class QueueSettingsWidget(QWidget):
                 background-color: {palette.text_secondary};
             }}
 
+            QPushButton#secondary_btn {{
+                background-color: transparent;
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
+            }}
+
+            QPushButton#secondary_btn:hover {{
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_primary};
+            }}
+
             QFrame#separator {{
                 background-color: {palette.border_color};
                 max-height: 1px;
@@ -292,10 +324,10 @@ class QueueSettingsWidget(QWidget):
         value = self.llm_spinbox.value()
         try:
             self.api_client.update_queue_config(llm_max_concurrent=value)
-            MessageService.info(f"LLM队列并发数已设置为 {value}")
+            MessageService.show_info(self, f"LLM队列并发数已设置为 {value}")
             logger.info("LLM队列并发数已更新为: %d", value)
         except Exception as e:
-            MessageService.error(f"设置失败: {e}")
+            MessageService.show_error(self, f"设置失败: {e}")
             logger.error("更新LLM队列配置失败: %s", e)
 
     def _apply_image_config(self):
@@ -303,10 +335,10 @@ class QueueSettingsWidget(QWidget):
         value = self.image_spinbox.value()
         try:
             self.api_client.update_queue_config(image_max_concurrent=value)
-            MessageService.info(f"图片队列并发数已设置为 {value}")
+            MessageService.show_info(self, f"图片队列并发数已设置为 {value}")
             logger.info("图片队列并发数已更新为: %d", value)
         except Exception as e:
-            MessageService.error(f"设置失败: {e}")
+            MessageService.show_error(self, f"设置失败: {e}")
             logger.error("更新图片队列配置失败: %s", e)
 
     def showEvent(self, event):
@@ -319,3 +351,55 @@ class QueueSettingsWidget(QWidget):
         """隐藏时停止定时刷新"""
         super().hideEvent(event)
         self._refresh_timer.stop()
+
+    def _export_config(self):
+        """导出队列配置"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出队列配置",
+            "queue_config.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_queue_config()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+                MessageService.show_info(self, f"配置已导出到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}")
+                logger.error("导出队列配置失败: %s", e)
+
+    def _import_config(self):
+        """导入队列配置"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入队列配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import_data = json.load(f)
+
+                # 验证数据格式
+                if not isinstance(import_data, dict):
+                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
+                    return
+
+                if import_data.get('export_type') != 'queue':
+                    MessageService.show_warning(self, "导入文件类型不正确，需要队列配置导出文件", "格式错误")
+                    return
+
+                result = self.api_client.import_queue_config(import_data)
+                if result.get('success'):
+                    MessageService.show_info(self, result.get('message', '导入成功'))
+                    self._load_config()  # 重新加载配置到UI
+                else:
+                    MessageService.show_error(self, result.get('message', '导入失败'))
+            except Exception as e:
+                MessageService.show_error(self, f"导入失败：{str(e)}")
+                logger.error("导入队列配置失败: %s", e)

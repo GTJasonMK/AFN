@@ -7,13 +7,14 @@ PDF预览Tab模块
 from typing import Dict, Any, List, Optional
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget, QFrame,
-    QPushButton, QScrollArea, QGridLayout
+    QPushButton, QScrollArea, QGridLayout, QStackedWidget
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QImage
 
 from themes.button_styles import ButtonStyles
 from components.empty_state import EmptyStateWithIllustration
+from components.loading_spinner import CircularSpinner
 from utils.dpi_utils import dp, sp
 
 
@@ -27,6 +28,12 @@ class PdfTabMixin:
         self._pdf_scroll_area: Optional[QScrollArea] = None
         self._pdf_container: Optional[QWidget] = None
         self._current_pdf_path: Optional[str] = None
+        # PDF按钮加载状态相关
+        self._pdf_btn_stack: Optional[QStackedWidget] = None
+        self._pdf_generate_btn: Optional[QPushButton] = None
+        self._pdf_spinner: Optional[CircularSpinner] = None
+        self._pdf_loading_label: Optional[QLabel] = None
+        self._pdf_restore_timer: Optional[QTimer] = None
 
     def _create_images_tab(self, images: List[Dict[str, Any]], pdf_info: Dict[str, Any] = None) -> QWidget:
         """创建PDF预览标签页
@@ -74,12 +81,23 @@ class PdfTabMixin:
 
         toolbar_layout.addStretch()
 
+        # 按钮容器（支持加载状态切换）
+        self._pdf_btn_stack = QStackedWidget()
+        self._pdf_btn_stack.setFixedHeight(dp(32))
+
+        # 状态0: 按钮容器
+        btn_container = QWidget()
+        btn_container.setStyleSheet("background: transparent;")
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(dp(8))
+
         # 生成/刷新PDF按钮
-        generate_pdf_btn = QPushButton("生成PDF" if not pdf_info or not pdf_info.get('success') else "刷新PDF")
-        generate_pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        generate_pdf_btn.setStyleSheet(ButtonStyles.primary('SM'))
-        generate_pdf_btn.clicked.connect(self._on_generate_pdf_clicked)
-        toolbar_layout.addWidget(generate_pdf_btn)
+        self._pdf_generate_btn = QPushButton("生成PDF" if not pdf_info or not pdf_info.get('success') else "刷新PDF")
+        self._pdf_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pdf_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
+        self._pdf_generate_btn.clicked.connect(self._on_generate_pdf_clicked)
+        btn_layout.addWidget(self._pdf_generate_btn)
 
         # 下载按钮（仅当有PDF时显示）
         if pdf_info and pdf_info.get('success') and pdf_info.get('file_name'):
@@ -89,7 +107,34 @@ class PdfTabMixin:
             download_btn.clicked.connect(
                 lambda: self._on_download_pdf(pdf_info.get('file_name')) if self._on_download_pdf else None
             )
-            toolbar_layout.addWidget(download_btn)
+            btn_layout.addWidget(download_btn)
+
+        self._pdf_btn_stack.addWidget(btn_container)
+
+        # 状态1: 加载中状态
+        loading_container = QWidget()
+        loading_container.setStyleSheet("background: transparent;")
+        loading_layout = QHBoxLayout(loading_container)
+        loading_layout.setContentsMargins(dp(8), 0, dp(8), 0)
+        loading_layout.setSpacing(dp(8))
+
+        self._pdf_spinner = CircularSpinner(size=dp(20), color=s.accent_color, auto_start=False)
+        loading_layout.addWidget(self._pdf_spinner)
+
+        self._pdf_loading_label = QLabel("生成中...")
+        self._pdf_loading_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.accent_color};
+            font-weight: 500;
+        """)
+        loading_layout.addWidget(self._pdf_loading_label)
+        loading_layout.addStretch()
+
+        self._pdf_btn_stack.addWidget(loading_container)
+        self._pdf_btn_stack.setCurrentIndex(0)
+
+        toolbar_layout.addWidget(self._pdf_btn_stack)
 
         layout.addWidget(toolbar)
 
@@ -125,6 +170,97 @@ class PdfTabMixin:
         """生成PDF按钮点击处理"""
         if self._on_generate_pdf:
             self._on_generate_pdf()
+
+    # ==================== PDF按钮加载状态控制 ====================
+
+    def set_pdf_loading(self, loading: bool, message: str = "生成中..."):
+        """设置PDF按钮的加载状态
+
+        Args:
+            loading: 是否显示加载状态
+            message: 加载时显示的消息
+        """
+        if not self._pdf_btn_stack:
+            return
+
+        if loading:
+            self._pdf_btn_stack.setCurrentIndex(1)
+            if self._pdf_loading_label:
+                self._pdf_loading_label.setText(message)
+            if self._pdf_spinner:
+                QTimer.singleShot(50, self._pdf_spinner.start)
+        else:
+            self._pdf_btn_stack.setCurrentIndex(0)
+            if self._pdf_spinner:
+                self._pdf_spinner.stop()
+
+    def set_pdf_success(self, message: str = "生成成功"):
+        """设置PDF生成成功状态"""
+        if not self._pdf_btn_stack or not self._pdf_loading_label:
+            return
+
+        s = self._styler
+        if self._pdf_spinner:
+            self._pdf_spinner.stop()
+
+        self._pdf_loading_label.setText(message)
+        self._pdf_loading_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.success};
+            font-weight: 500;
+        """)
+
+        # 取消之前的定时器
+        if self._pdf_restore_timer:
+            self._pdf_restore_timer.stop()
+        self._pdf_restore_timer = QTimer()
+        self._pdf_restore_timer.setSingleShot(True)
+        self._pdf_restore_timer.timeout.connect(self._restore_pdf_btn_state)
+        self._pdf_restore_timer.start(2000)
+
+    def set_pdf_error(self, message: str = "生成失败"):
+        """设置PDF生成失败状态"""
+        if not self._pdf_btn_stack or not self._pdf_loading_label:
+            return
+
+        s = self._styler
+        if self._pdf_spinner:
+            self._pdf_spinner.stop()
+
+        self._pdf_loading_label.setText(message)
+        self._pdf_loading_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.error};
+            font-weight: 500;
+        """)
+
+        # 取消之前的定时器
+        if self._pdf_restore_timer:
+            self._pdf_restore_timer.stop()
+        self._pdf_restore_timer = QTimer()
+        self._pdf_restore_timer.setSingleShot(True)
+        self._pdf_restore_timer.timeout.connect(self._restore_pdf_btn_state)
+        self._pdf_restore_timer.start(3000)
+
+    def _restore_pdf_btn_state(self):
+        """恢复PDF按钮状态"""
+        if not self._pdf_btn_stack:
+            return
+
+        s = self._styler
+
+        if self._pdf_loading_label:
+            self._pdf_loading_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.accent_color};
+                font-weight: 500;
+            """)
+            self._pdf_loading_label.setText("生成中...")
+
+        self._pdf_btn_stack.setCurrentIndex(0)
 
     def _create_pdf_preview(self, pdf_path: str) -> QScrollArea:
         """创建PDF预览区域

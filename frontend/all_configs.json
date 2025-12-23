@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "export_time": "2025-12-22T03:52:10.863962+00:00",
+  "export_type": "all",
+  "llm_configs": [
+    {
+      "config_name": "anyrouter",
+      "llm_provider_url": "https://anyrouter.top",
+      "llm_provider_api_key": "sk-m8BvTxwZuQuqwsKSPaPPI7KqIa9O8xo2xeGw8dwNRg4LJ4ue",
+      "llm_provider_model": "claude-haiku-4-5-20251001"
+    }
+  ],
+  "embedding_configs": [
+    {
+      "config_name": "黑与白",
+      "provider": "openai",
+      "api_base_url": "https://ai.hybgzs.com",
+      "api_key": "sk-hNzBNCvCa20ckdQ_M9FWWmMXdn100lEem8d-JaetF_qAFfn_0XjHXriUw6w",
+      "model_name": "Qwen/Qwen3-Embedding-8B",
+      "vector_size": 4096
+    }
+  ],
+  "image_configs": [
+    {
+      "config_name": "banana反代",
+      "provider_type": "openai_compatible",
+      "api_base_url": "http://127.0.0.1:8000",
+      "api_key": "88888888",
+      "model_name": "nano-banana-pro",
+      "default_style": "none",
+      "default_ratio": "1:1",
+      "default_resolution": "原始",
+      "default_quality": "draft",
+      "extra_params": {
+        "use_image_api": false
+      }
+    }
+  ],
+  "advanced_config": {
+    "writer_chapter_version_count": 1,
+    "writer_parallel_generation": true,
+    "part_outline_threshold": 10
+  },
+  "queue_config": {
+    "llm_max_concurrent": 3,
+    "image_max_concurrent": 2
+  }
+}

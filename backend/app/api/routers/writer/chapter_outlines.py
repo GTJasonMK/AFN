@@ -21,6 +21,7 @@ from ....core.state_validators import (
     get_max_generated_chapter,
     OUTLINE_GENERATION_STATES,
 )
+from ....core.state_machine import ProjectStatus
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
@@ -230,18 +231,37 @@ async def generate_chapter_outlines_by_count(
                     "status": "generating"
                 })
 
-                # 获取前面已生成的章节
+                # 获取前面已生成的章节（优化：只保留最近的章节以控制上下文长度）
                 fresh_outlines = await chapter_outline_repo.list_by_project(project_id)
-                previous_chapters = [
+                all_previous = [
                     {
                         "chapter_number": outline.chapter_number,
                         "title": outline.title,
-                        "summary": outline.summary,
+                        "summary": outline.summary[:200] + "..." if len(outline.summary or "") > 200 else outline.summary,
                     }
                     for outline in fresh_outlines
                     if outline.chapter_number < current_chapter
                 ]
-                previous_chapters.sort(key=lambda x: x["chapter_number"])
+                all_previous.sort(key=lambda x: x["chapter_number"])
+
+                # 上下文优化：最多保留最近15章的详细信息，更早的章节只保留标题
+                MAX_RECENT_CHAPTERS = 15
+                if len(all_previous) > MAX_RECENT_CHAPTERS:
+                    # 早期章节只保留章节号和标题（作为情节脉络参考）
+                    early_chapters = [
+                        {"chapter_number": ch["chapter_number"], "title": ch["title"]}
+                        for ch in all_previous[:-MAX_RECENT_CHAPTERS]
+                    ]
+                    # 最近的章节保留完整摘要
+                    recent_chapters = all_previous[-MAX_RECENT_CHAPTERS:]
+                    previous_chapters = {
+                        "early_chapters_titles": early_chapters,
+                        "recent_chapters": recent_chapters,
+                    }
+                    context_note = f"前面已生成 {len(all_previous)} 章。其中第1-{all_previous[-MAX_RECENT_CHAPTERS-1]['chapter_number']}章仅列出标题供参考剧情脉络，最近{MAX_RECENT_CHAPTERS}章提供详细摘要。请确保与前文保持连贯、设定一致、剧情承接自然。"
+                else:
+                    previous_chapters = all_previous
+                    context_note = f"前面已生成 {len(all_previous)} 章，请确保与前文保持连贯、设定一致、剧情承接自然。"
 
                 # 准备LLM请求payload
                 payload = {
@@ -254,7 +274,7 @@ async def generate_chapter_outlines_by_count(
 
                 if previous_chapters:
                     payload["previous_chapters"] = previous_chapters
-                    payload["context_note"] = f"前面已生成 {len(previous_chapters)} 章，请确保与前文保持连贯、设定一致、剧情承接自然。"
+                    payload["context_note"] = context_note
 
                 if relevant_summaries:
                     payload["relevant_completed_chapters"] = {
@@ -322,6 +342,19 @@ async def generate_chapter_outlines_by_count(
 
             # 获取当前总章节数
             total_chapters = await chapter_outline_repo.count_by_project(project_id)
+
+            # 更新项目状态到 chapter_outlines_ready（如果当前是 blueprint_ready 或 part_outlines_ready）
+            # 需要重新获取最新的项目状态
+            updated_project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+            if updated_project.status in [
+                ProjectStatus.BLUEPRINT_READY.value,
+                ProjectStatus.PART_OUTLINES_READY.value
+            ]:
+                await novel_service.transition_project_status(
+                    updated_project,
+                    ProjectStatus.CHAPTER_OUTLINES_READY.value
+                )
+                logger.info("项目 %s 状态已更新为 chapter_outlines_ready", project_id)
 
             # 发送完成事件
             yield sse_event("complete", {
@@ -535,19 +568,36 @@ async def regenerate_chapter_outline(
             )
             logger.info("已删除 %d 章大纲", cascade_deleted_count)
 
-    # 获取前面已生成的章节（用于上下文）
+    # 获取前面已生成的章节（用于上下文，优化：控制上下文长度）
     # 注意：如果刚进行了级联删除，需要重新获取
     all_outlines_fresh = await chapter_outline_repo.list_by_project(project_id)
-    previous_chapters = [
+    all_previous = [
         {
             "chapter_number": outline.chapter_number,
             "title": outline.title,
-            "summary": outline.summary,
+            "summary": outline.summary[:200] + "..." if len(outline.summary or "") > 200 else outline.summary,
         }
         for outline in all_outlines_fresh
         if outline.chapter_number < chapter_number
     ]
-    previous_chapters.sort(key=lambda x: x["chapter_number"])
+    all_previous.sort(key=lambda x: x["chapter_number"])
+
+    # 上下文优化：最多保留最近15章的详细信息，更早的章节只保留标题
+    MAX_RECENT_CHAPTERS = 15
+    if len(all_previous) > MAX_RECENT_CHAPTERS:
+        early_chapters = [
+            {"chapter_number": ch["chapter_number"], "title": ch["title"]}
+            for ch in all_previous[:-MAX_RECENT_CHAPTERS]
+        ]
+        recent_chapters = all_previous[-MAX_RECENT_CHAPTERS:]
+        previous_chapters = {
+            "early_chapters_titles": early_chapters,
+            "recent_chapters": recent_chapters,
+        }
+        regen_context_note = f"前面已生成 {len(all_previous)} 章。其中第1-{all_previous[-MAX_RECENT_CHAPTERS-1]['chapter_number']}章仅列出标题供参考剧情脉络，最近{MAX_RECENT_CHAPTERS}章提供详细摘要。请确保重新生成的大纲与前文保持连贯、设定一致、剧情承接自然。"
+    else:
+        previous_chapters = all_previous
+        regen_context_note = f"前面已生成 {len(all_previous)} 章，请确保重新生成的大纲与前文保持连贯、设定一致、剧情承接自然。"
 
     # 获取大纲提示词
     outline_prompt = ensure_prompt(await prompt_service.get_prompt("outline"), "outline")
@@ -585,7 +635,7 @@ async def regenerate_chapter_outline(
     # 如果有前面的章节，加入上下文
     if previous_chapters:
         payload["previous_chapters"] = previous_chapters
-        payload["context_note"] = f"前面已生成 {len(previous_chapters)} 章，请确保重新生成的大纲与前文保持连贯、设定一致、剧情承接自然。"
+        payload["context_note"] = regen_context_note
 
     # 如果有优化提示词，添加到payload
     if request.prompt:

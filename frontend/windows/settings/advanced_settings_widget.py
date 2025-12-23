@@ -6,7 +6,8 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QCheckBox, QPushButton, QFrame, QFormLayout, QGroupBox
+    QCheckBox, QPushButton, QFrame, QFormLayout, QGroupBox,
+    QFileDialog
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
@@ -14,6 +15,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
+import json
 
 
 class AdvancedSettingsWidget(QWidget):
@@ -53,6 +55,19 @@ class AdvancedSettingsWidget(QWidget):
         # 底部按钮栏
         button_layout = QHBoxLayout()
         button_layout.setSpacing(dp(12))
+
+        # 导入按钮
+        self.import_btn = QPushButton("导入配置")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_btn.clicked.connect(lambda: self.importConfig())
+        button_layout.addWidget(self.import_btn)
+
+        # 导出按钮
+        self.export_btn = QPushButton("导出配置")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(lambda: self.exportConfig())
+        button_layout.addWidget(self.export_btn)
+
         button_layout.addStretch()
 
         # 重置按钮
@@ -259,7 +274,7 @@ class AdvancedSettingsWidget(QWidget):
         """)
 
         # 重置按钮样式
-        self.reset_btn.setStyleSheet(f"""
+        secondary_btn_style = f"""
             QPushButton {{
                 font-family: {palette.ui_font};
                 background-color: transparent;
@@ -274,7 +289,10 @@ class AdvancedSettingsWidget(QWidget):
                 border-color: {palette.accent_color};
                 background-color: {palette.bg_primary};
             }}
-        """)
+        """
+        self.reset_btn.setStyleSheet(secondary_btn_style)
+        self.import_btn.setStyleSheet(secondary_btn_style)
+        self.export_btn.setStyleSheet(secondary_btn_style)
 
         # 保存按钮样式
         self.save_btn.setStyleSheet(f"""
@@ -338,6 +356,56 @@ class AdvancedSettingsWidget(QWidget):
         self.threshold_spinbox.setValue(25)
 
         MessageService.show_success(self, "已恢复默认值，点击保存生效")
+
+    def exportConfig(self):
+        """导出高级配置"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出高级配置",
+            "advanced_config.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_advanced_config()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+                MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def importConfig(self):
+        """导入高级配置"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入高级配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import_data = json.load(f)
+
+                # 验证数据格式
+                if not isinstance(import_data, dict):
+                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
+                    return
+
+                if import_data.get('export_type') != 'advanced':
+                    MessageService.show_warning(self, "导入文件类型不正确，需要高级配置导出文件", "格式错误")
+                    return
+
+                result = self.api_client.import_advanced_config(import_data)
+                if result.get('success'):
+                    MessageService.show_success(self, result.get('message', '导入成功'))
+                    self.loadConfig()  # 重新加载配置到UI
+                else:
+                    MessageService.show_error(self, result.get('message', '导入失败'), "错误")
+            except Exception as e:
+                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
 
     def __del__(self):
         """析构时断开主题信号连接"""

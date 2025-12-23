@@ -2,9 +2,10 @@
 漫画提示词 Mixin
 
 提供漫画提示词生成和管理的API方法。
+基于专业漫画分镜架构，支持页面模板和画格级提示词生成。
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from api.exceptions import NotFoundError
 
@@ -14,31 +15,23 @@ from .constants import TimeoutConfig
 class MangaMixin:
     """漫画提示词方法 Mixin"""
 
-    def get_manga_prompt_status(
-        self,
-        project_id: str,
-        chapter_number: int,
-    ) -> Dict[str, Any]:
+    def get_manga_templates(self) -> List[Dict[str, Any]]:
         """
-        获取漫画提示词生成状态
-
-        用于检查是否有未完成的生成任务可以继续。
-
-        Args:
-            project_id: 项目ID
-            chapter_number: 章节号
+        获取所有可用的页面模板
 
         Returns:
-            状态信息，包含：
-            - status: 生成状态 (none/pending/scene_extracted/layout_generated/completed/failed)
-            - has_checkpoint: 是否有可恢复的检查点
-            - failed_step: 失败的步骤（如果有）
-            - error_message: 错误信息（如果有）
-            - progress_info: 进度详情
+            模板列表，每个模板包含：
+            - id: 模板ID
+            - name: 英文名称
+            - name_zh: 中文名称
+            - description: 模板描述
+            - panel_count: 画格数量
+            - suitable_moods: 适用情感类型列表
+            - intensity: 强度等级
         """
         return self._request(
             'GET',
-            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/status',
+            '/api/writer/templates',
         )
 
     def generate_manga_prompts(
@@ -46,46 +39,48 @@ class MangaMixin:
         project_id: str,
         chapter_number: int,
         style: str = "manga",
-        scene_count: Optional[int] = None,
-        dialogue_language: str = "chinese",
-        continue_from_checkpoint: bool = False,
+        min_scenes: int = 5,
+        max_scenes: int = 15,
+        language: str = "chinese",
     ) -> Dict[str, Any]:
         """
-        生成章节的漫画提示词
+        生成章节的漫画分镜（支持断点续传）
 
-        将章节内容智能分割为多个关键画面，并为每个画面生成文生图提示词。
-        支持断点续传：如果 continue_from_checkpoint=True，会从上次中断的步骤继续。
+        基于专业漫画分镜理念，将章节内容转化为：
+        1. 多个叙事场景
+        2. 每个场景展开为页面+画格
+        3. 每个画格生成专属提示词
+
+        如果之前的生成任务中断，会自动从断点继续。
 
         Args:
             project_id: 项目ID
             chapter_number: 章节号
             style: 漫画风格 (manga/anime/comic/webtoon)
-            scene_count: 目标场景数量 (5-20)，为None时由LLM自动决定
-            dialogue_language: 对话语言 (chinese/japanese/english/korean/none)
-            continue_from_checkpoint: 是否从检查点继续生成
+            min_scenes: 最少场景数 (3-10)
+            max_scenes: 最多场景数 (5-25)
+            language: 对话/音效语言 (chinese/japanese/english/korean)
 
         Returns:
-            漫画提示词结果，包含：
+            漫画分镜结果，包含：
+            - chapter_number: 章节号
+            - style: 漫画风格
             - character_profiles: 角色外观描述字典
-            - scenes: 场景列表
-            - style_guide: 整体风格指南
+            - total_pages: 总页数
+            - total_panels: 总画格数
+            - scenes: 场景列表，每个场景包含页面信息
+            - panels: 画格提示词列表
         """
-        # 构建请求体，scene_count为None时不传递，让LLM自动决定
         payload = {
             'style': style,
-            'dialogue_language': dialogue_language,
+            'min_scenes': min_scenes,
+            'max_scenes': max_scenes,
+            'language': language,
         }
-        if scene_count is not None:
-            payload['scene_count'] = scene_count
-
-        # 构建URL，包含continue_from_checkpoint参数
-        url = f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts'
-        if continue_from_checkpoint:
-            url += '?continue_from_checkpoint=true'
 
         return self._request(
             'POST',
-            url,
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
             payload,
             timeout=TimeoutConfig.READ_GENERATION
         )
@@ -96,14 +91,14 @@ class MangaMixin:
         chapter_number: int,
     ) -> Optional[Dict[str, Any]]:
         """
-        获取已保存的漫画提示词
+        获取已保存的漫画分镜
 
         Args:
             project_id: 项目ID
             chapter_number: 章节号
 
         Returns:
-            漫画提示词结果，如果不存在返回None
+            漫画分镜结果，如果不存在返回None
         """
         try:
             return self._request(
@@ -113,38 +108,13 @@ class MangaMixin:
         except NotFoundError:
             return None
 
-    def update_manga_scene(
-        self,
-        project_id: str,
-        chapter_number: int,
-        scene_id: int,
-        update_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        更新单个场景的提示词
-
-        Args:
-            project_id: 项目ID
-            chapter_number: 章节号
-            scene_id: 场景ID
-            update_data: 更新数据
-
-        Returns:
-            更新后的场景
-        """
-        return self._request(
-            'PUT',
-            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/scenes/{scene_id}',
-            update_data,
-        )
-
     def delete_manga_prompts(
         self,
         project_id: str,
         chapter_number: int,
     ) -> Dict[str, Any]:
         """
-        删除章节的漫画提示词
+        删除章节的漫画分镜
 
         Args:
             project_id: 项目ID
@@ -156,4 +126,32 @@ class MangaMixin:
         return self._request(
             'DELETE',
             f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
+        )
+
+    def get_manga_prompt_progress(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> Dict[str, Any]:
+        """
+        获取漫画分镜生成进度
+
+        用于检测是否有未完成的断点，支持断点续传。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            进度信息，包含：
+            - status: 状态 (pending/extracting/expanding/completed)
+            - stage: 当前阶段
+            - current: 当前进度
+            - total: 总数
+            - message: 进度消息
+            - can_resume: 是否可以继续
+        """
+        return self._request(
+            'GET',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/progress',
         )

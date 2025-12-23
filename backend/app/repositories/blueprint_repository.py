@@ -75,29 +75,7 @@ class BlueprintCharacterRepository(BaseRepository[BlueprintCharacter]):
 
     model = BlueprintCharacter
 
-    async def list_by_project(self, project_id: str) -> Iterable[BlueprintCharacter]:
-        """
-        获取项目的所有角色
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            角色列表
-        """
-        return await self.list(filters={"project_id": project_id})
-
-    async def delete_by_project(self, project_id: str) -> int:
-        """
-        删除项目的所有角色
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            删除的记录数
-        """
-        return await self.delete_by_project_id(project_id)
+    # list_by_project() 和 delete_by_project_id() 已由 BaseRepository 提供
 
     async def bulk_create(
         self,
@@ -111,7 +89,7 @@ class BlueprintCharacterRepository(BaseRepository[BlueprintCharacter]):
             project_id: 项目ID
             characters_data: 角色数据列表
         """
-        await self.delete_by_project(project_id)
+        await self.delete_by_project_id(project_id)
         for index, data in enumerate(characters_data):
             self.session.add(BlueprintCharacter(
                 project_id=project_id,
@@ -138,29 +116,7 @@ class BlueprintRelationshipRepository(BaseRepository[BlueprintRelationship]):
 
     model = BlueprintRelationship
 
-    async def list_by_project(self, project_id: str) -> Iterable[BlueprintRelationship]:
-        """
-        获取项目的所有关系
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            关系列表
-        """
-        return await self.list(filters={"project_id": project_id})
-
-    async def delete_by_project(self, project_id: str) -> int:
-        """
-        删除项目的所有关系
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            删除的记录数
-        """
-        return await self.delete_by_project_id(project_id)
+    # list_by_project() 和 delete_by_project_id() 已由 BaseRepository 提供
 
     async def bulk_create(
         self,
@@ -174,7 +130,7 @@ class BlueprintRelationshipRepository(BaseRepository[BlueprintRelationship]):
             project_id: 项目ID
             relationships: 关系数据列表
         """
-        await self.delete_by_project(project_id)
+        await self.delete_by_project_id(project_id)
         for index, relation in enumerate(relationships):
             # 支持dict和Pydantic对象
             if hasattr(relation, 'character_from'):

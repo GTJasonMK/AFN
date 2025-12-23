@@ -7,12 +7,13 @@
 - 导航历史栈支持返回按钮
 - LRU页面缓存淘汰机制避免内存泄漏
 - DPI感知和响应式布局
+- 页面切换时的加载动画
 """
 
 import json
 import logging
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout, QVBoxLayout
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 from typing import Dict, List, Tuple
 from collections import OrderedDict
@@ -21,6 +22,7 @@ from themes.modern_effects import ModernEffects
 from themes.svg_icons import SVGIcons
 from utils.dpi_utils import dpi_helper, dp, sp
 from api.manager import APIClientManager
+from components.loading_spinner import LoadingOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,14 @@ class MainWindow(QMainWindow):
 
         # 导航历史栈：[(page_type, params)]
         self.navigation_history: List[Tuple[str, dict]] = []
+
+        # 创建页面切换加载覆盖层
+        self._nav_loading_overlay = LoadingOverlay(
+            text="正在加载...",
+            parent=self.central_widget,
+            translucent=True
+        )
+        self._nav_loading_overlay.hide()
 
         # 主题信号连接标志
         self._theme_connected = False
@@ -313,36 +323,98 @@ class MainWindow(QMainWindow):
         dpi_helper.update_screen_info(self)
 
     def navigateTo(self, page_type: str, params: dict = None):
-        """导航到指定页面
+        """导航到指定页面（优化版：支持加载动画）
 
         Args:
             page_type: 页面类型（HOME, INSPIRATION, DETAIL, WRITING_DESK, SETTINGS）
             params: 页面参数（如project_id等）
         """
+        from PyQt6.QtWidgets import QApplication
+
         if params is None:
             params = {}
 
         logger.info("navigateTo called: page_type=%s, params=%s", page_type, params)
 
+        # 检查页面是否已缓存
+        cache_key = page_type
+        if page_type in ['DETAIL', 'WRITING_DESK']:
+            project_id = params.get('project_id')
+            if project_id:
+                cache_key = f"{page_type}_{project_id}"
+
+        is_cached = cache_key in self.pages
+
+        # 对于需要创建的新页面（复杂页面），显示加载动画
+        needs_loading = not is_cached and page_type in ['DETAIL', 'WRITING_DESK']
+
+        if needs_loading:
+            # 显示加载动画
+            self._show_nav_loading("正在加载页面...")
+            # 强制处理事件，确保动画开始显示和转动
+            QApplication.processEvents()
+            # 延迟执行页面创建和切换，给动画足够时间启动
+            QTimer.singleShot(50, lambda: self._doNavigate(page_type, params))
+        else:
+            # 已缓存的页面或简单页面，直接切换
+            self._doNavigate(page_type, params)
+
+    def _show_nav_loading(self, text="正在加载..."):
+        """显示导航加载动画"""
+        if self._nav_loading_overlay:
+            self._nav_loading_overlay.setText(text)
+            self._nav_loading_overlay.setGeometry(self.central_widget.rect())
+            self._nav_loading_overlay.show_with_animation(text)
+
+    def _hide_nav_loading(self):
+        """隐藏导航加载动画"""
+        if self._nav_loading_overlay:
+            self._nav_loading_overlay.hide_with_animation()
+
+    def _doNavigate(self, page_type: str, params: dict):
+        """执行实际的页面导航
+
+        Args:
+            page_type: 页面类型
+            params: 页面参数
+        """
+        from PyQt6.QtWidgets import QApplication
+
+        # 让动画更新
+        QApplication.processEvents()
+
         # 获取或创建页面
         page = self.getOrCreatePage(page_type, params)
+
+        # 让动画更新
+        QApplication.processEvents()
 
         if page is None:
             logger.error(
                 "无法创建页面: page_type=%s, params=%s (可能缺少必需参数)",
                 page_type, params
             )
+            self._hide_nav_loading()
             return
 
         logger.info("Page created/retrieved successfully: %s", type(page).__name__)
+
+        # 让动画更新
+        QApplication.processEvents()
 
         # 调用页面刷新方法
         if hasattr(page, 'refresh'):
             page.refresh(**params)
 
+        # 让动画更新
+        QApplication.processEvents()
+
         # 切换到页面
         self.page_stack.setCurrentWidget(page)
         logger.info("Page switched to: %s", page_type)
+
+        # 隐藏加载动画
+        self._hide_nav_loading()
 
         # 调用页面显示钩子
         if hasattr(page, 'onShow'):

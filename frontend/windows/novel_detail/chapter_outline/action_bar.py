@@ -22,6 +22,7 @@ class OutlineActionBar(QFrame):
     regenerateLatestClicked = pyqtSignal()  # 重新生成最新N个
     deleteLatestClicked = pyqtSignal()  # 删除最新N个
     continueGenerateClicked = pyqtSignal()  # 继续生成N个
+    addOutlineClicked = pyqtSignal()  # 手动新增大纲
 
     def __init__(
         self,
@@ -31,6 +32,7 @@ class OutlineActionBar(QFrame):
         outline_type: str = "chapter",  # "chapter" 或 "part"
         editable: bool = True,
         show_continue_button: bool = True,  # 是否显示"继续生成"按钮
+        show_add_button: bool = True,  # 是否显示"新增"按钮
         parent=None
     ):
         super().__init__(parent)
@@ -40,6 +42,7 @@ class OutlineActionBar(QFrame):
         self.outline_type = outline_type
         self.editable = editable
         self.show_continue_button = show_continue_button
+        self.show_add_button = show_add_button
         self._setup_ui()
         self._apply_style()
 
@@ -73,6 +76,15 @@ class OutlineActionBar(QFrame):
 
         # 右侧: 操作按钮
         if self.editable:
+            # 新增按钮（仅在show_add_button为True时显示）
+            self.add_btn = None
+            if self.show_add_button:
+                self.add_btn = QPushButton("新增")
+                self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                self.add_btn.setToolTip(f"手动新增一个{type_text}大纲")
+                self.add_btn.clicked.connect(self.addOutlineClicked.emit)
+                layout.addWidget(self.add_btn)
+
             # 继续生成按钮（仅在show_continue_button为True时显示）
             self.continue_btn = None
             if self.show_continue_button:
@@ -119,6 +131,28 @@ class OutlineActionBar(QFrame):
 
         # 按钮样式
         if self.editable:
+            # 新增按钮 - 次要按钮样式（如果存在）
+            if self.add_btn:
+                self.add_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {theme_manager.BG_SECONDARY};
+                        color: {theme_manager.PRIMARY};
+                        border: 1px solid {theme_manager.PRIMARY};
+                        border-radius: {dp(6)}px;
+                        padding: {dp(8)}px {dp(16)}px;
+                        font-size: {sp(13)}px;
+                        font-weight: 600;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {theme_manager.PRIMARY_PALE};
+                    }}
+                    QPushButton:disabled {{
+                        background-color: {theme_manager.BG_TERTIARY};
+                        color: {theme_manager.TEXT_DISABLED};
+                        border-color: {theme_manager.BORDER_LIGHT};
+                    }}
+                """)
+
             # 继续生成按钮 - 主按钮样式（如果存在）
             if self.continue_btn:
                 self.continue_btn.setStyleSheet(f"""
@@ -210,6 +244,8 @@ class OutlineActionBar(QFrame):
     def set_buttons_enabled(self, enabled: bool):
         """设置所有按钮的启用状态"""
         if self.editable:
+            if self.add_btn:
+                self.add_btn.setEnabled(enabled)
             if self.continue_btn:
                 self.continue_btn.setEnabled(enabled)
             self.regenerate_btn.setEnabled(enabled)

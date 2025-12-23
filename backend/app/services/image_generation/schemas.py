@@ -42,6 +42,49 @@ class AspectRatio(str, Enum):
     RATIO_3_2 = "3:2"
     RATIO_2_3 = "2:3"
     RATIO_21_9 = "21:9"
+    RATIO_3_1 = "3:1"   # 超宽画格（悬念条）
+    RATIO_6_1 = "6:1"   # 极宽画格（全景条）
+    RATIO_1_3 = "1:3"   # 竖长画格
+    RATIO_2_1 = "2:1"   # 宽幅画格
+
+
+# 宽高比到像素尺寸的映射
+# 基于1024像素基准，保持比例的同时确保尺寸合理
+ASPECT_RATIO_TO_SIZE = {
+    "1:1": (1024, 1024),
+    "16:9": (1344, 756),     # 约1.78:1
+    "9:16": (756, 1344),
+    "4:3": (1152, 864),
+    "3:4": (864, 1152),
+    "3:2": (1200, 800),
+    "2:3": (800, 1200),
+    "21:9": (1456, 624),     # 约2.33:1
+    "3:1": (1536, 512),      # 超宽
+    "6:1": (1536, 256),      # 极宽（部分API可能不支持）
+    "1:3": (512, 1536),      # 竖长
+    "2:1": (1408, 704),      # 宽幅
+}
+
+
+def get_size_for_ratio(ratio: str, base_resolution: str = "1K") -> tuple:
+    """
+    根据宽高比和基础分辨率获取像素尺寸
+
+    Args:
+        ratio: 宽高比字符串，如 "16:9"
+        base_resolution: 基础分辨率 "1K" 或 "2K"
+
+    Returns:
+        (width, height) 元组
+    """
+    # 获取基础尺寸
+    size = ASPECT_RATIO_TO_SIZE.get(ratio, (1024, 1024))
+
+    # 如果是2K分辨率，尺寸翻倍
+    if base_resolution == "2K":
+        size = (size[0] * 2, size[1] * 2)
+
+    return size
 
 
 class QualityPreset(str, Enum):
@@ -115,6 +158,8 @@ class ImageGenerationRequest(BaseModel):
     seed: Optional[int] = Field(default=None, description="随机种子")
     # 版本追溯：记录图片基于哪个章节版本生成
     chapter_version_id: Optional[int] = Field(default=None, description="章节版本ID，用于版本追溯")
+    # 画格ID：精确标识图片属于哪个画格
+    panel_id: Optional[str] = Field(default=None, description="画格ID，格式如 scene1_page1_panel1")
 
 
 class GeneratedImageInfo(BaseModel):
@@ -124,6 +169,7 @@ class GeneratedImageInfo(BaseModel):
     file_path: str
     url: str  # 访问URL
     scene_id: int  # 场景ID
+    panel_id: Optional[str] = None  # 画格ID
     width: Optional[int] = None
     height: Optional[int] = None
     prompt: Optional[str] = None
@@ -262,3 +308,40 @@ SUPPORTED_MODELS = {
         "custom",
     ],
 }
+
+
+# ==================== 导入导出相关 ====================
+
+class ImageConfigExport(BaseModel):
+    """导出的图片配置数据（不包含运行时状态）。"""
+
+    config_name: str
+    provider_type: str
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    default_style: Optional[str] = None
+    default_ratio: Optional[str] = None
+    default_resolution: Optional[str] = None
+    default_quality: Optional[str] = None
+    extra_params: Optional[Dict[str, Any]] = None
+
+
+class ImageConfigExportData(BaseModel):
+    """导出文件的完整数据结构。"""
+
+    version: str = Field(default="1.0", description="导出格式版本")
+    export_time: str = Field(..., description="导出时间（ISO 8601格式）")
+    export_type: str = Field(default="image", description="导出类型")
+    configs: List[ImageConfigExport] = Field(..., description="配置列表")
+
+
+class ImageConfigImportResult(BaseModel):
+    """导入结果。"""
+
+    success: bool
+    message: str
+    imported_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    details: List[str] = []

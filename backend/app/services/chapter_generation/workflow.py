@@ -92,7 +92,13 @@ class ChapterGenerationWorkflow:
             if current_status == ProjectStatus.DRAFT.value:
                 hint = "请先完成灵感对话并生成蓝图"
             elif current_status == ProjectStatus.BLUEPRINT_READY.value:
-                hint = "请先生成章节大纲"
+                # 检查是否是空白项目（没有蓝图数据）
+                blueprint = self._project.blueprint
+                is_blank_project = not blueprint or not getattr(blueprint, 'total_chapters', None)
+                if is_blank_project:
+                    hint = "空白项目请先手动创建章节，然后再使用AI生成功能"
+                else:
+                    hint = "请先生成章节大纲"
             elif current_status == ProjectStatus.PART_OUTLINES_READY.value:
                 hint = "请先生成章节大纲（基于分部大纲）"
             else:

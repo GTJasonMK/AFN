@@ -36,7 +36,7 @@ import httpx
 from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
-from ..schemas import ImageGenerationRequest
+from ..schemas import ImageGenerationRequest, get_size_for_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -394,27 +394,15 @@ class ComfyUIProvider(BaseImageProvider):
         if "width" in extra_params and "height" in extra_params:
             return extra_params["width"], extra_params["height"]
 
-        # 基于宽高比计算（默认基于1024的基础尺寸）
-        base_size = extra_params.get("base_size", 1024)
+        # 使用统一的宽高比转换函数
         ratio = request.ratio or "16:9"
-
-        ratio_dimensions = {
-            "1:1": (base_size, base_size),
-            "16:9": (base_size, int(base_size * 9 / 16)),
-            "9:16": (int(base_size * 9 / 16), base_size),
-            "4:3": (base_size, int(base_size * 3 / 4)),
-            "3:4": (int(base_size * 3 / 4), base_size),
-            "3:2": (base_size, int(base_size * 2 / 3)),
-            "2:3": (int(base_size * 2 / 3), base_size),
-            "21:9": (base_size, int(base_size * 9 / 21)),
-        }
-
-        width, height = ratio_dimensions.get(ratio, (1024, 576))
+        width, height = get_size_for_ratio(ratio, request.resolution or "1K")
 
         # 确保是64的倍数（SD要求）
         width = (width // 64) * 64
         height = (height // 64) * 64
 
+        logger.info(f"ComfyUI: 使用宽高比 {ratio} 计算尺寸: {width}x{height}")
         return width, height
 
     async def _queue_prompt(

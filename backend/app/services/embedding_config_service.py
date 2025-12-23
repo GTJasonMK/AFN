@@ -249,6 +249,12 @@ class EmbeddingConfigService:
 
         base_url = config.api_base_url.strip() if config.api_base_url else None
 
+        # 自动补全 /v1 后缀（OpenAI SDK 需要）
+        if base_url:
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url = f"{base_url}/v1"
+
         logger.info(
             "测试 OpenAI 嵌入配置: config_name=%s, base_url=%s, model=%s",
             config.config_name, base_url, model_name
@@ -307,3 +313,175 @@ class EmbeddingConfigService:
             raise ValueError("嵌入向量维度为0")
 
         return vector_dimension
+
+    # ------------------------------------------------------------------
+    # 导入导出功能
+    # ------------------------------------------------------------------
+
+    async def export_config(self, config_id: int, user_id: int) -> dict:
+        """
+        导出单个嵌入配置为JSON格式。
+
+        Args:
+            config_id: 配置ID
+            user_id: 用户ID（权限验证）
+
+        Returns:
+            包含配置信息的字典
+        """
+        from datetime import datetime, timezone
+        from ..schemas.embedding_config import EmbeddingConfigExport, EmbeddingConfigExportData
+
+        config = await self.repo.get_by_id(config_id, user_id)
+        if not config:
+            raise ResourceNotFoundError("嵌入配置", f"ID={config_id}")
+
+        export_data = EmbeddingConfigExportData(
+            version="1.0",
+            export_time=datetime.now(timezone.utc).isoformat(),
+            export_type="embedding",
+            configs=[
+                EmbeddingConfigExport(
+                    config_name=config.config_name,
+                    provider=config.provider,
+                    api_base_url=config.api_base_url,
+                    api_key=self._decrypt_key(config.api_key),
+                    model_name=config.model_name,
+                    vector_size=config.vector_size,
+                )
+            ],
+        )
+
+        return export_data.model_dump()
+
+    async def export_all_configs(self, user_id: int) -> dict:
+        """
+        导出用户的所有嵌入配置为JSON格式。
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            包含所有配置的字典
+        """
+        from datetime import datetime, timezone
+        from ..schemas.embedding_config import EmbeddingConfigExport, EmbeddingConfigExportData
+
+        configs = await self.repo.list_by_user(user_id)
+        if not configs:
+            raise ResourceNotFoundError("嵌入配置", f"用户ID={user_id}无配置可导出")
+
+        export_data = EmbeddingConfigExportData(
+            version="1.0",
+            export_time=datetime.now(timezone.utc).isoformat(),
+            export_type="embedding",
+            configs=[
+                EmbeddingConfigExport(
+                    config_name=config.config_name,
+                    provider=config.provider,
+                    api_base_url=config.api_base_url,
+                    api_key=self._decrypt_key(config.api_key),
+                    model_name=config.model_name,
+                    vector_size=config.vector_size,
+                )
+                for config in configs
+            ],
+        )
+
+        return export_data.model_dump()
+
+    async def import_configs(self, user_id: int, import_data: dict) -> dict:
+        """
+        导入嵌入配置。
+
+        Args:
+            user_id: 用户ID
+            import_data: 导入的配置数据
+
+        Returns:
+            导入结果统计
+        """
+        from ..schemas.embedding_config import EmbeddingConfigExportData, EmbeddingConfigImportResult
+
+        # 验证导入数据格式
+        try:
+            data = EmbeddingConfigExportData(**import_data)
+        except Exception as exc:
+            raise InvalidParameterError(
+                f"导入数据格式错误: {str(exc)}",
+                parameter="import_data"
+            )
+
+        # 检查版本兼容性
+        if data.version != "1.0":
+            raise InvalidParameterError(
+                f"不支持的导出格式版本: {data.version}，当前仅支持 1.0",
+                parameter="version"
+            )
+
+        # 获取用户现有的配置名称
+        existing_configs = await self.repo.list_by_user(user_id)
+        existing_names = {config.config_name for config in existing_configs}
+
+        imported_count = 0
+        skipped_count = 0
+        failed_count = 0
+        details = []
+
+        for config_data in data.configs:
+            try:
+                # 处理重名
+                original_name = config_data.config_name
+                config_name = original_name
+                suffix = 1
+
+                while config_name in existing_names:
+                    config_name = f"{original_name} ({suffix})"
+                    suffix += 1
+
+                if config_name != original_name:
+                    details.append(
+                        f"配置 '{original_name}' 已重命名为 '{config_name}'（避免重名）"
+                    )
+
+                # 创建新配置
+                new_config = EmbeddingConfig(
+                    user_id=user_id,
+                    config_name=config_name,
+                    provider=config_data.provider,
+                    api_base_url=config_data.api_base_url,
+                    api_key=self._encrypt_key(config_data.api_key),
+                    model_name=config_data.model_name,
+                    vector_size=config_data.vector_size,
+                    is_active=False,
+                    is_verified=False,
+                )
+
+                await self.repo.add(new_config)
+                existing_names.add(config_name)
+                imported_count += 1
+                details.append(f"成功导入配置 '{config_name}'")
+
+            except Exception as exc:
+                failed_count += 1
+                details.append(
+                    f"导入配置 '{config_data.config_name}' 失败: {str(exc)}"
+                )
+                logger.error(
+                    "导入嵌入配置失败: user_id=%s, config_name=%s, error=%s",
+                    user_id,
+                    config_data.config_name,
+                    str(exc),
+                    exc_info=True,
+                )
+
+        await self.session.commit()
+
+        return EmbeddingConfigImportResult(
+            success=imported_count > 0,
+            message=f"导入完成：成功 {imported_count} 个，失败 {failed_count} 个",
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+            details=details,
+        ).model_dump()

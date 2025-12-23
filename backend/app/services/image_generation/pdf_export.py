@@ -490,7 +490,8 @@ class PDFExportService:
         根据AI生成的排版方案，将图片按分镜布局排列在页面上。
         支持：
         - 多图排版（一页多个分镜格子）
-        - 不同大小的格子（hero/major/standard/minor）
+        - 使用页面模板定义的画格坐标
+        - 按panel_id精确匹配图片
         - 出血线和安全区域
         - 专业的页面边距
 
@@ -514,6 +515,9 @@ class PDFExportService:
                     error_message="PDF生成库未安装，请运行: pip install reportlab pillow",
                 )
 
+            # 导入页面模板
+            from ..manga_prompt.page_templates import get_template
+
             # 获取章节的漫画提示词（包含排版信息）
             from ...repositories.chapter_repository import ChapterRepository
             chapter_repo = ChapterRepository(self.session)
@@ -525,48 +529,22 @@ class PDFExportService:
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
             manga_prompt = chapter.manga_prompt
-            layout_info = manga_prompt.layout_info
             scenes_data = manga_prompt.scenes or []
+            panels_data = manga_prompt.panels or []
 
-            # 如果没有排版信息，回退到简单模式
-            if not layout_info:
+            # 如果没有场景或画格数据，回退到简单模式
+            if not scenes_data or not panels_data:
                 logger.info("排版信息为空，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
-            # 获取章节所有图片（支持版本过滤）
-            query = select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-            )
-
-            # P1修复: 版本过滤逻辑优化 - 严格按版本过滤，不混入历史数据
-            if request.chapter_version_id is not None:
-                query = query.where(
-                    GeneratedImage.chapter_version_id == request.chapter_version_id
-                )
-            else:
-                query = query.where(
-                    GeneratedImage.chapter_version_id.is_(None)
-                )
-
+            # 获取章节所有图片
             result = await self.session.execute(
-                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
-            )
-            all_images = list(result.scalars().all())
-
-            # 如果指定版本没有图片，尝试回退到历史图片
-            if not all_images and request.chapter_version_id is not None:
-                logger.info(
-                    "版本 %s 无图片，尝试回退到历史图片",
-                    request.chapter_version_id
-                )
-                fallback_query = select(GeneratedImage).where(
+                select(GeneratedImage).where(
                     GeneratedImage.project_id == project_id,
                     GeneratedImage.chapter_number == chapter_number,
-                    GeneratedImage.chapter_version_id.is_(None),
                 ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
-                result = await self.session.execute(fallback_query)
-                all_images = list(result.scalars().all())
+            )
+            all_images = list(result.scalars().all())
 
             if not all_images:
                 return ChapterMangaPDFResponse(
@@ -574,11 +552,18 @@ class PDFExportService:
                     error_message="该章节暂无图片",
                 )
 
-            # 按场景ID分组图片（取每个场景的第一张）
-            scene_images: Dict[int, GeneratedImage] = {}
+            # 按 panel_id 索引图片（精确匹配）
+            # 同时按 scene_id 索引作为后备
+            panel_image_map: Dict[str, GeneratedImage] = {}
+            scene_image_map: Dict[int, GeneratedImage] = {}
+
             for img in all_images:
-                if img.scene_id not in scene_images:
-                    scene_images[img.scene_id] = img
+                if img.panel_id and img.panel_id not in panel_image_map:
+                    panel_image_map[img.panel_id] = img
+                if img.scene_id not in scene_image_map:
+                    scene_image_map[img.scene_id] = img
+
+            logger.info(f"图片索引: panel_id={len(panel_image_map)}, scene_id={len(scene_image_map)}")
 
             # 确保导出目录存在
             EXPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -588,13 +573,12 @@ class PDFExportService:
             file_name = f"manga_pro_{project_id}_ch{chapter_number}_{timestamp}.pdf"
             file_path = EXPORT_DIR / file_name
 
-            # 获取页面尺寸
-            page_size_name = layout_info.get("page_size", "A4")
+            # 获取页面尺寸（从请求参数获取，默认A4）
+            page_size_name = request.page_size or "A4"
             page_size = PAGE_SIZES.get(page_size_name, PAGE_SIZES["A4"])
             page_width, page_height = page_size
 
             # 出血线和安全区域（单位：点）
-            bleed_margin = 3 * mm  # 出血线 3mm
             safe_margin = 5 * mm   # 安全区域 5mm
             gutter = 2 * mm        # 格子间距 2mm
 
@@ -609,84 +593,133 @@ class PDFExportService:
             c.setTitle(f"第{chapter_number}章 漫画")
             c.setAuthor("AFN Novel Writing Assistant")
 
-            page_count = 0
+            # 从 scenes 数据中提取页面和模板信息
+            # 注意：每个场景的 page_number 都是从1开始的相对页码
+            # 所以我们需要按场景组织，每个场景作为独立的页面
 
-            # 从场景数据中提取排版信息并绘制
-            # 按页码分组场景
-            pages_data: Dict[int, List[Dict]] = {}
+            # 按场景组织画格
+            scene_panels: Dict[int, List[Dict]] = {}  # scene_id -> panels
+            scene_templates: Dict[int, str] = {}  # scene_id -> template_id
+
+            # 从 scenes 中提取模板信息
             for scene in scenes_data:
-                panel_info = scene.get("panel_info")
-                if not panel_info:
+                scene_id = scene.get("scene_id")
+                if scene_id is None:
                     continue
+                for page_info in scene.get("pages", []):
+                    template_id = page_info.get("template_id")
+                    if template_id:
+                        scene_templates[scene_id] = template_id
+                        break  # 每个场景取第一个模板
 
-                page_num = panel_info.get("page_number", 1)
-                if page_num not in pages_data:
-                    pages_data[page_num] = []
-                pages_data[page_num].append({
-                    "scene_id": scene.get("scene_id"),
-                    "panel_info": panel_info,
-                })
+            # 从 panels 中提取每个场景的画格
+            for panel in panels_data:
+                scene_id = panel.get("scene_id")
+                if scene_id is not None:
+                    if scene_id not in scene_panels:
+                        scene_panels[scene_id] = []
+                    scene_panels[scene_id].append(panel)
 
-            # 如果没有页面数据，使用简单布局
-            if not pages_data:
-                logger.info("无页面排版数据，使用简单布局")
+            logger.info(f"场景数据: {len(scene_panels)} 个场景, 模板: {scene_templates}")
+
+            # 如果没有有效的场景数据，回退到简单模式
+            if not scene_panels:
+                logger.info("无有效场景数据，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
-            # 按页码顺序绘制
-            for page_num in sorted(pages_data.keys()):
-                panels = pages_data[page_num]
+            page_count = 0
+
+            # 按场景顺序绘制（每个场景一页）
+            for scene_id in sorted(scene_panels.keys()):
+                panels = scene_panels[scene_id]
+                template_id = scene_templates.get(scene_id)
+
+                # 获取模板
+                template = get_template(template_id) if template_id else None
+
+                logger.debug(f"绘制场景 {scene_id}: {len(panels)} 个画格, 模板={template_id}")
 
                 # 绘制页面背景（白色）
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
 
-                # 绘制每个格子
-                for panel_data in panels:
-                    scene_id = panel_data["scene_id"]
-                    panel = panel_data["panel_info"]
+                # 绘制每个画格
+                for panel in panels:
+                    panel_id = panel.get("panel_id", "")
+                    scene_id = panel.get("scene_id")
+                    slot_id = panel.get("slot_id", 1)
 
-                    # 获取场景图片
-                    if scene_id not in scene_images:
-                        logger.warning(f"场景 {scene_id} 无图片")
+                    # 获取图片：优先按 panel_id 匹配，后备按 scene_id
+                    img_record = panel_image_map.get(panel_id)
+                    if not img_record and scene_id:
+                        img_record = scene_image_map.get(scene_id)
+
+                    if not img_record:
+                        logger.debug(f"画格 {panel_id} 无图片")
                         continue
 
-                    img_record = scene_images[scene_id]
                     img_path = IMAGES_ROOT / img_record.file_path
-
                     if not img_path.exists():
                         logger.warning(f"图片不存在: {img_path}")
                         continue
 
-                    # 计算格子位置（相对坐标转绝对坐标）
-                    # panel_info中的x,y,width,height是0-1的相对值
-                    rel_x = panel.get("x", 0)
-                    rel_y = panel.get("y", 0)
-                    rel_width = panel.get("width", 0.5)
-                    rel_height = panel.get("height", 0.5)
+                    # 从模板获取画格坐标
+                    rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
 
-                    # 转换为绝对坐标（注意PDF坐标系是左下角为原点）
+                    if template:
+                        # 根据 slot_id 在模板中查找画格位置
+                        for slot in template.panel_slots:
+                            if slot.slot_id == slot_id:
+                                rel_x = slot.x
+                                rel_y = slot.y
+                                rel_width = slot.width
+                                rel_height = slot.height
+                                break
+                    else:
+                        # 无模板时，根据画格数量简单排版
+                        panel_count = len(panels)
+                        panel_index = panels.index(panel)
+                        if panel_count == 1:
+                            rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
+                        elif panel_count == 2:
+                            rel_x = 0.0
+                            rel_y = 0.5 * panel_index
+                            rel_width = 1.0
+                            rel_height = 0.48
+                        elif panel_count <= 4:
+                            col = panel_index % 2
+                            row = panel_index // 2
+                            rel_x = 0.52 * col
+                            rel_y = 0.52 * row
+                            rel_width = 0.48
+                            rel_height = 0.48
+                        else:
+                            # 更多画格时使用三行布局
+                            col = panel_index % 2
+                            row = panel_index // 2
+                            rel_x = 0.52 * col
+                            rel_y = 0.34 * row
+                            rel_width = 0.48
+                            rel_height = 0.32
+
+                    # 转换为绝对坐标（PDF坐标系是左下角为原点）
                     panel_x = content_x + rel_x * content_width
                     panel_width = rel_width * content_width - gutter
                     panel_height = rel_height * content_height - gutter
                     # PDF的y坐标是从下往上的，需要转换
                     panel_y = page_height - content_y - rel_y * content_height - panel_height
 
-                    # 绘制格子边框（可选）
-                    c.setStrokeColorRGB(0.9, 0.9, 0.9)
-                    c.setLineWidth(0.5)
-                    c.rect(panel_x, panel_y, panel_width, panel_height, fill=False, stroke=True)
-
                     try:
                         # 读取图片
                         pil_img = PILImage.open(str(img_path))
                         img_width, img_height = pil_img.size
 
-                        # 计算图片在格子内的尺寸（保持比例，填充格子）
+                        # 计算图片在格子内的尺寸（保持比例，适配格子）
                         scale_w = panel_width / img_width
                         scale_h = panel_height / img_height
 
-                        # 使用较大的缩放比例（填充模式）
-                        scale = max(scale_w, scale_h)
+                        # 使用较小的缩放比例（适配模式，确保图片完整显示不被裁剪）
+                        scale = min(scale_w, scale_h)
 
                         draw_width = img_width * scale
                         draw_height = img_height * scale
@@ -723,17 +756,20 @@ class PDFExportService:
                         # 绘制占位符
                         c.setFillColorRGB(0.95, 0.95, 0.95)
                         c.rect(panel_x, panel_y, panel_width, panel_height, fill=True, stroke=True)
+                        _register_chinese_font()
+                        c.setFont(_CHINESE_FONT_NAME, 10)
                         c.setFillColorRGB(0.5, 0.5, 0.5)
                         c.drawCentredString(
                             panel_x + panel_width / 2,
                             panel_y + panel_height / 2,
-                            f"Scene {scene_id}"
+                            f"Panel {slot_id}"
                         )
 
                 # 绘制页码
+                _register_chinese_font()
                 c.setFillColorRGB(0.5, 0.5, 0.5)
                 c.setFont(_CHINESE_FONT_NAME, 9)
-                c.drawCentredString(page_width / 2, 15, str(page_num))
+                c.drawCentredString(page_width / 2, 15, str(page_count + 1))
 
                 # 新页面
                 c.showPage()
@@ -748,6 +784,8 @@ class PDFExportService:
             # 保存PDF
             c.save()
 
+            logger.info(f"专业排版PDF生成完成: {page_count} 页")
+
             return ChapterMangaPDFResponse(
                 success=True,
                 file_path=str(file_path),
@@ -757,7 +795,7 @@ class PDFExportService:
             )
 
         except Exception as e:
-            logger.error(f"生成专业漫画PDF失败: {e}")
+            logger.error(f"生成专业漫画PDF失败: {e}", exc_info=True)
             return ChapterMangaPDFResponse(
                 success=False,
                 error_message=str(e),

@@ -27,6 +27,7 @@ from .theme_refresh import ThemeRefreshMixin
 from .chapter_display import ChapterDisplayMixin
 from .inline_diff import InlineDiffMixin
 from .manga_handlers import MangaHandlersMixin
+from .generation_handlers import GenerationHandlersMixin
 
 
 class WDWorkspace(
@@ -34,6 +35,7 @@ class WDWorkspace(
     ChapterDisplayMixin,
     InlineDiffMixin,
     MangaHandlersMixin,
+    GenerationHandlersMixin,
     ThemeAwareFrame
 ):
     """主工作区 - 章节内容与版本管理"""
@@ -83,7 +85,11 @@ class WDWorkspace(
             on_generate_pdf=self._onGenerateMangaPDF,
             on_load_pdf=self._loadChapterMangaPDF,
             on_download_pdf=self._onDownloadPDF,
+            on_generate_all_images=self._onGenerateAllImages,
         )
+
+        # 漫画生成状态标志（防止异步加载覆盖UI状态）
+        self._manga_generating = False
 
         # 保存组件引用
         self.empty_state = None

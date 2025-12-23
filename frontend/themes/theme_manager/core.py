@@ -25,34 +25,25 @@ class ThemeManager(
     BookStylesMixin,
     QObject
 ):
-    """主题管理器 - 单例模式
+    """主题管理器
 
     组合多个 Mixin 提供完整的主题管理功能：
     - ThemePropertiesMixin: 颜色和设计常量属性代理
     - ButtonStylesMixin: 按钮样式工厂方法
     - ComponentStylesMixin: 通用组件样式方法
     - BookStylesMixin: 书香风格专用方法
+
+    使用模块级单例模式，通过 theme_manager 变量访问全局实例。
     """
 
     theme_changed = pyqtSignal(str)  # 主题切换信号
 
-    _instance = None
-    _initialized = False
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            # 必须在__new__中调用QObject的__init__
-            QObject.__init__(cls._instance)
-            cls._instance._current_mode = ThemeMode.LIGHT
-            cls._instance._current_theme = LightTheme
-            cls._instance._config_manager = None
-            cls._initialized = True
-        return cls._instance
-
     def __init__(self):
-        # 由于在__new__中已经初始化，这里不需要再做任何事
-        pass
+        """初始化主题管理器"""
+        super().__init__()
+        self._current_mode = ThemeMode.LIGHT
+        self._current_theme = LightTheme
+        self._config_manager = None
 
     @property
     def current_mode(self):

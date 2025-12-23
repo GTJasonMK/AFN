@@ -425,10 +425,15 @@ class NovelService:
     # ------------------------------------------------------------------
 
     async def check_and_update_completion_status(self, project_id: str, user_id: int) -> None:
-        """检查项目是否完成，如果所有章节都已选择版本，更新状态为completed"""
+        """检查项目是否完成，如果所有章节都已选择版本，更新状态为completed
+
+        注意：空白项目（跳过灵感对话创建的项目）没有预设的章节总数，
+        因此不会自动转换到完成状态。用户需要手动管理空白项目的完成状态。
+        """
         project_schema = await self.get_project_schema(project_id, user_id)
         project = await self.repo.get_by_id(project_id)
 
+        # 空白项目没有蓝图或章节总数，跳过自动完成检查
         if not project_schema.blueprint or not project_schema.blueprint.total_chapters:
             return
 

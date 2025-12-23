@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import InvalidRequestError
+from pydantic import ValidationError
 
 from ...core.config import settings
 from ...core.constants import LLMConstants
@@ -20,6 +21,7 @@ from ...schemas.novel import ChapterAnalysisData
 from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, parse_llm_json_safe
 from ...utils.exception_helpers import log_exception
 from ...utils.blueprint_utils import prepare_blueprint_for_generation
+from ...utils.writer_helpers import extract_tail_excerpt
 from ..llm_service import LLMService
 
 from .context import ChapterGenerationContext
@@ -60,6 +62,15 @@ class ChapterGenerationService:
         self.llm_service = llm_service
         self._prompt_builder = ChapterPromptBuilder()
         self._version_processor = ChapterVersionProcessor()
+        self._foreshadowing_service = None
+
+    @property
+    def foreshadowing_service(self):
+        """获取伏笔服务（延迟初始化）"""
+        if self._foreshadowing_service is None:
+            from ..foreshadowing_service import ForeshadowingService
+            self._foreshadowing_service = ForeshadowingService(self.session)
+        return self._foreshadowing_service
 
     @staticmethod
     def build_blueprint_info(blueprint_dict: Dict) -> "BlueprintInfo":
@@ -87,6 +98,23 @@ class ChapterGenerationService:
         )
 
     @staticmethod
+    def _get_chapter_by_number(project: NovelProject, chapter_number: int):
+        """
+        根据章节号获取章节对象
+
+        使用字典映射替代线性搜索，提升查询效率。
+
+        Args:
+            project: 项目对象
+            chapter_number: 目标章节号
+
+        Returns:
+            章节对象，不存在返回None
+        """
+        chapters_map = {ch.chapter_number: ch for ch in project.chapters}
+        return chapters_map.get(chapter_number)
+
+    @staticmethod
     def get_prev_chapter_analysis(
         project: NovelProject,
         current_chapter_number: int,
@@ -101,16 +129,17 @@ class ChapterGenerationService:
         Returns:
             ChapterAnalysisData: 前一章分析数据，不存在返回None
         """
-        # 使用字典映射替代线性搜索，提升查询效率
-        chapters_map = {ch.chapter_number: ch for ch in project.chapters}
-        prev_chapter = chapters_map.get(current_chapter_number - 1)
+        prev_chapter = ChapterGenerationService._get_chapter_by_number(
+            project, current_chapter_number - 1
+        )
 
         if not prev_chapter or not prev_chapter.analysis_data:
             return None
 
         try:
             return ChapterAnalysisData.model_validate(prev_chapter.analysis_data)
-        except Exception as exc:
+        except (ValidationError, TypeError, ValueError) as exc:
+            # 仅捕获数据验证相关的异常，其他异常向上传播
             logger.warning(
                 "解析前一章分析数据失败: project=%s chapter=%d error=%s",
                 project.id,
@@ -164,7 +193,6 @@ class ChapterGenerationService:
             ChapterGenerationContext: 生成上下文
         """
         # 导入相关服务（延迟导入避免循环依赖）
-        from ..foreshadowing_service import ForeshadowingService
         from ..chapter_context_service import EnhancedChapterContextService
 
         # 1. 构建基础数据
@@ -173,9 +201,8 @@ class ChapterGenerationService:
         prev_chapter_analysis = self.get_prev_chapter_analysis(project, chapter_number)
         total_chapters = len(project.outlines) if project.outlines else chapter_number
 
-        # 2. 获取待回收伏笔
-        foreshadowing_service = ForeshadowingService(self.session)
-        pending_foreshadowing = await foreshadowing_service.get_pending_for_generation(
+        # 2. 获取待回收伏笔（通过延迟初始化的服务）
+        pending_foreshadowing = await self.foreshadowing_service.get_pending_for_generation(
             project_id=project.id,
             chapter_number=chapter_number,
             outline_summary=outline.summary,
@@ -352,8 +379,6 @@ class ChapterGenerationService:
             if existing.chapter_number > latest_prev_number:
                 latest_prev_number = existing.chapter_number
                 previous_summary_text = existing.real_summary or ""
-                # 导入extract_tail_excerpt函数
-                from ...utils.writer_helpers import extract_tail_excerpt
                 previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
 
         return completed_chapters, previous_summary_text, previous_tail_excerpt
@@ -436,9 +461,9 @@ class ChapterGenerationService:
         previous_summary_text = ""
         previous_tail_excerpt = ""
 
-        # 使用字典映射替代线性搜索
-        chapters_map = {ch.chapter_number: ch for ch in project.chapters}
-        chapter = chapters_map.get(current_chapter_number - 1)
+        chapter = ChapterGenerationService._get_chapter_by_number(
+            project, current_chapter_number - 1
+        )
 
         if chapter and chapter.selected_version and chapter.selected_version.content:
             previous_summary_text = chapter.real_summary or ""
@@ -520,32 +545,23 @@ class ChapterGenerationService:
                 # 取消异常需要向上传播，不能被吞掉
                 logger.info("[Task %s] 版本 %s 生成被取消", task_id, idx + 1)
                 raise
-            except Exception as exc:
+            except (InvalidRequestError, OSError, TimeoutError) as exc:
+                # 可预期的异常：Session冲突、网络错误、超时
                 import traceback
                 error_details = traceback.format_exc()
-                logger.exception(
-                    "[Task %s] 项目 %s 生成第 %s 章第 %s 个版本时发生异常\n异常类型: %s\n异常信息: %s\n完整堆栈:\n%s",
-                    task_id,
-                    project_id,
-                    chapter_number,
-                    idx + 1,
-                    type(exc).__name__,
-                    exc,
-                    error_details,
+                logger.error(
+                    "[Task %s] 项目 %s 生成第 %s 章第 %s 个版本时发生可恢复异常\n异常类型: %s\n异常信息: %s",
+                    task_id, project_id, chapter_number, idx + 1,
+                    type(exc).__name__, exc,
                 )
-                # 检测 Session 并发冲突（使用类型检查代替字符串匹配）
-                is_session_conflict = (
-                    isinstance(exc, InvalidRequestError)
-                    or "flushing" in str(exc).lower()  # 保留字符串检查作为兜底
-                )
-                if is_session_conflict:
+                # 检测 Session 并发冲突
+                if isinstance(exc, InvalidRequestError):
                     logger.error(
-                        "[Task %s] !!!!! 检测到 Session flushing 冲突 !!!!!\n"
-                        "当前任务ID: %s\n版本索引: %s\n"
-                        "cached_config 是否存在: %s\nskip_usage_tracking: %s\n完整异常: %s",
-                        task_id, task_id, idx, bool(llm_config), skip_usage_tracking, error_details,
+                        "[Task %s] 检测到 Session flushing 冲突\n"
+                        "cached_config 是否存在: %s\nskip_usage_tracking: %s",
+                        task_id, bool(llm_config), skip_usage_tracking,
                     )
-                return {"content": f"生成失败: {exc}"}
+                return {"content": f"生成失败: {type(exc).__name__}: {exc}"}
 
         logger.info(
             "项目 %s 第 %s 章计划生成 %s 个版本（并行模式配置：%s）",

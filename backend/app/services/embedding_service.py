@@ -199,6 +199,12 @@ class EmbeddingService:
                 "嵌入模型配置缺少 API Key。请在「设置 - 嵌入模型」中检查配置。"
             )
 
+        # 自动补全 /v1 后缀（OpenAI SDK 需要）
+        if base_url:
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url = f"{base_url}/v1"
+
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
         try:

@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import HTTPException
+from ..exceptions import JSONParseError
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ def repair_truncated_json(text: str) -> str:
 
     当LLM响应被截断时，JSON可能缺少闭合括号。
     此函数尝试通过添加缺失的闭合符号来修复。
+    使用栈来正确跟踪括号的打开顺序，确保闭合顺序正确。
 
     Args:
         text: 可能被截断的JSON字符串
@@ -70,9 +71,8 @@ def repair_truncated_json(text: str) -> str:
 
     text = text.rstrip()
 
-    # 统计未闭合的括号
-    open_braces = 0  # {
-    open_brackets = 0  # [
+    # 使用栈记录括号打开顺序
+    bracket_stack = []  # 存储需要的闭合符号
     in_string = False
     escape_next = False
 
@@ -83,26 +83,21 @@ def repair_truncated_json(text: str) -> str:
         if char == '\\':
             escape_next = True
             continue
-        if char == '"' and not escape_next:
+        if char == '"':
             in_string = not in_string
             continue
         if in_string:
             continue
         if char == '{':
-            open_braces += 1
-        elif char == '}':
-            open_braces -= 1
+            bracket_stack.append('}')
         elif char == '[':
-            open_brackets += 1
-        elif char == ']':
-            open_brackets -= 1
+            bracket_stack.append(']')
+        elif char in '}]':
+            if bracket_stack and bracket_stack[-1] == char:
+                bracket_stack.pop()
 
     # 如果有未闭合的括号，尝试修复
-    if open_braces > 0 or open_brackets > 0:
-        # 移除可能被截断的不完整部分（如未闭合的字符串）
-        # 从末尾向前找到最后一个完整的值
-        last_valid_pos = len(text)
-
+    if bracket_stack or in_string:
         # 检查是否在字符串中间被截断
         if in_string:
             # 找到最后一个未闭合的引号位置
@@ -111,23 +106,40 @@ def repair_truncated_json(text: str) -> str:
                 # 回退到引号前的逗号或冒号
                 for i in range(last_quote - 1, -1, -1):
                     if text[i] in ',:[{':
-                        last_valid_pos = i + 1
+                        text = text[:i + 1].rstrip()
                         break
-                text = text[:last_valid_pos].rstrip()
-                # 重新统计
-                open_braces = text.count('{') - text.count('}')
-                open_brackets = text.count('[') - text.count(']')
+                # 重新计算栈
+                bracket_stack = []
+                in_string = False
+                escape_next = False
+                for char in text:
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if char == '\\':
+                        escape_next = True
+                        continue
+                    if char == '"':
+                        in_string = not in_string
+                        continue
+                    if in_string:
+                        continue
+                    if char == '{':
+                        bracket_stack.append('}')
+                    elif char == '[':
+                        bracket_stack.append(']')
+                    elif char in '}]':
+                        if bracket_stack and bracket_stack[-1] == char:
+                            bracket_stack.pop()
 
         # 移除末尾的逗号（如果有）
         text = text.rstrip().rstrip(',')
 
-        # 添加缺失的闭合符号
-        # 按照JSON规范，先闭合内层再闭合外层
-        text += ']' * open_brackets
-        text += '}' * open_braces
-
-        logger.info("JSON修复: 添加了 %d 个 '}' 和 %d 个 ']'",
-                   max(0, open_braces), max(0, open_brackets))
+        # 按栈的逆序添加闭合符号（后进先出，确保正确嵌套）
+        if bracket_stack:
+            closing_chars = ''.join(reversed(bracket_stack))
+            text += closing_chars
+            logger.info("JSON修复: 添加了闭合符号 '%s'", closing_chars)
 
     return text
 
@@ -135,23 +147,22 @@ def repair_truncated_json(text: str) -> str:
 def parse_llm_json_or_fail(
     raw_text: str,
     error_context: str,
-    status_code: int = 500
 ) -> Dict[str, Any]:
     """
-    解析LLM返回的JSON，失败时抛出HTTP异常
+    解析LLM返回的JSON，失败时抛出业务异常
 
-    自动处理think标签和markdown包装，适用于Router层。
+    自动处理think标签和markdown包装，适用于Service/Router层。
+    抛出的 JSONParseError 会被全局异常处理器转换为 HTTP 响应。
 
     Args:
         raw_text: LLM返回的原始文本（可能包含markdown、think标签等）
         error_context: 错误上下文描述（用于日志和错误消息）
-        status_code: HTTP状态码（默认500）
 
     Returns:
         解析后的字典
 
     Raises:
-        HTTPException: JSON解析失败
+        JSONParseError: JSON解析失败
 
     Example:
         ```python
@@ -188,19 +199,19 @@ def parse_llm_json_or_fail(
         stripped = normalized.strip()
         if stripped and not stripped.startswith('{') and not stripped.startswith('['):
             # LLM返回了普通文本而不是JSON
-            user_message = f"{error_context}: AI返回了对话内容而不是预期的结构化数据，请重试或调整对话内容"
+            detail_msg = "AI返回了对话内容而不是预期的结构化数据，请重试或调整对话内容"
         else:
-            user_message = f"{error_context}: LLM返回格式错误"
+            detail_msg = f"{exc.msg} (行{exc.lineno} 列{exc.colno})"
 
-        raise HTTPException(
-            status_code=status_code,
-            detail=user_message
+        raise JSONParseError(
+            context=error_context,
+            detail_msg=detail_msg
         ) from exc
     except Exception as exc:
         logger.exception("JSON解析时发生未预期的错误: %s", error_context)
-        raise HTTPException(
-            status_code=status_code,
-            detail=f"{error_context}: 解析失败"
+        raise JSONParseError(
+            context=error_context,
+            detail_msg=f"未预期错误: {type(exc).__name__}"
         ) from exc
 
 

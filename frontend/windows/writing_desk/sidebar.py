@@ -31,6 +31,7 @@ class WDSidebar(ThemeAwareFrame):
     chapterSelected = pyqtSignal(int)  # chapter_number
     generateChapter = pyqtSignal(int)
     generateOutline = pyqtSignal()
+    createChapter = pyqtSignal()  # 手动新增章节（用于空白项目）
 
     def __init__(self, project=None, parent=None):
         self.project = project or {}
@@ -50,6 +51,7 @@ class WDSidebar(ThemeAwareFrame):
         self.chapters_container = None  # 章节卡片容器
         self.empty_state = None
         self.outline_btn = None
+        self.add_chapter_btn = None  # 新增章节按钮
 
         super().__init__(parent)
         self.setupUI()
@@ -150,11 +152,20 @@ class WDSidebar(ThemeAwareFrame):
         list_header.setObjectName("list_header")
         list_header_layout = QHBoxLayout(list_header)
         list_header_layout.setContentsMargins(0, 0, 0, 0)
-        list_header_layout.setSpacing(dp(12))
+        list_header_layout.setSpacing(dp(8))
 
         chapters_title = QLabel("章节列表")
         chapters_title.setObjectName("chapters_title")
         list_header_layout.addWidget(chapters_title, stretch=1)
+
+        # 新增章节按钮（用于空白项目或手动添加）
+        self.add_chapter_btn = QPushButton("+")
+        self.add_chapter_btn.setObjectName("add_chapter_btn")
+        self.add_chapter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_chapter_btn.setToolTip("新增章节")
+        self.add_chapter_btn.setFixedSize(dp(32), dp(32))
+        self.add_chapter_btn.clicked.connect(self.createChapter.emit)
+        list_header_layout.addWidget(self.add_chapter_btn)
 
         # 生成大纲按钮
         self.outline_btn = QPushButton("生成大纲")
@@ -312,6 +323,26 @@ class WDSidebar(ThemeAwareFrame):
         if self.outline_btn:
             self.outline_btn.setStyleSheet(ButtonStyles.primary('SM'))
 
+        # 新增章节按钮 - 圆形按钮
+        if self.add_chapter_btn:
+            self.add_chapter_btn.setStyleSheet(f"""
+                QPushButton#add_chapter_btn {{
+                    background-color: {theme_manager.BG_SECONDARY};
+                    color: {theme_manager.PRIMARY};
+                    border: 1px solid {theme_manager.PRIMARY};
+                    border-radius: {dp(16)}px;
+                    font-size: {sp(16)}px;
+                    font-weight: bold;
+                }}
+                QPushButton#add_chapter_btn:hover {{
+                    background-color: {theme_manager.PRIMARY_PALE};
+                }}
+                QPushButton#add_chapter_btn:pressed {{
+                    background-color: {theme_manager.PRIMARY};
+                    color: {theme_manager.BUTTON_TEXT};
+                }}
+            """)
+
     def setProject(self, project):
         """设置项目数据"""
         self.project = project
@@ -322,6 +353,10 @@ class WDSidebar(ThemeAwareFrame):
         # 更新蓝图预览
         blueprint = project.get('blueprint', {})
         logger.info(f"blueprint存在: {bool(blueprint)}")
+
+        # 判断是否为空白项目
+        is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
+
         if blueprint:
             logger.info(f"blueprint键: {list(blueprint.keys()) if isinstance(blueprint, dict) else 'NOT A DICT'}")
             style = blueprint.get('style', '未设定风格')
@@ -331,6 +366,20 @@ class WDSidebar(ThemeAwareFrame):
                 self.bp_style.setText(style)
             if self.bp_summary:
                 self.bp_summary.setText(summary)
+        else:
+            # 空白项目：显示提示信息
+            if self.bp_style:
+                self.bp_style.setText("自由创作模式")
+            if self.bp_summary:
+                self.bp_summary.setText("可直接创建章节开始写作，无需生成蓝图和大纲")
+
+        # 根据项目类型调整按钮显示
+        if self.outline_btn:
+            # 空白项目隐藏生成大纲按钮
+            self.outline_btn.setVisible(not is_empty_project)
+        if self.add_chapter_btn:
+            # 新增章节按钮始终显示（空白项目更需要）
+            self.add_chapter_btn.setVisible(True)
 
         # 更新章节列表
         chapter_outlines = blueprint.get('chapter_outline', [])
@@ -346,7 +395,12 @@ class WDSidebar(ThemeAwareFrame):
         self._populate_chapters(chapter_outlines)
 
     def _populate_chapters(self, chapter_outlines):
-        """填充章节列表
+        """填充章节列表（分批加载，避免UI卡顿）
+
+        合并章节大纲和实际章节数据：
+        - 优先使用章节大纲信息（标题、摘要）
+        - 补充实际章节的状态和字数
+        - 对于没有大纲的手动创建章节，也会显示
 
         Args:
             chapter_outlines: 章节大纲列表
@@ -359,16 +413,29 @@ class WDSidebar(ThemeAwareFrame):
             logger.error("chapters_layout为None，无法填充章节列表")
             return
 
-        if not chapter_outlines:
-            logger.warning("chapter_outline为空，显示空状态")
+        # 获取已有的章节数据
+        project_chapters = self.project.get('chapters', [])
+        chapters_map = {ch.get('chapter_number'): ch for ch in project_chapters}
+
+        # 构建章节大纲映射
+        outlines_map = {o.get('chapter_number'): o for o in chapter_outlines}
+
+        # 判断是否为空白项目
+        blueprint = self.project.get('blueprint', {})
+        is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
+
+        # 合并章节列表：大纲 + 实际章节（去重）
+        all_chapter_numbers = set()
+        all_chapter_numbers.update(outlines_map.keys())
+        all_chapter_numbers.update(chapters_map.keys())
+
+        # 如果既没有大纲也没有章节，显示空状态
+        if not all_chapter_numbers:
+            logger.warning("章节列表为空，显示空状态")
             self._show_empty_state()
             return
 
-        logger.info(f"开始填充章节列表，共 {len(chapter_outlines)} 章")
-
-        # 获取已完成章节的信息（用于显示字数）
-        project_chapters = self.project.get('chapters', [])
-        chapters_map = {ch.get('chapter_number'): ch for ch in project_chapters}
+        logger.info(f"开始填充章节列表，共 {len(all_chapter_numbers)} 章（大纲{len(outlines_map)}，实际章节{len(chapters_map)}）")
 
         # 后端 generation_status 到前端 status 的映射
         status_mapping = {
@@ -382,25 +449,58 @@ class WDSidebar(ThemeAwareFrame):
             'successful': 'completed',         # 成功：用户已确认选择版本
         }
 
-        # 创建章节卡片
-        for idx, outline in enumerate(chapter_outlines):
-            chapter_num = outline.get('chapter_number', idx + 1)
-            title = outline.get('title', f'第{chapter_num}章')
+        # 准备章节数据列表
+        chapter_data_list = []
+        for chapter_num in sorted(all_chapter_numbers):
+            outline = outlines_map.get(chapter_num, {})
+            chapter_info = chapters_map.get(chapter_num, {})
+
+            # 标题：优先使用大纲标题，其次使用章节标题，最后使用默认标题
+            title = outline.get('title') or chapter_info.get('title') or f'第{chapter_num}章'
 
             # 获取章节状态和字数
-            chapter_info = chapters_map.get(chapter_num, {})
             word_count = chapter_info.get('word_count', 0)
-
-            # 使用后端返回的 generation_status，而不是自己判断
             backend_status = chapter_info.get('generation_status', 'not_generated')
             status = status_mapping.get(backend_status, 'not_generated')
 
-            chapter_data = {
+            # 对于空白项目中的已创建章节，如果有内容则标记为已完成
+            if is_empty_project and chapter_info.get('content'):
+                status = 'completed'
+
+            chapter_data_list.append({
                 'chapter_number': chapter_num,
                 'title': title,
                 'status': status,
-                'word_count': word_count
-            }
+                'word_count': word_count,
+                'is_manual': not outline  # 标记是否为手动创建（无大纲）
+            })
+
+        # 分批创建章节卡片（减小批次，更频繁让出事件循环）
+        self._pending_chapter_data = chapter_data_list
+        self._batch_index = 0
+        self._batch_size = 3  # 每批只创建3个卡片，确保动画流畅
+        self._create_next_batch()
+
+    def _create_next_batch(self):
+        """创建下一批章节卡片"""
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QTimer
+
+        if not hasattr(self, '_pending_chapter_data') or not self._pending_chapter_data:
+            return
+
+        start_idx = self._batch_index * self._batch_size
+        end_idx = min(start_idx + self._batch_size, len(self._pending_chapter_data))
+
+        if start_idx >= len(self._pending_chapter_data):
+            # 所有卡片创建完成
+            logger.info(f"章节列表填充完成，共 {len(self.chapter_cards)} 个卡片")
+            self._pending_chapter_data = None
+            return
+
+        # 创建这一批卡片（每创建一个就让出事件循环）
+        for i in range(start_idx, end_idx):
+            chapter_data = self._pending_chapter_data[i]
 
             # 创建卡片
             card = ChapterCard(chapter_data, is_selected=False)
@@ -412,9 +512,17 @@ class WDSidebar(ThemeAwareFrame):
             self.chapters_layout.insertWidget(self.chapters_layout.count() - 1, card)
             self.chapter_cards.append(card)
 
-            logger.info(f"添加章节卡片: {chapter_num}. {title} - {status}")
+            # 每创建一个卡片就让出事件循环，确保动画流畅
+            QApplication.processEvents()
 
-        logger.info(f"章节列表填充完成，共 {len(self.chapter_cards)} 个卡片")
+        # 继续创建下一批
+        self._batch_index += 1
+        if self._batch_index * self._batch_size < len(self._pending_chapter_data):
+            # 使用 QTimer 延迟执行下一批，给UI线程喘息的机会
+            QTimer.singleShot(1, self._create_next_batch)
+        else:
+            logger.info(f"章节列表填充完成，共 {len(self.chapter_cards)} 个卡片")
+            self._pending_chapter_data = None
 
     def _clear_chapters(self):
         """清除所有章节卡片"""
@@ -436,20 +544,42 @@ class WDSidebar(ThemeAwareFrame):
             self.empty_state = None
 
     def _show_empty_state(self):
-        """显示空状态"""
+        """显示空状态
+
+        根据项目类型显示不同的空状态：
+        - 空白项目（无蓝图）：显示"新增章节"按钮
+        - 普通项目（有蓝图但无大纲）：显示"生成大纲"提示
+        """
         # 检查chapters_layout是否存在
         if self.chapters_layout is None:
             logger.warning("chapters_layout为None，无法显示空状态")
             return
 
-        self.empty_state = EmptyState(
-            icon='*',
-            title='还未生成章节大纲',
-            description='点击"生成大纲"按钮开始创作',
-            action_text='',
-            parent=self
-        )
-        self.empty_state.actionClicked.connect(self.generateOutline.emit)
+        # 判断是否为空白项目（无蓝图或蓝图为空）
+        blueprint = self.project.get('blueprint', {})
+        is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
+
+        if is_empty_project:
+            # 空白项目：允许直接创建章节
+            self.empty_state = EmptyState(
+                icon='✎',
+                title='开始创作',
+                description='点击下方按钮新增章节开始写作',
+                action_text='新增章节',
+                parent=self
+            )
+            self.empty_state.actionClicked.connect(self.createChapter.emit)
+        else:
+            # 普通项目：提示生成大纲
+            self.empty_state = EmptyState(
+                icon='*',
+                title='还未生成章节大纲',
+                description='点击"生成大纲"按钮开始创作',
+                action_text='',
+                parent=self
+            )
+            self.empty_state.actionClicked.connect(self.generateOutline.emit)
+
         self.chapters_layout.insertWidget(0, self.empty_state)
 
     def _on_chapter_card_clicked(self, chapter_number):
@@ -550,6 +680,18 @@ class WDSidebar(ThemeAwareFrame):
             if card.chapter_data.get('chapter_number') == chapter_num:
                 card.updateStatus('generating')
                 break
+
+    def setChapterGenerating(self, chapter_num: int, is_generating: bool):
+        """设置章节的生成状态
+
+        Args:
+            chapter_num: 章节编号
+            is_generating: 是否正在生成
+        """
+        if is_generating:
+            self.setGeneratingChapter(chapter_num)
+        else:
+            self.clearGeneratingState()
 
     def clearGeneratingState(self):
         """清除生成中状态"""

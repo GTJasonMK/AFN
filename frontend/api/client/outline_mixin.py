@@ -259,13 +259,13 @@ class OutlineMixin:
             data
         )
 
-    def delete_chapters(
+    def delete_chapter_outlines(
         self,
         project_id: str,
         count: int
     ) -> Dict[str, Any]:
         """
-        删除最新的N章大纲
+        删除最新的N个章节大纲
 
         Args:
             project_id: 项目ID

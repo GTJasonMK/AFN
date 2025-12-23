@@ -4,6 +4,7 @@
 负责将ORM模型转换为Pydantic Schema，分离序列化逻辑和业务逻辑。
 """
 
+import json
 import logging
 from typing import Dict, List, Optional
 
@@ -357,10 +358,10 @@ class NovelSerializer:
             # 只有在 include_content=True 时才包含完整内容
             if include_content:
                 if chapter.selected_version:
-                    content = chapter.selected_version.content
+                    content = NovelSerializer._extract_version_content(chapter.selected_version.content)
                 if chapter.versions:
                     sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
-                    versions = [v.content for v in sorted_versions]
+                    versions = [NovelSerializer._extract_version_content(v.content) for v in sorted_versions]
                 if chapter.evaluations:
                     latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
                     evaluation_text = latest.feedback or latest.decision
@@ -386,3 +387,52 @@ class NovelSerializer:
             selected_version=selected_version_idx,
             analysis_data=analysis_data,
         )
+
+    @staticmethod
+    def _extract_version_content(raw_content: str) -> str:
+        """
+        从版本内容中提取实际文本
+
+        处理两种情况：
+        1. 纯文本内容 - 直接返回
+        2. JSON格式内容 - 提取 full_content/content 等字段
+
+        Args:
+            raw_content: 原始版本内容
+
+        Returns:
+            提取的纯文本内容
+        """
+        if not raw_content:
+            return raw_content
+
+        # 快速检查是否可能是JSON
+        stripped = raw_content.strip()
+        if not stripped.startswith('{'):
+            return raw_content
+
+        # 尝试解析JSON
+        try:
+            data = json.loads(stripped)
+            if not isinstance(data, dict):
+                return raw_content
+
+            # 按优先级检查内容字段
+            content_fields = [
+                "full_content",
+                "chapter_content",
+                "content",
+                "chapter_text",
+                "text",
+                "body",
+                "chapter",
+            ]
+            for field in content_fields:
+                if field in data and isinstance(data[field], str) and data[field].strip():
+                    return data[field]
+
+            # 如果没有找到内容字段，返回原始内容
+            return raw_content
+        except (json.JSONDecodeError, ValueError):
+            # 不是有效的JSON，返回原始内容
+            return raw_content

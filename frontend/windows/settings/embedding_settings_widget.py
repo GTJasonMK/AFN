@@ -4,7 +4,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QFileDialog
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
@@ -14,6 +14,7 @@ from utils.message_service import MessageService, confirm
 from utils.async_worker import AsyncAPIWorker
 from .embedding_config_dialog import EmbeddingConfigDialog
 from .test_result_dialog import TestResultDialog
+import json
 
 
 class EmbeddingSettingsWidget(QWidget):
@@ -54,6 +55,20 @@ class EmbeddingSettingsWidget(QWidget):
         self.add_btn.clicked.connect(self.createConfig)
         top_bar.addWidget(self.add_btn)
 
+        # 导入按钮
+        self.import_btn = QPushButton("导入")
+        self.import_btn.setObjectName("secondary_btn")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_btn.clicked.connect(self.importConfigs)
+        top_bar.addWidget(self.import_btn)
+
+        # 导出全部按钮
+        self.export_all_btn = QPushButton("导出全部")
+        self.export_all_btn.setObjectName("secondary_btn")
+        self.export_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_all_btn.clicked.connect(self.exportAll)
+        top_bar.addWidget(self.export_all_btn)
+
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
@@ -87,6 +102,13 @@ class EmbeddingSettingsWidget(QWidget):
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self.editSelectedConfig)
         action_bar.addWidget(self.edit_btn)
+
+        # 导出按钮
+        self.export_btn = QPushButton("导出")
+        self.export_btn.setObjectName("secondary_btn")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(self.exportSelectedConfig)
+        action_bar.addWidget(self.export_btn)
 
         action_bar.addStretch()
 
@@ -152,7 +174,8 @@ class EmbeddingSettingsWidget(QWidget):
             }}
         """
 
-        for btn in [self.test_btn, self.activate_btn, self.edit_btn]:
+        for btn in [self.import_btn, self.export_all_btn, self.test_btn,
+                    self.activate_btn, self.edit_btn, self.export_btn]:
             btn.setStyleSheet(secondary_style)
 
         # 删除按钮样式（危险操作）
@@ -269,6 +292,7 @@ class EmbeddingSettingsWidget(QWidget):
         self.test_btn.setEnabled(has_selection)
         self.activate_btn.setEnabled(has_selection)
         self.edit_btn.setEnabled(has_selection)
+        self.export_btn.setEnabled(has_selection)
 
         # 删除按钮特殊处理（不能删除激活的配置）
         if has_selection:
@@ -414,6 +438,81 @@ class EmbeddingSettingsWidget(QWidget):
                 pass
             finally:
                 self._test_worker = None
+
+    def exportSelectedConfig(self):
+        """导出选中的配置"""
+        config = self.getSelectedConfig()
+        if not config:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出配置",
+            f"{config['config_name']}.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_embedding_config(config['id'])
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+                MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def exportAll(self):
+        """导出所有配置"""
+        if not self.configs:
+            MessageService.show_warning(self, "没有可导出的配置", "提示")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出所有配置",
+            "embedding_configs.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_embedding_configs()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+                config_count = len(export_data.get('configs', []))
+                MessageService.show_operation_success(self, "导出", f"已导出 {config_count} 个配置到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def importConfigs(self):
+        """导入配置"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import_data = json.load(f)
+
+                # 验证数据格式
+                if not isinstance(import_data, dict):
+                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
+                    return
+
+                if 'configs' not in import_data:
+                    MessageService.show_warning(self, "导入文件缺少 'configs' 字段", "格式错误")
+                    return
+
+                result = self.api_client.import_embedding_configs(import_data)
+                MessageService.show_success(self, result.get('message', '导入成功'))
+                self.loadConfigs()
+            except Exception as e:
+                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
 
     def __del__(self):
         """析构时断开主题信号连接并清理worker"""

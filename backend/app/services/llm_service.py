@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import warnings
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -42,8 +43,9 @@ class LLMService:
     def __init__(self, session):
         self.session = session
         self.llm_repo = LLMConfigRepository(session)
-        # 延迟初始化嵌入服务（按需创建）
+        # 延迟初始化服务（按需创建）
         self._embedding_service = None
+        self._prompt_service = None
 
     @property
     def embedding_service(self):
@@ -52,6 +54,13 @@ class LLMService:
             from .embedding_service import EmbeddingService
             self._embedding_service = EmbeddingService(self.session)
         return self._embedding_service
+
+    @property
+    def prompt_service(self):
+        """获取提示词服务（延迟初始化）"""
+        if self._prompt_service is None:
+            self._prompt_service = PromptService(self.session)
+        return self._prompt_service
 
     # ------------------------------------------------------------------
     # LLM 响应获取
@@ -185,8 +194,7 @@ class LLMService:
             摘要文本
         """
         if not system_prompt:
-            prompt_service = PromptService(self.session)
-            system_prompt = await prompt_service.get_prompt("extraction")
+            system_prompt = await self.prompt_service.get_prompt("extraction")
         if not system_prompt:
             raise PromptTemplateNotFoundError("extraction")
         messages = [
@@ -404,13 +412,9 @@ class LLMService:
                     config.get("model")
                 ) from exc
 
-        if last_error:
-            raise LLMServiceError(
-                "AI 服务连接失败，请检查网络或稍后重试",
-                config.get("model")
-            ) from last_error
-
-        raise LLMServiceError("未知错误")
+        # 注：此处代码逻辑上不可达，因为循环内所有分支都会 return、raise 或 continue
+        # 保留一个兜底异常以满足类型检查器要求
+        raise LLMServiceError("LLM 调用未能完成", config.get("model"))
 
     def _validate_llm_response(
         self,
@@ -453,7 +457,7 @@ class LLMService:
     # ------------------------------------------------------------------
     async def _resolve_llm_config(self, user_id: Optional[int], skip_daily_limit_check: bool = False) -> Dict[str, Optional[str]]:
         """解析LLM配置"""
-        if user_id:
+        if user_id is not None:
             try:
                 config = await self.llm_repo.get_active_config(user_id)
             except (OSError, asyncio.TimeoutError) as exc:
@@ -495,6 +499,7 @@ class LLMService:
 
     # ------------------------------------------------------------------
     # 嵌入向量功能（委托给 EmbeddingService）
+    # 已废弃：请直接使用 EmbeddingService
     # ------------------------------------------------------------------
     async def get_embedding(
         self,
@@ -507,8 +512,15 @@ class LLMService:
         """
         生成文本向量（委托给 EmbeddingService）
 
-        保持向后兼容，现有代码无需修改。
+        .. deprecated::
+            此方法已废弃，请直接使用 EmbeddingService.get_embedding()。
+            保留此方法仅为向后兼容，将在未来版本中移除。
         """
+        warnings.warn(
+            "LLMService.get_embedding() 已废弃，请直接使用 EmbeddingService.get_embedding()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self.embedding_service.get_embedding(
             text,
             user_id=user_id,
@@ -517,5 +529,16 @@ class LLMService:
         )
 
     def get_embedding_dimension(self, model: Optional[str] = None) -> Optional[int]:
-        """获取嵌入向量维度（委托给 EmbeddingService）"""
+        """
+        获取嵌入向量维度（委托给 EmbeddingService）
+
+        .. deprecated::
+            此方法已废弃，请直接使用 EmbeddingService.get_dimension()。
+            保留此方法仅为向后兼容，将在未来版本中移除。
+        """
+        warnings.warn(
+            "LLMService.get_embedding_dimension() 已废弃，请直接使用 EmbeddingService.get_dimension()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.embedding_service.get_dimension(model)

@@ -61,14 +61,7 @@ class ChapterOutlineRepository(BaseRepository[ChapterOutline]):
         """
         return await self.count_by_field("project_id", project_id)
 
-    async def delete_by_project(self, project_id: str) -> None:
-        """
-        删除项目的所有章节大纲
-
-        Args:
-            project_id: 项目ID
-        """
-        await self.delete_by_project_id(project_id)
+    # delete_by_project() 已由 BaseRepository 提供
 
     async def delete_from_chapter(self, project_id: str, from_chapter: int) -> int:
         """

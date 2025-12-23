@@ -172,7 +172,7 @@ class BasePage(QWidget):
             self._loading_overlay.setGeometry(self.rect())
 
     def show_loading(self, text="加载中..."):
-        """显示加载遮罩
+        """显示加载遮罩（带动画效果）
 
         Args:
             text: 加载提示文字，默认"加载中..."
@@ -181,14 +181,12 @@ class BasePage(QWidget):
             self.show_loading("正在生成蓝图...")
         """
         self._ensure_loading_overlay()
-        self._loading_overlay.setText(text)
-        self._loading_overlay.show()
-        self._loading_overlay.raise_()  # 确保在最上层
+        self._loading_overlay.show_with_animation(text)
 
     def hide_loading(self):
-        """隐藏加载遮罩"""
+        """隐藏加载遮罩（带动画效果）"""
         if self._loading_overlay:
-            self._loading_overlay.hide()
+            self._loading_overlay.hide_with_animation()
 
     def resizeEvent(self, event):
         """窗口大小改变时自动调整overlay大小"""

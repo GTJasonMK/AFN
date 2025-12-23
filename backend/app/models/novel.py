@@ -350,9 +350,13 @@ class ForeshadowingIndex(Base):
 class ChapterMangaPrompt(Base):
     """章节漫画提示词
 
-    存储将章节内容转化为文生图模型所需的提示词序列。
-    用于实现小说到漫画的转化功能。
-    支持断点续传：如果生成过程中断，可以从上次完成的步骤继续。
+    存储将章节内容转化为专业漫画分镜的完整数据。
+    基于专业漫画分镜架构：场景 -> 页面 -> 画格 -> 提示词
+
+    V2架构核心概念：
+    - scenes: 叙事场景列表，每个场景包含页面信息
+    - panels: 画格提示词列表，每个画格有独立的AI绘图提示词
+    - 页面模板系统：8种专业布局适配不同场景情感
     """
 
     __tablename__ = "chapter_manga_prompts"
@@ -363,34 +367,49 @@ class ChapterMangaPrompt(Base):
     )
 
     # 关联的正文版本ID（记录漫画提示词基于哪个版本生成）
-    # 用于检测版本是否匹配，如果用户切换版本后提示词可能需要重新生成
     source_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    # 生成状态：pending(未开始), scene_extracted(场景提取完成),
-    # layout_generated(排版完成), completed(全部完成), failed(失败)
-    generation_status: Mapped[str] = mapped_column(String(32), default="completed")
+    # 漫画风格：manga/anime/comic/webtoon
+    style: Mapped[str] = mapped_column(String(32), default="manga")
 
-    # 生成进度（JSON对象，存储中间结果用于断点续传）
-    # 包含: scene_summaries(场景概要), layout_result(排版结果), request_params(请求参数)
+    # 生成状态（用于断点续传）
+    # pending: 未开始, extracting: 提取场景中, expanding: 展开场景中,
+    # prompting: 生成提示词中, completed: 完成, failed: 失败
+    generation_status: Mapped[str] = mapped_column(String(32), default="pending")
+
+    # 生成进度（JSON格式）
+    # 格式: {"stage": "expanding", "current": 5, "total": 10, "message": "展开场景 5/10"}
     generation_progress: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+
+    # 断点数据（JSON格式，用于恢复生成）
+    # 格式: {
+    #   "scenes_data": [...],  # 提取的场景列表
+    #   "character_profiles": {...},  # 角色外观
+    #   "completed_expansions": [...],  # 已完成展开的场景
+    #   "current_scene_index": 5  # 当前处理的场景索引
+    # }
+    checkpoint_data: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+
+    # 统计信息
+    total_pages: Mapped[int] = mapped_column(Integer, default=0)
+    total_panels: Mapped[int] = mapped_column(Integer, default=0)
 
     # 角色外观配置（JSON字典，确保角色在所有画面中外观一致）
     # 格式: {"角色名": "详细的英文外观描述"}
     character_profiles: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    # 整体风格指南
-    style_guide: Mapped[Optional[str]] = mapped_column(Text)
-
-    # 场景列表（JSON数组）
-    # 每个场景包含: scene_id, scene_summary, original_text, characters,
-    # prompt_en, prompt_zh, negative_prompt, style_tags, composition, emotion, lighting, panel_info
+    # 场景列表（JSON数组）- V2格式
+    # 每个场景包含: scene_id, scene_summary, mood, importance, pages[]
+    # pages数组: page_number, template_id, template_name, panel_count
     scenes: Mapped[list] = mapped_column(JSON, default=list)
 
-    # 排版信息（JSON对象）
-    # 包含: layout_type, page_size, reading_direction, total_pages, total_panels, layout_analysis
-    layout_info: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    # 画格提示词列表（JSON数组）- V2新增
+    # 每个画格包含: panel_id, scene_id, page_number, slot_id, aspect_ratio,
+    # composition, camera_angle, prompt_en, prompt_zh, negative_prompt,
+    # dialogue, dialogue_speaker, narration, sound_effects, characters, is_key_panel
+    panels: Mapped[list] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

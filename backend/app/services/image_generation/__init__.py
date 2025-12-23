@@ -6,9 +6,15 @@
 - Stability AI
 - 本地ComfyUI
 - 其他第三方服务
+
+模块结构（遵循单一职责原则）：
+- ImageConfigService: 配置管理（CRUD操作）
+- ImageGenerationService: 图片生成和管理
+- PDFExportService: PDF导出功能
 """
 
 from .service import ImageGenerationService
+from .config_service import ImageConfigService
 from .pdf_export import PDFExportService
 from .schemas import (
     ImageGenerationRequest,
@@ -23,6 +29,7 @@ from .schemas import (
 
 __all__ = [
     "ImageGenerationService",
+    "ImageConfigService",
     "PDFExportService",
     "ImageGenerationRequest",
     "ImageGenerationResult",

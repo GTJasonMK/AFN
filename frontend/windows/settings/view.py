@@ -5,18 +5,21 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QWidget, QListWidget, QStackedWidget, QListWidgetItem,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QFileDialog
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor
 from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
+from utils.message_service import MessageService
+from api.manager import APIClientManager
 from .llm_settings_widget import LLMSettingsWidget
 from .embedding_settings_widget import EmbeddingSettingsWidget
 from .advanced_settings_widget import AdvancedSettingsWidget
 from .image_settings_widget import ImageSettingsWidget
 from .queue_settings_widget import QueueSettingsWidget
+import json
 
 
 class SettingsView(BasePage):
@@ -24,6 +27,7 @@ class SettingsView(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.api_client = APIClientManager.get_client()
         self._create_ui_structure()
         self._apply_theme()
         theme_manager.theme_changed.connect(lambda _: self._apply_theme())
@@ -55,6 +59,21 @@ class SettingsView(BasePage):
         header_layout.addWidget(self.title_label)
 
         header_layout.addStretch()
+
+        # 全局导入按钮
+        self.global_import_btn = QPushButton("全局导入")
+        self.global_import_btn.setObjectName("global_action_btn")
+        self.global_import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.global_import_btn.clicked.connect(self._import_all_configs)
+        header_layout.addWidget(self.global_import_btn)
+
+        # 全局导出按钮
+        self.global_export_btn = QPushButton("全局导出")
+        self.global_export_btn.setObjectName("global_action_btn")
+        self.global_export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.global_export_btn.clicked.connect(self._export_all_configs)
+        header_layout.addWidget(self.global_export_btn)
+
         container_layout.addLayout(header_layout)
 
         # 内容区域 - 左右分栏
@@ -170,6 +189,26 @@ class SettingsView(BasePage):
             }}
         """)
 
+        # 全局操作按钮样式
+        global_btn_style = f"""
+            QPushButton#global_action_btn {{
+                font-family: {palette.ui_font};
+                background-color: transparent;
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(6)}px;
+                padding: {dp(8)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+            }}
+            QPushButton#global_action_btn:hover {{
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+                background-color: {palette.bg_secondary};
+            }}
+        """
+        self.global_import_btn.setStyleSheet(global_btn_style)
+        self.global_export_btn.setStyleSheet(global_btn_style)
+
         # 导航列表
         self.nav_list.setStyleSheet(f"""
             QListWidget#nav_list {{
@@ -217,3 +256,57 @@ class SettingsView(BasePage):
             self.image_settings.loadConfigs()
         if hasattr(self, 'advanced_settings'):
             self.advanced_settings.loadConfig()
+
+    def _export_all_configs(self):
+        """导出所有配置"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出所有配置",
+            "all_configs.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_all_configs()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+                MessageService.show_operation_success(self, "导出", f"已导出所有配置到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def _import_all_configs(self):
+        """导入所有配置"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import_data = json.load(f)
+
+                # 验证数据格式
+                if not isinstance(import_data, dict):
+                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
+                    return
+
+                if import_data.get('export_type') != 'all':
+                    MessageService.show_warning(self, "导入文件类型不正确，需要全局配置导出文件", "格式错误")
+                    return
+
+                result = self.api_client.import_all_configs(import_data)
+                if result.get('success'):
+                    # 显示详细导入结果
+                    details = result.get('details', [])
+                    detail_text = '\n'.join(details) if details else '导入完成'
+                    MessageService.show_success(self, f"{result.get('message', '导入成功')}\n\n{detail_text}")
+                    # 刷新所有设置页面
+                    self.refresh()
+                else:
+                    MessageService.show_error(self, result.get('message', '导入失败'), "错误")
+            except Exception as e:
+                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")

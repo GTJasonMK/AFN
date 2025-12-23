@@ -67,7 +67,9 @@ class NovelDetail(BasePage):
         self._apply_theme()
 
     def _create_ui_structure(self):
-        """创建UI结构（只调用一次）"""
+        """创建UI结构（只调用一次，优化版：分步创建避免卡顿）"""
+        from PyQt6.QtWidgets import QApplication
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -76,9 +78,15 @@ class NovelDetail(BasePage):
         self.createHeader()
         main_layout.addWidget(self.header)
 
+        # 让出事件循环
+        QApplication.processEvents()
+
         # Tab导航栏
         self.createTabBar()
         main_layout.addWidget(self.tab_bar)
+
+        # 让出事件循环
+        QApplication.processEvents()
 
         # 内容区域
         self.content_stack = QStackedWidget()
@@ -538,7 +546,21 @@ class NovelDetail(BasePage):
                     f"needs_part_outlines={blueprint.get('needs_part_outlines', False)}"
                 )
 
-                section = ChapterOutlineSection(outline=outline, blueprint=blueprint, project_id=self.project_id, editable=True)
+                # 获取保存的tab状态（如果有）
+                initial_tab_index = 0
+                if hasattr(self, '_saved_section_state') and self._saved_section_state:
+                    initial_tab_index = self._saved_section_state.get('tab_index', 0)
+                    logger.info(f"使用保存的tab索引: {initial_tab_index}")
+                    # 使用后清除，避免影响其他刷新
+                    self._saved_section_state = {}
+
+                section = ChapterOutlineSection(
+                    outline=outline,
+                    blueprint=blueprint,
+                    project_id=self.project_id,
+                    editable=True,
+                    initial_tab_index=initial_tab_index
+                )
                 section.editRequested.connect(self.onEditRequested)
                 section.refreshRequested.connect(self.refreshProject)
             elif section_id == 'chapters':
@@ -588,9 +610,12 @@ class NovelDetail(BasePage):
         return data.get(key, default)
 
     def loadProjectBasicInfo(self):
-        """加载项目基本信息（异步非阻塞）"""
+        """加载项目基本信息（异步非阻塞，带加载指示器）"""
         import logging
         logger = logging.getLogger(__name__)
+
+        # 显示加载动画
+        self.show_loading("正在加载项目信息...")
 
         # 使用异步worker加载项目，避免阻塞UI线程
         worker = AsyncAPIWorker(self.api_client.get_novel, self.project_id)
@@ -607,6 +632,9 @@ class NovelDetail(BasePage):
         """项目基本信息加载成功回调"""
         import logging
         logger = logging.getLogger(__name__)
+
+        # 隐藏加载动画
+        self.hide_loading()
 
         self.project_data = response
 
@@ -650,6 +678,10 @@ class NovelDetail(BasePage):
         """项目基本信息加载失败回调"""
         import logging
         logger = logging.getLogger(__name__)
+
+        # 隐藏加载动画
+        self.hide_loading()
+
         logger.error(f"加载项目基本信息失败: {error_msg}")
         MessageService.show_error(self, f"加载项目失败：\n\n{error_msg}", "错误")
 
@@ -683,23 +715,46 @@ class NovelDetail(BasePage):
         Args:
             avatar_svg: SVG字符串，为None时显示占位符
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if avatar_svg:
-            # 显示SVG头像
-            svg_bytes = QByteArray(avatar_svg.encode('utf-8'))
-            self.avatar_svg_widget.load(svg_bytes)
-            self.avatar_svg_widget.setVisible(True)
-            self.icon_placeholder.setVisible(False)
-            self.icon_container.setToolTip("点击重新生成头像")
+            try:
+                # 使用QSvgRenderer验证SVG有效性
+                from PyQt6.QtSvg import QSvgRenderer
+                svg_bytes = QByteArray(avatar_svg.encode('utf-8'))
+                renderer = QSvgRenderer(svg_bytes)
+
+                if renderer.isValid():
+                    # SVG有效，加载到widget
+                    self.avatar_svg_widget.load(svg_bytes)
+                    self.avatar_svg_widget.setVisible(True)
+                    self.icon_placeholder.setVisible(False)
+                    self.icon_container.setToolTip("点击重新生成头像")
+                    # 强制重绘确保显示更新
+                    self.avatar_svg_widget.update()
+                    self.avatar_svg_widget.repaint()
+                    logger.debug(f"头像SVG加载成功, size={len(avatar_svg)}")
+                else:
+                    # SVG无效，显示占位符并记录警告
+                    logger.warning(f"头像SVG无效，无法渲染: size={len(avatar_svg)}, preview={avatar_svg[:100]}...")
+                    self._showAvatarPlaceholder()
+            except Exception as e:
+                logger.error(f"加载头像SVG失败: {e}")
+                self._showAvatarPlaceholder()
         else:
-            # 显示占位符
-            self.avatar_svg_widget.setVisible(False)
-            self.icon_placeholder.setVisible(True)
-            # 使用项目标题首字作为占位符
-            if self.project_data:
-                title = self.project_data.get('title', 'B')
-                first_char = title[0] if title else 'B'
-                self.icon_placeholder.setText(first_char)
-            self.icon_container.setToolTip("点击生成小说头像")
+            self._showAvatarPlaceholder()
+
+    def _showAvatarPlaceholder(self):
+        """显示头像占位符"""
+        self.avatar_svg_widget.setVisible(False)
+        self.icon_placeholder.setVisible(True)
+        # 使用项目标题首字作为占位符
+        if self.project_data:
+            title = self.project_data.get('title', 'B')
+            first_char = title[0] if title else 'B'
+            self.icon_placeholder.setText(first_char)
+        self.icon_container.setToolTip("点击生成小说头像")
 
     def _onIconClicked(self, event):
         """点击头像图标时触发生成"""
@@ -809,6 +864,17 @@ class NovelDetail(BasePage):
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"refreshProject被调用: project_id={self.project_id}, active_section={self.active_section}")
+
+        # 保存当前section的状态（如tab索引）
+        saved_section_state = {}
+        if self.active_section == 'chapter_outline' and 'chapter_outline' in self.section_widgets:
+            section = self.section_widgets['chapter_outline']
+            if hasattr(section, 'getCurrentTabIndex'):
+                saved_section_state['tab_index'] = section.getCurrentTabIndex()
+                logger.info(f"保存章节大纲tab状态: tab_index={saved_section_state['tab_index']}")
+
+        # 保存状态到实例变量，供后续创建section时使用
+        self._saved_section_state = saved_section_state
 
         # 安全地停止所有section的异步任务
         for section_id, widget in list(self.section_widgets.items()):

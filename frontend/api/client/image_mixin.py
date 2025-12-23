@@ -99,6 +99,39 @@ class ImageMixin:
             timeout=TimeoutConfig.READ_GENERATION
         )
 
+    def export_image_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        导出单个图片生成配置
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            导出数据
+        """
+        return self._request('GET', f'/api/image-generation/configs/{config_id}/export')
+
+    def export_image_configs(self) -> Dict[str, Any]:
+        """
+        导出所有图片生成配置
+
+        Returns:
+            导出数据
+        """
+        return self._request('GET', '/api/image-generation/configs/export/all')
+
+    def import_image_configs(self, import_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        导入图片生成配置
+
+        Args:
+            import_data: 导入数据
+
+        Returns:
+            导入结果
+        """
+        return self._request('POST', '/api/image-generation/configs/import', import_data)
+
     # ==================== 图片生成 ====================
 
     def generate_scene_image(
@@ -110,6 +143,7 @@ class ImageMixin:
         style: Optional[str] = None,
         aspect_ratio: Optional[str] = None,
         quality: Optional[str] = None,
+        panel_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         为场景生成图片
@@ -120,8 +154,9 @@ class ImageMixin:
             scene_id: 场景ID
             prompt: 图片生成提示词
             style: 图片风格（可选）
-            aspect_ratio: 宽高比（可选）
+            aspect_ratio: 宽高比（可选，如 "16:9", "4:3", "1:1" 等）
             quality: 质量预设（可选）
+            panel_id: 画格ID，格式如 scene1_page1_panel1（可选）
 
         Returns:
             生成结果，包含图片URL和信息
@@ -130,9 +165,12 @@ class ImageMixin:
         if style:
             data['style'] = style
         if aspect_ratio:
-            data['aspect_ratio'] = aspect_ratio
+            # 后端使用 'ratio' 字段
+            data['ratio'] = aspect_ratio
         if quality:
             data['quality'] = quality
+        if panel_id:
+            data['panel_id'] = panel_id
 
         return self._request(
             'POST',

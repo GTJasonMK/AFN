@@ -9,6 +9,7 @@ SSE (Server-Sent Events) Worker线程
 - 完善的错误处理
 - 防止竞态条件导致的信号发射到已销毁对象
 - 支持优雅停止，确保信号不会发射到已销毁的槽
+- Windows 上初始化 COM 避免线程冲突
 
 线程安全设计说明：
 - 使用 threading.Event 实现停止标志
@@ -19,6 +20,7 @@ SSE (Server-Sent Events) Worker线程
 
 import json
 import logging
+import platform
 import threading
 from typing import Optional, List, Callable
 
@@ -26,6 +28,37 @@ import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
+
+# Windows COM 支持
+_IS_WINDOWS = platform.system() == 'Windows'
+_ole32 = None
+
+if _IS_WINDOWS:
+    try:
+        import ctypes
+        _ole32 = ctypes.windll.ole32
+    except Exception:
+        pass
+
+
+def _com_initialize():
+    """初始化 COM（线程内调用）
+
+    使用 COINIT_MULTITHREADED (MTA) 模式，适合后台网络 I/O 线程。
+    避免使用 COINIT_APARTMENTTHREADED (STA) 因为它需要消息循环。
+    """
+    if _ole32:
+        # COINIT_MULTITHREADED = 0x0 (MTA, 适合后台线程)
+        # COINIT_APARTMENTTHREADED = 0x2 (STA, 需要消息循环)
+        hr = _ole32.CoInitializeEx(None, 0x0)
+        return hr in (0, 1)
+    return False
+
+
+def _com_uninitialize():
+    """释放 COM（线程内调用）"""
+    if _ole32:
+        _ole32.CoUninitialize()
 
 
 class SSEWorker(QThread):
@@ -100,6 +133,14 @@ class SSEWorker(QThread):
 
     def run(self):
         """执行SSE监听"""
+        # Windows 上初始化 COM，避免线程冲突错误 (0x8001010d)
+        com_initialized = False
+        if _IS_WINDOWS:
+            try:
+                com_initialized = _com_initialize()
+            except Exception:
+                pass
+
         self._session = requests.Session()
 
         try:
@@ -113,7 +154,13 @@ class SSEWorker(QThread):
                 headers={"Accept": "text/event-stream"},
                 timeout=(10, 300)  # 连接10秒超时，读取5分钟超时
             ) as response:
-                response.raise_for_status()
+                # 在 with 块内检查状态码，这样可以在响应关闭前读取错误内容
+                if not response.ok:
+                    error_msg = self._extract_error_from_response(response)
+                    if not self._stop_event.is_set():
+                        logger.error("SSE HTTP错误: %d - %s", response.status_code, error_msg)
+                        self._safe_emit_error(error_msg)
+                    return
 
                 logger.info("SSE连接成功，开始接收事件")
 
@@ -142,12 +189,6 @@ class SSEWorker(QThread):
                 logger.error("SSE连接错误: %s", e)
                 self._safe_emit_error(f"连接失败：{str(e)}")
 
-        except requests.exceptions.HTTPError as e:
-            if not self._stop_event.is_set():
-                logger.error("SSE HTTP错误: %s", e)
-                status_code = e.response.status_code if e.response else "未知"
-                self._safe_emit_error(f"服务器错误：{status_code}")
-
         except Exception as e:
             if not self._stop_event.is_set():
                 logger.error("SSE未知错误: %s", e, exc_info=True)
@@ -155,6 +196,12 @@ class SSEWorker(QThread):
 
         finally:
             self._cleanup_session()
+            # Windows 上释放 COM
+            if com_initialized:
+                try:
+                    _com_uninitialize()
+                except Exception:
+                    pass
 
     def _process_line(self, line: str):
         """处理单行SSE数据"""
@@ -183,54 +230,112 @@ class SSEWorker(QThread):
             self._emit_signal_for_event(data)
 
     def _emit_signal_for_event(self, data: dict):
-        """根据事件类型发射对应信号"""
+        """根据事件类型发射对应信号
+
+        注意：此方法在 _emit_lock 保护下调用，已确保线程安全。
+        额外的 try-except 用于处理接收者对象已被删除的情况。
+        """
         event_type = self._current_event_type
 
-        if event_type == 'token':
-            token = data.get('token', '')
-            self.token_received.emit(token)
+        try:
+            if event_type == 'token':
+                token = data.get('token', '')
+                self.token_received.emit(token)
 
-        elif event_type == 'progress':
-            logger.debug("SSE进度更新: %s", data)
-            self.progress_received.emit(data)
+            elif event_type == 'progress':
+                logger.debug("SSE进度更新: %s", data)
+                self.progress_received.emit(data)
 
-        elif event_type == 'complete':
-            logger.info("SSE流完成，发射complete信号")
-            self.complete.emit(data)
+            elif event_type == 'complete':
+                logger.info("SSE流完成，发射complete信号")
+                self.complete.emit(data)
 
-        elif event_type == 'cancelled':
-            logger.info("SSE流被取消，发射cancelled信号")
-            self.cancelled.emit(data)
+            elif event_type == 'cancelled':
+                logger.info("SSE流被取消，发射cancelled信号")
+                self.cancelled.emit(data)
 
-        elif event_type == 'error':
-            error_msg = data.get('message', '未知错误')
-            logger.error("SSE错误事件: %s", error_msg)
-            self.error.emit(error_msg)  # 向后兼容
-            self.error_data.emit(data)  # 完整错误数据
+            elif event_type == 'error':
+                error_msg = data.get('message', '未知错误')
+                logger.error("SSE错误事件: %s", error_msg)
+                self.error.emit(error_msg)  # 向后兼容
+                self.error_data.emit(data)  # 完整错误数据
 
-        elif event_type == 'streaming_start':
-            logger.debug("SSE流式开始")
-            self.streaming_start.emit(data)
+            elif event_type == 'streaming_start':
+                logger.debug("SSE流式开始")
+                self.streaming_start.emit(data)
 
-        elif event_type == 'ai_message_chunk':
-            text = data.get('text', '')
-            self.ai_message_chunk.emit(text)
+            elif event_type == 'ai_message_chunk':
+                text = data.get('text', '')
+                self.ai_message_chunk.emit(text)
 
-        elif event_type == 'option':
-            logger.debug("SSE收到选项: %s", data)
-            self.option_received.emit(data)
+            elif event_type == 'option':
+                logger.debug("SSE收到选项: %s", data)
+                self.option_received.emit(data)
 
-        else:
-            # 未知事件类型，通过通用信号发射
-            if event_type:
-                logger.debug("SSE收到自定义事件: %s", event_type)
-                self.event_received.emit(event_type, data)
+            else:
+                # 未知事件类型，通过通用信号发射
+                if event_type:
+                    logger.debug("SSE收到自定义事件: %s", event_type)
+                    self.event_received.emit(event_type, data)
+
+        except RuntimeError:
+            # 接收者对象可能已被删除
+            logger.debug("SSEWorker: receiver deleted, signal not emitted")
 
     def _safe_emit_error(self, message: str):
         """安全地发射错误信号（使用锁保护，防止竞态条件）"""
         with self._emit_lock:
             if not self._stop_event.is_set() and self._emit_allowed:
-                self.error.emit(message)
+                try:
+                    self.error.emit(message)
+                except RuntimeError:
+                    # 接收者对象可能已被删除
+                    logger.debug("SSEWorker: receiver deleted, error signal not emitted")
+
+    def _extract_error_from_response(self, response: requests.Response) -> str:
+        """从HTTP响应中提取详细错误信息（在with块内调用，响应未关闭）
+
+        Args:
+            response: HTTP响应对象
+
+        Returns:
+            用户友好的错误消息
+        """
+        status_code = response.status_code
+        try:
+            # 读取响应内容
+            content = response.content
+            if content:
+                error_data = json.loads(content.decode('utf-8'))
+                # 后端返回的错误格式: {"detail": "错误消息"} 或 {"message": "错误消息"}
+                if isinstance(error_data, dict):
+                    detail = error_data.get("detail") or error_data.get("message")
+                    if detail:
+                        return detail
+        except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+            # 响应不是JSON格式，尝试获取文本
+            try:
+                content = response.content
+                if content:
+                    text = content.decode('utf-8')
+                    if len(text) < 200:
+                        return text
+            except Exception:
+                pass
+
+        # 根据状态码返回友好消息
+        if status_code == 400:
+            return "请求参数错误"
+        elif status_code == 401:
+            return "未授权，请重新登录"
+        elif status_code == 403:
+            return "没有权限执行此操作"
+        elif status_code == 404:
+            return "请求的资源不存在"
+        elif status_code >= 500:
+            return f"服务器错误（{status_code}）"
+        else:
+            return f"请求失败（{status_code}）"
 
     def _cleanup_session(self):
         """清理请求会话"""

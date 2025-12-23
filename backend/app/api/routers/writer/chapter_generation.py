@@ -78,6 +78,31 @@ async def generate_chapter(
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
     validate_project_status(project.status, CHAPTER_GENERATION_STATES, "生成章节内容")
 
+    # 顺序校验：第2章及以后的章节必须确保前一章已有选定的正文版本
+    chapter_number = request.chapter_number
+    if chapter_number > 1:
+        prev_chapter = next(
+            (ch for ch in project.chapters if ch.chapter_number == chapter_number - 1),
+            None
+        )
+        # 检查前一章是否存在、是否有选定版本、选定版本是否有内容
+        if not prev_chapter or not prev_chapter.selected_version_id:
+            raise InvalidParameterError(
+                f"请先完成第{chapter_number - 1}章的生成并选择一个版本后，再生成第{chapter_number}章",
+                parameter="chapter_number"
+            )
+        # 验证选定版本是否有实际内容
+        selected_version = prev_chapter.selected_version
+        if not selected_version or not selected_version.content or not selected_version.content.strip():
+            raise InvalidParameterError(
+                f"第{chapter_number - 1}章尚无正文内容，请先生成正文后再生成第{chapter_number}章",
+                parameter="chapter_number"
+            )
+        logger.debug(
+            "章节顺序校验通过: 第%d章已有选定版本(id=%d, 字数=%d)",
+            chapter_number - 1, selected_version.id, len(selected_version.content or "")
+        )
+
     # 创建工作流并执行
     workflow = ChapterGenerationWorkflow(
         session=session,

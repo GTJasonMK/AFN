@@ -161,6 +161,116 @@ class AFNAPIClient(
         else:
             return (TimeoutConfig.CONNECT, timeout)
 
+    def _handle_request_exception(
+        self,
+        exc: Exception,
+        method: str,
+        url: str,
+        connect_timeout: int,
+        read_timeout: int,
+        silent_status_codes: Optional[List[int]] = None,
+    ) -> None:
+        """统一处理HTTP请求异常
+
+        将请求异常转换为API异常，并记录日志。
+        此方法始终抛出异常，不会正常返回。
+
+        Args:
+            exc: 捕获的原始异常
+            method: HTTP方法
+            url: 请求URL
+            connect_timeout: 连接超时（秒）
+            read_timeout: 读取超时（秒）
+            silent_status_codes: 静默处理的状态码列表
+
+        Raises:
+            APIError 及其子类
+        """
+        silent_status_codes = silent_status_codes or []
+
+        if isinstance(exc, requests.HTTPError):
+            error_msg = str(exc)
+            status_code = exc.response.status_code if exc.response is not None else None
+            response_data = None
+
+            if exc.response is not None:
+                try:
+                    response_data = exc.response.json()
+                    error_detail = response_data.get('detail')
+                    if error_detail:
+                        error_msg = error_detail
+                except (ValueError, AttributeError, KeyError):
+                    pass
+
+            if status_code and status_code in silent_status_codes:
+                logger.debug(f"API请求返回 {status_code}: {method} {url}")
+            else:
+                logger.error(f"API请求失败: {method} {url} - {error_msg}")
+
+            raise create_api_error(
+                status_code=status_code,
+                message=error_msg,
+                response_data=response_data,
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.ConnectionError):
+            logger.error(f"API连接失败: {method} {url} - {exc}")
+            raise APIConnectionError(
+                message="无法连接到后端服务，请确认服务已启动",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.ReadTimeout):
+            logger.error(f"API读取超时: {method} {url} - {exc}")
+            raise APITimeoutError(
+                message=f"服务器响应超时（{read_timeout}秒），请稍后重试",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.ConnectTimeout):
+            logger.error(f"API连接超时: {method} {url} - {exc}")
+            raise APITimeoutError(
+                message=f"连接服务器超时（{connect_timeout}秒），请检查网络连接",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.Timeout):
+            logger.error(f"API请求超时: {method} {url} - {exc}")
+            raise APITimeoutError(
+                message="请求超时，请稍后重试",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.SSLError):
+            logger.error(f"API SSL错误: {method} {url} - {exc}")
+            raise APIConnectionError(
+                message="SSL/TLS连接错误，请检查证书配置",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.exceptions.ChunkedEncodingError):
+            logger.error(f"API响应编码错误: {method} {url} - {exc}")
+            raise APIError(
+                message="服务器响应异常中断，请重试",
+                original_error=exc
+            )
+
+        elif isinstance(exc, requests.RequestException):
+            logger.error(f"API请求失败: {method} {url} - {type(exc).__name__}: {exc}")
+            raise APIError(
+                message=f"请求失败: {str(exc)}",
+                original_error=exc
+            )
+
+        else:
+            # 未知异常类型，记录并重新抛出
+            logger.error(f"API请求未知异常: {method} {url} - {type(exc).__name__}: {exc}")
+            raise APIError(
+                message=f"请求发生未知错误: {type(exc).__name__}",
+                original_error=exc
+            )
+
     def _request(
         self,
         method: str,
@@ -229,85 +339,14 @@ class AFNAPIClient(
 
             return result
 
-        except requests.HTTPError as e:
-            # 尝试提取后端返回的详细错误信息
-            error_msg = str(e)
-            status_code = e.response.status_code if e.response is not None else None
-            response_data = None
-
-            if e.response is not None:
-                try:
-                    response_data = e.response.json()
-                    error_detail = response_data.get('detail')
-                    if error_detail:
-                        error_msg = error_detail
-                except (ValueError, AttributeError, KeyError):
-                    pass
-
-            # 检查是否是需要静默处理的状态码
-            if status_code and status_code in silent_status_codes:
-                logger.debug(f"API请求返回 {status_code}: {method} {url}")
-            else:
-                logger.error(f"API请求失败: {method} {url} - {error_msg}")
-
-            # 抛出具体类型的异常
-            raise create_api_error(
-                status_code=status_code,
-                message=error_msg,
-                response_data=response_data,
-                original_error=e
-            )
-
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"API连接失败: {method} {url} - {e}")
-            raise APIConnectionError(
-                message="无法连接到后端服务，请确认服务已启动",
-                original_error=e
-            )
-
-        except requests.exceptions.ReadTimeout as e:
-            # 读取超时单独处理
-            logger.error(f"API读取超时: {method} {url} - {e}")
-            raise APITimeoutError(
-                message=f"服务器响应超时（{read_timeout}秒），请稍后重试",
-                original_error=e
-            )
-
-        except requests.exceptions.ConnectTimeout as e:
-            # 连接超时单独处理
-            logger.error(f"API连接超时: {method} {url} - {e}")
-            raise APITimeoutError(
-                message=f"连接服务器超时（{connect_timeout}秒），请检查网络连接",
-                original_error=e
-            )
-
-        except requests.exceptions.Timeout as e:
-            # 其他超时
-            logger.error(f"API请求超时: {method} {url} - {e}")
-            raise APITimeoutError(
-                message=f"请求超时，请稍后重试",
-                original_error=e
-            )
-
-        except requests.exceptions.SSLError as e:
-            logger.error(f"API SSL错误: {method} {url} - {e}")
-            raise APIConnectionError(
-                message="SSL/TLS连接错误，请检查证书配置",
-                original_error=e
-            )
-
-        except requests.exceptions.ChunkedEncodingError as e:
-            logger.error(f"API响应编码错误: {method} {url} - {e}")
-            raise APIError(
-                message="服务器响应异常中断，请重试",
-                original_error=e
-            )
-
-        except requests.RequestException as e:
-            logger.error(f"API请求失败: {method} {url} - {type(e).__name__}: {e}")
-            raise APIError(
-                message=f"请求失败: {str(e)}",
-                original_error=e
+        except Exception as e:
+            self._handle_request_exception(
+                exc=e,
+                method=method,
+                url=url,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                silent_status_codes=silent_status_codes,
             )
 
     def _request_raw(
@@ -350,32 +389,11 @@ class AFNAPIClient(
             response.raise_for_status()
             return response.text if return_type == 'text' else response.content
 
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            logger.error(f"API请求失败: {method} {url} - {e}")
-            raise create_api_error(
-                status_code=status_code,
-                message=str(e),
-                original_error=e
-            )
-
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"API连接失败: {method} {url} - {e}")
-            raise APIConnectionError(
-                message="无法连接到后端服务",
-                original_error=e
-            )
-
-        except requests.exceptions.Timeout as e:
-            logger.error(f"API请求超时: {method} {url} - {e}")
-            raise APITimeoutError(
-                message=f"请求超时（{read_timeout}秒）",
-                original_error=e
-            )
-
-        except requests.RequestException as e:
-            logger.error(f"API请求失败: {method} {url} - {type(e).__name__}: {e}")
-            raise APIError(
-                message=f"请求失败: {str(e)}",
-                original_error=e
+        except Exception as e:
+            self._handle_request_exception(
+                exc=e,
+                method=method,
+                url=url,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
             )

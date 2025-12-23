@@ -7,7 +7,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QFrame, QDialog, QFormLayout,
-    QLineEdit, QComboBox, QDialogButtonBox, QCheckBox
+    QLineEdit, QComboBox, QDialogButtonBox, QCheckBox, QFileDialog
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
@@ -15,6 +15,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService, confirm
 from utils.async_worker import AsyncAPIWorker
+import json
 
 
 # 提供商类型选项
@@ -76,11 +77,37 @@ class ImageConfigDialog(QDialog):
     def __init__(self, config: dict = None, parent=None):
         super().__init__(parent)
         self.config = config or {}
+        self._theme_connected = False
         self.setWindowTitle("编辑配置" if config else "新增配置")
         self.setMinimumWidth(dp(480))
         self._setup_ui()
         self._apply_styles()
         self._load_config()
+        self._connect_theme_signal()
+
+    def _connect_theme_signal(self):
+        """连接主题切换信号"""
+        if not self._theme_connected:
+            theme_manager.theme_changed.connect(self._on_theme_changed)
+            self._theme_connected = True
+
+    def _disconnect_theme_signal(self):
+        """断开主题切换信号"""
+        if self._theme_connected:
+            try:
+                theme_manager.theme_changed.disconnect(self._on_theme_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._theme_connected = False
+
+    def _on_theme_changed(self, theme_name: str):
+        """主题切换时更新样式"""
+        self._apply_styles()
+
+    def closeEvent(self, event):
+        """关闭时断开信号连接"""
+        self._disconnect_theme_signal()
+        super().closeEvent(event)
 
     def _setup_ui(self):
         """设置UI"""
@@ -196,6 +223,51 @@ class ImageConfigDialog(QDialog):
                 background-color: {palette.bg_primary};
                 color: {palette.text_primary};
                 selection-background-color: {palette.accent_color};
+            }}
+            QCheckBox {{
+                font-family: {palette.ui_font};
+                font-size: {sp(13)}px;
+                color: {palette.text_primary};
+                spacing: {dp(8)}px;
+            }}
+            QCheckBox::indicator {{
+                width: {dp(16)}px;
+                height: {dp(16)}px;
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(3)}px;
+                background-color: {palette.bg_primary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {palette.accent_color};
+                border-color: {palette.accent_color};
+            }}
+            QDialogButtonBox QPushButton {{
+                font-family: {palette.ui_font};
+                font-size: {sp(13)}px;
+                padding: {dp(8)}px {dp(20)}px;
+                border-radius: {dp(4)}px;
+                min-width: {dp(80)}px;
+            }}
+            QDialogButtonBox QPushButton[text="OK"],
+            QDialogButtonBox QPushButton[text="确定"] {{
+                background-color: {palette.accent_color};
+                color: {palette.bg_primary};
+                border: none;
+            }}
+            QDialogButtonBox QPushButton[text="OK"]:hover,
+            QDialogButtonBox QPushButton[text="确定"]:hover {{
+                background-color: {palette.text_primary};
+            }}
+            QDialogButtonBox QPushButton[text="Cancel"],
+            QDialogButtonBox QPushButton[text="取消"] {{
+                background-color: transparent;
+                color: {palette.text_secondary};
+                border: 1px solid {palette.border_color};
+            }}
+            QDialogButtonBox QPushButton[text="Cancel"]:hover,
+            QDialogButtonBox QPushButton[text="取消"]:hover {{
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
             }}
         """)
 
@@ -313,6 +385,20 @@ class ImageSettingsWidget(QWidget):
         self.add_btn.clicked.connect(self.createConfig)
         top_bar.addWidget(self.add_btn)
 
+        # 导入按钮
+        self.import_btn = QPushButton("导入")
+        self.import_btn.setObjectName("secondary_btn")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_btn.clicked.connect(self.importConfigs)
+        top_bar.addWidget(self.import_btn)
+
+        # 导出全部按钮
+        self.export_all_btn = QPushButton("导出全部")
+        self.export_all_btn.setObjectName("secondary_btn")
+        self.export_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_all_btn.clicked.connect(self.exportAll)
+        top_bar.addWidget(self.export_all_btn)
+
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
@@ -346,6 +432,13 @@ class ImageSettingsWidget(QWidget):
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self.editSelectedConfig)
         action_bar.addWidget(self.edit_btn)
+
+        # 导出按钮
+        self.export_btn = QPushButton("导出")
+        self.export_btn.setObjectName("secondary_btn")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(self.exportSelectedConfig)
+        action_bar.addWidget(self.export_btn)
 
         action_bar.addStretch()
 
@@ -402,7 +495,8 @@ class ImageSettingsWidget(QWidget):
                 color: {palette.border_color};
             }}
         """
-        for btn in [self.test_btn, self.activate_btn, self.edit_btn]:
+        for btn in [self.import_btn, self.export_all_btn, self.test_btn,
+                    self.activate_btn, self.edit_btn, self.export_btn]:
             btn.setStyleSheet(secondary_style)
 
         # 删除按钮
@@ -492,6 +586,7 @@ class ImageSettingsWidget(QWidget):
         self.test_btn.setEnabled(has_selection)
         self.activate_btn.setEnabled(has_selection)
         self.edit_btn.setEnabled(has_selection)
+        self.export_btn.setEnabled(has_selection)
 
         if has_selection:
             selected_item = self.config_list.selectedItems()[0]
@@ -621,6 +716,81 @@ class ImageSettingsWidget(QWidget):
                 pass
             finally:
                 self._test_worker = None
+
+    def exportSelectedConfig(self):
+        """导出选中的配置"""
+        config = self.getSelectedConfig()
+        if not config:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出配置",
+            f"{config['config_name']}.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_image_config(config['id'])
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+                MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def exportAll(self):
+        """导出所有配置"""
+        if not self.configs:
+            MessageService.show_warning(self, "没有可导出的配置", "提示")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出所有配置",
+            "image_configs.json",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                export_data = self.api_client.export_image_configs()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+                config_count = len(export_data.get('configs', []))
+                MessageService.show_operation_success(self, "导出", f"已导出 {config_count} 个配置到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
+
+    def importConfigs(self):
+        """导入配置"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import_data = json.load(f)
+
+                # 验证数据格式
+                if not isinstance(import_data, dict):
+                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
+                    return
+
+                if 'configs' not in import_data:
+                    MessageService.show_warning(self, "导入文件缺少 'configs' 字段", "格式错误")
+                    return
+
+                result = self.api_client.import_image_configs(import_data)
+                MessageService.show_success(self, result.get('message', '导入成功'))
+                self.loadConfigs()
+            except Exception as e:
+                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
 
     def __del__(self):
         """析构时断开信号连接"""

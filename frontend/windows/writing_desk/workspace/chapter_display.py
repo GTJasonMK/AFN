@@ -16,22 +16,64 @@ from themes.modern_effects import ModernEffects
 from utils.error_handler import handle_errors
 from utils.formatters import count_chinese_characters, format_word_count
 from utils.dpi_utils import dp, sp
+from utils.async_worker import AsyncAPIWorker
+from components.loading_spinner import LoadingOverlay
 
 
 class ChapterDisplayMixin:
     """章节显示相关方法的 Mixin"""
 
-    @handle_errors("加载章节")
+    def _ensure_loading_overlay(self):
+        """确保加载覆盖层已创建"""
+        if not hasattr(self, '_chapter_loading_overlay') or self._chapter_loading_overlay is None:
+            self._chapter_loading_overlay = LoadingOverlay(
+                text="正在加载章节...",
+                parent=self,
+                translucent=True
+            )
+
     def loadChapter(self, chapter_number):
-        """加载章节"""
+        """异步加载章节（带加载动画）"""
         self.current_chapter = chapter_number
 
         if not self.project_id:
             return
 
-        # 从API加载章节数据
-        chapter_data = self.api_client.get_chapter(self.project_id, chapter_number)
+        # 显示加载动画
+        self._ensure_loading_overlay()
+        self._chapter_loading_overlay.show_with_animation("正在加载章节...")
+
+        # 异步加载章节数据
+        worker = AsyncAPIWorker(
+            self.api_client.get_chapter,
+            self.project_id,
+            chapter_number
+        )
+        worker.success.connect(self._onChapterLoaded)
+        worker.error.connect(self._onChapterLoadError)
+
+        # 保存worker引用避免被垃圾回收
+        self._chapter_load_worker = worker
+        worker.start()
+
+    def _onChapterLoaded(self, chapter_data):
+        """章节数据加载成功回调"""
+        # 隐藏加载动画
+        if hasattr(self, '_chapter_loading_overlay') and self._chapter_loading_overlay:
+            self._chapter_loading_overlay.hide_with_animation()
+
+        # 显示章节内容
         self.displayChapter(chapter_data)
+
+    def _onChapterLoadError(self, error_msg):
+        """章节数据加载失败回调"""
+        # 隐藏加载动画
+        if hasattr(self, '_chapter_loading_overlay') and self._chapter_loading_overlay:
+            self._chapter_loading_overlay.hide_with_animation()
+
+        # 显示错误提示
+        from utils.message_service import MessageService
+        MessageService.show_error(self, f"加载章节失败：{error_msg}")
 
     def displayChapter(self, chapter_data):
         """显示章节内容"""
@@ -57,7 +99,9 @@ class ChapterDisplayMixin:
             self.chapterContentLoaded.emit(chapter_number, content)
 
     def createChapterWidget(self, chapter_data):
-        """创建章节内容widget"""
+        """创建章节内容widget（优化版：分步创建，避免UI卡顿）"""
+        from PyQt6.QtWidgets import QApplication
+
         # 使用书香风格字体
         serif_font = theme_manager.serif_font()
 
@@ -202,30 +246,38 @@ class ChapterDisplayMixin:
 
         layout.addWidget(header)
 
+        # 让出事件循环，让动画能够更新
+        QApplication.processEvents()
+
         # TabWidget：正文、版本、评审、摘要
         self.tab_widget = QTabWidget()
         self.tab_widget.setStyleSheet(theme_manager.tabs())
 
-        # Tab 1: 正文 - 使用 ContentPanelBuilder
+        # Tab 1: 正文 - 使用 ContentPanelBuilder（最重要，先创建）
         content_tab = self._content_builder.create_content_tab(chapter_data)
         self.content_text = self._content_builder.content_text  # 保存引用用于主题切换
         self.tab_widget.addTab(content_tab, "正文")
+        QApplication.processEvents()  # 让动画更新
 
         # Tab 2: 版本历史 - 使用 VersionPanelBuilder
         versions_tab = self._version_builder.create_versions_tab(chapter_data, self)
         self.tab_widget.addTab(versions_tab, "版本")
+        QApplication.processEvents()  # 让动画更新
 
         # Tab 3: 评审 - 使用 ReviewPanelBuilder
         review_tab = self._review_builder.create_review_tab(chapter_data, self)
         self.tab_widget.addTab(review_tab, "评审")
+        QApplication.processEvents()  # 让动画更新
 
         # Tab 4: 章节摘要（用于RAG上下文）- 使用 SummaryPanelBuilder
         summary_tab = self._summary_builder.create_summary_tab(chapter_data, self)
         self.tab_widget.addTab(summary_tab, "摘要")
+        QApplication.processEvents()  # 让动画更新
 
         # Tab 5: 章节分析（结构化信息）- 使用 AnalysisPanelBuilder
         analysis_tab = self._analysis_builder.create_analysis_tab(chapter_data)
         self.tab_widget.addTab(analysis_tab, "分析")
+        QApplication.processEvents()  # 让动画更新
 
         # Tab 6: 漫画提示词 - 使用 MangaPanelBuilder
         # 先创建空状态的漫画Tab，避免同步API调用阻塞UI

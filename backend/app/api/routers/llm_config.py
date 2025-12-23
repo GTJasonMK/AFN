@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.dependencies import get_default_user
+from ...core.dependencies import get_default_user, get_llm_config_service
 from ...db.session import get_session
 from ...exceptions import ResourceNotFoundError
 from ...schemas.llm_config import (
@@ -20,10 +20,6 @@ from ...services.llm_config_service import LLMConfigService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/llm-configs", tags=["LLM Configuration"])
-
-
-def get_llm_config_service(session: AsyncSession = Depends(get_session)) -> LLMConfigService:
-    return LLMConfigService(session)
 
 
 # ========== LLM配置管理API ==========

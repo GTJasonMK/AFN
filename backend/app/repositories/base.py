@@ -1,10 +1,13 @@
 from typing import Any, Generic, Iterable, List, Optional, TypeVar, Union
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 ModelType = TypeVar("ModelType")
+
+# 哨兵对象，用于区分"未传递参数"和"显式传递None"
+_UNSET = object()
 
 
 class BaseRepository(Generic[ModelType]):
@@ -14,6 +17,23 @@ class BaseRepository(Generic[ModelType]):
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    @property
+    def _primary_key(self) -> InstrumentedAttribute:
+        """
+        获取模型的主键字段
+
+        Returns:
+            InstrumentedAttribute: 主键字段
+
+        Raises:
+            ValueError: 如果模型使用复合主键
+        """
+        mapper = inspect(self.model)
+        pk_columns = mapper.primary_key
+        if len(pk_columns) != 1:
+            raise ValueError(f"模型 {self.model.__name__} 使用复合主键，不支持此操作")
+        return getattr(self.model, pk_columns[0].name)
 
     async def get(self, **filters: Any) -> Optional[ModelType]:
         stmt = select(self.model).filter_by(**filters)
@@ -93,9 +113,32 @@ class BaseRepository(Generic[ModelType]):
         await self.session.delete(instance)
         await self.session.flush()
 
-    async def update_fields(self, instance: ModelType, **values: Any) -> ModelType:
+    async def update_fields(
+        self,
+        instance: ModelType,
+        allow_none: bool = False,
+        **values: Any
+    ) -> ModelType:
+        """
+        更新实例的指定字段
+
+        Args:
+            instance: 要更新的实例
+            allow_none: 是否允许将字段设置为None（默认False，跳过None值）
+            **values: 要更新的字段键值对
+
+        Returns:
+            更新后的实例
+
+        Example:
+            # 默认行为：跳过None值
+            await repo.update_fields(user, name="新名称", bio=None)  # bio不会被更新
+
+            # 显式允许None值
+            await repo.update_fields(user, allow_none=True, name="新名称", bio=None)  # bio会被设置为None
+        """
         for key, value in values.items():
-            if value is None:
+            if value is None and not allow_none:
                 continue
             setattr(instance, key, value)
         await self.session.flush()
@@ -131,7 +174,7 @@ class BaseRepository(Generic[ModelType]):
         if not ids:
             return 0
 
-        stmt = delete(self.model).where(self.model.id.in_(ids))
+        stmt = delete(self.model).where(self._primary_key.in_(ids))
         result = await self.session.execute(stmt)
         await self.session.flush()
         return result.rowcount
@@ -179,6 +222,11 @@ class BaseRepository(Generic[ModelType]):
         """
         return await self.delete_by_field("project_id", project_id)
 
+    # delete_by_project 作为 delete_by_project_id 的别名，保持向后兼容
+    async def delete_by_project(self, project_id: str) -> int:
+        """delete_by_project_id 的别名，保持向后兼容"""
+        return await self.delete_by_project_id(project_id)
+
     async def count_by_field(self, field_name: str, value: Any) -> int:
         """
         根据字段值统计记录数
@@ -194,7 +242,7 @@ class BaseRepository(Generic[ModelType]):
         if field is None:
             raise ValueError(f"模型 {self.model.__name__} 没有字段 {field_name}")
 
-        stmt = select(func.count(self.model.id)).where(field == value)
+        stmt = select(func.count(self._primary_key)).where(field == value)
         result = await self.session.execute(stmt)
         return result.scalar() or 0
 
@@ -265,7 +313,7 @@ class BaseRepository(Generic[ModelType]):
 
         # 先统计要删除的数量
         count_stmt = (
-            select(func.count(self.model.id))
+            select(func.count(self._primary_key))
             .where(project_field == project_id)
             .where(field >= from_value)
         )

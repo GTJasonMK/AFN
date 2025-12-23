@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.dependencies import get_default_user
+from ...core.dependencies import get_default_user, get_embedding_config_service
 from ...db.session import get_session
 from ...exceptions import ResourceNotFoundError
 from ...schemas.embedding_config import (
@@ -26,10 +26,6 @@ from ...services.embedding_config_service import EmbeddingConfigService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/embedding-configs", tags=["Embedding Configuration"])
-
-
-def get_embedding_config_service(session: AsyncSession = Depends(get_session)) -> EmbeddingConfigService:
-    return EmbeddingConfigService(session)
 
 
 # ========== 嵌入模型配置管理API ==========
@@ -130,3 +126,41 @@ async def test_embedding_config(
     """测试指定ID的嵌入模型配置是否可用。"""
     logger.info("用户 %s 测试嵌入模型配置 ID=%s", desktop_user.id, config_id)
     return await service.test_config(config_id, desktop_user.id)
+
+
+# ========== 导入导出API ==========
+
+
+@router.get("/{config_id}/export")
+async def export_embedding_config(
+    config_id: int,
+    service: EmbeddingConfigService = Depends(get_embedding_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """导出单个嵌入模型配置。"""
+    logger.info("用户 %s 导出嵌入模型配置 ID=%s", desktop_user.id, config_id)
+    export_data = await service.export_config(config_id, desktop_user.id)
+    return export_data
+
+
+@router.get("/export/all")
+async def export_all_embedding_configs(
+    service: EmbeddingConfigService = Depends(get_embedding_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """导出用户的所有嵌入模型配置。"""
+    logger.info("用户 %s 导出所有嵌入模型配置", desktop_user.id)
+    export_data = await service.export_all_configs(desktop_user.id)
+    return export_data
+
+
+@router.post("/import")
+async def import_embedding_configs(
+    import_data: dict,
+    service: EmbeddingConfigService = Depends(get_embedding_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """导入嵌入模型配置。"""
+    logger.info("用户 %s 导入嵌入模型配置", desktop_user.id)
+    result = await service.import_configs(desktop_user.id, import_data)
+    return result

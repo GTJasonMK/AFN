@@ -1,33 +1,34 @@
 """
 图片生成服务
 
-主服务入口，协调配置管理和图片生成。
-支持多厂商的图片生成API调用，使用工厂模式管理供应商。
+负责图片生成和图片管理功能。
+配置管理已拆分到 ImageConfigService。
 """
 
+import asyncio
 import time
 import uuid
+import base64
 import hashlib
 import logging
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+from typing import Optional, List, TYPE_CHECKING
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .schemas import (
     ImageGenerationRequest,
     ImageGenerationResult,
     GeneratedImageInfo,
-    ImageConfigCreate,
-    ImageConfigUpdate,
-    ProviderType,
 )
 from .providers import ImageProviderFactory
-from ...models.image_config import ImageGenerationConfig, GeneratedImage
+from ...models.image_config import GeneratedImage
 from ...core.config import settings
 from ...services.queue import ImageRequestQueue
+
+if TYPE_CHECKING:
+    from .config_service import ImageConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -45,23 +46,39 @@ class HTTPClientManager:
 
     提供全局共享的httpx.AsyncClient，支持连接池复用。
     避免每次请求都创建新的TCP连接，提高性能。
+    使用双重检查锁定模式确保线程安全。
     """
     _client: Optional[httpx.AsyncClient] = None
+    _lock: Optional[asyncio.Lock] = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """获取锁实例（必须在事件循环运行时调用）"""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     @classmethod
     async def get_client(cls) -> httpx.AsyncClient:
-        """获取共享的HTTP客户端（懒加载）"""
-        if cls._client is None:
-            cls._client = httpx.AsyncClient(
-                timeout=60.0,
-                limits=httpx.Limits(
-                    max_keepalive_connections=20,  # 保持活跃的连接数
-                    max_connections=50,            # 最大连接数
-                    keepalive_expiry=30.0,         # 连接过期时间（秒）
-                ),
-                http2=False,  # 禁用HTTP/2，避免需要额外安装h2包
-            )
-            logger.info("HTTP客户端已创建，连接池配置: max_connections=50, keepalive=20")
+        """获取共享的HTTP客户端（懒加载，线程安全）"""
+        # 第一次检查（无锁，快速路径）
+        if cls._client is not None:
+            return cls._client
+
+        # 需要创建客户端，获取锁
+        async with cls._get_lock():
+            # 第二次检查（持锁，确保只创建一次）
+            if cls._client is None:
+                cls._client = httpx.AsyncClient(
+                    timeout=60.0,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20,  # 保持活跃的连接数
+                        max_connections=50,            # 最大连接数
+                        keepalive_expiry=30.0,         # 连接过期时间（秒）
+                    ),
+                    http2=False,  # 禁用HTTP/2，避免需要额外安装h2包
+                )
+                logger.info("HTTP客户端已创建，连接池配置: max_connections=50, keepalive=20")
         return cls._client
 
     @classmethod
@@ -76,151 +93,36 @@ class HTTPClientManager:
 class ImageGenerationService:
     """图片生成服务
 
-    提供配置管理和图片生成功能。
+    职责：
+    - 图片生成（调用供应商API）
+    - 图片下载和保存
+    - 图片管理（查询、删除）
+
+    遵循单一职责原则，配置管理已拆分到 ImageConfigService。
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        config_service: Optional["ImageConfigService"] = None,
+    ):
+        """
+        初始化图片生成服务
+
+        Args:
+            session: 数据库会话
+            config_service: 配置服务（可选，用于获取激活配置）
+        """
         self.session = session
+        self._config_service = config_service
 
-    # ==================== 配置管理 ====================
-
-    async def get_configs(self, user_id: int) -> List[ImageGenerationConfig]:
-        """获取用户的所有图片生成配置"""
-        result = await self.session.execute(
-            select(ImageGenerationConfig)
-            .where(ImageGenerationConfig.user_id == user_id)
-            .order_by(ImageGenerationConfig.created_at.desc())
-        )
-        return list(result.scalars().all())
-
-    async def get_config(self, config_id: int, user_id: int) -> Optional[ImageGenerationConfig]:
-        """获取单个配置"""
-        result = await self.session.execute(
-            select(ImageGenerationConfig).where(
-                ImageGenerationConfig.id == config_id,
-                ImageGenerationConfig.user_id == user_id,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def get_active_config(self, user_id: int) -> Optional[ImageGenerationConfig]:
-        """获取用户激活的配置"""
-        result = await self.session.execute(
-            select(ImageGenerationConfig).where(
-                ImageGenerationConfig.user_id == user_id,
-                ImageGenerationConfig.is_active == True,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def create_config(
-        self, user_id: int, data: ImageConfigCreate
-    ) -> ImageGenerationConfig:
-        """创建新配置"""
-        config = ImageGenerationConfig(
-            user_id=user_id,
-            config_name=data.config_name,
-            provider_type=data.provider_type.value,
-            api_base_url=data.api_base_url,
-            api_key=data.api_key,
-            model_name=data.model_name,
-            default_style=data.default_style,
-            default_ratio=data.default_ratio,
-            default_resolution=data.default_resolution,
-            default_quality=data.default_quality,
-            extra_params=data.extra_params or {},
-        )
-        self.session.add(config)
-        await self.session.flush()
-        return config
-
-    async def update_config(
-        self, config_id: int, user_id: int, data: ImageConfigUpdate
-    ) -> Optional[ImageGenerationConfig]:
-        """更新配置"""
-        config = await self.get_config(config_id, user_id)
-        if not config:
-            return None
-
-        update_data = data.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
-            if key == "provider_type" and value is not None:
-                setattr(config, key, value.value)
-            else:
-                setattr(config, key, value)
-
-        await self.session.flush()
-        return config
-
-    async def delete_config(self, config_id: int, user_id: int) -> bool:
-        """删除配置"""
-        config = await self.get_config(config_id, user_id)
-        if not config:
-            return False
-
-        if config.is_active:
-            raise ValueError("无法删除激活的配置")
-
-        await self.session.delete(config)
-        await self.session.flush()
-        return True
-
-    async def activate_config(self, config_id: int, user_id: int) -> bool:
-        """激活配置"""
-        # 先取消所有其他配置的激活状态
-        result = await self.session.execute(
-            select(ImageGenerationConfig).where(
-                ImageGenerationConfig.user_id == user_id,
-                ImageGenerationConfig.is_active == True,
-            )
-        )
-        for old_config in result.scalars().all():
-            old_config.is_active = False
-
-        # 激活指定配置
-        config = await self.get_config(config_id, user_id)
-        if not config:
-            return False
-
-        config.is_active = True
-        await self.session.flush()
-        return True
-
-    async def test_config(self, config_id: int, user_id: int) -> Dict[str, Any]:
-        """测试配置连接（使用工厂模式）"""
-        config = await self.get_config(config_id, user_id)
-        if not config:
-            return {"success": False, "message": "配置不存在"}
-
-        try:
-            # 使用工厂获取对应的供应商
-            provider = ImageProviderFactory.get_provider(config.provider_type)
-            if not provider:
-                result = {"success": False, "message": f"不支持的提供商类型: {config.provider_type}"}
-            else:
-                test_result = await provider.test_connection(config)
-                result = {
-                    "success": test_result.success,
-                    "message": test_result.message,
-                    **test_result.extra_info
-                }
-
-            # 更新测试状态
-            config.last_test_at = datetime.utcnow()
-            config.test_status = "success" if result["success"] else "failed"
-            config.test_message = result.get("message", "")
-            config.is_verified = result["success"]
-            await self.session.flush()
-
-            return result
-
-        except Exception as e:
-            logger.error(f"测试配置失败: {e}")
-            config.last_test_at = datetime.utcnow()
-            config.test_status = "failed"
-            config.test_message = str(e)
-            await self.session.flush()
-            return {"success": False, "message": str(e)}
+    @property
+    def config_service(self) -> "ImageConfigService":
+        """获取配置服务（延迟初始化）"""
+        if self._config_service is None:
+            from .config_service import ImageConfigService
+            self._config_service = ImageConfigService(self.session)
+        return self._config_service
 
     # ==================== 图片生成 ====================
 
@@ -247,13 +149,26 @@ class ImageGenerationService:
         """
         start_time = time.time()
 
-        # 获取激活的配置
-        config = await self.get_active_config(user_id)
+        # 获取激活的配置（通过配置服务）
+        config = await self.config_service.get_active_config(user_id)
         if not config:
-            return ImageGenerationResult(
-                success=False,
-                error_message="未配置图片生成服务，请先在设置中添加配置",
-            )
+            # 检查是否有配置但未激活
+            all_configs = await self.config_service.get_configs(user_id)
+            if all_configs:
+                # 有配置但未激活
+                config_names = ", ".join(c.config_name for c in all_configs[:3])
+                if len(all_configs) > 3:
+                    config_names += f" 等{len(all_configs)}个"
+                return ImageGenerationResult(
+                    success=False,
+                    error_message=f"请先激活图片生成配置。已有配置: {config_names}，请在设置中选择并激活",
+                )
+            else:
+                # 没有任何配置
+                return ImageGenerationResult(
+                    success=False,
+                    error_message="未配置图片生成服务，请先在设置中添加配置",
+                )
 
         try:
             # 使用工厂获取对应的供应商
@@ -293,6 +208,7 @@ class ImageGenerationService:
                 model_name=config.model_name,
                 style=request.style,
                 chapter_version_id=request.chapter_version_id,
+                panel_id=request.panel_id,
             )
 
             generation_time = time.time() - start_time
@@ -322,6 +238,7 @@ class ImageGenerationService:
         model_name: Optional[str],
         style: Optional[str],
         chapter_version_id: Optional[int] = None,
+        panel_id: Optional[str] = None,
     ) -> List[GeneratedImageInfo]:
         """下载并保存图片
 
@@ -331,8 +248,8 @@ class ImageGenerationService:
 
         Args:
             chapter_version_id: 章节版本ID，用于版本追溯
+            panel_id: 画格ID，用于精确匹配
         """
-        import base64
 
         saved_images = []
 
@@ -375,7 +292,7 @@ class ImageGenerationService:
 
                 # 生成唯一文件名（使用UUID保证唯一性，避免并发冲突）
                 unique_id = uuid.uuid4().hex[:12]  # 12位足够避免冲突
-                content_hash = hashlib.md5(image_content).hexdigest()[:8]
+                content_hash = hashlib.sha256(image_content).hexdigest()[:8]
                 file_name = f"img_{unique_id}_{content_hash}.png"
                 file_path = save_dir / file_name
 
@@ -397,6 +314,7 @@ class ImageGenerationService:
                     project_id=project_id,
                     chapter_number=chapter_number,
                     scene_id=scene_id,
+                    panel_id=panel_id,  # 画格ID
                     chapter_version_id=chapter_version_id,  # 版本追溯
                     file_name=file_name,
                     file_path=str(file_path.relative_to(IMAGES_ROOT)),
@@ -421,6 +339,7 @@ class ImageGenerationService:
                         file_path=str(file_path),
                         url=access_url,
                         scene_id=scene_id,
+                        panel_id=panel_id,
                         prompt=prompt,
                         created_at=image_record.created_at,
                     )
@@ -471,7 +390,6 @@ class ImageGenerationService:
         Returns:
             图片列表，按场景ID和创建时间排序
         """
-        from sqlalchemy import or_
 
         query = select(GeneratedImage).where(
             GeneratedImage.project_id == project_id,

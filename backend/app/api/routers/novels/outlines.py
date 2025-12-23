@@ -199,3 +199,225 @@ async def generate_chapter_outlines(
         "total_chapters": len(all_chapters_data),
         "status": ProjectStatus.CHAPTER_OUTLINES_READY.value,
     }
+
+
+@router.post("/{project_id}/chapter-outlines/generate-stream")
+async def generate_chapter_outlines_stream(
+    project_id: str,
+    novel_service: NovelService = Depends(get_novel_service),
+    prompt_service: PromptService = Depends(get_prompt_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """为短篇小说串行生成全部章节大纲（SSE流式返回进度）
+
+    与generate_chapter_outlines相同的逻辑，但通过SSE返回每批次的进度。
+
+    事件类型：
+    - progress: 批次进度 {"current_batch", "total_batches", "generated_count", "total_count", "current_range", "status"}
+    - complete: 完成 {"message", "total_chapters"}
+    - error: 错误 {"message"}
+    """
+    from fastapi.responses import StreamingResponse
+    from ....utils.sse_helpers import sse_event, create_sse_response
+    from ....utils.exception_helpers import get_safe_error_message
+    import math
+
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    logger.info("项目 %s 开始串行生成章节大纲（SSE模式）", project_id)
+
+    # 检查蓝图是否存在
+    project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    if not project_schema.blueprint:
+        raise BlueprintNotReadyError(project_id)
+
+    blueprint = project_schema.blueprint
+
+    # 检查是否为短篇流程
+    if blueprint.needs_part_outlines:
+        raise InvalidParameterError(
+            "该项目为长篇小说，请先生成部分大纲，再分批生成章节大纲"
+        )
+
+    total_chapters = blueprint.total_chapters or 0
+    if total_chapters == 0:
+        raise InvalidParameterError("蓝图未设置总章节数")
+
+    # 检查是否已有章节大纲
+    if blueprint.chapter_outline and len(blueprint.chapter_outline) > 0:
+        raise ConflictError(
+            f"章节大纲已存在（共{len(blueprint.chapter_outline)}章），如需重新生成请先删除现有大纲"
+        )
+
+    # 构建蓝图上下文
+    blueprint_context = {
+        "title": blueprint.title,
+        "target_audience": blueprint.target_audience,
+        "genre": blueprint.genre,
+        "style": blueprint.style,
+        "tone": blueprint.tone,
+        "one_sentence_summary": blueprint.one_sentence_summary,
+        "full_synopsis": blueprint.full_synopsis,
+        "world_setting": blueprint.world_setting,
+        "characters": blueprint.characters,
+        "relationships": blueprint.relationships,
+        "chapter_outline": [],
+    }
+
+    # 获取系统提示词
+    system_prompt = ensure_prompt(await prompt_service.get_prompt("outline"), "outline")
+
+    # 计算总批次数
+    CHAPTERS_PER_BATCH = 5
+    total_batches = math.ceil(total_chapters / CHAPTERS_PER_BATCH)
+
+    async def event_generator():
+        try:
+            all_chapters_data = []
+            chapter_outline_repo = ChapterOutlineRepository(session)
+            current_chapter = 1
+            current_batch = 0
+
+            # 发送开始事件
+            yield sse_event("progress", {
+                "current_batch": 0,
+                "total_batches": total_batches,
+                "generated_count": 0,
+                "total_count": total_chapters,
+                "current_range": f"准备生成第1-{total_chapters}章",
+                "status": "starting"
+            })
+
+            while current_chapter <= total_chapters:
+                current_batch += 1
+                batch_end = min(current_chapter + CHAPTERS_PER_BATCH - 1, total_chapters)
+                batch_count = batch_end - current_chapter + 1
+
+                logger.info(
+                    "开始生成第 %d-%d 章（批次 %d/%d）",
+                    current_chapter, batch_end, current_batch, total_batches
+                )
+
+                # 发送批次开始进度
+                yield sse_event("progress", {
+                    "current_batch": current_batch,
+                    "total_batches": total_batches,
+                    "generated_count": len(all_chapters_data),
+                    "total_count": total_chapters,
+                    "current_range": f"正在生成第{current_chapter}-{batch_end}章",
+                    "status": "generating"
+                })
+
+                # 获取前面已生成的章节
+                previous_chapters = [
+                    {
+                        "chapter_number": ch["chapter_number"],
+                        "title": ch.get("title", ""),
+                        "summary": ch.get("summary", "")[:200] + "..." if len(ch.get("summary", "") or "") > 200 else ch.get("summary", ""),
+                    }
+                    for ch in all_chapters_data
+                ]
+
+                # 上下文优化：最多保留最近15章的详细信息
+                MAX_RECENT_CHAPTERS = 15
+                if len(previous_chapters) > MAX_RECENT_CHAPTERS:
+                    early_chapters = [
+                        {"chapter_number": ch["chapter_number"], "title": ch["title"]}
+                        for ch in previous_chapters[:-MAX_RECENT_CHAPTERS]
+                    ]
+                    recent_chapters = previous_chapters[-MAX_RECENT_CHAPTERS:]
+                    context_previous = {
+                        "early_chapters_titles": early_chapters,
+                        "recent_chapters": recent_chapters,
+                    }
+                    context_note = f"前面已生成 {len(previous_chapters)} 章。最近{MAX_RECENT_CHAPTERS}章提供详细摘要。请确保与前文保持连贯、设定一致、剧情承接自然。"
+                else:
+                    context_previous = previous_chapters
+                    context_note = f"前面已生成 {len(previous_chapters)} 章，请确保与前文保持连贯、设定一致、剧情承接自然。" if previous_chapters else None
+
+                payload = {
+                    "novel_blueprint": blueprint_context,
+                    "wait_to_generate": {
+                        "start_chapter": current_chapter,
+                        "num_chapters": batch_count
+                    },
+                }
+
+                if context_previous:
+                    payload["previous_chapters"] = context_previous
+                if context_note:
+                    payload["context_note"] = context_note
+
+                user_prompt = json.dumps(payload, ensure_ascii=False, indent=2)
+
+                # 调用LLM
+                response = await llm_service.get_llm_response(
+                    system_prompt=system_prompt,
+                    conversation_history=[{"role": "user", "content": user_prompt}],
+                    temperature=settings.llm_temp_outline,
+                    user_id=desktop_user.id,
+                    timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
+                    max_tokens=None,
+                )
+
+                result = parse_llm_json_or_fail(
+                    response,
+                    f"项目{project_id}的章节大纲生成失败"
+                )
+
+                chapters_data = result.get("chapters", [])
+                if not chapters_data:
+                    raise LLMServiceError("LLM未返回有效的章节大纲")
+
+                # 保存章节大纲
+                for chapter_data in chapters_data:
+                    await chapter_outline_repo.upsert_outline(
+                        project_id=project_id,
+                        chapter_number=chapter_data.get("chapter_number"),
+                        title=chapter_data.get("title", ""),
+                        summary=chapter_data.get("summary", ""),
+                    )
+                    all_chapters_data.append(chapter_data)
+
+                logger.info(
+                    "成功生成第 %d-%d 章大纲（本批 %d 章）",
+                    current_chapter, batch_end, len(chapters_data)
+                )
+
+                # 增量提交
+                await session.commit()
+
+                # 发送批次完成进度
+                yield sse_event("progress", {
+                    "current_batch": current_batch,
+                    "total_batches": total_batches,
+                    "generated_count": len(all_chapters_data),
+                    "total_count": total_chapters,
+                    "current_range": f"已完成第{current_chapter}-{batch_end}章",
+                    "status": "batch_done"
+                })
+
+                current_chapter = batch_end + 1
+
+            # 更新项目状态
+            updated_project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+            await novel_service.transition_project_status(updated_project, ProjectStatus.CHAPTER_OUTLINES_READY.value)
+
+            logger.info("项目 %s 章节大纲串行生成完成（SSE模式），共 %d 章", project_id, len(all_chapters_data))
+
+            # 发送完成事件
+            yield sse_event("complete", {
+                "message": f"成功生成{len(all_chapters_data)}章大纲",
+                "total_chapters": len(all_chapters_data),
+            })
+
+        except Exception as exc:
+            logger.exception("章节大纲生成失败: %s", exc)
+            safe_message = get_safe_error_message(exc, "章节大纲生成失败，请稍后重试")
+            yield sse_event("error", {
+                "message": safe_message,
+                "saved_count": len(all_chapters_data) if 'all_chapters_data' in locals() else 0,
+            })
+
+    return create_sse_response(event_generator())

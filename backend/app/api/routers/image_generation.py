@@ -2,6 +2,7 @@
 图片生成API路由
 
 提供图片生成配置管理和图片生成功能。
+配置管理使用 ImageConfigService，图片生成使用 ImageGenerationService。
 """
 
 from typing import List
@@ -12,11 +13,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
-from ...core.dependencies import get_default_user
+from ...core.dependencies import get_default_user, get_image_config_service
 from ...db.session import get_session
+from ...exceptions import ResourceNotFoundError, InvalidParameterError
 from ...schemas.user import UserInDB
 from ...services.image_generation import (
     ImageGenerationService,
+    ImageConfigService,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageConfigCreate,
@@ -44,11 +47,10 @@ IMAGES_ROOT = settings.generated_images_dir
 
 @router.get("/configs", response_model=List[ImageConfigResponse])
 async def get_image_configs(
-    session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取所有图片生成配置"""
-    service = ImageGenerationService(session)
     configs = await service.get_configs(desktop_user.id)
     return configs
 
@@ -56,14 +58,13 @@ async def get_image_configs(
 @router.get("/configs/{config_id}", response_model=ImageConfigResponse)
 async def get_image_config(
     config_id: int,
-    session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取单个配置"""
-    service = ImageGenerationService(session)
     config = await service.get_config(config_id, desktop_user.id)
     if not config:
-        raise HTTPException(status_code=404, detail="配置不存在")
+        raise ResourceNotFoundError("图片生成配置", f"ID={config_id}")
     return config
 
 
@@ -71,10 +72,10 @@ async def get_image_config(
 async def create_image_config(
     data: ImageConfigCreate,
     session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """创建新配置"""
-    service = ImageGenerationService(session)
     config = await service.create_config(desktop_user.id, data)
     await session.commit()
     await session.refresh(config)
@@ -86,13 +87,13 @@ async def update_image_config(
     config_id: int,
     data: ImageConfigUpdate,
     session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """更新配置"""
-    service = ImageGenerationService(session)
     config = await service.update_config(config_id, desktop_user.id, data)
     if not config:
-        raise HTTPException(status_code=404, detail="配置不存在")
+        raise ResourceNotFoundError("图片生成配置", f"ID={config_id}")
     await session.commit()
     await session.refresh(config)
     return config
@@ -102,31 +103,31 @@ async def update_image_config(
 async def delete_image_config(
     config_id: int,
     session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """删除配置"""
-    service = ImageGenerationService(session)
     try:
         success = await service.delete_config(config_id, desktop_user.id)
         if not success:
-            raise HTTPException(status_code=404, detail="配置不存在")
+            raise ResourceNotFoundError("图片生成配置", f"ID={config_id}")
         await session.commit()
         return {"success": True}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise InvalidParameterError(str(e))
 
 
 @router.post("/configs/{config_id}/activate")
 async def activate_image_config(
     config_id: int,
     session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """激活配置"""
-    service = ImageGenerationService(session)
     success = await service.activate_config(config_id, desktop_user.id)
     if not success:
-        raise HTTPException(status_code=404, detail="配置不存在")
+        raise ResourceNotFoundError("图片生成配置", f"ID={config_id}")
     await session.commit()
     return {"success": True}
 
@@ -135,13 +136,58 @@ async def activate_image_config(
 async def test_image_config(
     config_id: int,
     session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """测试配置连接"""
-    service = ImageGenerationService(session)
     result = await service.test_config(config_id, desktop_user.id)
     await session.commit()
     return result
+
+
+# ==================== 配置导入导出 ====================
+
+@router.get("/configs/{config_id}/export")
+async def export_image_config(
+    config_id: int,
+    service: ImageConfigService = Depends(get_image_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """导出单个图片生成配置"""
+    try:
+        export_data = await service.export_config(config_id, desktop_user.id)
+        return export_data
+    except ValueError as e:
+        raise ResourceNotFoundError("图片生成配置", str(e))
+
+
+@router.get("/configs/export/all")
+async def export_all_image_configs(
+    service: ImageConfigService = Depends(get_image_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """导出用户的所有图片生成配置"""
+    try:
+        export_data = await service.export_all_configs(desktop_user.id)
+        return export_data
+    except ValueError as e:
+        raise ResourceNotFoundError("图片生成配置", str(e))
+
+
+@router.post("/configs/import")
+async def import_image_configs(
+    import_data: dict,
+    session: AsyncSession = Depends(get_session),
+    service: ImageConfigService = Depends(get_image_config_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """导入图片生成配置"""
+    try:
+        result = await service.import_configs(desktop_user.id, import_data)
+        await session.commit()
+        return result
+    except ValueError as e:
+        raise InvalidParameterError(str(e))
 
 
 # ==================== 图片生成 ====================
@@ -181,6 +227,7 @@ async def generate_scene_image(
         count=request.count,
         seed=request.seed,
         chapter_version_id=request.chapter_version_id,
+        panel_id=request.panel_id,
     )
 
     service = ImageGenerationService(session)
@@ -257,6 +304,7 @@ async def get_chapter_images(
             file_path=img.file_path,
             url=f"/api/images/{project_id}/chapter_{chapter_number}/scene_{img.scene_id}/{img.file_name}",
             scene_id=img.scene_id,
+            panel_id=img.panel_id,
             width=img.width,
             height=img.height,
             prompt=img.prompt,
@@ -276,7 +324,7 @@ async def delete_image(
     service = ImageGenerationService(session)
     success = await service.delete_image(image_id)
     if not success:
-        raise HTTPException(status_code=404, detail="图片不存在")
+        raise ResourceNotFoundError("图片", f"ID={image_id}")
     await session.commit()
     return {"success": True}
 
@@ -292,7 +340,7 @@ async def toggle_image_selection(
     service = ImageGenerationService(session)
     success = await service.toggle_image_selection(image_id, selected)
     if not success:
-        raise HTTPException(status_code=404, detail="图片不存在")
+        raise ResourceNotFoundError("图片", f"ID={image_id}")
     await session.commit()
     return {"success": True}
 

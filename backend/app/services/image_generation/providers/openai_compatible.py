@@ -15,7 +15,7 @@ import httpx
 from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
-from ..schemas import ImageGenerationRequest, QUALITY_PARAMS
+from ..schemas import ImageGenerationRequest, QUALITY_PARAMS, get_size_for_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +179,16 @@ class OpenAICompatibleProvider(BaseImageProvider):
 
         # 获取配置参数
         extra_params = config.extra_params or {}
-        size = extra_params.get("size", "1024x1024")
         response_format = extra_params.get("response_format", "url")
+
+        # 确定图片尺寸：优先使用请求中的ratio，其次使用配置中的size
+        if request.ratio:
+            # 从宽高比计算实际尺寸
+            width, height = get_size_for_ratio(request.ratio, request.resolution or "1K")
+            size = f"{width}x{height}"
+            logger.info(f"使用宽高比 {request.ratio} 计算尺寸: {size}")
+        else:
+            size = extra_params.get("size", "1024x1024")
 
         # 构建API端点
         api_url = build_image_endpoint(config.api_base_url)

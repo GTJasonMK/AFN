@@ -12,7 +12,7 @@ import httpx
 from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult
 from .factory import ImageProviderFactory
 from ....models.image_config import ImageGenerationConfig
-from ..schemas import ImageGenerationRequest
+from ..schemas import ImageGenerationRequest, get_size_for_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,13 @@ class StabilityProvider(BaseImageProvider):
         # 获取额外参数
         extra_params = config.extra_params or {}
 
-        # 确定图片尺寸
-        width = extra_params.get("width", 1024)
-        height = extra_params.get("height", 1024)
+        # 确定图片尺寸：优先使用请求中的ratio，其次使用配置中的width/height
+        if request.ratio:
+            width, height = get_size_for_ratio(request.ratio, request.resolution or "1K")
+            logger.info(f"Stability AI: 使用宽高比 {request.ratio} 计算尺寸: {width}x{height}")
+        else:
+            width = extra_params.get("width", 1024)
+            height = extra_params.get("height", 1024)
 
         # 构建请求体
         request_body = {
@@ -165,7 +169,7 @@ class StabilityProvider(BaseImageProvider):
             "style": True,
             "quality": False,  # 通过steps控制
             "resolution": True,
-            "ratio": False,  # 通过width/height控制
+            "ratio": True,  # 支持宽高比转换
             "cfg_scale": True,
             "steps": True,
             "style_preset": True,

@@ -35,17 +35,19 @@ class ChapterOutlineSection(ThemeAwareWidget):
     refreshRequested = pyqtSignal()
     addRequested = pyqtSignal()
 
-    def __init__(self, outline=None, blueprint=None, project_id='', editable=True, parent=None):
+    def __init__(self, outline=None, blueprint=None, project_id='', editable=True, initial_tab_index=0, parent=None):
         self.outline = outline or []
         self.blueprint = blueprint or {}
         self.project_id = project_id
         self.editable = editable
+        self._initial_tab_index = initial_tab_index  # 保存初始tab索引
 
         logger.info(
             f"ChapterOutlineSection初始化: project_id={project_id}, "
             f"outline章节数={len(self.outline)}, "
             f"needs_part_outlines={self.blueprint.get('needs_part_outlines', False)}, "
-            f"part_outlines数={len(self.blueprint.get('part_outlines', []))}"
+            f"part_outlines数={len(self.blueprint.get('part_outlines', []))}, "
+            f"initial_tab_index={initial_tab_index}"
         )
 
         # UI模式: 'long' or 'short'
@@ -148,7 +150,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
             part_layout.setContentsMargins(0, dp(16), 0, 0)
             part_layout.setSpacing(dp(16))
 
-            # 部分大纲操作栏（显示继续生成按钮，支持增量生成）
+            # 部分大纲操作栏（显示继续生成按钮，支持增量生成，不显示新增按钮）
             total_parts = len(part_outlines)
             # 计算目标总部分数（基于蓝图的总章节数）
             total_chapters = self.blueprint.get('total_chapters', 0)
@@ -162,7 +164,8 @@ class ChapterOutlineSection(ThemeAwareWidget):
                 total_count=target_total_parts,
                 outline_type="part",
                 editable=self.editable,
-                show_continue_button=True  # 启用继续生成按钮
+                show_continue_button=True,  # 启用继续生成按钮
+                show_add_button=False  # 部分大纲不支持手动新增
             )
             self._part_action_bar.continueGenerateClicked.connect(self._on_continue_generate_parts)
             self._part_action_bar.regenerateLatestClicked.connect(self._on_regenerate_latest_parts)
@@ -202,6 +205,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
                 outline_type="chapter",
                 editable=self.editable
             )
+            self._chapter_action_bar.addOutlineClicked.connect(self._on_add_chapter_outline)
             self._chapter_action_bar.continueGenerateClicked.connect(self._on_continue_generate_chapters)
             self._chapter_action_bar.regenerateLatestClicked.connect(self._on_regenerate_latest_chapters)
             self._chapter_action_bar.deleteLatestClicked.connect(self._on_delete_latest_chapters)
@@ -239,6 +243,7 @@ class ChapterOutlineSection(ThemeAwareWidget):
                 outline_type="chapter",
                 editable=self.editable
             )
+            self._chapter_action_bar.addOutlineClicked.connect(self._on_add_chapter_outline)
             self._chapter_action_bar.continueGenerateClicked.connect(self._on_continue_generate_chapters)
             self._chapter_action_bar.regenerateLatestClicked.connect(self._on_regenerate_latest_chapters)
             self._chapter_action_bar.deleteLatestClicked.connect(self._on_delete_latest_chapters)
@@ -255,8 +260,8 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     def _rebuild_ui(self):
         """重建UI"""
-        # 保存当前Tab索引
-        saved_tab_index = 0
+        # 保存当前Tab索引（优先使用当前显示的，其次使用初始化时传入的）
+        saved_tab_index = self._initial_tab_index
         if self._tab_widget:
             saved_tab_index = self._tab_widget.currentIndex()
 
@@ -272,6 +277,13 @@ class ChapterOutlineSection(ThemeAwareWidget):
             # 确保索引不越界
             if saved_tab_index < self._tab_widget.count():
                 self._tab_widget.setCurrentIndex(saved_tab_index)
+                logger.debug(f"恢复tab索引: {saved_tab_index}")
+
+    def getCurrentTabIndex(self):
+        """获取当前tab索引（用于刷新时保存状态）"""
+        if self._tab_widget:
+            return self._tab_widget.currentIndex()
+        return 0
 
     def _clear_ui(self):
         """清空UI"""
@@ -673,6 +685,55 @@ class ChapterOutlineSection(ThemeAwareWidget):
 
     # ========== 章节大纲操作 ==========
 
+    def _on_add_chapter_outline(self):
+        """手动新增章节大纲"""
+        from .chapter_edit_dialog import ChapterOutlineEditDialog
+        from PyQt6.QtWidgets import QDialog
+
+        # 计算下一个章节编号（当前最大编号+1）
+        current_max = 0
+        for outline in self.outline:
+            chapter_num = outline.get('chapter_number', 0)
+            if chapter_num > current_max:
+                current_max = chapter_num
+        next_chapter_number = current_max + 1
+
+        # 检查是否超出限制（长篇模式下不能超过部分大纲覆盖范围）
+        needs_part_outlines = self.blueprint.get('needs_part_outlines', False)
+        if needs_part_outlines and self._max_covered_chapter > 0:
+            if next_chapter_number > self._max_covered_chapter:
+                MessageService.show_warning(
+                    self,
+                    f"当前部分大纲仅覆盖到第{self._max_covered_chapter}章，\n"
+                    f"无法新增第{next_chapter_number}章。\n\n"
+                    f"请先生成更多部分大纲以覆盖后续章节。",
+                    "提示"
+                )
+                return
+
+        # 打开新增对话框
+        dialog = ChapterOutlineEditDialog(
+            chapter_number=next_chapter_number,
+            is_new=True,
+            parent=self
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_title, new_summary = dialog.get_values()
+
+            # 调用API保存新大纲
+            self.async_helper.execute(
+                self.api_client.update_chapter_outline,
+                self.project_id,
+                next_chapter_number,
+                new_title,
+                new_summary,
+                loading_message=f"正在添加第{next_chapter_number}章大纲...",
+                success_message=f"第{next_chapter_number}章大纲已添加",
+                error_context="添加章节大纲",
+                on_success=lambda r: self.refreshRequested.emit()
+            )
+
     def _on_generate_chapter_outlines(self):
         """生成章节大纲"""
         # 检查蓝图是否设置了总章节数
@@ -723,16 +784,29 @@ class ChapterOutlineSection(ThemeAwareWidget):
         self._do_generate_chapter_outlines()
 
     def _do_generate_chapter_outlines(self):
-        """执行生成章节大纲"""
-        self.async_helper.execute(
-            self.api_client.generate_all_chapter_outlines,
-            self.project_id,
-            async_mode=False,
-            loading_message="正在生成章节大纲...",
-            success_message=None,
-            error_context="生成章节大纲",
-            on_success=self._on_chapter_outlines_generated
+        """执行生成章节大纲（使用SSE流式进度）"""
+        total_chapters = self.blueprint.get('total_chapters', 0)
+        logger.info(f"开始生成全部章节大纲（共{total_chapters}章，使用SSE流式进度）")
+
+        # 显示进度对话框
+        self._progress_dialog = LoadingDialog(
+            parent=self,
+            title="生成章节大纲",
+            message=f"正在准备生成 {total_chapters} 个章节大纲...",
+            cancelable=True
         )
+        self._progress_dialog.rejected.connect(self._on_chapter_outline_sse_cancelled)
+        self._progress_dialog.show()
+
+        # 使用SSEWorker连接流式端点
+        url = f"{self.api_client.base_url}/api/novels/{self.project_id}/chapter-outlines/generate-stream"
+        payload = {}  # 首次生成不需要payload参数
+
+        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker.progress_received.connect(self._on_chapter_outline_progress)
+        self._sse_worker.complete.connect(self._on_chapter_outline_complete)
+        self._sse_worker.error_data.connect(self._on_chapter_outline_error)
+        self._sse_worker.start()
 
     def _on_chapter_outlines_generated(self, result):
         """章节大纲生成完成"""

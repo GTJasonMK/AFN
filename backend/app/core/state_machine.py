@@ -38,6 +38,7 @@ class ProjectStateMachine:
         ProjectStatus.BLUEPRINT_READY: [
             ProjectStatus.PART_OUTLINES_READY,
             ProjectStatus.CHAPTER_OUTLINES_READY,
+            ProjectStatus.WRITING,  # 允许空白项目直接进入写作状态
             ProjectStatus.DRAFT,  # 允许回退到draft重新生成蓝图
             ProjectStatus.BLUEPRINT_READY,  # 允许重新生成蓝图（保持当前状态）
         ],

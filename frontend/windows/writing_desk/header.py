@@ -239,9 +239,17 @@ class WDHeader(ThemeAwareFrame):
         # 计算统计数据
         blueprint = project.get('blueprint', {})
         genre = blueprint.get('genre', '')
-        total_chapters = len(blueprint.get('chapter_outline', []))
         chapters = project.get('chapters', [])
         completed_chapters = [ch for ch in chapters if ch.get('content')]
+
+        # 判断是否为空白项目（无蓝图数据）
+        is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
+
+        # 总章节数：空白项目使用实际章节数，普通项目使用大纲章节数
+        if is_empty_project:
+            total_chapters = len(chapters)
+        else:
+            total_chapters = len(blueprint.get('chapter_outline', []))
 
         # 总字数
         total_words = sum(
@@ -253,6 +261,8 @@ class WDHeader(ThemeAwareFrame):
         meta_parts = []
         if genre:
             meta_parts.append(genre)
+        elif is_empty_project:
+            meta_parts.append("自由创作")
         meta_parts.append(f"{len(completed_chapters)}/{total_chapters}章")
         if total_words > 0:
             meta_parts.append(format_word_count(total_words))

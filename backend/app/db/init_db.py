@@ -172,6 +172,12 @@ async def _run_migrations() -> None:
             "generation_progress",
             "ALTER TABLE chapter_manga_prompts ADD COLUMN generation_progress JSON DEFAULT NULL"
         ),
+        # 画格ID：精确匹配图片属于哪个画格
+        (
+            "generated_images",
+            "panel_id",
+            "ALTER TABLE generated_images ADD COLUMN panel_id VARCHAR(100)"
+        ),
     ]
 
     async with engine.begin() as conn:

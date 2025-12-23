@@ -273,7 +273,8 @@ class Settings(BaseSettings):
 
         if self.db_provider == "sqlite":
             # SQLite 固定使用 storage/afn.db，并转换为绝对路径以避免运行目录差异
-            project_root = Path(__file__).resolve().parents[2]
+            # 注意：parents[3] 指向项目根目录 E:\code\AFN，与 run_app.py 保持一致
+            project_root = Path(__file__).resolve().parents[3]
             db_path = (project_root / "storage" / "afn.db").resolve()
             return f"sqlite+aiosqlite:///{db_path}"
 
@@ -304,8 +305,9 @@ class Settings(BaseSettings):
             # 打包环境：存储在 exe 所在目录
             return Path(sys.executable).parent / "storage"
         else:
-            # 开发环境：存储在 backend/storage 目录
-            return Path(__file__).resolve().parents[2] / "storage"
+            # 开发环境：存储在项目根目录的 storage 目录，与 run_app.py 保持一致
+            # parents[3] 指向项目根目录 E:\code\AFN
+            return Path(__file__).resolve().parents[3] / "storage"
 
     @property
     def generated_images_dir(self) -> Path:

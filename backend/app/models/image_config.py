@@ -89,6 +89,8 @@ class GeneratedImage(Base):
     project_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     scene_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # 画格ID：用于精确匹配生成的图片属于哪个画格，格式如 "scene1_page1_panel1"
+    panel_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     # 章节版本关联：追踪图片是基于哪个版本的内容生成的
     chapter_version_id: Mapped[Optional[str]] = mapped_column(
         String(36),

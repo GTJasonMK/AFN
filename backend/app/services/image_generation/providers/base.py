@@ -196,7 +196,7 @@ class BaseImageProvider(ABC):
         Returns:
             构建后的提示词
         """
-        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES
+        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES, ASPECT_RATIO_TO_SIZE
 
         # 添加使用场景上下文前缀
         prompt = self.CONTEXT_PREFIX + request.prompt if add_context else request.prompt
@@ -213,9 +213,30 @@ class BaseImageProvider(ABC):
             if res_suffix:
                 prompt = f"{prompt}{res_suffix}"
 
-        # 添加宽高比
+        # 添加宽高比（强化描述）
         if request.ratio:
-            prompt = f"{prompt}, aspect ratio {request.ratio}"
+            # 获取像素尺寸以提供更具体的描述
+            size = ASPECT_RATIO_TO_SIZE.get(request.ratio, (1024, 1024))
+            width, height = size
+
+            # 构建更强的宽高比约束描述
+            if width > height * 2:
+                # 超宽图（如3:1, 6:1）
+                ratio_desc = f"IMPORTANT: extremely wide panoramic image, aspect ratio {request.ratio}, {width}x{height} pixels, horizontal letterbox format, ultrawide composition"
+            elif height > width * 2:
+                # 超高图（如1:3）
+                ratio_desc = f"IMPORTANT: extremely tall vertical image, aspect ratio {request.ratio}, {width}x{height} pixels, vertical composition"
+            elif width > height:
+                # 横向图
+                ratio_desc = f"IMPORTANT: wide horizontal image, aspect ratio {request.ratio}, {width}x{height} pixels, landscape orientation"
+            elif height > width:
+                # 竖向图
+                ratio_desc = f"IMPORTANT: tall vertical image, aspect ratio {request.ratio}, {width}x{height} pixels, portrait orientation"
+            else:
+                # 正方形
+                ratio_desc = f"IMPORTANT: square image, aspect ratio {request.ratio}, {width}x{height} pixels"
+
+            prompt = f"{prompt}, {ratio_desc}"
 
         # 添加负面提示词
         if request.negative_prompt:
