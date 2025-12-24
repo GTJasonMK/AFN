@@ -174,8 +174,12 @@ class SSEWorker(QThread):
                     if not line:
                         continue
 
-                    line = line.decode('utf-8')
-                    self._process_line(line)
+                    try:
+                        line = line.decode('utf-8')
+                        self._process_line(line)
+                    except UnicodeDecodeError as e:
+                        logger.warning("SSE行解码失败: %s", e)
+                        continue
 
                 logger.info("SSE流结束")
 
@@ -188,6 +192,13 @@ class SSEWorker(QThread):
             if not self._stop_event.is_set():
                 logger.error("SSE连接错误: %s", e)
                 self._safe_emit_error(f"连接失败：{str(e)}")
+
+        except OSError as e:
+            # 捕获Windows上的socket相关错误
+            if not self._stop_event.is_set():
+                error_code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
+                logger.error("SSE系统错误: %s (code=%s)", e, error_code)
+                self._safe_emit_error(f"网络错误：{str(e)}")
 
         except Exception as e:
             if not self._stop_event.is_set():

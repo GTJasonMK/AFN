@@ -125,17 +125,37 @@ class PartOutlineStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class PartKeyEvent(BaseModel):
+    """部分大纲关键事件（详细格式）"""
+    chapter: Optional[str] = Field(default=None, description="章节范围，如 '1-3'")
+    event: str = Field(..., description="事件名称")
+    description: Optional[str] = Field(default=None, description="事件描述")
+
+
+class PartConflict(BaseModel):
+    """部分大纲冲突（详细格式）"""
+    type: Optional[str] = Field(default=None, description="冲突类型，如 '主要冲突'、'内心冲突'")
+    description: str = Field(..., description="冲突描述")
+    characters: Optional[List[str]] = Field(default=None, description="涉及角色")
+
+
 class PartOutline(BaseModel):
-    """部分大纲（用于长篇小说的分层结构）"""
+    """部分大纲（用于长篇小说的分层结构）
+
+    key_events 和 conflicts 支持两种格式：
+    1. 简单格式：字符串列表 ["事件1", "事件2"]
+    2. 详细格式：字典列表 [{"chapter": "1-3", "event": "...", "description": "..."}]
+    """
     part_number: int
     title: str
     start_chapter: int
     end_chapter: int
     summary: str
     theme: str
-    key_events: List[str] = []
+    # 使用 Any 类型来支持两种格式，在序列化时会自动处理
+    key_events: List[Any] = []
     character_arcs: Dict[str, str] = {}  # 角色名 -> 成长描述
-    conflicts: List[str] = []
+    conflicts: List[Any] = []
     ending_hook: Optional[str] = None  # 与下一部分的衔接点
     generation_status: PartOutlineStatus = PartOutlineStatus.PENDING
     progress: int = 0  # 生成进度 0-100

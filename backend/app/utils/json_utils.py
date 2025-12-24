@@ -43,22 +43,173 @@ def unwrap_markdown_json(raw_text: str) -> str:
 
 
 def normalize_chinese_quotes(text: str) -> str:
-    """将中文引号（""''）替换为英文引号。"""
+    """
+    智能替换中文引号为英文引号（仅替换JSON结构性引号）
+
+    只替换用作JSON结构的中文引号（键名和值的定界符），
+    保留字符串内容中的中文引号不变，避免破坏JSON结构。
+
+    策略：
+    1. 先尝试直接解析，如果成功则不需要替换
+    2. 如果失败，只替换可能用作JSON结构的中文引号
+    """
     if not text:
         return text
 
-    text = text.replace('"', '"').replace('"', '"')
-    text = text.replace(''', "'").replace(''', "'")
-    return text
+    # 快速检查：如果没有中文引号，直接返回
+    # 中文双引号: "" (\u201c \u201d)，中文单引号: '' (\u2018 \u2019)
+    if '\u201c' not in text and '\u201d' not in text and '\u2018' not in text and '\u2019' not in text:
+        return text
+
+    # 尝试直接解析，如果成功说明中文引号只在字符串内容中，无需替换
+    try:
+        json.loads(text)
+        return text  # JSON有效，保持原样
+    except json.JSONDecodeError:
+        pass  # 需要尝试修复
+
+    # 策略：只替换明确用作JSON结构的中文引号
+    # 特征：紧跟在 { , : [ 后面的引号，或紧跟在值后面的引号
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+
+    while i < len(text):
+        char = text[i]
+
+        if escape_next:
+            result.append(char)
+            escape_next = False
+            i += 1
+            continue
+
+        if char == '\\':
+            result.append(char)
+            escape_next = True
+            i += 1
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            result.append(char)
+            i += 1
+            continue
+
+        if in_string:
+            # 在字符串内部，保持原样（包括中文引号）
+            result.append(char)
+            i += 1
+            continue
+
+        # 在字符串外部，检查是否是中文引号用作结构
+        if char in '\u201c\u201d':
+            # 中文双引号在字符串外，替换为英文引号
+            result.append('"')
+            i += 1
+            continue
+
+        if char in '\u2018\u2019':
+            # 中文单引号在字符串外（JSON不使用单引号，但以防万一）
+            result.append("'")
+            i += 1
+            continue
+
+        result.append(char)
+        i += 1
+
+    return ''.join(result)
+
+
+def escape_inner_quotes(text: str) -> str:
+    """
+    转义JSON字符串内部的未转义引号
+
+    当LLM在JSON字符串值内使用未转义的英文引号时（如对话），
+    尝试识别并转义这些引号。
+
+    策略：
+    1. 解析JSON结构，找出所有字符串值的范围
+    2. 在字符串值内部，将未转义的引号转义为 \\"
+
+    注意：这是一个启发式修复，可能不完美，但能处理常见情况。
+    """
+    if not text:
+        return text
+
+    # 首先尝试直接解析
+    try:
+        json.loads(text)
+        return text  # JSON有效，无需修复
+    except json.JSONDecodeError:
+        pass
+
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+
+    while i < len(text):
+        char = text[i]
+
+        if escape_next:
+            result.append(char)
+            escape_next = False
+            i += 1
+            continue
+
+        if char == '\\':
+            result.append(char)
+            escape_next = True
+            i += 1
+            continue
+
+        if char == '"':
+            if not in_string:
+                # 开始字符串
+                in_string = True
+                string_start = i
+                result.append(char)
+            else:
+                # 可能是结束字符串，也可能是内部的引号
+                # 检查下一个字符来判断
+                next_i = i + 1
+                # 跳过空白
+                while next_i < len(text) and text[next_i] in ' \t\n\r':
+                    next_i += 1
+
+                if next_i >= len(text):
+                    # 到达文本末尾，这是结束引号
+                    in_string = False
+                    result.append(char)
+                elif text[next_i] in ',}]:':
+                    # 后面是JSON分隔符，这是结束引号
+                    in_string = False
+                    result.append(char)
+                else:
+                    # 后面是其他字符，这可能是内部引号，需要转义
+                    # 检查是否是常见的对话模式: "xxx"yyy"
+                    # 在这种情况下，转义这个引号
+                    result.append('\\')
+                    result.append(char)
+            i += 1
+            continue
+
+        result.append(char)
+        i += 1
+
+    return ''.join(result)
 
 
 def repair_truncated_json(text: str) -> str:
     """
     尝试修复被截断的JSON字符串
 
-    当LLM响应被截断时，JSON可能缺少闭合括号。
-    此函数尝试通过添加缺失的闭合符号来修复。
-    使用栈来正确跟踪括号的打开顺序，确保闭合顺序正确。
+    当LLM响应被截断时，JSON可能缺少闭合括号或字符串被中间截断。
+    此函数尝试通过多种策略来修复：
+    1. 如果字符串被截断，尝试闭合字符串
+    2. 移除不完整的键值对
+    3. 添加缺失的闭合括号
 
     Args:
         text: 可能被截断的JSON字符串
@@ -71,71 +222,124 @@ def repair_truncated_json(text: str) -> str:
 
     text = text.rstrip()
 
-    # 使用栈记录括号打开顺序
-    bracket_stack = []  # 存储需要的闭合符号
-    in_string = False
-    escape_next = False
+    def analyze_json(json_text: str):
+        """分析JSON结构，返回括号栈和是否在字符串中"""
+        stack = []
+        in_str = False
+        escape = False
+        for c in json_text:
+            if escape:
+                escape = False
+                continue
+            if c == '\\':
+                escape = True
+                continue
+            if c == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if c == '{':
+                stack.append('}')
+            elif c == '[':
+                stack.append(']')
+            elif c in '}]':
+                if stack and stack[-1] == c:
+                    stack.pop()
+        return stack, in_str
 
-    for char in text:
-        if escape_next:
-            escape_next = False
-            continue
-        if char == '\\':
-            escape_next = True
-            continue
-        if char == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if char == '{':
-            bracket_stack.append('}')
-        elif char == '[':
-            bracket_stack.append(']')
-        elif char in '}]':
-            if bracket_stack and bracket_stack[-1] == char:
-                bracket_stack.pop()
+    bracket_stack, in_string = analyze_json(text)
 
-    # 如果有未闭合的括号，尝试修复
+    # 如果有未闭合的括号或字符串，尝试修复
     if bracket_stack or in_string:
-        # 检查是否在字符串中间被截断
         if in_string:
-            # 找到最后一个未闭合的引号位置
-            last_quote = text.rfind('"')
-            if last_quote > 0:
-                # 回退到引号前的逗号或冒号
-                for i in range(last_quote - 1, -1, -1):
-                    if text[i] in ',:[{':
-                        text = text[:i + 1].rstrip()
-                        break
-                # 重新计算栈
-                bracket_stack = []
-                in_string = False
-                escape_next = False
-                for char in text:
-                    if escape_next:
-                        escape_next = False
-                        continue
-                    if char == '\\':
-                        escape_next = True
-                        continue
-                    if char == '"':
-                        in_string = not in_string
-                        continue
-                    if in_string:
-                        continue
-                    if char == '{':
-                        bracket_stack.append('}')
-                    elif char == '[':
-                        bracket_stack.append(']')
-                    elif char in '}]':
-                        if bracket_stack and bracket_stack[-1] == char:
-                            bracket_stack.pop()
+            # 策略1: 尝试直接闭合字符串
+            # 找到最后一个开始字符串的引号位置
+            last_quote_pos = text.rfind('"')
 
-        # 移除末尾的逗号（如果有）
+            if last_quote_pos > 0:
+                # 策略1a: 直接在末尾添加引号闭合字符串
+                repaired_v1 = text + '"'
+                stack_v1, in_str_v1 = analyze_json(repaired_v1)
+
+                if not in_str_v1:
+                    # 字符串已闭合，现在处理括号
+                    # 移除末尾可能的不完整内容（如未完成的逗号后的内容）
+                    repaired_v1 = repaired_v1.rstrip().rstrip(',')
+                    if stack_v1:
+                        closing = ''.join(reversed(stack_v1))
+                        repaired_v1 += closing
+                        logger.info("JSON修复(策略1a): 闭合字符串并添加 '%s'", closing)
+                    else:
+                        logger.info("JSON修复(策略1a): 仅闭合字符串")
+
+                    # 验证修复后的JSON
+                    try:
+                        json.loads(repaired_v1)
+                        return repaired_v1
+                    except json.JSONDecodeError:
+                        pass  # 尝试下一个策略
+
+                # 策略1b: 回退到上一个完整的键值对
+                # 寻找这个字符串字段的开始位置（键名后的冒号和引号）
+                # 格式通常是: "key": "value...
+                search_start = max(0, last_quote_pos - 200)
+                key_pattern = r'"([^"]+)"\s*:\s*"$'
+                text_to_search = text[search_start:last_quote_pos + 1]
+                match = re.search(key_pattern, text_to_search)
+
+                if match:
+                    # 找到了键名，回退到键名之前
+                    key_start_in_search = match.start()
+                    absolute_key_start = search_start + key_start_in_search
+
+                    # 回退到这个键之前的逗号或开括号
+                    for i in range(absolute_key_start - 1, -1, -1):
+                        if text[i] in ',{[':
+                            cut_pos = i + 1 if text[i] in '{[' else i
+                            text = text[:cut_pos].rstrip()
+                            if text.endswith(','):
+                                text = text[:-1]
+                            logger.info("JSON修复(策略1b): 移除不完整的键值对")
+                            break
+                else:
+                    # 没有找到键名模式，使用简化的回退策略
+                    # 回退到最近的完整结构边界
+                    for i in range(last_quote_pos - 1, -1, -1):
+                        if text[i] in ',{[':
+                            # 检查逗号前是否有完整的值
+                            if text[i] == ',':
+                                # 保留逗号前的内容
+                                text = text[:i].rstrip()
+                            else:
+                                # 保留括号
+                                text = text[:i + 1].rstrip()
+                            logger.info("JSON修复(策略1b-简化): 回退到边界字符")
+                            break
+
+                # 重新分析修复后的文本
+                bracket_stack, in_string = analyze_json(text)
+
+        # 移除末尾的逗号和空白
+        text = text.rstrip()
+        if text.endswith(','):
+            text = text[:-1].rstrip()
+
+        # 处理末尾是冒号的情况（键没有值）
+        if text.endswith(':'):
+            # 回退到冒号前的引号（键名结束）
+            for i in range(len(text) - 2, -1, -1):
+                if text[i] in ',{[':
+                    text = text[:i + 1].rstrip() if text[i] in '{[' else text[:i].rstrip()
+                    break
+            bracket_stack, in_string = analyze_json(text)
+
+        # 最后移除可能残留的逗号
         text = text.rstrip().rstrip(',')
 
-        # 按栈的逆序添加闭合符号（后进先出，确保正确嵌套）
+        # 重新分析并添加闭合符号
+        bracket_stack, in_string = analyze_json(text)
+
         if bracket_stack:
             closing_chars = ''.join(reversed(bracket_stack))
             text += closing_chars
@@ -176,37 +380,66 @@ def parse_llm_json_or_fail(
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
         return json.loads(normalized)
-    except json.JSONDecodeError as exc:
-        # 详细日志：显示原始响应的预览
-        preview_len = 500
-        raw_preview = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
-        cleaned_preview = normalized[:preview_len] + "..." if len(normalized) > preview_len else normalized
-        logger.error(
-            "JSON解析失败: %s\n"
-            "  错误信息: %s (位置: 行%d 列%d)\n"
-            "  原始响应预览: %s\n"
-            "  清理后预览: %s",
-            error_context,
-            exc.msg,
-            exc.lineno,
-            exc.colno,
-            raw_preview,
-            cleaned_preview
-        )
+    except json.JSONDecodeError as first_exc:
+        # 第一次解析失败，尝试多种修复策略
 
-        # 生成更友好的错误消息
-        # 检测是否返回的是普通文本而不是JSON
-        stripped = normalized.strip()
-        if stripped and not stripped.startswith('{') and not stripped.startswith('['):
-            # LLM返回了普通文本而不是JSON
-            detail_msg = "AI返回了对话内容而不是预期的结构化数据，请重试或调整对话内容"
-        else:
-            detail_msg = f"{exc.msg} (行{exc.lineno} 列{exc.colno})"
+        # 策略1: 转义字符串内部的未转义引号
+        try:
+            escaped = escape_inner_quotes(normalized)
+            result = json.loads(escaped)
+            logger.info("JSON修复成功(转义内部引号): %s", error_context)
+            return result
+        except json.JSONDecodeError:
+            pass
 
-        raise JSONParseError(
-            context=error_context,
-            detail_msg=detail_msg
-        ) from exc
+        # 策略2: 修复截断的JSON
+        try:
+            repaired = repair_truncated_json(normalized)
+            result = json.loads(repaired)
+            logger.info("JSON修复成功(截断修复): %s", error_context)
+            return result
+        except json.JSONDecodeError:
+            pass
+
+        # 策略3: 组合 - 先转义引号再修复截断
+        try:
+            escaped = escape_inner_quotes(normalized)
+            repaired = repair_truncated_json(escaped)
+            result = json.loads(repaired)
+            logger.info("JSON修复成功(组合策略): %s", error_context)
+            return result
+        except json.JSONDecodeError as exc:
+            # 所有策略都失败，记录详细错误
+            # 详细日志：显示原始响应的预览
+            preview_len = 500
+            raw_preview = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
+            cleaned_preview = normalized[:preview_len] + "..." if len(normalized) > preview_len else normalized
+            logger.error(
+                "JSON解析失败: %s\n"
+                "  错误信息: %s (位置: 行%d 列%d)\n"
+                "  原始响应预览: %s\n"
+                "  清理后预览: %s",
+                error_context,
+                exc.msg,
+                exc.lineno,
+                exc.colno,
+                raw_preview,
+                cleaned_preview
+            )
+
+            # 生成更友好的错误消息
+            # 检测是否返回的是普通文本而不是JSON
+            stripped = normalized.strip()
+            if stripped and not stripped.startswith('{') and not stripped.startswith('['):
+                # LLM返回了普通文本而不是JSON
+                detail_msg = "AI返回了对话内容而不是预期的结构化数据，请重试或调整对话内容"
+            else:
+                detail_msg = f"{exc.msg} (行{exc.lineno} 列{exc.colno})"
+
+            raise JSONParseError(
+                context=error_context,
+                detail_msg=detail_msg
+            ) from exc
     except Exception as exc:
         logger.exception("JSON解析时发生未预期的错误: %s", error_context)
         raise JSONParseError(

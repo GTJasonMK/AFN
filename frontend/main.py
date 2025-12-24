@@ -19,6 +19,11 @@ from PyQt6.QtCore import Qt
 # 这会在发生段错误时打印Python调用栈
 faulthandler.enable(file=sys.stderr, all_threads=True)
 
+# 注意：不在此处初始化COM
+# - 主线程：让Qt通过OleInitialize自动初始化（STA模式）
+# - 工作线程：在sse_worker.py中使用MTA模式初始化
+# 这样可以避免COM线程模式冲突（0x80010106错误）
+
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
