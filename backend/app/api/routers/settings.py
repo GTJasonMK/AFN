@@ -100,6 +100,7 @@ class AllConfigExportData(BaseModel):
     image_configs: Optional[List[Dict[str, Any]]] = None
     advanced_config: Optional[Dict[str, Any]] = None
     queue_config: Optional[Dict[str, Any]] = None
+    prompt_configs: Optional[Dict[str, Any]] = None  # 提示词配置
 
 
 class ConfigImportResult(BaseModel):
@@ -387,7 +388,7 @@ async def export_all_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> AllConfigExportData:
     """
-    导出所有配置（LLM、嵌入、图片、高级、队列）
+    导出所有配置（LLM、嵌入、图片、高级、队列、提示词）
 
     Returns:
         包含所有配置的JSON数据
@@ -396,6 +397,7 @@ async def export_all_configs(
     from ...services.embedding_config_service import EmbeddingConfigService
     from ...services.image_generation import ImageConfigService
     from ...services.queue import LLMRequestQueue, ImageRequestQueue
+    from ...services.prompt_service import PromptService
 
     # 获取LLM配置（使用service的export方法获取完整数据）
     llm_service = LLMConfigService(session)
@@ -446,6 +448,14 @@ async def export_all_configs(
         "image_max_concurrent": image_queue.max_concurrent,
     }
 
+    # 获取提示词配置（只导出用户已修改的）
+    prompt_service = PromptService(session)
+    try:
+        prompt_export = await prompt_service.export_prompts()
+        prompt_configs_data = prompt_export
+    except Exception:
+        prompt_configs_data = {"count": 0, "prompts": []}
+
     return AllConfigExportData(
         export_time=datetime.now(timezone.utc).isoformat(),
         llm_configs=llm_configs_data,
@@ -453,6 +463,7 @@ async def export_all_configs(
         image_configs=image_configs_data,
         advanced_config=advanced_config,
         queue_config=queue_config,
+        prompt_configs=prompt_configs_data,
     )
 
 
@@ -463,7 +474,7 @@ async def import_all_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> ConfigImportResult:
     """
-    导入所有配置（LLM、嵌入、图片、高级、队列）
+    导入所有配置（LLM、嵌入、图片、高级、队列、提示词）
 
     支持选择性导入：只导入import_data中存在的配置类型
 
@@ -477,6 +488,7 @@ async def import_all_configs(
     from ...services.embedding_config_service import EmbeddingConfigService
     from ...services.image_generation import ImageConfigService
     from ...services.queue import LLMRequestQueue, ImageRequestQueue
+    from ...services.prompt_service import PromptService
 
     details = []
     has_error = False
@@ -569,6 +581,18 @@ async def import_all_configs(
                     has_error = True
             except Exception as e:
                 details.append(f"队列配置导入失败: {str(e)}")
+                has_error = True
+
+        # 导入提示词配置
+        if import_data.get("prompt_configs"):
+            try:
+                prompt_service = PromptService(session)
+                result = await prompt_service.import_prompts(import_data["prompt_configs"])
+                details.append(f"提示词配置: {result.get('message', '导入完成')}")
+                if not result.get("success", True):
+                    has_error = True
+            except Exception as e:
+                details.append(f"提示词配置导入失败: {str(e)}")
                 has_error = True
 
         await session.commit()

@@ -9,7 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -394,3 +394,89 @@ class PromptService:
         prompt_read = PromptRead.model_validate(prompt)
         await self._cache.set(name, prompt_read)
         return prompt_read
+
+    async def export_prompts(self) -> Dict[str, Any]:
+        """
+        导出所有已修改的提示词配置
+
+        Returns:
+            包含提示词配置的字典，仅导出用户已修改的提示词
+        """
+        prompts = await self.list_prompts()
+
+        # 只导出已修改的提示词（用户自定义的）
+        modified_prompts = []
+        for p in prompts:
+            if p.is_modified:
+                modified_prompts.append({
+                    "name": p.name,
+                    "content": p.content,
+                    "title": p.title,
+                    "description": p.description,
+                    "tags": p.tags,
+                })
+
+        return {
+            "count": len(modified_prompts),
+            "prompts": modified_prompts,
+        }
+
+    async def import_prompts(self, import_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        导入提示词配置
+
+        Args:
+            import_data: 导入数据，包含prompts列表
+
+        Returns:
+            导入结果
+        """
+        prompts_data = import_data.get("prompts", [])
+        if not prompts_data:
+            return {
+                "success": True,
+                "message": "没有提示词需要导入",
+                "imported": 0,
+                "skipped": 0,
+            }
+
+        imported = 0
+        skipped = 0
+        details = []
+
+        for prompt_data in prompts_data:
+            name = prompt_data.get("name")
+            content = prompt_data.get("content")
+
+            if not name or not content:
+                skipped += 1
+                details.append(f"跳过无效数据（缺少name或content）")
+                continue
+
+            # 检查提示词是否存在
+            existing = await self.repo.get_by_name(name)
+            if existing:
+                # 更新现有提示词
+                await self.repo.update_fields(
+                    existing,
+                    content=content,
+                    is_modified=True,
+                )
+                await self.session.commit()
+
+                prompt_read = PromptRead.model_validate(existing)
+                await self._cache.set(name, prompt_read)
+                imported += 1
+                details.append(f"已更新: {name}")
+            else:
+                # 提示词不存在，跳过（因为提示词需要与默认文件对应）
+                skipped += 1
+                details.append(f"跳过: {name}（系统中不存在此提示词）")
+
+        return {
+            "success": True,
+            "message": f"导入完成: {imported} 个成功, {skipped} 个跳过",
+            "imported": imported,
+            "skipped": skipped,
+            "details": details,
+        }

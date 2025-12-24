@@ -456,41 +456,87 @@ def _install_with_uv(python_path: Path, requirements_file: Path, name: str) -> b
     logger.info(f"使用 uv 安装 {name} 依赖...")
     print(f"\n[安装] 安装 {name} 依赖 (uv 快速模式)...")
     print(f"       requirements: {requirements_file}")
+    print(f"       正在解析依赖...", flush=True)
 
     try:
         # uv pip install 直接安装，无需先升级pip
+        # --no-progress: 禁用进度条，输出纯文本便于捕获
+        # --verbose: 获取详细输出
         logger.info(f"执行: uv pip install -r {requirements_file}")
+
+        # 设置环境变量禁用颜色输出，便于解析
+        env = os.environ.copy()
+        env['NO_COLOR'] = '1'
+        env['UV_NO_PROGRESS'] = '1'
 
         process = subprocess.Popen(
             ['uv', 'pip', 'install', '-r', str(requirements_file),
-             '--python', str(python_path)],
+             '--python', str(python_path),
+             '--no-progress',  # 禁用进度条
+             '--verbose'],     # 详细输出
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT,  # 合并stderr到stdout
             text=True,
-            errors='replace'
+            errors='replace',
+            bufsize=1,  # 行缓冲
+            env=env,
         )
 
         # 实时显示安装进度
+        package_count = 0
+        has_output = False
         if process.stdout:
             for line in process.stdout:
                 line = line.strip()
                 if not line:
                     continue
 
-                # uv的输出格式不同，显示所有非空行
+                has_output = True
+                # uv verbose模式的输出格式
+                # 显示关键信息
                 if 'Resolved' in line:
-                    print(f"       {line}")
+                    print(f"       {line}", flush=True)
                 elif 'Prepared' in line:
-                    print(f"       {line}")
-                elif 'Installed' in line:
-                    print(f"       {line}")
+                    print(f"       {line}", flush=True)
+                elif 'Installed' in line and 'packages' in line:
+                    # 最终安装汇总
+                    print(f"       {line}", flush=True)
                 elif 'Uninstalled' in line:
-                    print(f"       {line}")
-                elif 'error' in line.lower():
-                    print(f"       [!] {line}")
+                    print(f"       {line}", flush=True)
+                elif 'Audited' in line:
+                    print(f"       {line}", flush=True)
+                elif line.startswith('+'):
+                    # uv显示新安装的包: + package==version
+                    package_count += 1
+                    pkg_info = line[1:].strip()
+                    print(f"       [{package_count}] + {pkg_info}", flush=True)
+                elif line.startswith('-'):
+                    # uv显示卸载的包: - package==version
+                    print(f"       {line}", flush=True)
+                elif 'Installing' in line:
+                    package_count += 1
+                    pkg_info = line.replace('Installing ', '').strip()
+                    print(f"       [{package_count}] Installing: {pkg_info[:60]}", flush=True)
+                elif 'Building' in line:
+                    print(f"       Building: {line[:50]}...", flush=True)
+                elif 'Downloading' in line:
+                    print(f"       Downloading...", flush=True)
+                elif 'Using' in line and 'Python' in line:
+                    print(f"       {line}", flush=True)
+                elif 'error' in line.lower() or 'Error' in line:
+                    print(f"       [!] {line}", flush=True)
                     logger.warning(f"uv输出: {line}")
+                elif 'warning' in line.lower():
+                    logger.debug(f"uv警告: {line}")
+                else:
+                    # 记录其他输出到日志，便于调试
+                    logger.debug(f"uv: {line}")
 
         process.wait()
+
+        # 如果没有任何输出，显示一个基本的完成消息
+        if not has_output:
+            print(f"       (依赖已是最新)", flush=True)
 
         if process.returncode != 0:
             logger.error(f"uv 安装 {name} 依赖失败 (返回码 {process.returncode})")

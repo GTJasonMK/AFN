@@ -259,6 +259,8 @@ class SettingsView(BasePage):
             self.embedding_settings.loadConfigs()
         if hasattr(self, 'image_settings'):
             self.image_settings.loadConfigs()
+        if hasattr(self, 'queue_settings'):
+            self.queue_settings._load_config()
         if hasattr(self, 'prompt_settings'):
             self.prompt_settings.loadPrompts()
         if hasattr(self, 'advanced_settings'):
