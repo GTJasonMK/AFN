@@ -4,6 +4,7 @@
 允许用户在创建新项目时选择创作模式：
 - AI辅助创作：通过灵感对话让AI帮你构思故事框架
 - 自由创作：跳过AI对话，直接手动填写所有内容
+- 导入分析：导入外部小说文件，自动分析生成项目信息
 """
 
 from PyQt6.QtWidgets import (
@@ -30,6 +31,9 @@ class CreateModeDialog(BaseDialog):
         elif result == CreateModeDialog.MODE_FREE:
             # 用户选择自由创作
             pass
+        elif result == CreateModeDialog.MODE_IMPORT:
+            # 用户选择导入分析
+            pass
         else:
             # 用户取消
             pass
@@ -38,6 +42,7 @@ class CreateModeDialog(BaseDialog):
     # 返回值常量
     MODE_AI = 1      # AI辅助创作
     MODE_FREE = 2    # 自由创作
+    MODE_IMPORT = 3  # 导入分析
 
     def __init__(self, parent=None):
         # UI组件引用
@@ -45,6 +50,7 @@ class CreateModeDialog(BaseDialog):
         self.title_label = None
         self.ai_card = None
         self.free_card = None
+        self.import_card = None
         self.cancel_btn = None
         self._selected_mode = None
 
@@ -92,6 +98,16 @@ class CreateModeDialog(BaseDialog):
         )
         self.free_card.mousePressEvent = lambda e: self._on_card_clicked(self.MODE_FREE)
         cards_layout.addWidget(self.free_card)
+
+        # 导入分析卡片
+        self.import_card = self._create_mode_card(
+            title="导入分析",
+            description="导入已有的小说TXT文件，自动分析生成蓝图、角色、大纲等信息",
+            icon_text="IMP",
+            is_recommended=False
+        )
+        self.import_card.mousePressEvent = lambda e: self._on_card_clicked(self.MODE_IMPORT)
+        cards_layout.addWidget(self.import_card)
 
         container_layout.addLayout(cards_layout)
 
@@ -250,6 +266,7 @@ class CreateModeDialog(BaseDialog):
         """
         self.ai_card.setStyleSheet(card_style)
         self.free_card.setStyleSheet(card_style)
+        self.import_card.setStyleSheet(card_style)
 
         # 取消按钮样式
         self.cancel_btn.setStyleSheet(DialogStyles.button_secondary("cancel_btn"))

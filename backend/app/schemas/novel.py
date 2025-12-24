@@ -213,6 +213,11 @@ class NovelProject(BaseModel):
         description="操作过程中的警告信息列表，如摘要生成失败、索引更新失败等"
     )
 
+    # 导入分析相关字段
+    is_imported: bool = False
+    import_analysis_status: Optional[str] = None  # pending/analyzing/completed/failed
+    import_analysis_progress: Optional[Dict[str, Any]] = None
+
     class Config:
         from_attributes = True
 
@@ -225,6 +230,10 @@ class NovelProjectSummary(BaseModel):
     completed_chapters: int
     total_chapters: int
     status: str  # 项目状态：draft, blueprint_ready, part_outlines_ready, chapter_outlines_ready 等
+
+    # 导入分析相关字段
+    is_imported: bool = False
+    import_analysis_status: Optional[str] = None
 
 
 class BlueprintGenerationResponse(BaseModel):

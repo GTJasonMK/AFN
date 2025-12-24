@@ -326,8 +326,9 @@ def _get_config_file_path() -> Path:
         # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
         work_dir = Path(sys.executable).parent
     else:
-        # 开发环境：配置保存到 backend/storage 文件夹
-        work_dir = Path(__file__).resolve().parents[2]
+        # 开发环境：配置保存到项目根目录的 storage 文件夹
+        # parents[3] 指向项目根目录 E:\code\AFN，与数据库路径保持一致
+        work_dir = Path(__file__).resolve().parents[3]
 
     return work_dir / 'storage' / 'config.json'
 

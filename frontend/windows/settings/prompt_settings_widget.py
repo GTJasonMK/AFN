@@ -194,11 +194,11 @@ class PromptSettingsWidget(QWidget):
 
             # 构建显示文本
             title = prompt.get('title') or prompt.get('name', '未命名')
-            description = prompt.get('description', '')
+            description = prompt.get('description') or ''
             is_modified = prompt.get('is_modified', False)
 
             # 截断描述
-            if len(description) > 60:
+            if description and len(description) > 60:
                 description = description[:60] + '...'
 
             # 添加修改标记

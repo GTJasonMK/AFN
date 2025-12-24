@@ -10,6 +10,7 @@
 - LoadingDialog: 加载中对话框
 - PartOutlineConfigDialog: 部分大纲配置对话框
 - CreateModeDialog: 创作模式选择对话框
+- ImportProgressDialog: 导入分析进度对话框
 
 基类：
 - BaseDialog: 无边框自定义对话框基类
@@ -32,6 +33,7 @@ from .int_input_dialog import IntInputDialog
 from .loading_dialog import LoadingDialog
 from .config_dialogs import PartOutlineConfigDialog
 from .create_mode_dialog import CreateModeDialog
+from .import_progress_dialog import ImportProgressDialog
 
 __all__ = [
     'DialogStyles',
@@ -45,4 +47,5 @@ __all__ = [
     'LoadingDialog',
     'PartOutlineConfigDialog',
     'CreateModeDialog',
+    'ImportProgressDialog',
 ]

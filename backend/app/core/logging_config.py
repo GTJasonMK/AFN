@@ -9,8 +9,14 @@ import sys
 import logging
 import traceback
 from logging.config import dictConfig
+from pathlib import Path
 
 from .config import settings
+
+
+def _get_log_file_path() -> str:
+    """获取日志文件绝对路径"""
+    return str(settings.storage_dir / "debug.log")
 
 
 def get_logging_config() -> dict:
@@ -36,7 +42,7 @@ def get_logging_config() -> dict:
             },
             "file": {
                 "class": "logging.FileHandler",
-                "filename": "storage/debug.log",
+                "filename": _get_log_file_path(),
                 "mode": "a",
                 "formatter": "default",
                 "encoding": "utf-8",
@@ -137,5 +143,5 @@ def log_startup_info() -> None:
     logger.info("=" * 80)
     logger.info("AFN (Agents for Novel) 后端服务启动，logging 配置已完成")
     logger.info("日志级别: %s", settings.logging_level)
-    logger.info("日志文件: backend/storage/debug.log")
+    logger.info("日志文件: %s", _get_log_file_path())
     logger.info("=" * 80)

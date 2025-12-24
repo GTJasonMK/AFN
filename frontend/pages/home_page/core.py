@@ -9,7 +9,8 @@ import random
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGraphicsOpacityEffect, QScrollArea, QFrame, QStackedWidget
+    QGraphicsOpacityEffect, QScrollArea, QFrame, QStackedWidget,
+    QFileDialog
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 
@@ -17,7 +18,7 @@ from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from api.manager import APIClientManager
 from utils.dpi_utils import dp
-from components.dialogs import CreateModeDialog, InputDialog
+from components.dialogs import CreateModeDialog, InputDialog, ImportProgressDialog
 
 from .constants import CREATIVE_QUOTES, get_title_sort_key
 from .particles import ParticleBackground
@@ -434,6 +435,9 @@ class HomePage(BasePage):
         elif result == CreateModeDialog.MODE_FREE:
             # 自由创作：先输入标题，然后创建空项目
             self._create_free_project()
+        elif result == CreateModeDialog.MODE_IMPORT:
+            # 导入分析：选择TXT文件，导入并分析
+            self._create_import_project()
 
     def _create_free_project(self):
         """创建自由创作项目（跳过灵感对话）"""
@@ -475,6 +479,102 @@ class HomePage(BasePage):
             MessageService.show_error(self, f"创建项目失败：{error_msg}", "错误")
 
         worker = AsyncWorker(do_create)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(worker)
+        worker.start()
+
+    def _create_import_project(self):
+        """创建导入分析项目"""
+        # 1. 选择TXT文件
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择要导入的小说文件",
+            "",
+            "文本文件 (*.txt);;所有文件 (*.*)"
+        )
+
+        if not file_path:
+            return
+
+        # 2. 输入项目标题
+        import os
+        default_title = os.path.splitext(os.path.basename(file_path))[0]
+
+        title_dialog = InputDialog(
+            parent=self,
+            title="导入项目",
+            label="请输入项目标题：",
+            text=default_title,  # 设置初始值
+            placeholder="请输入项目标题"
+        )
+
+        if not title_dialog.exec():
+            return
+
+        title = title_dialog.getText().strip()
+        if not title:
+            title = default_title
+
+        # 3. 执行导入流程
+        self._do_import_project(title, file_path)
+
+    def _do_import_project(self, title: str, file_path: str):
+        """执行导入项目流程"""
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+        from components.dialogs import LoadingDialog
+
+        # 显示加载对话框
+        loading_dialog = LoadingDialog(
+            parent=self,
+            message="正在创建项目并导入文件...",
+            title="导入中"
+        )
+        loading_dialog.show()
+
+        def do_import():
+            # 1. 创建空项目
+            project = self.api_client.create_novel(
+                title=title,
+                initial_prompt="",
+                skip_inspiration=True
+            )
+            project_id = project.get('id')
+
+            # 2. 导入TXT文件
+            import_result = self.api_client.import_txt_file(
+                project_id=project_id,
+                file_path=file_path
+            )
+
+            return {
+                'project_id': project_id,
+                'import_result': import_result
+            }
+
+        def on_success(result):
+            loading_dialog.close()
+            project_id = result['project_id']
+            import_result = result['import_result']
+
+            total_chapters = import_result.get('total_chapters', 0)
+            MessageService.show_success(
+                self,
+                f"导入成功！共识别 {total_chapters} 章"
+            )
+
+            # 进入项目详情页，用户可以在那里手动启动分析
+            self.navigateTo('DETAIL', project_id=project_id)
+
+        def on_error(error_msg):
+            loading_dialog.close()
+            MessageService.show_error(self, f"导入失败：{error_msg}", "错误")
+
+        worker = AsyncWorker(do_import)
         worker.success.connect(on_success)
         worker.error.connect(on_error)
 

@@ -340,6 +340,8 @@ class NovelService:
                     completed_chapters=completed,
                     total_chapters=total_chapters,
                     status=project.status,
+                    is_imported=project.is_imported,
+                    import_analysis_status=project.import_analysis_status,
                 )
             )
 

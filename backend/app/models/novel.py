@@ -37,6 +37,16 @@ class NovelProject(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     initial_prompt: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default=ProjectStatus.DRAFT.value)
+
+    # 导入分析相关字段
+    is_imported: Mapped[bool] = mapped_column(Boolean, default=False, doc="是否为外部导入项目")
+    import_analysis_status: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, doc="导入分析状态: pending/analyzing/completed/failed"
+    )
+    import_analysis_progress: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, doc="分析进度信息"
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

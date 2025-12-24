@@ -34,7 +34,7 @@ class LLMRequestLogger:
     LLM请求日志记录器
 
     将每次请求的详细信息保存到JSONL文件，方便调试和分析。
-    日志文件位置：backend/storage/llm_requests.jsonl
+    日志文件位置：storage/llm_requests.jsonl（项目根目录的storage）
     """
 
     def __init__(self, log_dir: Optional[str] = None, max_entries: int = 1000):
@@ -42,12 +42,13 @@ class LLMRequestLogger:
         初始化日志记录器
 
         Args:
-            log_dir: 日志目录，默认为 backend/storage/
+            log_dir: 日志目录，默认为项目根目录的 storage/
             max_entries: 最大保留条目数，超过后自动清理旧记录
         """
         if log_dir is None:
-            # 默认使用 backend/storage/ 目录
-            log_dir = Path(__file__).parent.parent.parent / "storage"
+            # 使用统一的 storage 目录（项目根目录）
+            from ..core.config import settings
+            log_dir = settings.storage_dir
         self.log_dir = Path(log_dir)
         self.log_file = self.log_dir / "llm_requests.jsonl"
         self.max_entries = max_entries

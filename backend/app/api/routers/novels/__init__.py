@@ -7,6 +7,7 @@
 - blueprints.py: 蓝图管理
 - outlines.py: 章节大纲生成
 - export.py: 导出功能
+- import_analysis.py: 外部小说导入和分析
 """
 
 import logging
@@ -32,6 +33,7 @@ from .inspiration import router as inspiration_router
 from .blueprints import router as blueprints_router
 from .outlines import router as outlines_router
 from .export import router as export_router
+from .import_analysis import router as import_analysis_router
 
 logger = logging.getLogger(__name__)
 
@@ -169,5 +171,6 @@ router.include_router(inspiration_router)
 router.include_router(blueprints_router)
 router.include_router(outlines_router)
 router.include_router(export_router)
+router.include_router(import_analysis_router)
 
 __all__ = ["router"]

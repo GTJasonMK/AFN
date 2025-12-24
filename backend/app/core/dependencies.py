@@ -339,3 +339,24 @@ async def get_image_config_service(
     from ..services.image_generation import ImageConfigService
     return ImageConfigService(session)
 
+
+async def get_import_analysis_service(
+    session: AsyncSession = Depends(get_session),
+    llm_service: "LLMService" = Depends(get_llm_service),
+    prompt_service: "PromptService" = Depends(get_prompt_service),
+) -> "ImportAnalysisService":
+    """
+    获取ImportAnalysisService实例（依赖注入）
+
+    用于外部小说导入和分析功能。
+
+    Returns:
+        ImportAnalysisService实例
+    """
+    from ..services.import_analysis import ImportAnalysisService
+    return ImportAnalysisService(
+        session=session,
+        llm_service=llm_service,
+        prompt_service=prompt_service,
+    )
+

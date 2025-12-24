@@ -14,16 +14,18 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys._MEIPASS)
     # 设置工作目录为可执行文件所在目录，用于存储数据库等文件
     WORK_DIR = Path(sys.executable).parent
+    storage_dir = WORK_DIR / "storage"
 else:
     # 开发环境
     BASE_DIR = Path(__file__).parent
-    WORK_DIR = BASE_DIR
+    # 开发环境：存储目录在项目根目录（与 run_app.py 和 config.py 保持一致）
+    WORK_DIR = BASE_DIR.parent  # E:\code\AFN
+    storage_dir = WORK_DIR / "storage"
 
 # 切换到工作目录
 os.chdir(WORK_DIR)
 
 # 确保 storage 目录存在
-storage_dir = WORK_DIR / "storage"
 storage_dir.mkdir(exist_ok=True)
 
 # 设置环境变量

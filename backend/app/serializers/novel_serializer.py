@@ -106,6 +106,10 @@ class NovelSerializer:
             conversation_history=conversations,
             blueprint=blueprint_schema,
             chapters=chapters_schema,
+            # 导入分析相关字段
+            is_imported=project.is_imported or False,
+            import_analysis_status=project.import_analysis_status,
+            import_analysis_progress=project.import_analysis_progress,
         )
 
     @staticmethod
