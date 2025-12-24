@@ -250,20 +250,39 @@ def create_venv(venv_path: Path, name: str) -> bool:
     """创建虚拟环境"""
     if venv_path.exists():
         logger.info(f"{name} 虚拟环境已存在")
+        print(f"       {name} 虚拟环境已存在 [OK]")
         return True
 
     logger.info(f"创建 {name} 虚拟环境...")
     print(f"\n[安装] 创建 {name} 虚拟环境...")
+    print(f"       路径: {venv_path}")
 
     try:
-        subprocess.run(
+        # 显示创建过程
+        process = subprocess.Popen(
             [sys.executable, '-m', 'venv', str(venv_path)],
-            check=True,
-            capture_output=True,
-            text=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors='replace'
         )
+
+        # 实时显示输出
+        if process.stdout:
+            for line in process.stdout:
+                line = line.strip()
+                if line:
+                    print(f"       {line}")
+
+        process.wait()
+
+        if process.returncode != 0:
+            logger.error(f"创建 {name} 虚拟环境失败，返回码: {process.returncode}")
+            print(f"[错误] 创建 {name} 虚拟环境失败")
+            return False
+
         logger.info(f"{name} 虚拟环境创建成功")
-        print(f"       {name} 虚拟环境创建成功")
+        print(f"       {name} 虚拟环境创建成功 [OK]")
         return True
     except subprocess.CalledProcessError as e:
         logger.error(f"创建 {name} 虚拟环境失败: {e.stderr}")
@@ -271,7 +290,7 @@ def create_venv(venv_path: Path, name: str) -> bool:
         return False
 
 
-def check_dependencies_installed(python_path: Path, requirements_file: Path) -> bool:
+def check_dependencies_installed(python_path: Path, requirements_file: Path, name: str = "") -> bool:
     """检查依赖是否已安装
 
     使用简单的关键包检测策略，通过 python -m pip show 检测核心包
@@ -297,6 +316,7 @@ def check_dependencies_installed(python_path: Path, requirements_file: Path) -> 
         return False
 
     try:
+        print(f"       检查 {name or env_type} 核心依赖...")
         # 使用 python -m pip show 检查关键包是否存在
         for pkg in packages_to_check:
             result = subprocess.run(
@@ -307,7 +327,16 @@ def check_dependencies_installed(python_path: Path, requirements_file: Path) -> 
             )
             if result.returncode != 0:
                 logger.info(f"关键包 {pkg} 未安装")
+                print(f"       - {pkg}: 未安装")
                 return False
+            else:
+                # 从输出中提取版本号
+                version = ""
+                for line in result.stdout.split('\n'):
+                    if line.startswith('Version:'):
+                        version = line.split(':', 1)[1].strip()
+                        break
+                print(f"       - {pkg}: {version} [OK]")
 
         logger.info(f"{env_type} 关键依赖已安装")
         return True
@@ -330,44 +359,93 @@ def install_dependencies(python_path: Path, requirements_file: Path, name: str) 
         return False
 
     # 先检查是否已安装
-    if check_dependencies_installed(python_path, requirements_file):
+    if check_dependencies_installed(python_path, requirements_file, name):
         logger.info(f"{name} 依赖已安装")
+        print(f"       {name} 依赖检查通过 [OK]")
         return True
 
     logger.info(f"安装 {name} 依赖...")
-    print(f"\n[安装] 安装 {name} 依赖（首次运行需要几分钟）...")
+    print(f"\n[安装] 安装 {name} 依赖...")
+    print(f"       这可能需要几分钟，请耐心等待...")
+    print(f"       requirements: {requirements_file}")
 
     try:
-        # 先升级 pip（忽略错误）
-        subprocess.run(
-            [str(python_path), '-m', 'pip', 'install', '--upgrade', 'pip', '-q'],
-            capture_output=True,
+        # 先升级 pip
+        print(f"\n       [1/2] 升级 pip...")
+        pip_process = subprocess.Popen(
+            [str(python_path), '-m', 'pip', 'install', '--upgrade', 'pip'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors='replace'
+        )
+        if pip_process.stdout:
+            for line in pip_process.stdout:
+                line = line.strip()
+                if line and not line.startswith('WARNING'):
+                    # 简化输出，只显示关键信息
+                    if 'Successfully' in line or 'Requirement' in line:
+                        print(f"             {line}")
+        pip_process.wait()
+
+        # 安装依赖 - 实时显示输出
+        print(f"\n       [2/2] 安装依赖包...")
+        logger.info(f"执行: {python_path} -m pip install -r {requirements_file}")
+
+        process = subprocess.Popen(
+            [str(python_path), '-m', 'pip', 'install', '-r', str(requirements_file)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             errors='replace'
         )
 
-        # 安装依赖 - 使用 python -m pip
-        logger.info(f"执行: {python_path} -m pip install -r {requirements_file}")
-        result = subprocess.run(
-            [str(python_path), '-m', 'pip', 'install', '-r', str(requirements_file)],
-            capture_output=True,
-            text=True,
-            errors='replace',
-            timeout=600  # 10分钟超时
-        )
+        # 实时显示安装进度
+        installed_count = 0
+        if process.stdout:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
 
-        if result.returncode != 0:
-            # 同时记录 stdout 和 stderr，因为 pip 可能将错误输出到任一位置
-            error_output = result.stderr or result.stdout or "(无输出)"
-            logger.error(f"安装 {name} 依赖失败 (返回码 {result.returncode})")
-            logger.error(f"stdout: {result.stdout[:2000] if result.stdout else '(空)'}")
-            logger.error(f"stderr: {result.stderr[:2000] if result.stderr else '(空)'}")
-            print(f"[错误] 安装 {name} 依赖失败")
+                # 跳过警告信息，减少输出噪音
+                if line.startswith('WARNING'):
+                    continue
+
+                # 显示关键信息
+                if line.startswith('Collecting'):
+                    pkg_name = line.split()[1].split('==')[0].split('>=')[0].split('<')[0]
+                    print(f"             Collecting: {pkg_name}")
+                elif line.startswith('Downloading'):
+                    # 提取文件名和大小
+                    if '(' in line and ')' in line:
+                        size_info = line[line.rfind('('):line.rfind(')')+1]
+                        print(f"             Downloading {size_info}")
+                elif line.startswith('Installing collected'):
+                    # 统计安装的包数量
+                    parts = line.replace('Installing collected packages:', '').strip()
+                    packages = [p.strip() for p in parts.split(',') if p.strip()]
+                    installed_count = len(packages)
+                    print(f"             Installing {installed_count} packages...")
+                elif line.startswith('Successfully installed'):
+                    print(f"             {line}")
+                elif 'Requirement already satisfied' in line:
+                    # 只显示第一个已满足的依赖，避免刷屏
+                    pass
+                elif 'error' in line.lower() or 'Error' in line:
+                    print(f"             [!] {line}")
+                    logger.warning(f"pip输出: {line}")
+
+        process.wait()
+
+        if process.returncode != 0:
+            logger.error(f"安装 {name} 依赖失败 (返回码 {process.returncode})")
+            print(f"\n[错误] 安装 {name} 依赖失败")
             print(f"       详情请查看 storage/app.log")
             return False
 
         logger.info(f"{name} 依赖安装成功")
-        print(f"       {name} 依赖安装成功")
+        print(f"\n       {name} 依赖安装成功 [OK]")
         return True
 
     except subprocess.TimeoutExpired:
@@ -387,31 +465,41 @@ def setup_environment() -> bool:
         logger.info("打包环境，跳过环境设置")
         return True
 
-    print("\n[检查] 检查运行环境...")
+    print("\n" + "=" * 60)
+    print(" 环境检查与配置")
+    print("=" * 60)
 
     # 检查 Python 版本
+    print(f"\n[检查] Python 版本...")
     if not check_python_version():
         return False
+    print(f"       Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} [OK]")
 
     # 创建后端虚拟环境
+    print(f"\n[检查] 后端虚拟环境...")
     if not create_venv(BACKEND_VENV, "后端"):
         return False
 
     # 创建前端虚拟环境
+    print(f"\n[检查] 前端虚拟环境...")
     if not create_venv(FRONTEND_VENV, "前端"):
         return False
 
     # 安装后端依赖（使用 python -m pip）
+    print(f"\n[检查] 后端依赖...")
     backend_requirements = BACKEND_DIR / 'requirements.txt'
     if not install_dependencies(BACKEND_PYTHON, backend_requirements, "后端"):
         return False
 
     # 安装前端依赖（使用 python -m pip）
+    print(f"\n[检查] 前端依赖...")
     frontend_requirements = FRONTEND_DIR / 'requirements.txt'
     if not install_dependencies(FRONTEND_PYTHON, frontend_requirements, "前端"):
         return False
 
-    print("\n[完成] 环境检查通过")
+    print("\n" + "=" * 60)
+    print(" 环境检查完成")
+    print("=" * 60)
     return True
 
 
@@ -481,10 +569,13 @@ def start_backend_subprocess():
     """以子进程方式启动后端（开发模式）"""
     global backend_process
 
+    print(f"\n[启动] 启动后端服务...")
+    print(f"       端口: {BACKEND_PORT}")
     logger.info("启动后端服务（子进程模式）...")
 
     # 使用后端虚拟环境的 Python
     python_exe = str(BACKEND_PYTHON) if BACKEND_PYTHON.exists() else sys.executable
+    print(f"       Python: {python_exe}")
 
     # 启动 uvicorn - 输出直接显示到当前控制台
     # 这样可以看到后端的启动过程和错误信息
@@ -501,6 +592,7 @@ def start_backend_subprocess():
     )
 
     logger.info(f"后端进程已启动 (PID: {backend_process.pid})")
+    print(f"       进程ID: {backend_process.pid}")
 
 
 def start_backend_thread():
@@ -528,28 +620,31 @@ def wait_for_backend(timeout=60):
     import urllib.request
     import urllib.error
 
-    print("\n[启动] 等待后端服务就绪...")
+    print(f"\n[等待] 等待后端服务就绪...")
+    print(f"       健康检查地址: http://127.0.0.1:{BACKEND_PORT}/health")
     logger.info("等待后端服务就绪...")
 
     start_time = time.time()
-    dots = 0
+    check_count = 0
 
     while time.time() - start_time < timeout:
         try:
             response = urllib.request.urlopen(f'http://127.0.0.1:{BACKEND_PORT}/health', timeout=2)
             if response.status == 200:
-                print("\n[完成] 后端服务已就绪")
+                elapsed = time.time() - start_time
+                print(f"\n       后端服务已就绪 (耗时 {elapsed:.1f}s) [OK]")
                 logger.info("后端服务已就绪")
                 return True
         except (urllib.error.URLError, urllib.error.HTTPError, ConnectionRefusedError, TimeoutError):
             pass
 
         # 显示进度
-        dots = (dots + 1) % 4
-        print(f"\r[启动] 等待后端服务就绪{'.' * dots}{' ' * (3 - dots)}", end='', flush=True)
+        check_count += 1
+        elapsed = int(time.time() - start_time)
+        print(f"\r       正在检查服务状态... ({elapsed}s)", end='', flush=True)
         time.sleep(0.5)
 
-    print("\n[错误] 后端服务启动超时")
+    print(f"\n[错误] 后端服务启动超时 (超过 {timeout}s)")
     logger.error("等待后端服务超时")
     return False
 
@@ -576,7 +671,8 @@ def start_frontend_subprocess():
     """以子进程方式启动前端（开发模式）"""
     python_exe = str(FRONTEND_PYTHON) if FRONTEND_PYTHON.exists() else sys.executable
 
-    print("\n[启动] 启动前端应用...")
+    print(f"\n[启动] 启动前端应用...")
+    print(f"       Python: {python_exe}")
     logger.info(f"启动前端应用（子进程模式），使用: {python_exe}")
 
     process = subprocess.Popen(
@@ -584,7 +680,10 @@ def start_frontend_subprocess():
         cwd=str(FRONTEND_DIR)
     )
 
-    print("[完成] AFN 已启动，祝您创作愉快！\n")
+    print(f"       进程ID: {process.pid}")
+    print("\n" + "=" * 60)
+    print(" AFN 已启动，祝您创作愉快！")
+    print("=" * 60 + "\n")
     logger.info(f"前端进程已启动 (PID: {process.pid})")
 
     return process.wait()
@@ -695,7 +794,9 @@ def start_frontend():
     window = MainWindow()
     window.show()
 
-    print("[完成] AFN 已启动，祝您创作愉快！\n")
+    print("\n" + "=" * 60)
+    print(" AFN 已启动，祝您创作愉快！")
+    print("=" * 60 + "\n")
     logger.info("前端应用已启动")
 
     # 运行应用
