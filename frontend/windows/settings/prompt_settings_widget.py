@@ -111,6 +111,7 @@ class PromptSettingsWidget(QWidget):
             }}
             QListWidget#prompt_list::item {{
                 background-color: transparent;
+                color: {palette.text_primary};
                 border-bottom: 1px solid {palette.border_color};
                 padding: {dp(12)}px {dp(16)}px;
             }}
@@ -119,9 +120,11 @@ class PromptSettingsWidget(QWidget):
             }}
             QListWidget#prompt_list::item:hover {{
                 background-color: {palette.bg_secondary};
+                color: {palette.text_primary};
             }}
             QListWidget#prompt_list::item:selected {{
                 background-color: {palette.accent_light};
+                color: {palette.text_primary};
             }}
         """)
 

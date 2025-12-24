@@ -36,6 +36,7 @@ class PanelPurpose(str, Enum):
     EMOTION = "emotion"  # 情感表达
     TRANSITION = "transition"  # 转场
     EMPHASIS = "emphasis"  # 强调/冲击
+    DIALOGUE = "dialogue"  # 对话场景
 
 
 class SceneMood(str, Enum):

@@ -43,6 +43,8 @@ class MangaMixin:
         max_scenes: int = 15,
         language: str = "chinese",
         use_portraits: bool = True,
+        auto_generate_portraits: bool = True,
+        use_dynamic_layout: bool = True,
     ) -> Dict[str, Any]:
         """
         生成章节的漫画分镜（支持断点续传）
@@ -62,6 +64,8 @@ class MangaMixin:
             max_scenes: 最多场景数 (5-25)
             language: 对话/音效语言 (chinese/japanese/english/korean)
             use_portraits: 是否使用角色立绘作为参考图（img2img）
+            auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
+            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
 
         Returns:
             漫画分镜结果，包含：
@@ -79,6 +83,8 @@ class MangaMixin:
             'max_scenes': max_scenes,
             'language': language,
             'use_portraits': use_portraits,
+            'auto_generate_portraits': auto_generate_portraits,
+            'use_dynamic_layout': use_dynamic_layout,
         }
 
         return self._request(
@@ -157,4 +163,142 @@ class MangaMixin:
         return self._request(
             'GET',
             f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/progress',
+        )
+
+    def preview_image_prompt(
+        self,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        style: Optional[str] = None,
+        ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
+        # 漫画画格元数据 - 对话相关
+        dialogue: Optional[str] = None,
+        dialogue_speaker: Optional[str] = None,
+        dialogue_bubble_type: Optional[str] = None,
+        dialogue_emotion: Optional[str] = None,
+        dialogue_position: Optional[str] = None,
+        # 漫画画格元数据 - 旁白相关
+        narration: Optional[str] = None,
+        narration_position: Optional[str] = None,
+        # 漫画画格元数据 - 音效相关
+        sound_effects: Optional[List[str]] = None,
+        sound_effect_details: Optional[List[Dict[str, Any]]] = None,
+        # 漫画画格元数据 - 视觉相关
+        composition: Optional[str] = None,
+        camera_angle: Optional[str] = None,
+        is_key_panel: bool = False,
+        characters: Optional[List[str]] = None,
+        lighting: Optional[str] = None,
+        atmosphere: Optional[str] = None,
+        key_visual_elements: Optional[List[str]] = None,
+        # 语言设置
+        dialogue_language: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        预览处理后的图片生成提示词（不生成图片）
+
+        展示发送给生图模型的实际提示词，包括：
+        - 场景类型检测结果
+        - 动态添加的上下文前缀
+        - 风格后缀（如果需要）
+        - 宽高比描述
+        - 漫画视觉元素（对话、旁白、音效、构图、镜头等）
+        - 负面提示词
+
+        Args:
+            prompt: 原始提示词
+            negative_prompt: 负面提示词
+            style: 风格
+            ratio: 宽高比
+            resolution: 分辨率
+            dialogue: 对话内容
+            dialogue_speaker: 对话说话者
+            dialogue_bubble_type: 气泡类型
+            dialogue_emotion: 说话情绪
+            dialogue_position: 气泡位置
+            narration: 旁白内容
+            narration_position: 旁白位置
+            sound_effects: 音效列表
+            sound_effect_details: 详细音效信息
+            composition: 构图
+            camera_angle: 镜头角度
+            is_key_panel: 是否为关键画格
+            characters: 角色列表
+            lighting: 光线描述
+            atmosphere: 氛围描述
+            key_visual_elements: 关键视觉元素
+
+        Returns:
+            预览结果，包含：
+            - success: 是否成功
+            - original_prompt: 原始提示词
+            - scene_type: 检测到的场景类型（英文）
+            - scene_type_zh: 场景类型（中文）
+            - final_prompt: 最终发送给模型的完整提示词
+            - prompt_without_context: 不带上下文前缀的提示词
+            - manga_visual_elements: 漫画视觉元素描述
+            - provider: 当前供应商类型
+            - model: 当前模型名称
+        """
+        payload = {
+            'prompt': prompt,
+        }
+        if negative_prompt:
+            payload['negative_prompt'] = negative_prompt
+        if style:
+            payload['style'] = style
+        if ratio:
+            payload['ratio'] = ratio
+        if resolution:
+            payload['resolution'] = resolution
+
+        # 漫画画格元数据 - 对话相关
+        if dialogue:
+            payload['dialogue'] = dialogue
+        if dialogue_speaker:
+            payload['dialogue_speaker'] = dialogue_speaker
+        if dialogue_bubble_type:
+            payload['dialogue_bubble_type'] = dialogue_bubble_type
+        if dialogue_emotion:
+            payload['dialogue_emotion'] = dialogue_emotion
+        if dialogue_position:
+            payload['dialogue_position'] = dialogue_position
+
+        # 漫画画格元数据 - 旁白相关
+        if narration:
+            payload['narration'] = narration
+        if narration_position:
+            payload['narration_position'] = narration_position
+
+        # 漫画画格元数据 - 音效相关
+        if sound_effects:
+            payload['sound_effects'] = sound_effects
+        if sound_effect_details:
+            payload['sound_effect_details'] = sound_effect_details
+
+        # 漫画画格元数据 - 视觉相关
+        if composition:
+            payload['composition'] = composition
+        if camera_angle:
+            payload['camera_angle'] = camera_angle
+        if is_key_panel:
+            payload['is_key_panel'] = is_key_panel
+        if characters:
+            payload['characters'] = characters
+        if lighting:
+            payload['lighting'] = lighting
+        if atmosphere:
+            payload['atmosphere'] = atmosphere
+        if key_visual_elements:
+            payload['key_visual_elements'] = key_visual_elements
+
+        # 语言设置
+        if dialogue_language:
+            payload['dialogue_language'] = dialogue_language
+
+        return self._request(
+            'POST',
+            '/api/image-generation/preview-prompt',
+            payload,
         )

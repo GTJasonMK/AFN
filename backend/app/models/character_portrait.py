@@ -63,6 +63,15 @@ class CharacterPortrait(Base):
         Boolean, default=True, nullable=False, index=True
     )  # 是否为当前使用的立绘
 
+    # 角色分类
+    is_secondary: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
+    )  # 是否为次要角色（非蓝图主要角色）
+
+    auto_generated: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )  # 是否为系统自动生成（漫画生成流程中自动创建）
+
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

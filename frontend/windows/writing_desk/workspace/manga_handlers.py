@@ -212,7 +212,16 @@ class MangaHandlersMixin:
         except Exception:
             return []
 
-    def _onGenerateMangaPrompt(self, style: str = "manga", min_scenes: int = 5, max_scenes: int = 15, language: str = "chinese", use_portraits: bool = True):
+    def _onGenerateMangaPrompt(
+        self,
+        style: str = "manga",
+        min_scenes: int = 5,
+        max_scenes: int = 15,
+        language: str = "chinese",
+        use_portraits: bool = True,
+        auto_generate_portraits: bool = True,
+        use_dynamic_layout: bool = True,
+    ):
         """
         生成漫画分镜回调
 
@@ -222,8 +231,10 @@ class MangaHandlersMixin:
             max_scenes: 最多场景数 (5-25)
             language: 对话/音效语言 (chinese/japanese/english/korean)
             use_portraits: 是否使用角色立绘作为参考图（img2img）
+            auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
+            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
         """
-        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_scenes={min_scenes}, max_scenes={max_scenes}, language={language}, use_portraits={use_portraits}")
+        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_scenes={min_scenes}, max_scenes={max_scenes}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}, use_dynamic_layout={use_dynamic_layout}")
 
         if not self.project_id or not self.current_chapter:
             MessageService.show_warning(self, "请先选择章节")
@@ -286,6 +297,8 @@ class MangaHandlersMixin:
                 max_scenes=max_scenes,
                 language=language,
                 use_portraits=use_portraits,
+                auto_generate_portraits=auto_generate_portraits,
+                use_dynamic_layout=use_dynamic_layout,
             )
 
         def on_success(result):
@@ -359,19 +372,70 @@ class MangaHandlersMixin:
 
         self._manga_delete_worker = worker
 
-    def _onGenerateImage(self, panel_id: str, prompt: str, negative_prompt: str, aspect_ratio: str = "16:9", reference_image_paths: list = None):
+    def _onGenerateImage(self, panel: dict):
         """
         生成画格图片回调
 
         Args:
-            panel_id: 画格ID (格式: scene{n}_page{n}_panel{n})
-            prompt: 正面提示词
-            negative_prompt: 负面提示词
-            aspect_ratio: 宽高比 (如 "16:9", "4:3", "1:1" 等)
-            reference_image_paths: 参考图片路径列表 (角色立绘等)
+            panel: 完整的画格数据字典，包含:
+                - panel_id: 画格ID (格式: scene{n}_page{n}_panel{n})
+                - prompt_en: 正面提示词
+                - negative_prompt: 负面提示词
+                - aspect_ratio: 宽高比 (如 "16:9", "4:3", "1:1" 等)
+                - reference_image_paths: 参考图片路径列表 (角色立绘等)
+                - dialogue: 对话内容
+                - dialogue_speaker: 对话说话者
+                - dialogue_bubble_type: 气泡类型
+                - dialogue_emotion: 说话情绪
+                - dialogue_position: 气泡位置
+                - narration: 旁白内容
+                - narration_position: 旁白位置
+                - sound_effects: 音效列表
+                - sound_effect_details: 详细音效信息
+                - composition: 构图
+                - camera_angle: 镜头角度
+                - is_key_panel: 是否为关键画格
+                - characters: 角色列表
+                - lighting: 光线描述
+                - atmosphere: 氛围描述
+                - key_visual_elements: 关键视觉元素
         """
         if not self.project_id or not self.current_chapter:
             return
+
+        # 从画格数据中提取所有字段
+        panel_id = panel.get('panel_id', '')
+        prompt = panel.get('prompt_en', '')
+        negative_prompt = panel.get('negative_prompt', '')
+        aspect_ratio = panel.get('aspect_ratio', '16:9')
+        reference_image_paths = panel.get('reference_image_paths', [])
+
+        # 漫画元数据 - 对话相关
+        dialogue = panel.get('dialogue', '')
+        dialogue_speaker = panel.get('dialogue_speaker', '')
+        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
+        dialogue_emotion = panel.get('dialogue_emotion', '')
+        dialogue_position = panel.get('dialogue_position', '')
+
+        # 漫画元数据 - 旁白相关
+        narration = panel.get('narration', '')
+        narration_position = panel.get('narration_position', '')
+
+        # 漫画元数据 - 音效相关
+        sound_effects = panel.get('sound_effects', [])
+        sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 漫画元数据 - 视觉相关
+        composition = panel.get('composition', '')
+        camera_angle = panel.get('camera_angle', '')
+        is_key_panel = panel.get('is_key_panel', False)
+        characters = panel.get('characters', [])
+        lighting = panel.get('lighting', '')
+        atmosphere = panel.get('atmosphere', '')
+        key_visual_elements = panel.get('key_visual_elements', [])
+
+        # 语言设置
+        dialogue_language = panel.get('dialogue_language', '')
 
         # 从panel_id解析scene_id
         # 格式: scene{scene_id}_page{page}_panel{slot_id}
@@ -397,6 +461,28 @@ class MangaHandlersMixin:
                 panel_id=panel_id,
                 aspect_ratio=aspect_ratio,
                 reference_image_paths=ref_paths if ref_paths else None,
+                # 漫画元数据 - 对话相关
+                dialogue=dialogue if dialogue else None,
+                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
+                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
+                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
+                dialogue_position=dialogue_position if dialogue_position else None,
+                # 漫画元数据 - 旁白相关
+                narration=narration if narration else None,
+                narration_position=narration_position if narration_position else None,
+                # 漫画元数据 - 音效相关
+                sound_effects=sound_effects if sound_effects else None,
+                sound_effect_details=sound_effect_details if sound_effect_details else None,
+                # 漫画元数据 - 视觉相关
+                composition=composition if composition else None,
+                camera_angle=camera_angle if camera_angle else None,
+                is_key_panel=is_key_panel,
+                characters=characters if characters else None,
+                lighting=lighting if lighting else None,
+                atmosphere=atmosphere if atmosphere else None,
+                key_visual_elements=key_visual_elements if key_visual_elements else None,
+                # 语言设置
+                dialogue_language=dialogue_language if dialogue_language else None,
             )
 
         def on_success(result):
@@ -592,11 +678,39 @@ class MangaHandlersMixin:
         self._batch_generate_current += 1
         self._batch_generate_active += 1
 
+        # 提取画格数据 - 基础字段
         panel_id = panel.get('panel_id', '')
         prompt_en = panel.get('prompt_en', '')
         negative_prompt = panel.get('negative_prompt', '')
         panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
         ref_paths = panel.get('reference_image_paths', [])
+
+        # 漫画元数据 - 对话相关
+        dialogue = panel.get('dialogue', '')
+        dialogue_speaker = panel.get('dialogue_speaker', '')
+        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
+        dialogue_emotion = panel.get('dialogue_emotion', '')
+        dialogue_position = panel.get('dialogue_position', '')
+
+        # 漫画元数据 - 旁白相关
+        narration = panel.get('narration', '')
+        narration_position = panel.get('narration_position', '')
+
+        # 漫画元数据 - 音效相关
+        sound_effects = panel.get('sound_effects', [])
+        sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 漫画元数据 - 视觉相关
+        composition = panel.get('composition', '')
+        camera_angle = panel.get('camera_angle', '')
+        is_key_panel = panel.get('is_key_panel', False)
+        characters = panel.get('characters', [])
+        lighting = panel.get('lighting', '')
+        atmosphere = panel.get('atmosphere', '')
+        key_visual_elements = panel.get('key_visual_elements', [])
+
+        # 语言设置
+        dialogue_language = panel.get('dialogue_language', '')
 
         # 从panel_id解析scene_id
         try:
@@ -624,6 +738,28 @@ class MangaHandlersMixin:
                 panel_id=panel_id,
                 aspect_ratio=panel_aspect_ratio,
                 reference_image_paths=ref_paths if ref_paths else None,
+                # 漫画元数据 - 对话相关
+                dialogue=dialogue if dialogue else None,
+                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
+                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
+                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
+                dialogue_position=dialogue_position if dialogue_position else None,
+                # 漫画元数据 - 旁白相关
+                narration=narration if narration else None,
+                narration_position=narration_position if narration_position else None,
+                # 漫画元数据 - 音效相关
+                sound_effects=sound_effects if sound_effects else None,
+                sound_effect_details=sound_effect_details if sound_effect_details else None,
+                # 漫画元数据 - 视觉相关
+                composition=composition if composition else None,
+                camera_angle=camera_angle if camera_angle else None,
+                is_key_panel=is_key_panel,
+                characters=characters if characters else None,
+                lighting=lighting if lighting else None,
+                atmosphere=atmosphere if atmosphere else None,
+                key_visual_elements=key_visual_elements if key_visual_elements else None,
+                # 语言设置
+                dialogue_language=dialogue_language if dialogue_language else None,
             )
 
         def on_success(result):
@@ -685,3 +821,118 @@ class MangaHandlersMixin:
         self._batch_generate_max_concurrent = 1
         self._batch_generate_active = 0
         self._batch_image_workers = []
+
+    def _onPreviewPrompt(self, panel: dict):
+        """
+        预览实际发送给生图模型的提示词
+
+        Args:
+            panel: 完整的画格数据字典，包含:
+                - prompt_en: 原始提示词
+                - negative_prompt: 负面提示词
+                - aspect_ratio: 宽高比
+                - dialogue: 对话内容
+                - dialogue_speaker: 对话说话者
+                - dialogue_bubble_type: 气泡类型
+                - dialogue_emotion: 说话情绪
+                - dialogue_position: 气泡位置
+                - narration: 旁白内容
+                - narration_position: 旁白位置
+                - sound_effects: 音效列表
+                - sound_effect_details: 详细音效信息
+                - composition: 构图
+                - camera_angle: 镜头角度
+                - is_key_panel: 是否为关键画格
+                - characters: 角色列表
+                - lighting: 光线描述
+                - atmosphere: 氛围描述
+                - key_visual_elements: 关键视觉元素
+        """
+        prompt = panel.get('prompt_en', '')
+        if not prompt:
+            MessageService.show_warning(self, "没有可预览的提示词")
+            return
+
+        # 提取基础字段
+        negative_prompt = panel.get('negative_prompt', '')
+        aspect_ratio = panel.get('aspect_ratio', '16:9')
+
+        # 漫画元数据 - 对话相关
+        dialogue = panel.get('dialogue', '')
+        dialogue_speaker = panel.get('dialogue_speaker', '')
+        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
+        dialogue_emotion = panel.get('dialogue_emotion', '')
+        dialogue_position = panel.get('dialogue_position', '')
+
+        # 漫画元数据 - 旁白相关
+        narration = panel.get('narration', '')
+        narration_position = panel.get('narration_position', '')
+
+        # 漫画元数据 - 音效相关
+        sound_effects = panel.get('sound_effects', [])
+        sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 漫画元数据 - 视觉相关
+        composition = panel.get('composition', '')
+        camera_angle = panel.get('camera_angle', '')
+        is_key_panel = panel.get('is_key_panel', False)
+        characters = panel.get('characters', [])
+        lighting = panel.get('lighting', '')
+        atmosphere = panel.get('atmosphere', '')
+        key_visual_elements = panel.get('key_visual_elements', [])
+
+        # 语言设置
+        dialogue_language = panel.get('dialogue_language', '')
+
+        def do_preview():
+            return self.api_client.preview_image_prompt(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                ratio=aspect_ratio,
+                # 漫画元数据 - 对话相关
+                dialogue=dialogue if dialogue else None,
+                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
+                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
+                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
+                dialogue_position=dialogue_position if dialogue_position else None,
+                # 漫画元数据 - 旁白相关
+                narration=narration if narration else None,
+                narration_position=narration_position if narration_position else None,
+                # 漫画元数据 - 音效相关
+                sound_effects=sound_effects if sound_effects else None,
+                sound_effect_details=sound_effect_details if sound_effect_details else None,
+                # 漫画元数据 - 视觉相关
+                composition=composition if composition else None,
+                camera_angle=camera_angle if camera_angle else None,
+                is_key_panel=is_key_panel,
+                characters=characters if characters else None,
+                lighting=lighting if lighting else None,
+                atmosphere=atmosphere if atmosphere else None,
+                key_visual_elements=key_visual_elements if key_visual_elements else None,
+                # 语言设置
+                dialogue_language=dialogue_language if dialogue_language else None,
+            )
+
+        def on_success(result):
+            # 导入并显示预览对话框
+            from windows.writing_desk.panels.manga.prompt_preview_dialog import PromptPreviewDialog
+            dialog = PromptPreviewDialog(result, self)
+            dialog.exec()
+
+        def on_error(error):
+            # 即使API调用失败，也显示原始提示词
+            fallback_data = {
+                'success': False,
+                'error': str(error),
+            }
+            from windows.writing_desk.panels.manga.prompt_preview_dialog import PromptPreviewDialog
+            dialog = PromptPreviewDialog(fallback_data, self)
+            dialog.exec()
+
+        worker = AsyncWorker(do_preview)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用防止被垃圾回收
+        self._preview_worker = worker

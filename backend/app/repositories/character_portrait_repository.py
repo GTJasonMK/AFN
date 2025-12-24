@@ -157,3 +157,67 @@ class CharacterPortraitRepository(BaseRepository[CharacterPortrait]):
             for portrait in portraits
             if portrait.image_path
         }
+
+    async def get_characters_with_portraits(
+        self,
+        project_id: str,
+    ) -> List[str]:
+        """获取项目中已有立绘的角色名列表
+
+        Returns:
+            List[str]: 已有立绘的角色名列表
+        """
+        result = await self.session.execute(
+            select(CharacterPortrait.character_name)
+            .where(CharacterPortrait.project_id == project_id)
+            .distinct()
+        )
+        return list(result.scalars().all())
+
+    async def get_missing_portrait_characters(
+        self,
+        project_id: str,
+        character_names: List[str],
+    ) -> List[str]:
+        """获取没有立绘的角色名列表
+
+        Args:
+            project_id: 项目ID
+            character_names: 需要检查的角色名列表
+
+        Returns:
+            List[str]: 缺少立绘的角色名列表
+        """
+        existing_characters = await self.get_characters_with_portraits(project_id)
+        existing_set = set(existing_characters)
+        return [name for name in character_names if name not in existing_set]
+
+    async def get_by_project_and_type(
+        self,
+        project_id: str,
+        is_secondary: Optional[bool] = None,
+    ) -> List[CharacterPortrait]:
+        """获取项目的立绘，可按主要/次要角色筛选
+
+        Args:
+            project_id: 项目ID
+            is_secondary: None表示全部，True表示次要角色，False表示主要角色
+
+        Returns:
+            List[CharacterPortrait]: 立绘列表
+        """
+        query = select(CharacterPortrait).where(
+            CharacterPortrait.project_id == project_id
+        )
+
+        if is_secondary is not None:
+            query = query.where(CharacterPortrait.is_secondary == is_secondary)
+
+        query = query.order_by(
+            CharacterPortrait.is_secondary,
+            CharacterPortrait.character_name,
+            CharacterPortrait.created_at.desc()
+        )
+
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

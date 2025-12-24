@@ -86,6 +86,7 @@ class WDWorkspace(
             on_load_pdf=self._loadChapterMangaPDF,
             on_download_pdf=self._onDownloadPDF,
             on_generate_all_images=self._onGenerateAllImages,
+            on_preview_prompt=self._onPreviewPrompt,
         )
 
         # 漫画生成状态标志（防止异步加载覆盖UI状态）

@@ -429,6 +429,19 @@ class PromptTabMixin:
             en_header.addWidget(en_title)
             en_header.addStretch()
 
+            # 预览实际提示词按钮
+            preview_btn = QPushButton("预览")
+            preview_btn.setFixedSize(dp(40), dp(20))
+            preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            preview_btn.setStyleSheet(ButtonStyles.text('XS'))
+            preview_btn.setToolTip("查看发送给生图模型的实际提示词")
+            if self._on_preview_prompt:
+                # 传递完整的画格数据（包含对话、旁白、音效等元数据）
+                preview_btn.clicked.connect(
+                    lambda checked, p=panel: self._on_preview_prompt(p)
+                )
+            en_header.addWidget(preview_btn)
+
             # 复制按钮
             copy_btn = QPushButton("复制")
             copy_btn.setFixedSize(dp(40), dp(20))
@@ -638,12 +651,9 @@ class PromptTabMixin:
             regenerate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             regenerate_btn.setStyleSheet(ButtonStyles.secondary('SM'))
             if self._on_generate_image:
-                negative_prompt = panel.get('negative_prompt', '')
-                panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
-                ref_paths = panel.get('reference_image_paths', [])
+                # 传递完整的画格数据
                 regenerate_btn.clicked.connect(
-                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio, refs=ref_paths:
-                    self._on_generate_image(pid, p, n, ar, refs)
+                    lambda checked, p=panel: self._on_generate_image(p)
                 )
             btn_inner_layout.addWidget(regenerate_btn)
             generate_btn = regenerate_btn  # 保存引用用于状态控制
@@ -654,12 +664,9 @@ class PromptTabMixin:
             generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
             if self._on_generate_image:
-                negative_prompt = panel.get('negative_prompt', '')
-                panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
-                ref_paths = panel.get('reference_image_paths', [])
+                # 传递完整的画格数据
                 generate_btn.clicked.connect(
-                    lambda checked, pid=panel_id, p=prompt_en, n=negative_prompt, ar=panel_aspect_ratio, refs=ref_paths:
-                    self._on_generate_image(pid, p, n, ar, refs)
+                    lambda checked, p=panel: self._on_generate_image(p)
                 )
             btn_inner_layout.addWidget(generate_btn)
 

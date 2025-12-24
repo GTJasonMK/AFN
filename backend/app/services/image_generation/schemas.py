@@ -164,6 +164,32 @@ class ImageGenerationRequest(BaseModel):
     reference_image_paths: Optional[List[str]] = Field(default=None, description="参考图片路径列表（用于img2img）")
     reference_strength: float = Field(default=0.7, ge=0.0, le=1.0, description="参考图影响强度（0.0-1.0）")
 
+    # ==================== 漫画画格元数据 ====================
+    # 对话相关
+    dialogue: Optional[str] = Field(default=None, description="对话内容")
+    dialogue_speaker: Optional[str] = Field(default=None, description="对话说话者")
+    dialogue_bubble_type: Optional[str] = Field(default=None, description="气泡类型: normal/shout/whisper/thought")
+    dialogue_emotion: Optional[str] = Field(default=None, description="说话情绪")
+    dialogue_position: Optional[str] = Field(default=None, description="气泡位置: top-right/top-left/bottom-center等")
+    # 旁白相关
+    narration: Optional[str] = Field(default=None, description="旁白内容")
+    narration_position: Optional[str] = Field(default=None, description="旁白位置: top/bottom/left/right")
+    # 音效相关
+    sound_effects: Optional[List[str]] = Field(default=None, description="音效列表")
+    sound_effect_details: Optional[List[Dict[str, Any]]] = Field(default=None, description="详细音效信息（含类型、强度）")
+
+    # ==================== 画格视觉元数据 ====================
+    composition: Optional[str] = Field(default=None, description="构图: wide shot/medium shot/close-up等")
+    camera_angle: Optional[str] = Field(default=None, description="镜头角度: eye level/low angle/high angle/dutch angle等")
+    is_key_panel: bool = Field(default=False, description="是否为关键画格")
+    characters: Optional[List[str]] = Field(default=None, description="角色列表")
+    lighting: Optional[str] = Field(default=None, description="光线描述")
+    atmosphere: Optional[str] = Field(default=None, description="氛围描述")
+    key_visual_elements: Optional[List[str]] = Field(default=None, description="关键视觉元素")
+
+    # ==================== 语言设置 ====================
+    dialogue_language: Optional[str] = Field(default=None, description="对话/文字语言: chinese/japanese/english/korean")
+
 
 class GeneratedImageInfo(BaseModel):
     """生成的图片信息"""

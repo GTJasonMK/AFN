@@ -138,6 +138,7 @@ class QueueSettingsWidget(QWidget):
         config_row.setSpacing(dp(12))
 
         config_label = QLabel("最大并发数:")
+        config_label.setObjectName("config_label")
         config_row.addWidget(config_label)
 
         spinbox = QSpinBox()
@@ -172,6 +173,7 @@ class QueueSettingsWidget(QWidget):
 
         # 执行中
         active_title = QLabel("执行中:")
+        active_title.setObjectName("status_label")
         active_value = QLabel("0")
         active_value.setObjectName(f"{prefix}_active")
         status_grid.addWidget(active_title, 0, 0)
@@ -179,6 +181,7 @@ class QueueSettingsWidget(QWidget):
 
         # 等待中
         waiting_title = QLabel("等待中:")
+        waiting_title.setObjectName("status_label")
         waiting_value = QLabel("0")
         waiting_value.setObjectName(f"{prefix}_waiting")
         status_grid.addWidget(waiting_title, 0, 2)
@@ -186,6 +189,7 @@ class QueueSettingsWidget(QWidget):
 
         # 已处理
         total_title = QLabel("已处理:")
+        total_title.setObjectName("status_label")
         total_value = QLabel("0")
         total_value.setObjectName(f"{prefix}_total")
         status_grid.addWidget(total_title, 0, 4)
@@ -227,6 +231,23 @@ class QueueSettingsWidget(QWidget):
             }}
 
             QLabel#status_title {{
+                color: {palette.text_primary};
+                font-size: {sp(13)}px;
+                font-weight: bold;
+            }}
+
+            QLabel#config_label {{
+                color: {palette.text_primary};
+                font-size: {sp(13)}px;
+            }}
+
+            QLabel#status_label {{
+                color: {palette.text_secondary};
+                font-size: {sp(13)}px;
+            }}
+
+            QLabel#llm_active, QLabel#llm_waiting, QLabel#llm_total,
+            QLabel#image_active, QLabel#image_waiting, QLabel#image_total {{
                 color: {palette.text_primary};
                 font-size: {sp(13)}px;
                 font-weight: bold;

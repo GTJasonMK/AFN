@@ -9,7 +9,7 @@ import logging
 import hashlib
 import base64
 from pathlib import Path
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Dict, TYPE_CHECKING
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -362,3 +362,214 @@ class CharacterPortraitService:
             return config.model_name if config else None
         except Exception:
             return None
+
+    # ==================== 批量生成 ====================
+
+    async def auto_generate_missing_portraits(
+        self,
+        user_id: int,
+        project_id: str,
+        character_profiles: Dict[str, str],
+        style: str = "anime",
+        exclude_existing: bool = True,
+    ) -> Dict[str, CharacterPortrait]:
+        """
+        自动批量生成缺失的角色立绘
+
+        在漫画生成流程中调用此方法，为没有立绘的角色自动生成立绘。
+        生成的立绘会标记为次要角色（is_secondary=True）和自动生成（auto_generated=True）。
+
+        Args:
+            user_id: 用户ID
+            project_id: 项目ID
+            character_profiles: 角色外观描述字典 {角色名: 外观描述}
+            style: 立绘风格 (anime/manga/realistic)
+            exclude_existing: 是否排除已有立绘的角色
+
+        Returns:
+            Dict[str, CharacterPortrait]: 生成的立绘字典 {角色名: 立绘对象}
+        """
+        if not character_profiles:
+            return {}
+
+        generated_portraits = {}
+
+        # 获取已有立绘的角色名
+        existing_names = set()
+        if exclude_existing:
+            existing_portraits = await self.repo.get_all_active_by_project(project_id)
+            existing_names = {p.character_name for p in existing_portraits}
+
+        # 筛选需要生成立绘的角色
+        characters_to_generate = {
+            name: desc
+            for name, desc in character_profiles.items()
+            if name not in existing_names
+        }
+
+        if not characters_to_generate:
+            logger.info(f"所有角色已有立绘，无需自动生成: project={project_id}")
+            return {}
+
+        logger.info(
+            f"开始自动生成 {len(characters_to_generate)} 个角色的立绘: "
+            f"project={project_id}, characters={list(characters_to_generate.keys())}"
+        )
+
+        # 逐个生成立绘
+        for character_name, character_description in characters_to_generate.items():
+            try:
+                portrait = await self._generate_secondary_portrait(
+                    user_id=user_id,
+                    project_id=project_id,
+                    character_name=character_name,
+                    character_description=character_description,
+                    style=style,
+                )
+                generated_portraits[character_name] = portrait
+                logger.info(f"自动生成立绘成功: character={character_name}")
+            except Exception as e:
+                # 单个角色生成失败不影响其他角色
+                logger.warning(f"自动生成立绘失败: character={character_name}, error={e}")
+                continue
+
+        logger.info(
+            f"自动生成立绘完成: 成功 {len(generated_portraits)}/{len(characters_to_generate)}"
+        )
+
+        return generated_portraits
+
+    async def _generate_secondary_portrait(
+        self,
+        user_id: int,
+        project_id: str,
+        character_name: str,
+        character_description: str,
+        style: str,
+    ) -> CharacterPortrait:
+        """
+        生成次要角色立绘
+
+        与 generate_portrait 类似，但会标记为次要角色和自动生成。
+
+        Args:
+            user_id: 用户ID
+            project_id: 项目ID
+            character_name: 角色名称
+            character_description: 角色外观描述
+            style: 立绘风格
+
+        Returns:
+            CharacterPortrait: 生成的立绘记录
+        """
+        # 1. 构建提示词
+        prompt = self._build_portrait_prompt(
+            character_name=character_name,
+            character_description=character_description,
+            style=style,
+            custom_prompt=None,
+        )
+
+        logger.info(
+            "开始生成次要角色立绘: project=%s, character=%s, style=%s",
+            project_id, character_name, style
+        )
+
+        # 2. 调用图片生成服务
+        image_request = ImageGenerationRequest(
+            prompt=prompt,
+            negative_prompt=self._get_portrait_negative_prompt(),
+            style=style,
+            ratio="1:1",
+            resolution="1K",
+            quality="high",
+            count=1,
+        )
+
+        gen_result = await self.image_service.generate_image(
+            user_id=user_id,
+            project_id=project_id,
+            chapter_number=0,
+            scene_id=0,
+            request=image_request,
+        )
+
+        if not gen_result.success:
+            raise Exception(f"生成立绘失败: {gen_result.error_message}")
+
+        if not gen_result.images:
+            raise Exception("生成立绘失败: 未能获取到生成的图片")
+
+        # 3. 移动图片到立绘目录并创建记录
+        generated_image = gen_result.images[0]
+
+        safe_name = self._safe_character_name(character_name)
+        portrait_dir = PORTRAITS_ROOT / project_id / "portraits" / safe_name
+        portrait_dir.mkdir(parents=True, exist_ok=True)
+
+        portrait_id = str(uuid.uuid4())
+        file_name = f"portrait_{portrait_id[:8]}_{style}.png"
+        new_path = portrait_dir / file_name
+
+        old_path = Path(generated_image.file_path)
+        if old_path.exists():
+            old_path.rename(new_path)
+        else:
+            logger.warning("原始图片文件不存在: %s", old_path)
+
+        # 4. 取消同一角色的其他立绘激活状态
+        existing_portraits = await self.repo.get_by_character(project_id, character_name)
+        for p in existing_portraits:
+            p.is_active = False
+        await self.session.flush()
+
+        # 5. 创建立绘记录（标记为次要角色和自动生成）
+        relative_path = str(new_path.relative_to(PORTRAITS_ROOT)).replace("\\", "/")
+        portrait = CharacterPortrait(
+            id=portrait_id,
+            project_id=project_id,
+            character_name=character_name,
+            character_description=character_description,
+            style=style,
+            prompt=prompt,
+            custom_prompt=None,
+            image_path=relative_path,
+            file_name=file_name,
+            file_size=generated_image.width * generated_image.height * 4 if generated_image.width else None,
+            width=generated_image.width,
+            height=generated_image.height,
+            model_name=self.image_service.config_service and await self._get_model_name(user_id),
+            is_active=True,
+            is_secondary=True,  # 标记为次要角色
+            auto_generated=True,  # 标记为自动生成
+        )
+
+        await self.repo.add(portrait)
+        await self.session.flush()
+
+        logger.info(
+            "次要角色立绘生成成功: id=%s, character=%s, path=%s",
+            portrait_id, character_name, relative_path
+        )
+
+        return portrait
+
+    async def get_missing_characters(
+        self,
+        project_id: str,
+        character_profiles: Dict[str, str],
+    ) -> List[str]:
+        """
+        获取缺失立绘的角色列表
+
+        Args:
+            project_id: 项目ID
+            character_profiles: 角色外观描述字典
+
+        Returns:
+            List[str]: 缺失立绘的角色名列表
+        """
+        existing_portraits = await self.repo.get_all_active_by_project(project_id)
+        existing_names = {p.character_name for p in existing_portraits}
+
+        return [name for name in character_profiles.keys() if name not in existing_names]

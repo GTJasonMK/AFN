@@ -137,6 +137,37 @@ class BaseImageProvider(ABC):
         "Scene description / 场景描述:\n"
     )
 
+    # 对话气泡类型到视觉描述的映射
+    DIALOGUE_BUBBLE_MAP = {
+        "normal": "speech bubble, character speaking, open mouth",
+        "shout": "jagged speech bubble, shouting, wide open mouth, intense expression",
+        "whisper": "dotted speech bubble, whispering, leaning close",
+        "thought": "thought bubble, thoughtful expression, inner monologue",
+        "narration": "narration box, caption text",
+        "electronic": "wavy speech bubble, phone conversation",
+    }
+
+    # 音效到视觉效果的映射
+    SOUND_EFFECT_VISUAL_MAP = {
+        # 中文音效
+        "砰": "explosion effect, impact burst",
+        "嗖": "speed lines, motion blur",
+        "咚": "impact vibration",
+        "嘭": "explosion effect",
+        "轰": "massive explosion, shockwave",
+        "呼": "wind effect",
+        # 日文音效
+        "ドン": "explosion effect",
+        "シュッ": "speed lines",
+        "バン": "impact effect",
+        "ゴゴゴ": "menacing aura effect",
+        # 英文音效
+        "BANG": "explosion effect",
+        "WHOOSH": "speed lines, motion blur",
+        "BOOM": "massive explosion",
+        "CRASH": "destruction effect",
+    }
+
     def _detect_scene_type(self, prompt: str) -> str:
         """
         从提示词内容推断场景类型
@@ -344,6 +375,7 @@ class BaseImageProvider(ABC):
         智能检测：
         - 根据提示词内容动态生成场景感知的上下文前缀
         - 如果提示词已包含风格关键词（由LLM生成），则跳过风格后缀添加
+        - 融合漫画画格元数据（对话、旁白、音效）
 
         Args:
             request: 生成请求
@@ -360,6 +392,11 @@ class BaseImageProvider(ABC):
             prompt = context_prefix + request.prompt
         else:
             prompt = request.prompt
+
+        # 融合漫画画格元数据（对话、旁白、音效）
+        manga_visual_parts = self._build_manga_visual_elements(request)
+        if manga_visual_parts:
+            prompt = f"{prompt}, {manga_visual_parts}"
 
         # 智能检测：如果提示词已包含风格关键词，则跳过风格后缀添加
         # 使用集中定义的风格检测函数，确保检测逻辑与STYLE_SUFFIXES保持一致
@@ -407,3 +444,241 @@ class BaseImageProvider(ABC):
             prompt = f"{prompt}\n\nNegative: {request.negative_prompt}"
 
         return prompt
+
+    # 构图描述映射
+    COMPOSITION_MAP = {
+        "wide shot": "wide shot, full scene view, establishing shot, characters shown in environment",
+        "medium shot": "medium shot, waist-up view, conversational framing, character interaction focus",
+        "medium close-up": "medium close-up, chest-up view, intimate framing, emotional connection",
+        "close-up": "close-up shot, face focus, emotional emphasis, detailed expression",
+        "extreme close-up": "extreme close-up, eye or detail focus, intense emotion, dramatic impact",
+        "dynamic wide shot": "dynamic wide shot, action framing, motion blur, sweeping composition",
+        "dynamic composition": "dynamic composition, diagonal lines, movement emphasis, energy",
+    }
+
+    # 镜头角度映射
+    CAMERA_ANGLE_MAP = {
+        "eye level": "eye level shot, neutral perspective, natural viewpoint",
+        "low angle": "low angle shot, looking up, heroic perspective, powerful presence",
+        "high angle": "high angle shot, looking down, vulnerable perspective, emphasizing smallness",
+        "bird's eye": "bird's eye view, overhead shot, god's perspective, scene overview",
+        "dutch angle": "dutch angle, tilted frame, tension and unease, dramatic instability",
+        "dynamic": "dynamic angle, action perspective, dramatic viewpoint, cinematic",
+        "dramatic": "dramatic angle, cinematic framing, high contrast, impactful composition",
+    }
+
+    # 语言到描述的映射
+    LANGUAGE_CONSTRAINT_MAP = {
+        "chinese": "Chinese text only (simplified/traditional Chinese characters), NO Japanese/Korean/English text",
+        "japanese": "Japanese text only (hiragana, katakana, kanji), NO Chinese/Korean/English text",
+        "english": "English text only, NO Chinese/Japanese/Korean text",
+        "korean": "Korean text only (Hangul), NO Chinese/Japanese/English text",
+    }
+
+    def _build_manga_visual_elements(self, request: ImageGenerationRequest) -> str:
+        """
+        构建漫画视觉元素描述
+
+        将对话、旁白、音效、构图、镜头角度等漫画元素转换为图片生成的视觉描述。
+        包含实际内容，让AI理解场景的完整视觉信息。
+
+        Args:
+            request: 生成请求（包含漫画元数据）
+
+        Returns:
+            视觉元素描述字符串
+        """
+        parts = []
+
+        # ==================== 0. 语言约束（最重要！）====================
+        # 确保生成的文字/气泡使用正确的语言
+        if request.dialogue_language:
+            lang_constraint = self.LANGUAGE_CONSTRAINT_MAP.get(
+                request.dialogue_language,
+                f"{request.dialogue_language} text only"
+            )
+            parts.append(f"[LANGUAGE CONSTRAINT: {lang_constraint}]")
+
+        # ==================== 1. 构图和镜头（最重要！）====================
+        if request.composition:
+            comp_desc = self.COMPOSITION_MAP.get(request.composition, request.composition)
+            parts.append(comp_desc)
+
+        if request.camera_angle:
+            angle_desc = self.CAMERA_ANGLE_MAP.get(request.camera_angle, request.camera_angle)
+            parts.append(angle_desc)
+
+        # ==================== 2. 关键画格强调 ====================
+        if request.is_key_panel:
+            parts.append("key panel, dramatic emphasis, maximum detail, high visual impact, detailed rendering")
+
+        # ==================== 3. 光线和氛围 ====================
+        if request.lighting:
+            parts.append(f"lighting: {request.lighting}")
+
+        if request.atmosphere:
+            parts.append(f"atmosphere: {request.atmosphere}")
+
+        # ==================== 4. 关键视觉元素 ====================
+        if request.key_visual_elements:
+            elements = ", ".join(request.key_visual_elements[:5])  # 最多5个
+            parts.append(f"featuring {elements}")
+
+        # ==================== 5. 角色描述 ====================
+        if request.characters:
+            char_list = ", ".join(request.characters[:3])  # 最多3个角色
+            parts.append(f"characters in scene: {char_list}")
+
+        # ==================== 6. 对话视觉效果 + 实际内容 ====================
+        if request.dialogue:
+            dialogue_parts = []
+
+            # 说话者
+            speaker = request.dialogue_speaker or "character"
+
+            # 气泡类型和说话动作
+            bubble_type = request.dialogue_bubble_type or "normal"
+            bubble_desc = self.DIALOGUE_BUBBLE_MAP.get(bubble_type, "speech bubble")
+
+            # 根据气泡类型构建描述
+            if bubble_type == "shout":
+                dialogue_parts.append(f"{speaker} shouting loudly, wide open mouth, intense expression")
+            elif bubble_type == "whisper":
+                dialogue_parts.append(f"{speaker} whispering quietly, leaning close, subtle expression")
+            elif bubble_type == "thought":
+                dialogue_parts.append(f"{speaker} thinking deeply, thoughtful expression, contemplative pose")
+            else:
+                dialogue_parts.append(f"{speaker} speaking, open mouth, conversational expression")
+
+            dialogue_parts.append(bubble_desc)
+
+            # 气泡位置（影响构图）
+            if request.dialogue_position:
+                position_map = {
+                    "top-right": "speech bubble at top right, leaving space for dialogue",
+                    "top-left": "speech bubble at top left, leaving space for dialogue",
+                    "top-center": "speech bubble at top center",
+                    "bottom-right": "speech bubble at bottom right",
+                    "bottom-left": "speech bubble at bottom left",
+                    "bottom-center": "speech bubble at bottom center",
+                }
+                pos_desc = position_map.get(request.dialogue_position, "")
+                if pos_desc:
+                    dialogue_parts.append(pos_desc)
+
+            # 添加对话内容描述（让AI理解角色在说什么，以便配合表情动作）
+            dialogue_content = request.dialogue[:100] if len(request.dialogue) > 100 else request.dialogue
+            dialogue_parts.append(f'dialogue content: "{dialogue_content}"')
+
+            # 情绪效果
+            if request.dialogue_emotion:
+                emotion_lower = request.dialogue_emotion.lower()
+                emotion_effects = {
+                    "angry": "anger vein effect, furrowed brows, aggressive stance, intense glare",
+                    "happy": "sparkle effect, bright smile, joyful expression, warm atmosphere",
+                    "sad": "tear drop effect, melancholic expression, downcast eyes, somber mood",
+                    "surprised": "shock lines effect, wide eyes, open mouth, dramatic reaction",
+                    "scared": "sweat drops effect, fearful expression, trembling, tense posture",
+                    "excited": "sparkle eyes effect, energetic pose, enthusiastic expression",
+                    "shy": "blush lines effect, looking away, fidgeting, embarrassed expression",
+                    "serious": "stern expression, focused gaze, determined look, intense atmosphere",
+                    "confused": "question mark effect, tilted head, puzzled expression",
+                    "determined": "focused eyes, firm jaw, confident stance, resolute expression",
+                }
+                for key, effect in emotion_effects.items():
+                    if key in emotion_lower:
+                        dialogue_parts.append(effect)
+                        break
+
+            parts.extend(dialogue_parts)
+
+        # ==================== 7. 旁白视觉效果 + 实际内容 ====================
+        if request.narration:
+            narration_parts = []
+            narration_parts.append("rectangular narration box, caption text overlay")
+
+            # 旁白位置
+            if request.narration_position:
+                position_map = {
+                    "top": "narration box at top of panel",
+                    "bottom": "narration box at bottom of panel",
+                    "left": "narration box on left side",
+                    "right": "narration box on right side",
+                }
+                pos_desc = position_map.get(request.narration_position, "")
+                if pos_desc:
+                    narration_parts.append(pos_desc)
+
+            # 添加旁白内容（影响场景氛围）
+            narration_content = request.narration[:150] if len(request.narration) > 150 else request.narration
+            narration_parts.append(f'narration text: "{narration_content}"')
+
+            # 根据旁白内容推断并强化氛围
+            narration_lower = request.narration.lower()
+            if any(word in narration_lower for word in ["夜", "黑暗", "night", "dark", "shadow", "月", "moon"]):
+                narration_parts.append("dark atmospheric lighting, nighttime ambiance, shadows")
+            elif any(word in narration_lower for word in ["阳光", "明亮", "sunny", "bright", "light", "dawn", "晨"]):
+                narration_parts.append("bright warm lighting, daylight, cheerful atmosphere")
+            elif any(word in narration_lower for word in ["紧张", "危险", "tension", "danger", "threat", "危机"]):
+                narration_parts.append("tense atmosphere, dramatic shadows, suspenseful mood")
+            elif any(word in narration_lower for word in ["平静", "安宁", "peace", "calm", "quiet", "宁静"]):
+                narration_parts.append("peaceful serene atmosphere, gentle lighting")
+            elif any(word in narration_lower for word in ["悲伤", "痛苦", "sad", "sorrow", "grief", "tears"]):
+                narration_parts.append("melancholic atmosphere, subdued lighting, emotional weight")
+            elif any(word in narration_lower for word in ["快乐", "喜悦", "happy", "joy", "celebration"]):
+                narration_parts.append("joyful atmosphere, vibrant lighting, celebratory mood")
+
+            parts.extend(narration_parts)
+
+        # ==================== 8. 音效视觉效果 + 实际文字 ====================
+        if request.sound_effects or request.sound_effect_details:
+            sfx_parts = []
+            sfx_parts.append("manga sound effect text overlay, onomatopoeia")
+
+            # 优先使用详细音效信息
+            if request.sound_effect_details:
+                for sfx_detail in request.sound_effect_details[:3]:
+                    sfx_text = sfx_detail.get('text', '')
+                    sfx_type = sfx_detail.get('type', '')
+                    sfx_intensity = sfx_detail.get('intensity', 'medium')
+
+                    # 根据类型添加视觉效果
+                    type_effects = {
+                        "action": "speed lines, motion blur, dynamic effect",
+                        "impact": "impact lines, radial burst, shockwave effect",
+                        "ambient": "ambient particles, environmental effect",
+                        "emotional": "emotion symbols, heart or sweat effects",
+                        "vocal": "vocal expression marks",
+                    }
+                    if sfx_type and sfx_type in type_effects:
+                        sfx_parts.append(type_effects[sfx_type])
+
+                    # 根据强度调整
+                    intensity_effects = {
+                        "small": "subtle effect, small text",
+                        "medium": "moderate effect, medium emphasis",
+                        "large": "dramatic effect, large bold text, screen-filling",
+                    }
+                    if sfx_intensity in intensity_effects:
+                        sfx_parts.append(intensity_effects[sfx_intensity])
+
+                    # 添加实际音效文字
+                    if sfx_text:
+                        visual = self.SOUND_EFFECT_VISUAL_MAP.get(sfx_text)
+                        if visual:
+                            sfx_parts.append(visual)
+                        sfx_parts.append(f'sound effect text "{sfx_text}"')
+
+            elif request.sound_effects:
+                # 使用简单音效列表
+                for sfx in request.sound_effects[:3]:
+                    visual = self.SOUND_EFFECT_VISUAL_MAP.get(sfx)
+                    if visual:
+                        sfx_parts.append(visual)
+                    sfx_parts.append(f'sound effect text "{sfx}"')
+
+            # 去重
+            unique_sfx = list(dict.fromkeys(sfx_parts))
+            parts.extend(unique_sfx)
+
+        return ", ".join(parts) if parts else ""

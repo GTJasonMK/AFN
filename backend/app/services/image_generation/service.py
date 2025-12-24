@@ -664,3 +664,169 @@ class ImageGenerationService:
         image.is_selected = selected
         await self.session.flush()
         return True
+
+    # ==================== 提示词预览 ====================
+
+    async def preview_prompt(
+        self,
+        user_id: int,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        style: Optional[str] = None,
+        ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
+        # 漫画画格元数据 - 对话相关
+        dialogue: Optional[str] = None,
+        dialogue_speaker: Optional[str] = None,
+        dialogue_bubble_type: Optional[str] = None,
+        dialogue_emotion: Optional[str] = None,
+        dialogue_position: Optional[str] = None,
+        # 漫画画格元数据 - 旁白相关
+        narration: Optional[str] = None,
+        narration_position: Optional[str] = None,
+        # 漫画画格元数据 - 音效相关
+        sound_effects: Optional[List[str]] = None,
+        sound_effect_details: Optional[List[dict]] = None,
+        # 漫画画格元数据 - 视觉相关
+        composition: Optional[str] = None,
+        camera_angle: Optional[str] = None,
+        is_key_panel: bool = False,
+        characters: Optional[List[str]] = None,
+        lighting: Optional[str] = None,
+        atmosphere: Optional[str] = None,
+        key_visual_elements: Optional[List[str]] = None,
+        # 语言设置
+        dialogue_language: Optional[str] = None,
+    ) -> dict:
+        """
+        预览处理后的提示词（不生成图片）
+
+        展示发送给生图模型的实际提示词，包括：
+        - 场景类型检测结果
+        - 动态添加的上下文前缀
+        - 风格后缀（如果需要）
+        - 分辨率后缀（如果需要）
+        - 宽高比描述
+        - 漫画视觉元素（对话、旁白、音效、构图、镜头等）
+        - 语言约束
+        - 负面提示词
+
+        Args:
+            user_id: 用户ID
+            prompt: 原始提示词
+            negative_prompt: 负面提示词
+            style: 风格
+            ratio: 宽高比
+            resolution: 分辨率
+            dialogue: 对话内容
+            dialogue_speaker: 对话说话者
+            dialogue_bubble_type: 气泡类型
+            dialogue_emotion: 说话情绪
+            dialogue_position: 气泡位置
+            narration: 旁白内容
+            narration_position: 旁白位置
+            sound_effects: 音效列表
+            sound_effect_details: 详细音效信息
+            composition: 构图
+            camera_angle: 镜头角度
+            is_key_panel: 是否为关键画格
+            characters: 角色列表
+            lighting: 光线描述
+            atmosphere: 氛围描述
+            key_visual_elements: 关键视觉元素
+            dialogue_language: 对话/文字语言（chinese/japanese/english/korean）
+
+        Returns:
+            包含预览信息的字典
+        """
+        # 获取激活的配置
+        config = await self.config_service.get_active_config(user_id)
+        if not config:
+            return {
+                "success": False,
+                "error": "未配置图片生成服务，请先在设置中添加配置",
+            }
+
+        try:
+            # 使用工厂获取对应的供应商
+            provider = ImageProviderFactory.get_provider(config.provider_type)
+            if not provider:
+                return {
+                    "success": False,
+                    "error": f"不支持的提供商类型: {config.provider_type}",
+                }
+
+            # 构建请求对象（包含所有漫画元数据）
+            request = ImageGenerationRequest(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                style=style,
+                ratio=ratio,
+                resolution=resolution,
+                # 漫画画格元数据 - 对话相关
+                dialogue=dialogue,
+                dialogue_speaker=dialogue_speaker,
+                dialogue_bubble_type=dialogue_bubble_type,
+                dialogue_emotion=dialogue_emotion,
+                dialogue_position=dialogue_position,
+                # 漫画画格元数据 - 旁白相关
+                narration=narration,
+                narration_position=narration_position,
+                # 漫画画格元数据 - 音效相关
+                sound_effects=sound_effects,
+                sound_effect_details=sound_effect_details,
+                # 漫画画格元数据 - 视觉相关
+                composition=composition,
+                camera_angle=camera_angle,
+                is_key_panel=is_key_panel,
+                characters=characters,
+                lighting=lighting,
+                atmosphere=atmosphere,
+                key_visual_elements=key_visual_elements,
+                # 语言设置
+                dialogue_language=dialogue_language,
+            )
+
+            # 检测场景类型
+            scene_type = provider._detect_scene_type(prompt)
+
+            # 构建完整提示词（包含漫画视觉元素）
+            final_prompt = provider.build_prompt(request, add_context=True)
+
+            # 构建不带上下文的提示词（用于对比）
+            prompt_without_context = provider.build_prompt(request, add_context=False)
+
+            # 构建漫画视觉元素描述（单独展示）
+            manga_visual_elements = provider._build_manga_visual_elements(request)
+
+            return {
+                "success": True,
+                "original_prompt": prompt,
+                "scene_type": scene_type,
+                "scene_type_zh": {
+                    "action": "动作/战斗",
+                    "romantic": "浪漫/情感",
+                    "horror": "恐怖/悬疑",
+                    "comedy": "喜剧/轻松",
+                    "emotional": "情感/戏剧",
+                    "mystery": "悬疑/紧张",
+                    "daily": "日常生活",
+                }.get(scene_type, scene_type),
+                "final_prompt": final_prompt,
+                "prompt_without_context": prompt_without_context,
+                "manga_visual_elements": manga_visual_elements,  # 漫画视觉元素
+                "negative_prompt": negative_prompt,
+                "style": style,
+                "ratio": ratio,
+                "resolution": resolution,
+                "provider": config.provider_type,
+                "model": config.model_name,
+            }
+
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"{type(e).__name__}"
+            logger.error(f"预览提示词失败: {error_msg}", exc_info=True)
+            return {
+                "success": False,
+                "error": error_msg,
+            }

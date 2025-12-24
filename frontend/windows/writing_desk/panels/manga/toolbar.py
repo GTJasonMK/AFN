@@ -26,6 +26,8 @@ class ToolbarMixin:
         self._min_scenes_spin: Optional[QSpinBox] = None
         self._max_scenes_spin: Optional[QSpinBox] = None
         self._use_portraits_checkbox: Optional[QCheckBox] = None  # 使用角色立绘
+        self._auto_generate_portraits_checkbox: Optional[QCheckBox] = None  # 自动生成缺失立绘
+        self._use_dynamic_layout_checkbox: Optional[QCheckBox] = None  # 使用LLM动态布局
         self._toolbar_btn_stack: Optional[QStackedWidget] = None
         self._toolbar_generate_btn: Optional[QPushButton] = None
         self._toolbar_spinner: Optional[CircularSpinner] = None
@@ -171,6 +173,70 @@ class ToolbarMixin:
             }}
         """)
         config_row.addWidget(self._use_portraits_checkbox)
+
+        # 自动生成缺失立绘复选框
+        self._auto_generate_portraits_checkbox = QCheckBox("自动生成")
+        self._auto_generate_portraits_checkbox.setChecked(True)  # 默认启用
+        self._auto_generate_portraits_checkbox.setToolTip("自动为缺失立绘的角色生成立绘")
+        self._auto_generate_portraits_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_secondary};
+                spacing: {dp(4)}px;
+            }}
+            QCheckBox::indicator {{
+                width: {dp(14)}px;
+                height: {dp(14)}px;
+                border: 1px solid {s.border_light};
+                border-radius: {dp(3)}px;
+                background-color: {s.bg_secondary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {s.accent_color};
+                border-color: {s.accent_color};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {s.accent_color};
+            }}
+        """)
+        config_row.addWidget(self._auto_generate_portraits_checkbox)
+
+        # 分隔符2
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setStyleSheet(f"background-color: {s.border_light};")
+        separator2.setFixedWidth(dp(1))
+        separator2.setFixedHeight(dp(20))
+        config_row.addWidget(separator2)
+
+        # 使用LLM动态布局复选框
+        self._use_dynamic_layout_checkbox = QCheckBox("动态布局")
+        self._use_dynamic_layout_checkbox.setChecked(True)  # 默认启用
+        self._use_dynamic_layout_checkbox.setToolTip("使用LLM动态生成页面布局\n替代硬编码模板，布局更灵活多样")
+        self._use_dynamic_layout_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_secondary};
+                spacing: {dp(4)}px;
+            }}
+            QCheckBox::indicator {{
+                width: {dp(14)}px;
+                height: {dp(14)}px;
+                border: 1px solid {s.border_light};
+                border-radius: {dp(3)}px;
+                background-color: {s.bg_secondary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {s.accent_color};
+                border-color: {s.accent_color};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {s.accent_color};
+            }}
+        """)
+        config_row.addWidget(self._use_dynamic_layout_checkbox)
 
         config_row.addStretch()
         main_layout.addLayout(config_row)
@@ -386,12 +452,17 @@ class ToolbarMixin:
             min_scenes = self._min_scenes_spin.value()
             max_scenes = self._max_scenes_spin.value()
             use_portraits = self._use_portraits_checkbox.isChecked() if self._use_portraits_checkbox else True
+            auto_generate_portraits = self._auto_generate_portraits_checkbox.isChecked() if self._auto_generate_portraits_checkbox else True
+            use_dynamic_layout = self._use_dynamic_layout_checkbox.isChecked() if self._use_dynamic_layout_checkbox else True
 
             # 确保max >= min
             if max_scenes < min_scenes:
                 max_scenes = min_scenes
 
-            self._on_generate(style, min_scenes, max_scenes, language, use_portraits)
+            self._on_generate(
+                style, min_scenes, max_scenes, language,
+                use_portraits, auto_generate_portraits, use_dynamic_layout
+            )
 
     # ==================== 工具栏加载状态控制 ====================
 

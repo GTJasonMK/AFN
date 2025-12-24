@@ -61,7 +61,7 @@ class PanelPrompt:
     narration: Optional[str] = None
     sound_effects: Optional[List[str]] = None
 
-    # 文字元素 - 扩展字段（新增）
+    # 文字元素 - 扩展字段
     dialogue_bubble_type: str = "normal"  # 气泡类型
     dialogue_position: str = "top-right"  # 气泡位置
     dialogue_emotion: str = ""  # 说话情绪
@@ -71,6 +71,11 @@ class PanelPrompt:
     # 视觉信息
     characters: Optional[List[str]] = None
     is_key_panel: bool = False
+
+    # 视觉氛围信息
+    lighting: str = ""  # 光线描述
+    atmosphere: str = ""  # 氛围描述
+    key_visual_elements: Optional[List[str]] = None  # 关键视觉元素
 
     # 参考图（用于 img2img）
     reference_image_paths: Optional[List[str]] = None  # 角色立绘路径列表
@@ -251,6 +256,10 @@ class PanelPromptBuilder:
         self.dialogue_language = dialogue_language
         self.character_portraits = character_portraits or {}
 
+        # 日志计数器（避免重复警告刷屏）
+        self._missing_prompt_count = 0
+        self._missing_negative_count = 0
+
         # 风格基础提示词
         self.style_prompts = {
             "manga": (
@@ -315,6 +324,8 @@ class PanelPromptBuilder:
 
     def _get_slot(self, template, slot_id: int) -> Optional[PanelSlot]:
         """获取模板中的槽位"""
+        if template is None:
+            return None
         for slot in template.panel_slots:
             if slot.slot_id == slot_id:
                 return slot
@@ -350,17 +361,23 @@ class PanelPromptBuilder:
         else:
             # 回退：使用硬编码映射表构建提示词
             # 这种情况应该很少发生，如果频繁触发，说明LLM提示词需要优化
-            logger.warning(
-                f"画格 slot_id={slot.slot_id} 没有LLM生成的prompt_en，使用回退映射表。"
-                f"建议检查 scene_expansion_service.py 中的 PANEL_DISTRIBUTION_PROMPT 配置。"
-            )
+            self._missing_prompt_count += 1
+            if self._missing_prompt_count <= 3:
+                logger.warning(
+                    f"画格 slot_id={slot.slot_id} 没有LLM生成的prompt_en，使用回退映射表。"
+                    f"建议检查 scene_expansion_service.py 中的 PANEL_DISTRIBUTION_PROMPT 配置。"
+                )
+            elif self._missing_prompt_count == 4:
+                logger.warning(f"已有 {self._missing_prompt_count} 个画格缺少prompt_en，后续类似警告将被抑制")
             prompt_en = self._build_prompt_from_mapping(panel_content, slot, mood, previous_panel)
 
         # 优先使用LLM直接生成的负面提示词
         if panel_content.negative_prompt:
             negative_prompt = panel_content.negative_prompt
         else:
-            logger.debug(f"画格 slot_id={slot.slot_id} 没有LLM生成的negative_prompt，使用默认值")
+            self._missing_negative_count += 1
+            if self._missing_negative_count <= 1:
+                logger.debug(f"画格 slot_id={slot.slot_id} 没有LLM生成的negative_prompt，使用默认值")
             negative_prompt = self._build_negative_prompt(slot)
 
         # 中文描述
@@ -504,7 +521,11 @@ class PanelPromptBuilder:
         characters: List[str],
         emotions: Dict[str, str],
     ) -> str:
-        """构建角色描述"""
+        """
+        构建角色描述
+
+        确保所有角色（包括次要角色）都有一致的视觉描述
+        """
         if not characters:
             return ""
 
@@ -516,7 +537,11 @@ class PanelPromptBuilder:
             if char in self.character_profiles:
                 char_parts.append(self.character_profiles[char])
             else:
-                char_parts.append(char)
+                # 次要角色没有profile时，生成基础描述以保持一致性
+                # 基于角色名推断基本特征
+                fallback_desc = self._generate_fallback_character_desc(char)
+                char_parts.append(fallback_desc)
+                logger.debug(f"角色 '{char}' 没有profile，使用回退描述: {fallback_desc}")
 
             # 角色情绪
             if char in emotions:
@@ -529,6 +554,37 @@ class PanelPromptBuilder:
             return parts[0]
         else:
             return f"characters: {', '.join(parts)}"
+
+    def _generate_fallback_character_desc(self, character_name: str) -> str:
+        """
+        为没有profile的角色生成回退描述
+
+        基于角色名中的关键词推断基本特征，确保次要角色也有一致的视觉描述
+        """
+        name_lower = character_name.lower()
+
+        # 根据常见角色类型生成描述
+        if any(word in name_lower for word in ['士兵', 'soldier', '军', 'guard', '卫']):
+            return "armored soldier, military uniform, stern expression"
+        elif any(word in name_lower for word in ['侍女', 'maid', '女仆', '丫鬟']):
+            return "young woman in servant attire, neat appearance"
+        elif any(word in name_lower for word in ['店员', 'clerk', '服务员', 'waiter', 'waitress']):
+            return "service staff in uniform, professional appearance"
+        elif any(word in name_lower for word in ['老', 'elder', '大爷', '大妈', '奶奶', '爷爷']):
+            return "elderly person, aged features, traditional clothing"
+        elif any(word in name_lower for word in ['小孩', 'child', '孩子', 'kid', '少年', '少女']):
+            return "young person, youthful features, casual clothing"
+        elif any(word in name_lower for word in ['商人', 'merchant', '老板', 'boss']):
+            return "middle-aged person, business attire, confident posture"
+        elif any(word in name_lower for word in ['村民', 'villager', '农民', 'farmer']):
+            return "rural person, simple clothing, weathered features"
+        elif any(word in name_lower for word in ['贵族', 'noble', '公主', 'princess', '王子', 'prince']):
+            return "noble person, elegant clothing, refined features"
+        elif any(word in name_lower for word in ['路人', 'passerby', '行人', 'stranger']):
+            return "ordinary person, casual clothing, nondescript features"
+        else:
+            # 默认描述：普通成年人
+            return f"person named {character_name}, distinct appearance"
 
     def _get_character_portrait_paths(
         self,

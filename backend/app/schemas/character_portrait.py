@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,17 @@ class RegeneratePortraitRequest(BaseModel):
     custom_prompt: Optional[str] = Field(default=None, description="新的自定义提示词（可选）")
 
 
+class AutoGeneratePortraitsRequest(BaseModel):
+    """自动批量生成缺失立绘请求"""
+
+    character_profiles: Dict[str, str] = Field(
+        ...,
+        description="角色外观描述字典 {角色名: 外观描述}"
+    )
+    style: str = Field(default="anime", description="立绘风格 (manga/anime/comic/webtoon)")
+    exclude_existing: bool = Field(default=True, description="是否排除已有立绘的角色")
+
+
 class CharacterPortraitResponse(BaseModel):
     """角色立绘响应模型"""
 
@@ -57,6 +68,8 @@ class CharacterPortraitResponse(BaseModel):
     height: Optional[int] = None
     model_name: Optional[str] = None
     is_active: bool = True
+    is_secondary: bool = False  # 是否为次要角色
+    auto_generated: bool = False  # 是否为系统自动生成
     created_at: datetime
     updated_at: datetime
 
@@ -88,6 +101,8 @@ class CharacterPortraitResponse(BaseModel):
             height=portrait.height,
             model_name=portrait.model_name,
             is_active=portrait.is_active,
+            is_secondary=portrait.is_secondary,
+            auto_generated=portrait.auto_generated,
             created_at=portrait.created_at,
             updated_at=portrait.updated_at,
         )

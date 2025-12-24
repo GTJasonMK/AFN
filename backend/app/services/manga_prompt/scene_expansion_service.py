@@ -6,9 +6,14 @@
 
 核心流程：
 1. 分析场景的情感、重要性、内容类型
-2. 选择合适的页面模板
+2. 选择合适的页面模板（支持LLM动态布局或硬编码模板）
 3. 将场景内容分配到各个画格
 4. 生成画格级别的内容描述
+
+v2更新：
+- 支持LLM动态布局，替代硬编码模板
+- 考虑上下页连续性，避免布局重复
+- 支持格间过渡类型、间白策略、翻页钩子
 """
 
 import re
@@ -37,6 +42,7 @@ from .language_config import (
     get_forbidden_patterns,
     get_forbidden_hint,
 )
+from .llm_layout_service import LLMLayoutService, DynamicPage, DynamicPanel
 from app.utils.json_utils import parse_llm_json_safe
 
 logger = logging.getLogger(__name__)
@@ -321,6 +327,10 @@ class SceneExpansionService:
         self.llm_service = llm_service
         self.prompt_service = prompt_service
         self._cached_layout_prompt = None  # 缓存布局提示词
+        # 初始化LLM动态布局服务
+        self._layout_service = LLMLayoutService(llm_service, prompt_service)
+        # 存储前面生成的页面布局（用于保持连续性）
+        self._previous_pages: List[DynamicPage] = []
 
     async def _get_layout_system_prompt(self) -> str:
         """
@@ -356,6 +366,7 @@ class SceneExpansionService:
         chapter_position: str = "middle",  # beginning/middle/climax/ending
         user_id: Optional[int] = None,
         dialogue_language: str = "chinese",  # 对话/音效语言
+        use_dynamic_layout: bool = True,  # 是否使用LLM动态布局
     ) -> SceneExpansion:
         """
         将场景展开为漫画分镜
@@ -370,11 +381,12 @@ class SceneExpansionService:
             chapter_position: 在章节中的位置
             user_id: 用户ID
             dialogue_language: 对话/音效语言（chinese/japanese/english/korean）
+            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
 
         Returns:
             场景展开结果
         """
-        logger.info(f"展开场景 {scene_id}: {scene_summary[:30]}...")
+        logger.info(f"展开场景 {scene_id}: {scene_summary[:30]}... (动态布局={use_dynamic_layout})")
 
         # 步骤1：分析场景
         analysis = await self._analyze_scene(
@@ -386,9 +398,23 @@ class SceneExpansionService:
             user_id=user_id,
         )
 
-        # 步骤2：选择页面模板
-        template = self._select_template(analysis)
-        logger.info(f"选择模板: {template.name_zh}")
+        # 步骤2：选择/生成页面布局
+        if use_dynamic_layout and self.llm_service:
+            # 使用LLM动态布局
+            template = await self._get_dynamic_layout(
+                scene_id=scene_id,
+                scene_content=scene_content,
+                scene_summary=scene_summary,
+                analysis=analysis,
+                characters=characters,
+                chapter_position=chapter_position,
+                user_id=user_id,
+            )
+            logger.info(f"使用LLM动态布局: {len(template.panel_slots)} 格")
+        else:
+            # 回退到硬编码模板
+            template = self._select_template(analysis)
+            logger.info(f"选择硬编码模板: {template.name_zh}")
 
         # 步骤3：分配画格内容
         page_plan = await self._distribute_content(
@@ -418,10 +444,76 @@ class SceneExpansionService:
 
         return expansion
 
+    async def _get_dynamic_layout(
+        self,
+        scene_id: int,
+        scene_content: str,
+        scene_summary: str,
+        analysis: Dict[str, Any],
+        characters: List[str],
+        chapter_position: str,
+        user_id: Optional[int],
+    ) -> PageTemplate:
+        """
+        使用LLM生成动态布局
+
+        Args:
+            scene_id: 场景ID
+            scene_content: 场景内容
+            scene_summary: 场景摘要
+            analysis: 场景分析结果
+            characters: 角色列表
+            chapter_position: 章节位置
+            user_id: 用户ID
+
+        Returns:
+            PageTemplate对象（从动态布局转换）
+        """
+        # 构建场景信息
+        scene_info = {
+            "scene_id": scene_id,
+            "summary": scene_summary,
+            "content": scene_content,
+            "mood": analysis.get("mood", "calm"),
+            "characters": characters,
+            "is_climax": analysis.get("is_climax", False),
+            "has_dialogue": analysis.get("has_dialogue", False),
+            "is_action": analysis.get("is_action", False),
+        }
+
+        try:
+            # 获取前一页布局（用于避免重复）
+            previous_page = self._previous_pages[-1] if self._previous_pages else None
+
+            # 使用LLM布局服务生成动态布局
+            dynamic_page = await self._layout_service.generate_layout_for_single_scene(
+                scene=scene_info,
+                previous_page=previous_page,
+                next_scene_hint=None,  # 可以后续扩展
+                user_id=user_id,
+            )
+
+            # 保存到历史记录（用于保持连续性）
+            self._previous_pages.append(dynamic_page)
+            # 只保留最近5页
+            if len(self._previous_pages) > 5:
+                self._previous_pages = self._previous_pages[-5:]
+
+            # 转换为PageTemplate格式（兼容现有代码）
+            template = self._layout_service.convert_to_template(dynamic_page)
+            return template
+
+        except Exception as e:
+            logger.warning(f"LLM动态布局生成失败: {e}，回退到硬编码模板")
+            # 回退到硬编码模板
+            return self._select_template(analysis)
+
     async def expand_scenes_batch(
         self,
         scenes: List[Dict[str, Any]],
         user_id: Optional[int] = None,
+        dialogue_language: str = "chinese",
+        use_dynamic_layout: bool = True,
     ) -> List[SceneExpansion]:
         """
         批量展开多个场景
@@ -429,10 +521,14 @@ class SceneExpansionService:
         Args:
             scenes: 场景列表，每个包含 scene_id, summary, content, characters
             user_id: 用户ID
+            dialogue_language: 对话/音效语言
+            use_dynamic_layout: 是否使用LLM动态布局
 
         Returns:
             场景展开结果列表
         """
+        # 重置页面历史（新批次开始）
+        self._previous_pages = []
         expansions = []
 
         for i, scene in enumerate(scenes):
@@ -459,11 +555,154 @@ class SceneExpansionService:
                 next_scene=next_scene,
                 chapter_position=position,
                 user_id=user_id,
+                dialogue_language=dialogue_language,
+                use_dynamic_layout=use_dynamic_layout,
             )
 
             expansions.append(expansion)
 
         return expansions
+
+    def restore_previous_pages_from_expansions(
+        self,
+        expansions: List[SceneExpansion],
+        max_pages: int = 5,
+    ) -> None:
+        """
+        从已完成的展开结果中恢复布局历史
+
+        用于断点续传时恢复 _previous_pages，以保持后续页面布局的连续性。
+
+        Args:
+            expansions: 已完成的场景展开结果列表
+            max_pages: 最多恢复多少页的历史（默认5页）
+        """
+        if not expansions:
+            return
+
+        # 收集所有页面
+        all_pages = []
+        for exp in expansions:
+            for page in exp.pages:
+                all_pages.append((exp, page))
+
+        # 只保留最后 max_pages 页
+        recent_pages = all_pages[-max_pages:] if len(all_pages) > max_pages else all_pages
+
+        # 转换为 DynamicPage 格式
+        self._previous_pages = []
+        for exp, page in recent_pages:
+            dynamic_page = self._convert_page_plan_to_dynamic_page(page, exp)
+            if dynamic_page:
+                self._previous_pages.append(dynamic_page)
+
+        if self._previous_pages:
+            logger.info(f"从断点恢复了 {len(self._previous_pages)} 页布局历史")
+
+    def _convert_page_plan_to_dynamic_page(
+        self,
+        page: PagePlan,
+        expansion: SceneExpansion,
+    ) -> Optional[DynamicPage]:
+        """
+        将 PagePlan 转换为 DynamicPage 格式
+
+        用于从已完成的展开结果中恢复布局历史。
+        注意：这是一个近似转换，不能完全还原原始的动态布局细节。
+
+        Args:
+            page: 页面规划
+            expansion: 所属的场景展开
+
+        Returns:
+            DynamicPage 对象，或 None（如果转换失败）
+        """
+        try:
+            # 构建动态画格列表
+            dynamic_panels = []
+            for i, panel in enumerate(page.panels):
+                # 从模板槽位获取位置信息（如果可用）
+                slot = None
+                if page.template:
+                    for s in page.template.panel_slots:
+                        if s.slot_id == panel.slot_id:
+                            slot = s
+                            break
+
+                # 推断 story_beat
+                story_beat = self._infer_story_beat(panel, expansion.mood)
+
+                dynamic_panel = DynamicPanel(
+                    panel_id=panel.slot_id,
+                    scene_id=expansion.scene_id,
+                    x=slot.x if slot else 0,
+                    y=slot.y if slot else i * (1.0 / len(page.panels)),
+                    width=slot.width if slot else 1.0,
+                    height=slot.height if slot else 1.0 / len(page.panels),
+                    story_beat=story_beat,
+                    importance="major" if (slot and slot.is_key_panel) else "standard",
+                    composition=panel.composition or "medium shot",
+                    camera_angle=panel.camera_angle or "eye level",
+                )
+                dynamic_panels.append(dynamic_panel)
+
+            # 推断页面功能
+            page_function = self._infer_page_function(expansion.mood, page.panels)
+            page_rhythm = self._infer_page_rhythm(expansion.mood)
+
+            return DynamicPage(
+                page_number=page.page_number,
+                panels=dynamic_panels,
+                page_function=page_function,
+                page_rhythm=page_rhythm,
+                gutter_style="standard",
+            )
+
+        except Exception as e:
+            logger.warning(f"转换 PagePlan 到 DynamicPage 失败: {e}")
+            return None
+
+    def _infer_story_beat(self, panel: PanelContent, mood: SceneMood) -> str:
+        """根据画格内容和场景情感推断 story_beat"""
+        # 根据对话判断
+        if panel.dialogue:
+            return "dialogue"
+        # 根据情感判断
+        if mood == SceneMood.ACTION:
+            return "action"
+        if mood == SceneMood.DRAMATIC:
+            return "climax"
+        if mood == SceneMood.EMOTIONAL:
+            return "build-up"
+        # 默认
+        return "standard"
+
+    def _infer_page_function(self, mood: SceneMood, panels: List[PanelContent]) -> str:
+        """根据场景情感和画格内容推断页面功能"""
+        has_dialogue = any(p.dialogue for p in panels)
+        if has_dialogue:
+            return "dialogue"
+        if mood == SceneMood.ACTION:
+            return "action"
+        if mood == SceneMood.DRAMATIC:
+            return "climax"
+        return "build"
+
+    def _infer_page_rhythm(self, mood: SceneMood) -> str:
+        """根据场景情感推断页面节奏"""
+        rhythm_map = {
+            SceneMood.CALM: "slow",
+            SceneMood.TENSION: "medium",
+            SceneMood.ACTION: "fast",
+            SceneMood.EMOTIONAL: "medium",
+            SceneMood.MYSTERY: "slow",
+            SceneMood.COMEDY: "fast",
+            SceneMood.DRAMATIC: "explosive",
+            SceneMood.ROMANTIC: "slow",
+            SceneMood.HORROR: "medium",
+            SceneMood.FLASHBACK: "slow",
+        }
+        return rhythm_map.get(mood, "medium")
 
     async def _analyze_scene(
         self,

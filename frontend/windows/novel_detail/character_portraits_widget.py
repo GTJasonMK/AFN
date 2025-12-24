@@ -37,11 +37,13 @@ class PortraitCard(ThemeAwareWidget):
         character_name: str,
         character_description: str = "",
         portrait_data: Optional[Dict[str, Any]] = None,
+        is_secondary: bool = False,  # 是否为次要角色
         parent=None
     ):
         self.character_name = character_name
         self.character_description = character_description
         self.portrait_data = portrait_data
+        self.is_secondary = is_secondary
         self._is_generating = False  # 是否正在生成
 
         # 组件引用
@@ -64,11 +66,23 @@ class PortraitCard(ThemeAwareWidget):
         layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
         layout.setSpacing(dp(8))
 
-        # 角色名称
+        # 角色名称和标签
+        name_layout = QHBoxLayout()
+        name_layout.setSpacing(dp(8))
+
         self.name_label = QLabel(self.character_name)
         self.name_label.setObjectName("character_name")
         self.name_label.setWordWrap(True)
-        layout.addWidget(self.name_label)
+        name_layout.addWidget(self.name_label)
+
+        # 次要角色标识
+        if self.is_secondary:
+            secondary_label = QLabel("(次要)")
+            secondary_label.setObjectName("secondary_label")
+            name_layout.addWidget(secondary_label)
+
+        name_layout.addStretch()
+        layout.addLayout(name_layout)
 
         # 图片区域
         image_container = QFrame()
@@ -281,16 +295,24 @@ class PortraitCard(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式"""
+        # 根据是否为次要角色调整边框颜色
+        border_color = theme_manager.WARNING if self.is_secondary else theme_manager.BORDER_DEFAULT
+
         self.setStyleSheet(f"""
             PortraitCard {{
                 background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border: 1px solid {border_color};
                 border-radius: {theme_manager.RADIUS_MD};
             }}
             QLabel#character_name {{
                 font-size: {sp(14)}px;
                 font-weight: bold;
                 color: {theme_manager.TEXT_PRIMARY};
+            }}
+            QLabel#secondary_label {{
+                font-size: {sp(11)}px;
+                color: {theme_manager.WARNING};
+                font-style: italic;
             }}
             QLabel#status_label {{
                 font-size: {sp(12)}px;
@@ -316,13 +338,15 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
 
     def __init__(self, project_id: str = "", parent=None):
         self.project_id = project_id
-        self.characters: List[Dict[str, Any]] = []
+        self.characters: List[Dict[str, Any]] = []  # 主要角色（来自蓝图）
         self.portraits: Dict[str, Dict[str, Any]] = {}  # character_name -> portrait_data
+        self.secondary_portraits: List[Dict[str, Any]] = []  # 次要角色立绘
 
         # 组件引用
         self.header_widget = None
         self.count_label = None
         self.refresh_btn = None
+        self.auto_generate_btn = None  # 批量生成按钮
         self.scroll_area = None
         self.content_widget = None
         self.content_layout = None
@@ -375,6 +399,13 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         header_layout.addWidget(self.count_label)
 
         header_layout.addStretch()
+
+        # 批量生成按钮
+        self.auto_generate_btn = QPushButton("一键生成缺失立绘")
+        self.auto_generate_btn.setObjectName("auto_generate_btn")
+        self.auto_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.auto_generate_btn.clicked.connect(self._on_auto_generate_clicked)
+        header_layout.addWidget(self.auto_generate_btn)
 
         # 刷新按钮
         self.refresh_btn = QPushButton("刷新")
@@ -437,13 +468,21 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         self.loading_label.hide()
         portraits = result.get('portraits', [])
 
-        # 构建角色名到立绘的映射
+        # 分离主要角色和次要角色立绘
         self.portraits = {}
+        self.secondary_portraits = []
+
         for p in portraits:
             name = p.get('character_name', '')
-            # 只保留激活的立绘
-            if p.get('is_active', False) or name not in self.portraits:
-                self.portraits[name] = p
+            is_secondary = p.get('is_secondary', False)
+
+            if is_secondary:
+                # 次要角色立绘
+                self.secondary_portraits.append(p)
+            else:
+                # 主要角色立绘：只保留激活的
+                if p.get('is_active', False) or name not in self.portraits:
+                    self.portraits[name] = p
 
         self._update_display()
 
@@ -461,10 +500,11 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         # 隐藏加载标签
         self.loading_label.hide()
 
-        # 更新数量标签
-        self.count_label.setText(f"{len(self.characters)} 个角色")
+        # 计算总角色数（主要角色 + 次要角色）
+        total_count = len(self.characters) + len(self.secondary_portraits)
+        self.count_label.setText(f"{total_count} 个角色")
 
-        if not self.characters:
+        if not self.characters and not self.secondary_portraits:
             self.loading_label.setText("暂无角色信息")
             self.loading_label.show()
             return
@@ -473,6 +513,7 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         row, col = 0, 0
         max_cols = 3
 
+        # 1. 主要角色（来自蓝图）
         for char in self.characters:
             name = char.get('name', '')
             description = char.get('identity', '') or char.get('personality', '') or ''
@@ -482,6 +523,30 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
                 character_name=name,
                 character_description=description,
                 portrait_data=portrait,
+                is_secondary=False,
+            )
+            card.generateRequested.connect(self._on_generate_requested)
+            card.setActiveRequested.connect(self._on_set_active_requested)
+            card.deleteRequested.connect(self._on_delete_requested)
+
+            self.portrait_cards.append(card)
+            self.content_layout.addWidget(card, row, col)
+
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+
+        # 2. 次要角色（自动生成的立绘）
+        for portrait in self.secondary_portraits:
+            name = portrait.get('character_name', '')
+            description = portrait.get('character_description', '')
+
+            card = PortraitCard(
+                character_name=name,
+                character_description=description,
+                portrait_data=portrait,
+                is_secondary=True,
             )
             card.generateRequested.connect(self._on_generate_requested)
             card.setActiveRequested.connect(self._on_set_active_requested)
@@ -615,6 +680,78 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         worker.error.connect(lambda e: self.status_label.setText(f"删除失败: {e}"))
         worker.start()
 
+    def _on_auto_generate_clicked(self):
+        """处理一键生成缺失立绘的点击事件"""
+        if not self.project_id:
+            return
+
+        # 如果已有生成任务在进行中，提示用户
+        if self._generating_character:
+            self.status_label.setText("请等待当前立绘生成完成")
+            self.status_label.show()
+            return
+
+        # 收集主要角色信息（用于生成）
+        character_profiles = {}
+        for char in self.characters:
+            name = char.get('name', '')
+            # 组合描述信息
+            description_parts = []
+            if char.get('identity'):
+                description_parts.append(char.get('identity'))
+            if char.get('personality'):
+                description_parts.append(char.get('personality'))
+            if description_parts:
+                character_profiles[name] = ", ".join(description_parts)
+
+        if not character_profiles:
+            self.status_label.setText("没有可生成立绘的角色")
+            self.status_label.show()
+            return
+
+        # 禁用按钮并显示状态
+        self.auto_generate_btn.setEnabled(False)
+        self.auto_generate_btn.setText("生成中...")
+        self.status_label.setText("正在批量生成缺失的角色立绘...")
+        self.status_label.show()
+
+        def generate():
+            with AFNAPIClient() as client:
+                return client.auto_generate_portraits(
+                    project_id=self.project_id,
+                    character_profiles=character_profiles,
+                    style="anime",
+                    exclude_existing=True,
+                )
+
+        self._generate_worker = AsyncWorker(generate)
+        self._generate_worker.success.connect(self._on_auto_generate_success)
+        self._generate_worker.error.connect(self._on_auto_generate_error)
+        self._generate_worker.start()
+
+    def _on_auto_generate_success(self, result: Dict[str, Any]):
+        """批量生成成功"""
+        self.auto_generate_btn.setEnabled(True)
+        self.auto_generate_btn.setText("一键生成缺失立绘")
+
+        portraits = result.get('portraits', [])
+        total = result.get('total', 0)
+
+        if total > 0:
+            self.status_label.setText(f"成功生成 {total} 个角色的立绘!")
+        else:
+            self.status_label.setText("所有角色已有立绘，无需生成")
+
+        # 刷新数据
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1000, self._load_data)
+
+    def _on_auto_generate_error(self, error: str):
+        """批量生成失败"""
+        self.auto_generate_btn.setEnabled(True)
+        self.auto_generate_btn.setText("一键生成缺失立绘")
+        self.status_label.setText(f"批量生成失败: {error}")
+
     def _apply_theme(self):
         """应用主题样式"""
         from .section_styles import SectionStyles
@@ -625,6 +762,9 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
 
         if self.refresh_btn:
             self.refresh_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+
+        if self.auto_generate_btn:
+            self.auto_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
 
         self.status_label.setStyleSheet(f"""
             QLabel#status_label {{

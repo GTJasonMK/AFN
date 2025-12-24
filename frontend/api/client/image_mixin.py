@@ -147,6 +147,28 @@ class ImageMixin:
         panel_id: Optional[str] = None,
         reference_image_paths: Optional[List[str]] = None,
         reference_strength: Optional[float] = None,
+        # 漫画画格元数据 - 对话相关
+        dialogue: Optional[str] = None,
+        dialogue_speaker: Optional[str] = None,
+        dialogue_bubble_type: Optional[str] = None,
+        dialogue_emotion: Optional[str] = None,
+        dialogue_position: Optional[str] = None,
+        # 漫画画格元数据 - 旁白相关
+        narration: Optional[str] = None,
+        narration_position: Optional[str] = None,
+        # 漫画画格元数据 - 音效相关
+        sound_effects: Optional[List[str]] = None,
+        sound_effect_details: Optional[List[Dict[str, Any]]] = None,
+        # 漫画画格元数据 - 视觉相关
+        composition: Optional[str] = None,
+        camera_angle: Optional[str] = None,
+        is_key_panel: bool = False,
+        characters: Optional[List[str]] = None,
+        lighting: Optional[str] = None,
+        atmosphere: Optional[str] = None,
+        key_visual_elements: Optional[List[str]] = None,
+        # 语言设置
+        dialogue_language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         为场景生成图片
@@ -163,6 +185,22 @@ class ImageMixin:
             panel_id: 画格ID，格式如 scene1_page1_panel1（可选）
             reference_image_paths: 参考图片路径列表（角色立绘等）
             reference_strength: 参考强度 0.0-1.0（可选）
+            dialogue: 对话内容（用于增强提示词）
+            dialogue_speaker: 对话说话者
+            dialogue_bubble_type: 气泡类型 (normal/shout/whisper/thought)
+            dialogue_emotion: 说话情绪
+            dialogue_position: 气泡位置 (top-right/top-left等)
+            narration: 旁白内容
+            narration_position: 旁白位置 (top/bottom/left/right)
+            sound_effects: 音效列表
+            sound_effect_details: 详细音效信息（含类型、强度）
+            composition: 构图 (wide shot/medium shot/close-up等)
+            camera_angle: 镜头角度 (eye level/low angle/high angle等)
+            is_key_panel: 是否为关键画格
+            characters: 角色列表
+            lighting: 光线描述
+            atmosphere: 氛围描述
+            key_visual_elements: 关键视觉元素列表
 
         Returns:
             生成结果，包含图片URL和信息
@@ -183,6 +221,50 @@ class ImageMixin:
             data['reference_image_paths'] = reference_image_paths
         if reference_strength is not None:
             data['reference_strength'] = reference_strength
+
+        # 漫画画格元数据 - 对话相关
+        if dialogue:
+            data['dialogue'] = dialogue
+        if dialogue_speaker:
+            data['dialogue_speaker'] = dialogue_speaker
+        if dialogue_bubble_type:
+            data['dialogue_bubble_type'] = dialogue_bubble_type
+        if dialogue_emotion:
+            data['dialogue_emotion'] = dialogue_emotion
+        if dialogue_position:
+            data['dialogue_position'] = dialogue_position
+
+        # 漫画画格元数据 - 旁白相关
+        if narration:
+            data['narration'] = narration
+        if narration_position:
+            data['narration_position'] = narration_position
+
+        # 漫画画格元数据 - 音效相关
+        if sound_effects:
+            data['sound_effects'] = sound_effects
+        if sound_effect_details:
+            data['sound_effect_details'] = sound_effect_details
+
+        # 漫画画格元数据 - 视觉相关
+        if composition:
+            data['composition'] = composition
+        if camera_angle:
+            data['camera_angle'] = camera_angle
+        if is_key_panel:
+            data['is_key_panel'] = is_key_panel
+        if characters:
+            data['characters'] = characters
+        if lighting:
+            data['lighting'] = lighting
+        if atmosphere:
+            data['atmosphere'] = atmosphere
+        if key_visual_elements:
+            data['key_visual_elements'] = key_visual_elements
+
+        # 语言设置
+        if dialogue_language:
+            data['dialogue_language'] = dialogue_language
 
         return self._request(
             'POST',

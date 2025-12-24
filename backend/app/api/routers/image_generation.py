@@ -272,7 +272,7 @@ async def generate_scene_image(
     # 智能合并负面提示词
     merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
 
-    # 创建合并后的请求
+    # 创建合并后的请求（保留所有漫画元数据）
     merged_request = ImageGenerationRequest(
         prompt=request.prompt,
         negative_prompt=merged_negative,
@@ -284,8 +284,30 @@ async def generate_scene_image(
         seed=request.seed,
         chapter_version_id=request.chapter_version_id,
         panel_id=request.panel_id,
-        reference_image_paths=request.reference_image_paths,  # 转发参考图路径
-        reference_strength=request.reference_strength,        # 转发参考强度
+        reference_image_paths=request.reference_image_paths,
+        reference_strength=request.reference_strength,
+        # 漫画画格元数据 - 对话相关
+        dialogue=request.dialogue,
+        dialogue_speaker=request.dialogue_speaker,
+        dialogue_bubble_type=request.dialogue_bubble_type,
+        dialogue_emotion=request.dialogue_emotion,
+        dialogue_position=request.dialogue_position,
+        # 漫画画格元数据 - 旁白相关
+        narration=request.narration,
+        narration_position=request.narration_position,
+        # 漫画画格元数据 - 音效相关
+        sound_effects=request.sound_effects,
+        sound_effect_details=request.sound_effect_details,
+        # 漫画画格元数据 - 视觉相关
+        composition=request.composition,
+        camera_angle=request.camera_angle,
+        is_key_panel=request.is_key_panel,
+        characters=request.characters,
+        lighting=request.lighting,
+        atmosphere=request.atmosphere,
+        key_visual_elements=request.key_visual_elements,
+        # 语言设置
+        dialogue_language=request.dialogue_language,
     )
 
     service = ImageGenerationService(session)
@@ -506,6 +528,94 @@ async def download_export_file(
         filename=file_name,
         media_type="application/pdf",
     )
+
+
+# ==================== 提示词预览 ====================
+
+from pydantic import BaseModel
+from typing import Optional, List
+
+
+class PromptPreviewRequest(BaseModel):
+    """提示词预览请求"""
+    prompt: str
+    negative_prompt: Optional[str] = None
+    style: Optional[str] = None
+    ratio: Optional[str] = None
+    resolution: Optional[str] = None
+    # 漫画画格元数据 - 对话相关
+    dialogue: Optional[str] = None
+    dialogue_speaker: Optional[str] = None
+    dialogue_bubble_type: Optional[str] = None
+    dialogue_emotion: Optional[str] = None
+    dialogue_position: Optional[str] = None
+    # 漫画画格元数据 - 旁白相关
+    narration: Optional[str] = None
+    narration_position: Optional[str] = None
+    # 漫画画格元数据 - 音效相关
+    sound_effects: Optional[List[str]] = None
+    sound_effect_details: Optional[List[dict]] = None
+    # 漫画画格元数据 - 视觉相关
+    composition: Optional[str] = None
+    camera_angle: Optional[str] = None
+    is_key_panel: bool = False
+    characters: Optional[List[str]] = None
+    lighting: Optional[str] = None
+    atmosphere: Optional[str] = None
+    key_visual_elements: Optional[List[str]] = None
+    # 语言设置
+    dialogue_language: Optional[str] = None
+
+
+@router.post("/preview-prompt")
+async def preview_prompt(
+    request: PromptPreviewRequest,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """
+    预览处理后的提示词（不生成图片）
+
+    展示发送给生图模型的实际提示词，包括：
+    - 场景类型检测结果
+    - 动态添加的上下文前缀
+    - 风格后缀（如果需要）
+    - 宽高比描述
+    - 漫画视觉元素（对话、旁白、音效、构图、镜头等）
+    - 负面提示词
+    """
+    service = ImageGenerationService(session)
+    result = await service.preview_prompt(
+        user_id=desktop_user.id,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        style=request.style,
+        ratio=request.ratio,
+        resolution=request.resolution,
+        # 漫画画格元数据 - 对话相关
+        dialogue=request.dialogue,
+        dialogue_speaker=request.dialogue_speaker,
+        dialogue_bubble_type=request.dialogue_bubble_type,
+        dialogue_emotion=request.dialogue_emotion,
+        dialogue_position=request.dialogue_position,
+        # 漫画画格元数据 - 旁白相关
+        narration=request.narration,
+        narration_position=request.narration_position,
+        # 漫画画格元数据 - 音效相关
+        sound_effects=request.sound_effects,
+        sound_effect_details=request.sound_effect_details,
+        # 漫画画格元数据 - 视觉相关
+        composition=request.composition,
+        camera_angle=request.camera_angle,
+        is_key_panel=request.is_key_panel,
+        characters=request.characters,
+        lighting=request.lighting,
+        atmosphere=request.atmosphere,
+        key_visual_elements=request.key_visual_elements,
+        # 语言设置
+        dialogue_language=request.dialogue_language,
+    )
+    return result
 
 
 # ==================== 图片文件访问 ====================

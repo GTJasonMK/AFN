@@ -12,7 +12,28 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ..core.config import settings
 from ..core.security import hash_password
-from ..models import Prompt, User
+from ..models import (
+    Prompt,
+    User,
+    CharacterPortrait,
+    EmbeddingConfig,
+    GeneratedImage,
+    ImageGenerationConfig,
+    LLMConfig,
+    NovelConversation,
+    NovelBlueprint,
+    BlueprintCharacter,
+    BlueprintRelationship,
+    ChapterOutline,
+    Chapter,
+    ChapterMangaPrompt,
+    ChapterVersion,
+    ChapterEvaluation,
+    CharacterStateIndex,
+    ForeshadowingIndex,
+    NovelProject,
+    PartOutline,
+)
 from .base import Base
 from .session import AsyncSessionLocal, engine
 
@@ -270,6 +291,17 @@ async def _run_migrations() -> None:
             "prompts",
             "is_modified",
             "ALTER TABLE prompts ADD COLUMN is_modified BOOLEAN DEFAULT 0"
+        ),
+        # 角色立绘：次要角色和自动生成标记
+        (
+            "character_portraits",
+            "is_secondary",
+            "ALTER TABLE character_portraits ADD COLUMN is_secondary BOOLEAN NOT NULL DEFAULT 0"
+        ),
+        (
+            "character_portraits",
+            "auto_generated",
+            "ALTER TABLE character_portraits ADD COLUMN auto_generated BOOLEAN NOT NULL DEFAULT 0"
         ),
     ]
 

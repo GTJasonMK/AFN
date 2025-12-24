@@ -16,6 +16,7 @@ from ...exceptions import ResourceNotFoundError
 from ...schemas.character_portrait import (
     GeneratePortraitRequest,
     RegeneratePortraitRequest,
+    AutoGeneratePortraitsRequest,
     CharacterPortraitResponse,
     CharacterPortraitListResponse,
     GeneratePortraitResponse,
@@ -235,3 +236,108 @@ async def delete_portrait(
 async def get_portrait_styles() -> List[PortraitStyleInfo]:
     """获取可用的立绘风格列表"""
     return PORTRAIT_STYLES
+
+
+@router.post("/novels/{project_id}/character-portraits/auto-generate", response_model=CharacterPortraitListResponse)
+async def auto_generate_portraits(
+    project_id: str,
+    request: AutoGeneratePortraitsRequest,
+    novel_service: NovelService = Depends(get_novel_service),
+    portrait_service: CharacterPortraitService = Depends(get_portrait_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> CharacterPortraitListResponse:
+    """
+    自动批量生成缺失的角色立绘
+
+    为提供的角色列表中没有立绘的角色自动生成立绘。
+    生成的立绘会标记为次要角色（is_secondary=True）和自动生成（auto_generated=True）。
+
+    Args:
+        project_id: 项目ID
+        request: 批量生成请求
+            - character_profiles: 角色外观描述字典 {角色名: 外观描述}
+            - style: 立绘风格 (anime/manga/realistic)
+            - exclude_existing: 是否排除已有立绘的角色
+
+    Returns:
+        生成的立绘列表
+    """
+    # 验证项目权限
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    if not request.character_profiles:
+        return CharacterPortraitListResponse(portraits=[], total=0)
+
+    logger.info(
+        "批量生成立绘: project=%s, characters=%s, style=%s",
+        project_id, list(request.character_profiles.keys()), request.style
+    )
+
+    try:
+        generated_portraits = await portrait_service.auto_generate_missing_portraits(
+            user_id=desktop_user.id,
+            project_id=project_id,
+            character_profiles=request.character_profiles,
+            style=request.style,
+            exclude_existing=request.exclude_existing,
+        )
+        await session.commit()
+
+        portraits_list = list(generated_portraits.values())
+        return CharacterPortraitListResponse(
+            portraits=[
+                CharacterPortraitResponse.from_orm_with_url(p)
+                for p in portraits_list
+            ],
+            total=len(portraits_list),
+        )
+    except Exception as e:
+        logger.error("批量生成立绘失败: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{project_id}/character-portraits/missing")
+async def get_missing_portraits(
+    project_id: str,
+    novel_service: NovelService = Depends(get_novel_service),
+    portrait_service: CharacterPortraitService = Depends(get_portrait_service),
+    desktop_user: UserInDB = Depends(get_default_user),
+) -> dict:
+    """
+    获取项目中缺失立绘的角色列表
+
+    返回蓝图中的主要角色中尚未生成立绘的角色名列表。
+
+    Args:
+        project_id: 项目ID
+
+    Returns:
+        缺失立绘的角色名列表
+    """
+    # 验证项目权限并获取项目
+    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+
+    # 从蓝图中获取主要角色
+    character_profiles = {}
+    if project.characters:
+        for char in project.characters:
+            description_parts = []
+            if char.identity:
+                description_parts.append(char.identity)
+            if char.personality:
+                description_parts.append(char.personality)
+            if description_parts:
+                character_profiles[char.name] = ", ".join(description_parts)
+
+    # 获取缺失立绘的角色
+    missing_characters = await portrait_service.get_missing_characters(
+        project_id=project_id,
+        character_profiles=character_profiles,
+    )
+
+    return {
+        "missing_characters": missing_characters,
+        "total_characters": len(character_profiles),
+        "missing_count": len(missing_characters),
+    }

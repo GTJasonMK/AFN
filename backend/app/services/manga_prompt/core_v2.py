@@ -25,9 +25,11 @@ from app.services.llm_service import LLMService
 from app.services.llm_wrappers import call_llm, LLMProfile
 from app.services.prompt_service import PromptService
 from app.services.image_generation.service import ImageGenerationService
+from app.services.character_portrait_service import CharacterPortraitService
 from app.utils.json_utils import parse_llm_json_safe
 from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.manga_prompt_repository import MangaPromptRepository
+from app.repositories.character_portrait_repository import CharacterPortraitRepository
 
 from .page_templates import (
     PageTemplate,
@@ -70,12 +72,14 @@ class MangaGenerationResult:
         scenes: List[SceneExpansion],
         panel_prompts: List[PanelPrompt],
         character_profiles: Dict[str, str],
+        dialogue_language: str = "chinese",  # 对话/音效语言
     ):
         self.chapter_number = chapter_number
         self.style = style
         self.scenes = scenes
         self.panel_prompts = panel_prompts
         self.character_profiles = character_profiles
+        self.dialogue_language = dialogue_language
         self.created_at = datetime.now()
 
     def get_total_pages(self) -> int:
@@ -95,6 +99,7 @@ class MangaGenerationResult:
         return {
             "chapter_number": self.chapter_number,
             "style": self.style,
+            "dialogue_language": self.dialogue_language,  # 添加语言字段
             "character_profiles": self.character_profiles,
             "total_pages": self.get_total_pages(),
             "total_panels": self.get_total_panels(),
@@ -107,8 +112,8 @@ class MangaGenerationResult:
                     "pages": [
                         {
                             "page_number": page.page_number,
-                            "template_id": page.template.id,
-                            "template_name": page.template.name_zh,
+                            "template_id": page.template.id if page.template else "unknown",
+                            "template_name": page.template.name_zh if page.template else "未知模板",
                             "panel_count": len(page.panels),
                         }
                         for page in scene.pages
@@ -142,8 +147,14 @@ class MangaGenerationResult:
                     # 视觉信息
                     "characters": p.characters,
                     "is_key_panel": p.is_key_panel,
+                    # 视觉氛围信息
+                    "lighting": p.lighting,
+                    "atmosphere": p.atmosphere,
+                    "key_visual_elements": p.key_visual_elements,
                     # 参考图（用于 img2img）
                     "reference_image_paths": p.reference_image_paths or [],
+                    # 语言设置（用于图片生成时的语言约束）
+                    "dialogue_language": self.dialogue_language,
                 }
                 for p in self.panel_prompts
             ],
@@ -174,6 +185,30 @@ SCENE_EXTRACTION_PROMPT = """你是专业的漫画分镜师。请从以下章节
 - 角色外观描述(character_profiles)：必须使用英文（用于AI绘图）
 - 此阶段无需生成对话，对话将在后续阶段根据目标语言生成
 
+## 角色外观描述要求（极其重要）
+character_profiles 必须包含本章节中出现的**所有角色**的外观描述，包括：
+- 主要角色（主角、重要配角）
+- 次要角色（路人、店员、士兵、侍女等）
+- 群体角色（如"士兵A"、"村民B"等需要分别描述）
+
+每个角色的外观描述必须包含：
+- 性别、大致年龄
+- 发型、发色
+- 服装特征
+- 体型特征（如适用）
+- 任何显著的视觉特征（如伤疤、饰品等）
+
+示例：
+```json
+"character_profiles": {{
+  "李明": "young man in his 20s, short black hair, wearing modern casual clothes, slim build",
+  "王大妈": "elderly woman in her 60s, gray hair in a bun, wearing traditional Chinese dress, kind face",
+  "店员": "young woman, brown ponytail, wearing cafe uniform with apron, friendly appearance",
+  "士兵A": "muscular man, short military haircut, wearing armor, stern expression",
+  "士兵B": "thin young man, helmet covering hair, wearing armor, nervous expression"
+}}
+```
+
 ## 输出格式
 ```json
 {{
@@ -190,7 +225,7 @@ SCENE_EXTRACTION_PROMPT = """你是专业的漫画分镜师。请从以下章节
     }}
   ],
   "character_profiles": {{
-    "角色名": "外观描述（用于AI绘图，英文）"
+    "角色名": "外观描述（用于AI绘图，英文，包含性别、年龄、发型、服装、体型等）"
   }}
 }}
 ```
@@ -248,6 +283,8 @@ class MangaPromptServiceV2:
         resume: bool = True,  # 是否从断点恢复
         dialogue_language: str = "chinese",  # 对话/音效语言
         character_portraits: Optional[Dict[str, str]] = None,  # 角色立绘路径
+        auto_generate_portraits: bool = False,  # 是否自动生成缺失的立绘
+        use_dynamic_layout: bool = True,  # 是否使用LLM动态布局
     ) -> MangaGenerationResult:
         """
         生成漫画分镜（支持断点续传）
@@ -263,11 +300,14 @@ class MangaPromptServiceV2:
             resume: 是否从断点恢复（默认True）
             dialogue_language: 对话/音效语言（chinese/japanese/english/korean）
             character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
+            auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
+            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
 
         Returns:
             漫画生成结果
         """
-        logger.info(f"开始生成漫画分镜: 项目={project_id}, 章节={chapter_number}, 语言={dialogue_language}")
+        logger.info(f"开始生成漫画分镜: 项目={project_id}, 章节={chapter_number}, "
+                   f"语言={dialogue_language}, 动态布局={use_dynamic_layout}")
 
         # 获取章节ID（用于保存断点）
         chapter = await self.chapter_repo.get_by_project_and_number(
@@ -292,6 +332,9 @@ class MangaPromptServiceV2:
         expansions = []
         start_scene_index = 0
 
+        # 初始化角色立绘（可能会在后续步骤中更新）
+        final_character_portraits = dict(character_portraits) if character_portraits else {}
+
         # 从断点恢复
         if checkpoint and checkpoint.get("checkpoint_data"):
             cp_data = checkpoint["checkpoint_data"]
@@ -305,6 +348,10 @@ class MangaPromptServiceV2:
                 # 反序列化已完成的展开
                 expansions = self._deserialize_expansions(completed_expansions_data)
                 logger.info(f"从断点恢复: 已完成 {len(expansions)} 个场景展开")
+
+                # 恢复布局历史以保持页面布局连续性
+                if expansions:
+                    self.expansion_service.restore_previous_pages_from_expansions(expansions)
 
         # 步骤1：提取场景（如果没有从断点恢复）
         if scenes_data is None:
@@ -331,6 +378,44 @@ class MangaPromptServiceV2:
             )
             logger.info(f"提取到 {len(scenes_data)} 个场景")
 
+            # 步骤1.5：自动生成缺失立绘（如果启用）
+            if auto_generate_portraits and character_profiles and user_id:
+                logger.info("步骤1.5: 自动生成缺失的角色立绘")
+
+                # 保存状态：正在生成立绘
+                if chapter_id:
+                    await self._save_checkpoint(
+                        chapter_id, "generating_portraits",
+                        {"stage": "generating_portraits", "current": 0, "total": len(character_profiles),
+                         "message": "正在为缺失立绘的角色生成立绘..."},
+                        {"scenes_data": scenes_data, "character_profiles": character_profiles},
+                        style, source_version_id
+                    )
+
+                # 调用角色立绘服务自动生成缺失立绘
+                portrait_service = CharacterPortraitService(self.session)
+                generated_portraits = await portrait_service.auto_generate_missing_portraits(
+                    user_id=user_id,
+                    project_id=project_id,
+                    character_profiles=character_profiles,
+                    style="anime",  # 使用anime风格，与漫画风格最匹配
+                    exclude_existing=True,
+                )
+
+                # 更新角色立绘映射
+                if generated_portraits:
+                    from app.core.config import settings
+                    for name, portrait in generated_portraits.items():
+                        if portrait.image_path:
+                            # 使用完整路径
+                            final_character_portraits[name] = str(
+                                settings.generated_images_dir / portrait.image_path
+                            )
+                    logger.info(f"自动生成了 {len(generated_portraits)} 个角色的立绘")
+
+                    # 提交立绘生成的事务
+                    await self.session.commit()
+
             # 保存断点：场景提取完成
             if chapter_id:
                 await self._save_checkpoint(
@@ -356,6 +441,7 @@ class MangaPromptServiceV2:
             existing_expansions=expansions,
             user_id=user_id,
             dialogue_language=dialogue_language,
+            use_dynamic_layout=use_dynamic_layout,
         )
         expansions = new_expansions
 
@@ -383,7 +469,7 @@ class MangaPromptServiceV2:
             style=style,
             character_profiles=character_profiles,
             dialogue_language=dialogue_language,
-            character_portraits=character_portraits,
+            character_portraits=final_character_portraits,
         )
         panel_prompts = []
         for expansion in expansions:
@@ -398,6 +484,7 @@ class MangaPromptServiceV2:
             scenes=expansions,
             panel_prompts=panel_prompts,
             character_profiles=character_profiles,
+            dialogue_language=dialogue_language,  # 传递语言设置
         )
 
         # 步骤4：保存结果
@@ -482,9 +569,22 @@ class MangaPromptServiceV2:
         existing_expansions: List[SceneExpansion],
         user_id: Optional[int],
         dialogue_language: str = "chinese",
+        use_dynamic_layout: bool = True,
     ) -> List[SceneExpansion]:
         """
         展开场景并在每个场景完成后保存断点
+
+        Args:
+            scenes_data: 场景数据列表
+            start_index: 开始索引
+            chapter_id: 章节ID
+            character_profiles: 角色描述
+            style: 漫画风格
+            source_version_id: 来源版本ID
+            existing_expansions: 已完成的展开结果
+            user_id: 用户ID
+            dialogue_language: 对话/音效语言
+            use_dynamic_layout: 是否使用LLM动态布局
         """
         expansions = list(existing_expansions)
         total_scenes = len(scenes_data)
@@ -520,6 +620,7 @@ class MangaPromptServiceV2:
                 chapter_position=position,
                 user_id=user_id,
                 dialogue_language=dialogue_language,
+                use_dynamic_layout=use_dynamic_layout,
             )
 
             expansions.append(expansion)
@@ -576,6 +677,8 @@ class MangaPromptServiceV2:
         保留的字段（PanelContent级别）：
         - 所有字段都保留，因为 build_panel_prompts 需要使用
         - 注意：is_key_panel 来自 PanelSlot（模板），不在 PanelContent 中
+
+        对于动态生成的模板（ID以llm_dynamic_开头），额外保存槽位信息以便恢复
         """
         result = []
         for exp in expansions:
@@ -583,55 +686,99 @@ class MangaPromptServiceV2:
                 "scene_id": exp.scene_id,
                 "mood": exp.mood.value,
                 "pages": [
-                    {
-                        "page_number": page.page_number,
-                        "template_id": page.template.id,
-                        "panels": [
-                            {
-                                "slot_id": panel.slot_id,
-                                "content_description": panel.content_description,
-                                "narrative_purpose": panel.narrative_purpose,
-                                "characters": panel.characters,
-                                "character_emotions": panel.character_emotions,
-                                "composition": panel.composition,
-                                "camera_angle": panel.camera_angle,
-                                # 文字元素 - 基础字段
-                                "dialogue": panel.dialogue,
-                                "dialogue_speaker": panel.dialogue_speaker,
-                                "narration": panel.narration,
-                                "sound_effects": panel.sound_effects,
-                                # 文字元素 - 扩展字段
-                                "dialogue_bubble_type": panel.dialogue_bubble_type,
-                                "dialogue_position": panel.dialogue_position,
-                                "dialogue_emotion": panel.dialogue_emotion,
-                                "narration_position": panel.narration_position,
-                                "sound_effect_details": panel.sound_effect_details,
-                                # 视觉指导
-                                "key_visual_elements": panel.key_visual_elements,
-                                "atmosphere": panel.atmosphere,
-                                "lighting": panel.lighting,
-                            }
-                            for panel in page.panels
-                        ]
-                    }
+                    self._serialize_page_plan(page)
                     for page in exp.pages
                 ]
             })
         return result
+
+    def _serialize_page_plan(self, page) -> dict:
+        """序列化单个页面规划"""
+        template_id = page.template.id if page.template else "unknown"
+
+        page_data = {
+            "page_number": page.page_number,
+            "template_id": template_id,
+            "panels": [
+                {
+                    "slot_id": panel.slot_id,
+                    "content_description": panel.content_description,
+                    "narrative_purpose": panel.narrative_purpose,
+                    "characters": panel.characters,
+                    "character_emotions": panel.character_emotions,
+                    "composition": panel.composition,
+                    "camera_angle": panel.camera_angle,
+                    # 文字元素 - 基础字段
+                    "dialogue": panel.dialogue,
+                    "dialogue_speaker": panel.dialogue_speaker,
+                    "narration": panel.narration,
+                    "sound_effects": panel.sound_effects,
+                    # 文字元素 - 扩展字段
+                    "dialogue_bubble_type": panel.dialogue_bubble_type,
+                    "dialogue_position": panel.dialogue_position,
+                    "dialogue_emotion": panel.dialogue_emotion,
+                    "narration_position": panel.narration_position,
+                    "sound_effect_details": panel.sound_effect_details,
+                    # 视觉指导
+                    "key_visual_elements": panel.key_visual_elements,
+                    "atmosphere": panel.atmosphere,
+                    "lighting": panel.lighting,
+                    # LLM生成的提示词（必须保留，否则恢复后会触发回退逻辑）
+                    "prompt_en": panel.prompt_en,
+                    "negative_prompt": panel.negative_prompt,
+                }
+                for panel in page.panels
+            ]
+        }
+
+        # 对于动态模板，保存完整的槽位信息以便精确恢复
+        if template_id.startswith("llm_dynamic_") and page.template:
+            page_data["template_slots"] = [
+                {
+                    "slot_id": slot.slot_id,
+                    "x": slot.x,
+                    "y": slot.y,
+                    "width": slot.width,
+                    "height": slot.height,
+                    "shape": slot.shape.value if hasattr(slot.shape, 'value') else str(slot.shape),
+                    "purpose": slot.purpose.value if hasattr(slot.purpose, 'value') else str(slot.purpose),
+                    "suggested_composition": slot.suggested_composition,
+                    "suggested_angle": slot.suggested_angle,
+                    "is_key_panel": slot.is_key_panel,
+                }
+                for slot in page.template.panel_slots
+            ]
+            # 保存模板名称
+            page_data["template_name_zh"] = page.template.name_zh
+
+        return page_data
 
     def _deserialize_expansions(self, data: List[dict]) -> List[SceneExpansion]:
         """
         从存储的字典列表反序列化展开结果
 
         注意：断点存储使用精简格式，SceneExpansion 级别的部分字段使用默认值
+        对于动态生成的模板（ID以llm_dynamic_开头），优先使用保存的槽位信息恢复
         """
-        from .page_templates import get_template, PanelContent, PagePlan
+        from .page_templates import (
+            get_template, PanelContent, PagePlan, PageTemplate, PanelSlot,
+            PanelPurpose, PanelShape, SceneMood, TEMPLATE_STANDARD_THREE_TIER
+        )
 
         result = []
         for exp_data in data:
             pages = []
             for page_data in exp_data.get("pages", []):
-                template = get_template(page_data["template_id"])
+                template_id = page_data.get("template_id", "")
+                template = get_template(template_id)
+
+                # 如果找不到模板（可能是动态生成的模板），尝试从保存的数据恢复
+                if template is None:
+                    template = self._restore_template_from_page_data(
+                        page_data, template_id, PanelSlot, PanelPurpose, PanelShape,
+                        PageTemplate, SceneMood, TEMPLATE_STANDARD_THREE_TIER
+                    )
+
                 panels = [
                     PanelContent(
                         slot_id=p["slot_id"],
@@ -656,6 +803,9 @@ class MangaPromptServiceV2:
                         key_visual_elements=p.get("key_visual_elements", []),
                         atmosphere=p.get("atmosphere", ""),
                         lighting=p.get("lighting", ""),
+                        # LLM生成的提示词（从断点恢复时需要）
+                        prompt_en=p.get("prompt_en", ""),
+                        negative_prompt=p.get("negative_prompt", ""),
                     )
                     for p in page_data.get("panels", [])
                 ]
@@ -674,6 +824,92 @@ class MangaPromptServiceV2:
                 importance=exp_data.get("importance", "normal"),  # 精简格式可能没有
             ))
         return result
+
+    def _restore_template_from_page_data(
+        self,
+        page_data: dict,
+        template_id: str,
+        PanelSlot,
+        PanelPurpose,
+        PanelShape,
+        PageTemplate,
+        SceneMood,
+        TEMPLATE_STANDARD_THREE_TIER,
+    ):
+        """
+        从页面数据恢复模板
+
+        优先使用保存的 template_slots 信息，否则从面板数据推断
+        """
+        # 优先使用保存的槽位信息（动态模板）
+        template_slots = page_data.get("template_slots")
+        if template_slots:
+            logger.debug(f"使用保存的槽位信息恢复模板 {template_id}")
+            panel_slots = []
+            for slot_data in template_slots:
+                # 解析枚举值
+                try:
+                    purpose = PanelPurpose(slot_data.get("purpose", "action"))
+                except ValueError:
+                    purpose = PanelPurpose.ACTION
+
+                try:
+                    shape = PanelShape(slot_data.get("shape", "rectangle"))
+                except ValueError:
+                    shape = PanelShape.RECTANGLE
+
+                slot = PanelSlot(
+                    slot_id=slot_data.get("slot_id", 1),
+                    x=slot_data.get("x", 0),
+                    y=slot_data.get("y", 0),
+                    width=slot_data.get("width", 1.0),
+                    height=slot_data.get("height", 0.5),
+                    shape=shape,
+                    purpose=purpose,
+                    suggested_composition=slot_data.get("suggested_composition", "medium shot"),
+                    suggested_angle=slot_data.get("suggested_angle", "eye level"),
+                    is_key_panel=slot_data.get("is_key_panel", False),
+                )
+                panel_slots.append(slot)
+
+            return PageTemplate(
+                id=template_id,
+                name="Restored Dynamic Template",
+                name_zh=page_data.get("template_name_zh", "恢复的动态模板"),
+                description="从断点数据精确恢复的动态模板",
+                suitable_moods=[SceneMood.CALM],
+                panel_slots=panel_slots,
+            )
+
+        # 回退：从面板数据推断槽位
+        panels_data = page_data.get("panels", [])
+        if panels_data:
+            logger.debug(f"模板 {template_id} 不在注册表中，从面板数据推断槽位")
+            panel_slots = []
+            for idx, p in enumerate(panels_data):
+                slot = PanelSlot(
+                    slot_id=p.get("slot_id", idx + 1),
+                    x=0,
+                    y=idx * (1.0 / len(panels_data)),
+                    width=1.0,
+                    height=1.0 / len(panels_data),
+                    purpose=PanelPurpose.ACTION,
+                    suggested_composition=p.get("composition", "medium shot"),
+                    suggested_angle=p.get("camera_angle", "eye level"),
+                )
+                panel_slots.append(slot)
+
+            return PageTemplate(
+                id=template_id or f"restored_{page_data.get('page_number', 1)}",
+                name="Restored Template",
+                name_zh="恢复的模板",
+                description="从断点数据恢复的临时模板",
+                suitable_moods=[SceneMood.CALM],
+                panel_slots=panel_slots,
+            )
+
+        # 最后回退：使用标准模板
+        return TEMPLATE_STANDARD_THREE_TIER
 
     async def _extract_scenes(
         self,

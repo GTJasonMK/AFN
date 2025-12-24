@@ -182,6 +182,54 @@ class PortraitMixin:
         """
         return self._request('GET', '/api/character-portrait-styles')
 
+    # ==================== 批量生成 ====================
+
+    def auto_generate_portraits(
+        self,
+        project_id: str,
+        character_profiles: Dict[str, str],
+        style: str = "anime",
+        exclude_existing: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        自动批量生成缺失的角色立绘
+
+        Args:
+            project_id: 项目ID
+            character_profiles: 角色外观描述字典 {角色名: 外观描述}
+            style: 立绘风格（anime/manga/realistic）
+            exclude_existing: 是否排除已有立绘的角色
+
+        Returns:
+            生成的立绘列表，包含 portraits 和 total 字段
+        """
+        data = {
+            'character_profiles': character_profiles,
+            'style': style,
+            'exclude_existing': exclude_existing,
+        }
+        return self._request(
+            'POST',
+            f'/api/novels/{project_id}/character-portraits/auto-generate',
+            data,
+            timeout=TimeoutConfig.READ_GENERATION * 5  # 批量生成需要更长时间
+        )
+
+    def get_missing_portraits(self, project_id: str) -> Dict[str, Any]:
+        """
+        获取项目中缺失立绘的角色列表
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            包含 missing_characters, total_characters, missing_count 字段
+        """
+        return self._request(
+            'GET',
+            f'/api/novels/{project_id}/character-portraits/missing'
+        )
+
     # ==================== 辅助方法 ====================
 
     def get_portrait_image_url(self, image_path: str) -> str:

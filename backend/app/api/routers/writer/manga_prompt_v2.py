@@ -45,6 +45,8 @@ class GenerateRequest(BaseModel):
     max_scenes: int = Field(default=15, ge=5, le=25, description="最多场景数")
     language: str = Field(default="chinese", description="对话/音效语言: chinese/japanese/english/korean")
     use_portraits: bool = Field(default=True, description="是否使用角色立绘作为参考图（img2img）")
+    auto_generate_portraits: bool = Field(default=True, description="是否自动为缺失立绘的角色生成立绘")
+    use_dynamic_layout: bool = Field(default=True, description="是否使用LLM动态布局（True=动态布局，False=硬编码模板）")
 
 
 class PanelResponse(BaseModel):
@@ -165,7 +167,9 @@ async def generate_manga_prompts(
     """
     logger.info(
         f"生成漫画分镜: project={project_id}, chapter={chapter_number}, "
-        f"style={request.style}, language={request.language}, use_portraits={request.use_portraits}"
+        f"style={request.style}, language={request.language}, "
+        f"use_portraits={request.use_portraits}, auto_generate_portraits={request.auto_generate_portraits}, "
+        f"use_dynamic_layout={request.use_dynamic_layout}"
     )
 
     # 创建服务
@@ -223,6 +227,8 @@ async def generate_manga_prompts(
             user_id=desktop_user.id,
             dialogue_language=request.language,
             character_portraits=character_portraits,
+            auto_generate_portraits=request.auto_generate_portraits,
+            use_dynamic_layout=request.use_dynamic_layout,
         )
 
         # 注意：generate内部已经在各个阶段commit了checkpoint
