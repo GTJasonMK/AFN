@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "export_time": "2025-12-22T03:52:10.863962+00:00",
+  "export_time": "2025-12-24T10:37:08.634703+00:00",
   "export_type": "all",
   "llm_configs": [
     {
@@ -42,7 +42,7 @@
     "part_outline_threshold": 10
   },
   "queue_config": {
-    "llm_max_concurrent": 3,
-    "image_max_concurrent": 2
+    "llm_max_concurrent": 5,
+    "image_max_concurrent": 5
   }
 }

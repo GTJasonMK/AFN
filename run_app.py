@@ -29,6 +29,75 @@ from pathlib import Path
 # 后端服务端口
 BACKEND_PORT = 8123
 
+# 是否使用uv加速（uv比pip快10-100倍）
+USE_UV = True
+
+# 全局变量：是否uv可用
+_uv_available = None
+
+
+def check_uv_available() -> bool:
+    """检查uv是否可用"""
+    global _uv_available
+    if _uv_available is not None:
+        return _uv_available
+
+    try:
+        result = subprocess.run(
+            ['uv', '--version'],
+            capture_output=True,
+            text=True,
+            errors='replace'
+        )
+        if result.returncode == 0:
+            _uv_available = True
+            return True
+    except FileNotFoundError:
+        pass
+
+    _uv_available = False
+    return False
+
+
+def install_uv() -> bool:
+    """安装uv"""
+    print("\n[安装] 正在安装 uv 包管理器...")
+    print("       uv 比 pip 快 10-100 倍，可以大幅加速依赖安装")
+
+    try:
+        # 使用pip安装uv
+        process = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', 'uv', '-q'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors='replace'
+        )
+        process.wait()
+
+        if process.returncode == 0:
+            global _uv_available
+            _uv_available = True
+            print("       uv 安装成功 [OK]")
+            return True
+        else:
+            print("       uv 安装失败，将使用 pip 作为回退")
+            return False
+    except Exception as e:
+        print(f"       uv 安装失败: {e}")
+        return False
+
+
+def ensure_uv() -> bool:
+    """确保uv可用，如果不可用则尝试安装"""
+    if not USE_UV:
+        return False
+
+    if check_uv_available():
+        return True
+
+    return install_uv()
+
 
 def is_port_in_use(port: int) -> bool:
     """检查端口是否被占用"""
@@ -247,7 +316,7 @@ def check_python_version():
 
 
 def create_venv(venv_path: Path, name: str) -> bool:
-    """创建虚拟环境"""
+    """创建虚拟环境（优先使用uv，回退到venv）"""
     if venv_path.exists():
         logger.info(f"{name} 虚拟环境已存在")
         print(f"       {name} 虚拟环境已存在 [OK]")
@@ -257,10 +326,20 @@ def create_venv(venv_path: Path, name: str) -> bool:
     print(f"\n[安装] 创建 {name} 虚拟环境...")
     print(f"       路径: {venv_path}")
 
+    use_uv = check_uv_available()
+
     try:
-        # 显示创建过程
+        if use_uv:
+            # 使用uv创建虚拟环境（更快）
+            print(f"       使用 uv 创建 (快速模式)")
+            cmd = ['uv', 'venv', str(venv_path), '--python', sys.executable]
+        else:
+            # 回退到标准venv
+            print(f"       使用 python -m venv 创建")
+            cmd = [sys.executable, '-m', 'venv', str(venv_path)]
+
         process = subprocess.Popen(
-            [sys.executable, '-m', 'venv', str(venv_path)],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -347,7 +426,7 @@ def check_dependencies_installed(python_path: Path, requirements_file: Path, nam
 
 
 def install_dependencies(python_path: Path, requirements_file: Path, name: str) -> bool:
-    """安装依赖"""
+    """安装依赖（优先使用uv，回退到pip）"""
     if not requirements_file.exists():
         logger.warning(f"{name} requirements.txt 不存在")
         return True
@@ -364,8 +443,76 @@ def install_dependencies(python_path: Path, requirements_file: Path, name: str) 
         print(f"       {name} 依赖检查通过 [OK]")
         return True
 
-    logger.info(f"安装 {name} 依赖...")
-    print(f"\n[安装] 安装 {name} 依赖...")
+    use_uv = check_uv_available()
+
+    if use_uv:
+        return _install_with_uv(python_path, requirements_file, name)
+    else:
+        return _install_with_pip(python_path, requirements_file, name)
+
+
+def _install_with_uv(python_path: Path, requirements_file: Path, name: str) -> bool:
+    """使用uv安装依赖（快速模式）"""
+    logger.info(f"使用 uv 安装 {name} 依赖...")
+    print(f"\n[安装] 安装 {name} 依赖 (uv 快速模式)...")
+    print(f"       requirements: {requirements_file}")
+
+    try:
+        # uv pip install 直接安装，无需先升级pip
+        logger.info(f"执行: uv pip install -r {requirements_file}")
+
+        process = subprocess.Popen(
+            ['uv', 'pip', 'install', '-r', str(requirements_file),
+             '--python', str(python_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors='replace'
+        )
+
+        # 实时显示安装进度
+        if process.stdout:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # uv的输出格式不同，显示所有非空行
+                if 'Resolved' in line:
+                    print(f"       {line}")
+                elif 'Prepared' in line:
+                    print(f"       {line}")
+                elif 'Installed' in line:
+                    print(f"       {line}")
+                elif 'Uninstalled' in line:
+                    print(f"       {line}")
+                elif 'error' in line.lower():
+                    print(f"       [!] {line}")
+                    logger.warning(f"uv输出: {line}")
+
+        process.wait()
+
+        if process.returncode != 0:
+            logger.error(f"uv 安装 {name} 依赖失败 (返回码 {process.returncode})")
+            print(f"\n[错误] 安装 {name} 依赖失败")
+            print(f"       尝试使用 pip 回退...")
+            # 回退到pip
+            return _install_with_pip(python_path, requirements_file, name)
+
+        logger.info(f"{name} 依赖安装成功 (uv)")
+        print(f"\n       {name} 依赖安装成功 [OK]")
+        return True
+
+    except Exception as e:
+        logger.error(f"uv 安装 {name} 依赖时出错: {e}")
+        print(f"       uv 安装失败，尝试使用 pip 回退...")
+        return _install_with_pip(python_path, requirements_file, name)
+
+
+def _install_with_pip(python_path: Path, requirements_file: Path, name: str) -> bool:
+    """使用pip安装依赖（传统模式）"""
+    logger.info(f"使用 pip 安装 {name} 依赖...")
+    print(f"\n[安装] 安装 {name} 依赖 (pip 模式)...")
     print(f"       这可能需要几分钟，请耐心等待...")
     print(f"       requirements: {requirements_file}")
 
@@ -475,6 +622,14 @@ def setup_environment() -> bool:
         return False
     print(f"       Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} [OK]")
 
+    # 尝试使用uv加速（如果USE_UV=True）
+    if USE_UV:
+        print(f"\n[检查] 包管理器...")
+        if ensure_uv():
+            print(f"       uv 可用 (快速模式) [OK]")
+        else:
+            print(f"       将使用 pip (标准模式)")
+
     # 创建后端虚拟环境
     print(f"\n[检查] 后端虚拟环境...")
     if not create_venv(BACKEND_VENV, "后端"):
@@ -485,13 +640,13 @@ def setup_environment() -> bool:
     if not create_venv(FRONTEND_VENV, "前端"):
         return False
 
-    # 安装后端依赖（使用 python -m pip）
+    # 安装后端依赖
     print(f"\n[检查] 后端依赖...")
     backend_requirements = BACKEND_DIR / 'requirements.txt'
     if not install_dependencies(BACKEND_PYTHON, backend_requirements, "后端"):
         return False
 
-    # 安装前端依赖（使用 python -m pip）
+    # 安装前端依赖
     print(f"\n[检查] 前端依赖...")
     frontend_requirements = FRONTEND_DIR / 'requirements.txt'
     if not install_dependencies(FRONTEND_PYTHON, frontend_requirements, "前端"):

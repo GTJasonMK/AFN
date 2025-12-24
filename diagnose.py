@@ -17,6 +17,24 @@ print(f"  Python 路径: {sys.executable}")
 print(f"  当前目录: {os.getcwd()}")
 print(f"  平台: {sys.platform}")
 
+# 检查uv
+print(f"\n[包管理器检查]")
+try:
+    result = subprocess.run(
+        ['uv', '--version'],
+        capture_output=True,
+        text=True,
+        errors='replace'
+    )
+    if result.returncode == 0:
+        print(f"  uv 版本: {result.stdout.strip()}")
+        print(f"  uv 状态: 可用 (快速模式)")
+    else:
+        print(f"  uv 状态: 不可用")
+except FileNotFoundError:
+    print(f"  uv 状态: 未安装")
+    print(f"  提示: 运行 'pip install uv' 可安装uv加速包管理")
+
 # 检查虚拟环境
 BASE_DIR = Path(__file__).parent
 FRONTEND_VENV = BASE_DIR / 'frontend' / '.venv'
