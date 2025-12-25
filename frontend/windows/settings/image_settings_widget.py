@@ -512,7 +512,7 @@ class ImageSettingsWidget(QWidget):
             }}
             QPushButton#danger_btn:hover {{
                 background-color: {theme_manager.ERROR};
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
             }}
             QPushButton#danger_btn:disabled {{
                 color: {palette.border_color};
@@ -548,6 +548,11 @@ class ImageSettingsWidget(QWidget):
                 border-left: 3px solid {palette.accent_color};
             }}
         """)
+
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def loadConfigs(self):
         """加载配置列表"""

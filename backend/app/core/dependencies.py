@@ -360,3 +360,16 @@ async def get_import_analysis_service(
         prompt_service=prompt_service,
     )
 
+
+async def get_theme_config_service(
+    session: AsyncSession = Depends(get_session),
+) -> "ThemeConfigService":
+    """
+    获取ThemeConfigService实例（依赖注入）
+
+    Returns:
+        ThemeConfigService实例
+    """
+    from ..services.theme_config_service import ThemeConfigService
+    return ThemeConfigService(session)
+

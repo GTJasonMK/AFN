@@ -35,6 +35,7 @@ class HomePage(BasePage):
         self.api_client = APIClientManager.get_client()
         self.recent_projects = []  # 最近项目（按时间排序，最多10个）
         self.all_projects = []  # 全部项目（按首字母排序）
+        self._entrance_animated = False  # 入场动画是否已播放
         super().__init__(parent)
         self.setupUI()
 
@@ -42,7 +43,10 @@ class HomePage(BasePage):
         if not self.layout():
             self._create_ui_structure()
         self._apply_theme()
-        QTimer.singleShot(100, self._animate_entrance)
+        # 只在首次显示时播放入场动画
+        if not self._entrance_animated:
+            self._entrance_animated = True
+            QTimer.singleShot(100, self._animate_entrance)
 
     def _create_ui_structure(self):
         # 主布局
@@ -223,6 +227,10 @@ class HomePage(BasePage):
         self.subtitle.setGraphicsEffect(self.subtitle_opacity)
 
     def _apply_theme(self):
+        # 调试日志
+        logger.info("=== HomePage._apply_theme() called ===")
+        logger.info(f"is_dark_mode: {theme_manager.is_dark_mode()}")
+
         bg_color = theme_manager.book_bg_primary()
         bg_secondary = theme_manager.book_bg_secondary()
         text_primary = theme_manager.book_text_primary()
@@ -231,6 +239,10 @@ class HomePage(BasePage):
         border_color = theme_manager.book_border_color()
         serif_font = theme_manager.serif_font()
         ui_font = theme_manager.ui_font()
+
+        logger.info(f"bg_color: {bg_color}, text_primary: {text_primary}")
+        logger.info(f"accent_color: {accent_color}, bg_secondary: {bg_secondary}")
+        logger.info(f"text_secondary: {text_secondary}, border_color: {border_color}")
 
         self.setStyleSheet(f"""
             HomePage {{
@@ -391,6 +403,11 @@ class HomePage(BasePage):
 
         self.recent_empty_label.setStyleSheet(empty_label_style)
         self.all_empty_label.setStyleSheet(empty_label_style)
+
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def _animate_entrance(self):
         """入场动画"""

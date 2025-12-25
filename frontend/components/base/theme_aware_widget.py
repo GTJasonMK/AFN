@@ -31,11 +31,13 @@
 - 避免信号重复连接
 - 自动断开信号，防止内存泄漏
 - 统一主题切换行为
+- 使用延迟刷新优化大量组件的主题切换
 """
 
 import logging
+import random
 from PyQt6.QtWidgets import QWidget, QFrame, QPushButton
-from PyQt6.QtCore import QEvent
+from PyQt6.QtCore import QEvent, QTimer
 from themes.theme_manager import theme_manager
 
 logger = logging.getLogger(__name__)
@@ -129,10 +131,23 @@ class ThemeAwareMixin:
         if self._is_cleaned_up:
             return
         try:
+            logger.info(f"ThemeAwareMixin._on_theme_changed({mode}) for {self.__class__.__name__}")
             self._apply_theme()
+            # 强制刷新自身样式缓存
+            self._force_style_refresh()
         except RuntimeError:
             # C++ 对象可能已被删除
             self._disconnect_theme_signal()
+
+    def _force_style_refresh(self):
+        """强制刷新自身的样式缓存"""
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()
+        except (RuntimeError, AttributeError):
+            # 组件可能已被删除或style不可用
+            pass
 
     def refresh_theme(self):
         """手动刷新主题

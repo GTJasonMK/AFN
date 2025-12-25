@@ -192,7 +192,7 @@ class LLMSettingsWidget(QWidget):
             }}
             QPushButton#danger_btn:hover {{
                 background-color: {theme_manager.ERROR};
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
                 border-color: {theme_manager.ERROR};
             }}
             QPushButton#danger_btn:disabled {{
@@ -251,6 +251,11 @@ class LLMSettingsWidget(QWidget):
                 height: 0;
             }}
         """)
+
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def loadConfigs(self):
         """加载配置列表"""

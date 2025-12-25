@@ -23,6 +23,7 @@ from themes.svg_icons import SVGIcons
 from utils.dpi_utils import dpi_helper, dp, sp
 from api.manager import APIClientManager
 from components.loading_spinner import LoadingOverlay
+from components.theme_transition import ThemeSwitchHelper
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
 
         # 页面容器
         self.page_stack = QStackedWidget()
+        self.page_stack.setObjectName("mainPageStack")
         main_layout.addWidget(self.page_stack)
 
         # 创建浮动工具栏（包含主题切换按钮）
@@ -105,6 +107,9 @@ class MainWindow(QMainWindow):
         # 主题信号连接标志
         self._theme_connected = False
         self._connect_theme_signal()
+
+        # 创建主题切换辅助类（带过渡动画）
+        self._theme_switch_helper = ThemeSwitchHelper(self)
 
         # 应用主题样式到窗口
         self.apply_window_theme()
@@ -214,6 +219,9 @@ class MainWindow(QMainWindow):
         is_dark = theme_manager.is_dark_mode()
         ui_font = theme_manager.ui_font()
 
+        logger.info(f"=== update_theme_button: is_dark={is_dark} ===")
+        logger.info(f"BG_SECONDARY={theme_manager.BG_SECONDARY}, TEXT_PRIMARY={theme_manager.TEXT_PRIMARY}")
+
         # 简化的文字标签
         button_text = "深" if is_dark else "浅"
         self.theme_button.setText(button_text)
@@ -240,12 +248,12 @@ class MainWindow(QMainWindow):
         """)
 
     def toggle_theme(self):
-        """切换主题"""
-        theme_manager.switch_theme()
+        """切换主题（带平滑过渡动画）"""
+        self._theme_switch_helper.switch_theme()
 
     def apply_window_theme(self):
         """应用主题样式到窗口和容器"""
-        # 设置主窗口和中心容器的背景色
+        # 设置主窗口和中心容器的背景色 - 使用objectName选择器避免影响子组件
         window_style = f"""
             QMainWindow {{
                 background-color: {theme_manager.BG_PRIMARY};
@@ -253,7 +261,7 @@ class MainWindow(QMainWindow):
             QWidget#centralWidget {{
                 background-color: {theme_manager.BG_PRIMARY};
             }}
-            QStackedWidget {{
+            QStackedWidget#mainPageStack {{
                 background-color: {theme_manager.BG_PRIMARY};
             }}
         """
@@ -295,6 +303,12 @@ class MainWindow(QMainWindow):
             self.central_widget.style().unpolish(self.central_widget)
             self.central_widget.style().polish(self.central_widget)
             self.central_widget.update()
+
+            # 刷新页面堆栈
+            if hasattr(self, 'page_stack'):
+                self.page_stack.style().unpolish(self.page_stack)
+                self.page_stack.style().polish(self.page_stack)
+                self.page_stack.update()
 
             # 刷新浮动工具栏
             if hasattr(self, 'floating_widget'):
@@ -696,6 +710,10 @@ class MainWindow(QMainWindow):
         """窗口关闭时清理资源"""
         # 断开主题信号
         self._disconnect_theme_signal()
+
+        # 清理主题切换辅助类
+        if hasattr(self, '_theme_switch_helper'):
+            self._theme_switch_helper.cleanup()
 
         # 清理所有缓存的页面（使用统一的清理方法）
         for cache_key, page in list(self.pages.items()):

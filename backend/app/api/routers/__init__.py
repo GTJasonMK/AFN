@@ -6,7 +6,7 @@ API路由汇总（PyQt桌面版）
 
 from fastapi import APIRouter
 
-from . import embedding_config, llm_config, novels, writer, settings, image_generation, queue, character_portrait, prompts
+from . import embedding_config, llm_config, novels, writer, settings, image_generation, queue, character_portrait, prompts, theme_config
 
 api_router = APIRouter()
 
@@ -20,3 +20,4 @@ api_router.include_router(image_generation.router, prefix="/api")
 api_router.include_router(queue.router)  # 队列管理（已包含/api/queue前缀）
 api_router.include_router(character_portrait.router, prefix="/api")  # 角色立绘
 api_router.include_router(prompts.router)  # 提示词管理（已包含/api/prompts前缀）
+api_router.include_router(theme_config.router)  # 主题配置（已包含/api/theme-configs前缀）

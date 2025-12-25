@@ -163,13 +163,18 @@ class ParticleBackground(QWidget):
         is_dark = theme_manager.is_dark_mode()
         accent = theme_manager.book_accent_color()
         text_secondary = theme_manager.book_text_secondary()
+        text_tertiary = theme_manager.TEXT_TERTIARY
+        primary_light = theme_manager.PRIMARY_LIGHT
+        bg_tertiary = theme_manager.BG_TERTIARY
+        warning = theme_manager.WARNING
+        warning_dark = theme_manager.WARNING_DARK
 
         if is_dark:
             return {
                 'ink': QColor(accent),
-                'ink_alt': QColor("#8B7E66"),
-                'paper': QColor("#C4B093"),
-                'sparkle': QColor("#FFD700"),
+                'ink_alt': QColor(primary_light),
+                'paper': QColor(bg_tertiary),
+                'sparkle': QColor(warning),
                 'stroke': QColor(text_secondary),
                 'line': QColor(accent),
             }
@@ -177,9 +182,9 @@ class ParticleBackground(QWidget):
             return {
                 'ink': QColor(text_secondary),
                 'ink_alt': QColor(accent),
-                'paper': QColor("#D4C4A8"),
-                'sparkle': QColor("#B8860B"),
-                'stroke': QColor("#8B7355"),
+                'paper': QColor(bg_tertiary),
+                'sparkle': QColor(warning_dark),
+                'stroke': QColor(text_tertiary),
                 'line': QColor(text_secondary),
             }
 

@@ -314,6 +314,11 @@ class AdvancedSettingsWidget(QWidget):
             }}
         """)
 
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
     @handle_errors("加载配置")
     def loadConfig(self):
         """加载当前配置"""

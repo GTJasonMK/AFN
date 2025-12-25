@@ -176,6 +176,11 @@ class PromptSettingsWidget(QWidget):
             }}
         """)
 
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
     @handle_errors("加载提示词")
     def loadPrompts(self):
         """加载提示词列表"""

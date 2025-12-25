@@ -39,6 +39,9 @@ class ChapterDisplayMixin:
         if not self.project_id:
             return
 
+        # 取消之前的加载任务（避免QThread被销毁时仍在运行）
+        self._cancel_chapter_load_worker()
+
         # 显示加载动画
         self._ensure_loading_overlay()
         self._chapter_loading_overlay.show_with_animation("正在加载章节...")
@@ -55,6 +58,21 @@ class ChapterDisplayMixin:
         # 保存worker引用避免被垃圾回收
         self._chapter_load_worker = worker
         worker.start()
+
+    def _cancel_chapter_load_worker(self):
+        """取消正在进行的章节加载任务"""
+        if hasattr(self, '_chapter_load_worker') and self._chapter_load_worker:
+            worker = self._chapter_load_worker
+            try:
+                # 安全检查：C++ 对象可能已被删除
+                if worker.isRunning():
+                    worker.cancel()
+                    # 等待线程结束（最多500ms）
+                    worker.wait(500)
+            except RuntimeError:
+                # C++ 对象已被删除，忽略
+                pass
+            self._chapter_load_worker = None
 
     def _onChapterLoaded(self, chapter_data):
         """章节数据加载成功回调"""

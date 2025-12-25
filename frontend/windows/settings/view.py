@@ -20,6 +20,7 @@ from .advanced_settings_widget import AdvancedSettingsWidget
 from .image_settings_widget import ImageSettingsWidget
 from .queue_settings_widget import QueueSettingsWidget
 from .prompt_settings_widget import PromptSettingsWidget
+from .theme_settings_widget import ThemeSettingsWidget
 import json
 
 
@@ -31,7 +32,8 @@ class SettingsView(BasePage):
         self.api_client = APIClientManager.get_client()
         self._create_ui_structure()
         self._apply_theme()
-        theme_manager.theme_changed.connect(lambda _: self._apply_theme())
+        # 注意：不需要额外连接 theme_changed 信号
+        # BasePage 已经连接了信号，会自动调用 on_theme_changed -> _apply_theme()
 
     def _create_ui_structure(self):
         """创建UI结构"""
@@ -41,6 +43,7 @@ class SettingsView(BasePage):
 
         # 主容器
         self.main_container = QWidget()
+        self.main_container.setObjectName("settings_main_container")
         container_layout = QVBoxLayout(self.main_container)
         container_layout.setContentsMargins(dp(32), dp(24), dp(32), dp(24))
         container_layout.setSpacing(dp(16))
@@ -95,6 +98,7 @@ class SettingsView(BasePage):
         self._add_nav_item("生图模型")
         self._add_nav_item("请求队列")
         self._add_nav_item("提示词管理")
+        self._add_nav_item("主题配置")
         self._add_nav_item("高级配置")
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
@@ -109,7 +113,7 @@ class SettingsView(BasePage):
         shadow.setBlurRadius(dp(16))
         shadow.setXOffset(0)
         shadow.setYOffset(dp(2))
-        shadow.setColor(QColor(0, 0, 0, 20))
+        shadow.setColor(QColor(theme_manager.SHADOW_COLOR))
         self.page_frame.setGraphicsEffect(shadow)
 
         page_layout = QVBoxLayout(self.page_frame)
@@ -133,6 +137,9 @@ class SettingsView(BasePage):
 
         self.prompt_settings = PromptSettingsWidget()
         self.page_stack.addWidget(self.prompt_settings)
+
+        self.theme_settings = ThemeSettingsWidget()
+        self.page_stack.addWidget(self.theme_settings)
 
         self.advanced_settings = AdvancedSettingsWidget()
         self.page_stack.addWidget(self.advanced_settings)
@@ -160,11 +167,18 @@ class SettingsView(BasePage):
 
     def _apply_theme(self):
         """应用书籍风格主题"""
-        palette = theme_manager.get_book_palette()
+        # 调试日志
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("=== SettingsView._apply_theme() called ===")
+        logger.info(f"is_dark_mode: {theme_manager.is_dark_mode()}")
 
-        # 主容器背景
+        palette = theme_manager.get_book_palette()
+        logger.info(f"bg_primary: {palette.bg_primary}, text_primary: {palette.text_primary}")
+
+        # 主容器背景 - 使用 objectName 选择器避免影响子widget
         self.main_container.setStyleSheet(f"""
-            QWidget {{
+            QWidget#settings_main_container {{
                 background-color: {palette.bg_primary};
             }}
         """)
@@ -232,7 +246,7 @@ class SettingsView(BasePage):
             }}
             QListWidget#nav_list::item:hover {{
                 color: {palette.text_primary};
-                background-color: rgba(0,0,0,0.02);
+                background-color: {theme_manager.PRIMARY_PALE};
             }}
             QListWidget#nav_list::item:selected {{
                 color: {palette.accent_color};
@@ -251,6 +265,19 @@ class SettingsView(BasePage):
             }}
         """)
 
+        # 确保 page_stack 透明，不覆盖子widget样式
+        self.page_stack.setStyleSheet("background-color: transparent;")
+
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+        # 刷新 page_stack 样式
+        self.page_stack.style().unpolish(self.page_stack)
+        self.page_stack.style().polish(self.page_stack)
+        self.page_stack.update()
+
     def refresh(self, **params):
         """刷新页面"""
         if hasattr(self, 'llm_settings'):
@@ -263,6 +290,8 @@ class SettingsView(BasePage):
             self.queue_settings._load_config()
         if hasattr(self, 'prompt_settings'):
             self.prompt_settings.loadPrompts()
+        if hasattr(self, 'theme_settings'):
+            self.theme_settings.refresh()
         if hasattr(self, 'advanced_settings'):
             self.advanced_settings.loadConfig()
 

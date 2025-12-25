@@ -351,3 +351,145 @@ class ThemePropertiesMixin:
     @property
     def LETTER_SPACING_WIDER(self):
         return self._current_theme.LETTER_SPACING_WIDER
+
+    # ==================== 新增属性 - 柔和背景 ====================
+    @property
+    def BG_MUTED(self):
+        """柔和背景色（Stone/Worn Leather）"""
+        return getattr(self._current_theme, 'BG_MUTED', self.BG_TERTIARY)
+
+    @property
+    def BG_ACCENT(self):
+        """强调背景色（Sand - 仅浅色主题）"""
+        return getattr(self._current_theme, 'BG_ACCENT', self.BG_SECONDARY)
+
+    # ==================== 新增属性 - 字体族 ====================
+    @property
+    def FONT_HEADING(self):
+        """标题字体"""
+        return self._current_theme.FONT_HEADING
+
+    @property
+    def FONT_BODY(self):
+        """正文字体"""
+        return self._current_theme.FONT_BODY
+
+    @property
+    def FONT_DISPLAY(self):
+        """展示字体"""
+        return self._current_theme.FONT_DISPLAY
+
+    @property
+    def FONT_UI(self):
+        """UI字体"""
+        return self._current_theme.FONT_UI
+
+    # ==================== 新增属性 - 过渡动画 ====================
+    @property
+    def TRANSITION_FAST(self):
+        return self._current_theme.TRANSITION_FAST
+
+    @property
+    def TRANSITION_BASE(self):
+        return self._current_theme.TRANSITION_BASE
+
+    @property
+    def TRANSITION_SLOW(self):
+        return self._current_theme.TRANSITION_SLOW
+
+    @property
+    def TRANSITION_DRAMATIC(self):
+        return self._current_theme.TRANSITION_DRAMATIC
+
+    @property
+    def EASING_DEFAULT(self):
+        return self._current_theme.EASING_DEFAULT
+
+    # ==================== 新增属性 - 按钮尺寸 ====================
+    @property
+    def BUTTON_HEIGHT_SM(self):
+        return self._current_theme.BUTTON_HEIGHT_SM
+
+    @property
+    def BUTTON_HEIGHT_DEFAULT(self):
+        return self._current_theme.BUTTON_HEIGHT_DEFAULT
+
+    @property
+    def BUTTON_HEIGHT_LG(self):
+        return self._current_theme.BUTTON_HEIGHT_LG
+
+    # ==================== 新增属性 - 主题特有效果 ====================
+    @property
+    def SHADOW_CARD(self):
+        """卡片阴影"""
+        return getattr(self._current_theme, 'SHADOW_CARD', 'none')
+
+    @property
+    def SHADOW_CARD_HOVER(self):
+        """卡片悬浮阴影"""
+        return getattr(self._current_theme, 'SHADOW_CARD_HOVER', '0 8px 24px rgba(0,0,0,0.15)')
+
+    # Academia 特有
+    @property
+    def BRASS_GRADIENT(self):
+        """黄铜渐变（深色主题）"""
+        return getattr(self._current_theme, 'BRASS_GRADIENT', '')
+
+    @property
+    def SHADOW_ENGRAVED(self):
+        """浮雕阴影（深色主题）"""
+        return getattr(self._current_theme, 'SHADOW_ENGRAVED', '')
+
+    @property
+    def SHADOW_BRASS_GLOW(self):
+        """黄铜光晕（深色主题）"""
+        return getattr(self._current_theme, 'SHADOW_BRASS_GLOW', '')
+
+    @property
+    def SHADOW_WAX_SEAL(self):
+        """蜡封阴影（深色主题）"""
+        return getattr(self._current_theme, 'SHADOW_WAX_SEAL', '')
+
+    # Organic 特有
+    @property
+    def SHADOW_MOSS(self):
+        """苔藓色阴影（浅色主题）"""
+        return getattr(self._current_theme, 'SHADOW_MOSS', '')
+
+    @property
+    def SHADOW_MOSS_HOVER(self):
+        """苔藓色悬浮阴影（浅色主题）"""
+        return getattr(self._current_theme, 'SHADOW_MOSS_HOVER', '')
+
+    @property
+    def SHADOW_CLAY(self):
+        """陶土色阴影（浅色主题）"""
+        return getattr(self._current_theme, 'SHADOW_CLAY', '')
+
+    @property
+    def RADIUS_ORGANIC(self):
+        """有机圆角（浅色主题）"""
+        return getattr(self._current_theme, 'RADIUS_ORGANIC', '')
+
+    @property
+    def RADIUS_ORGANIC_ALT(self):
+        """有机圆角变体（浅色主题）"""
+        return getattr(self._current_theme, 'RADIUS_ORGANIC_ALT', '')
+
+    @property
+    def RADIUS_PILL(self):
+        """药丸形圆角（浅色主题）"""
+        return getattr(self._current_theme, 'RADIUS_PILL', '9999px')
+
+    # ==================== 新增属性 - 额外圆角 ====================
+    @property
+    def RADIUS_2XL(self):
+        return self._current_theme.RADIUS_2XL
+
+    @property
+    def RADIUS_3XL(self):
+        return self._current_theme.RADIUS_3XL
+
+    @property
+    def LETTER_SPACING_WIDEST(self):
+        return self._current_theme.LETTER_SPACING_WIDEST

@@ -76,8 +76,8 @@ class InlineDiffMixin:
         cursor.setPosition(start_pos + len(original_text), QTextCursor.MoveMode.KeepAnchor)
 
         delete_format = QTextCharFormat()
-        delete_format.setBackground(QColor("#FFCDD2"))  # 浅红色背景
-        delete_format.setForeground(QColor("#B71C1C"))  # 深红色文字
+        delete_format.setBackground(QColor(theme_manager.ERROR_BG))  # 错误背景色
+        delete_format.setForeground(QColor(theme_manager.ERROR_DARK))  # 深红色文字
         delete_format.setFontStrikeOut(True)  # 删除线
 
         cursor.mergeCharFormat(delete_format)
@@ -86,8 +86,8 @@ class InlineDiffMixin:
         cursor.setPosition(start_pos + len(original_text))
 
         add_format = QTextCharFormat()
-        add_format.setBackground(QColor("#C8E6C9"))  # 浅绿色背景
-        add_format.setForeground(QColor("#1B5E20"))  # 深绿色文字
+        add_format.setBackground(QColor(theme_manager.SUCCESS_BG))  # 成功背景色
+        add_format.setForeground(QColor(theme_manager.SUCCESS_DARK))  # 深绿色文字
         add_format.setFontStrikeOut(False)
 
         cursor.insertText(suggested_text, add_format)

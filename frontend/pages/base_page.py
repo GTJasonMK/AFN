@@ -57,10 +57,9 @@ class BasePage(QWidget):
     def _safe_on_theme_changed(self, mode: str):
         """安全的主题改变回调（检查对象有效性）"""
         try:
-            # 检查对象是否仍有效
-            if not self.isVisible() and not self.parent():
-                # 对象可能正在被删除，跳过处理
-                return
+            # 仅当对象正在被删除时才跳过（没有父对象且已被标记删除）
+            # 注意：在QStackedWidget中的非当前页面虽然不可见，但仍需要更新主题
+            logger.info(f"=== BasePage._safe_on_theme_changed({mode}) for {self.__class__.__name__} ===")
             self.on_theme_changed(mode)
         except RuntimeError:
             # 对象已被删除，静默处理
@@ -69,45 +68,36 @@ class BasePage(QWidget):
     def on_theme_changed(self, mode: str):
         """主题改变时的回调
 
-        子类应该重写此方法以重新应用样式
+        子类应该重写此方法以重新应用样式。
+        默认实现只调用 _apply_theme()，不会触发数据加载。
 
-        推荐的实现模式：
-        方案1：拆分创建和样式应用
-        ```python
-        def setupUI(self):
-            if not self.layout():
-                self._create_ui_structure()
-            self._apply_theme()
-
-        def _create_ui_structure(self):
-            # 创建布局和组件（只调用一次）
-            layout = QVBoxLayout(self)
-            # ... 创建组件
-
-        def _apply_theme(self):
-            # 应用样式（可多次调用）
-            self.setStyleSheet(...)
-        ```
-
-        方案2：清空布局重建
-        ```python
-        def setupUI(self):
-            existing_layout = self.layout()
-            if existing_layout:
-                # 清空现有布局
-                while existing_layout.count():
-                    item = existing_layout.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                main_layout = existing_layout
-            else:
-                main_layout = QVBoxLayout(self)
-            # 重建组件并应用样式
-        ```
+        注意：子组件（ThemeAware* 类）会自动响应主题信号，
+        不需要父组件递归刷新子组件。
         """
-        # 调用setupUI重建界面（setupUI内部需要处理已存在的布局）
-        if hasattr(self, 'setupUI'):
-            self.setupUI()
+        # 只调用 _apply_theme() 应用样式，不调用完整的 setupUI()
+        # 这样避免了可能的副作用（如动画重播、数据重载等）
+        has_apply_theme = hasattr(self, '_apply_theme')
+        if has_apply_theme:
+            logger.debug(f"BasePage.on_theme_changed: calling {self.__class__.__name__}._apply_theme()")
+            self._apply_theme()
+            # 只刷新自身样式缓存，不递归刷新子组件
+            # 子组件会通过各自的主题信号响应来刷新
+            self._force_style_refresh()
+
+    def _force_style_refresh(self):
+        """强制刷新自身的样式缓存
+
+        注意：不再递归刷新子组件，因为子组件会通过
+        各自的主题信号响应（ThemeAwareMixin）来自行刷新。
+        递归刷新会导致重复操作和性能问题。
+        """
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()
+        except RuntimeError:
+            # 组件可能已被删除
+            pass
 
     def refresh(self, **params):
         """刷新页面数据

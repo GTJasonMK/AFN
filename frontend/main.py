@@ -75,6 +75,10 @@ def apply_global_theme():
     # 根据当前主题动态设置全局样式
     is_dark = theme_manager.is_dark_mode()
 
+    logger = logging.getLogger(__name__)
+    logger.info(f"=== apply_global_theme called: is_dark={is_dark} ===")
+    logger.info(f"PRIMARY={theme_manager.PRIMARY}, BUTTON_TEXT={theme_manager.BUTTON_TEXT}")
+
     # 系统对话框背景色
     dialog_bg = theme_manager.BG_CARD
     dialog_text = theme_manager.TEXT_PRIMARY

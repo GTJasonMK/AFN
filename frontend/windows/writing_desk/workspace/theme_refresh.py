@@ -16,7 +16,11 @@ class ThemeRefreshMixin:
     """主题刷新相关方法的 Mixin"""
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）"""
+        """应用主题样式（可多次调用）
+
+        优化：不重建章节内容，只更新样式。
+        重建会触发 API 调用（漫画数据、图片等），导致性能问题。
+        """
         # 刷新样式器的缓存值
         self._styler.refresh()
 
@@ -35,16 +39,16 @@ class ThemeRefreshMixin:
             }}
         """)
 
-        # 如果有显示中的章节内容，重建章节内容以应用新主题
-        # 重建比逐一更新样式更可靠，因为很多动态创建的子组件没有objectName
+        # 如果有显示中的章节内容，只更新样式，不重建
+        # 重建会触发 _loadMangaDataAsync 等 API 调用，导致性能问题
         if self.current_chapter_data:
-            # 保存当前tab索引，以便重建后恢复
+            # 保存当前tab索引
             current_tab_index = self.tab_widget.currentIndex() if self.tab_widget else 0
 
-            # 重建章节内容
-            self.displayChapter(self.current_chapter_data)
+            # 只刷新样式，不重建
+            self._refresh_content_styles()
 
-            # 恢复tab索引
+            # 恢复tab索引（样式刷新不会改变tab数量，但以防万一）
             if self.tab_widget and current_tab_index < self.tab_widget.count():
                 self.tab_widget.setCurrentIndex(current_tab_index)
 

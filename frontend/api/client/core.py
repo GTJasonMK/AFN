@@ -31,6 +31,7 @@ from .image_mixin import ImageMixin
 from .queue_mixin import QueueMixin
 from .portrait_mixin import PortraitMixin
 from .import_mixin import ImportMixin
+from .theme_config_mixin import ThemeConfigMixin
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class AFNAPIClient(
     QueueMixin,
     PortraitMixin,
     ImportMixin,
+    ThemeConfigMixin,
 ):
     """AFN API 客户端
 

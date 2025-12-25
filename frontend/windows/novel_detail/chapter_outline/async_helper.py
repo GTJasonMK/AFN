@@ -84,10 +84,13 @@ class AsyncOperationHelper:
 
         # 取消回调
         def handle_cancel():
-            if worker.isRunning():
-                worker.cancel()
-                worker.quit()
-                worker.wait(WorkerTimeouts.DEFAULT_MS)
+            try:
+                if worker.isRunning():
+                    worker.cancel()
+                    worker.quit()
+                    worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass  # C++ 对象已被删除，忽略
             self._remove_worker(worker)
             loading_dialog.close()
 

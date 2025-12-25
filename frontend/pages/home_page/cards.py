@@ -172,9 +172,9 @@ class RecentProjectCard(ThemeAwareFrame):
                     font-size: {dp(11)}px;
                 }}
                 QPushButton:hover {{
-                    background-color: #e74c3c;
-                    color: white;
-                    border-color: #e74c3c;
+                    background-color: {theme_manager.ERROR};
+                    color: {theme_manager.BUTTON_TEXT};
+                    border-color: {theme_manager.ERROR};
                 }}
             """)
 

@@ -1637,10 +1637,13 @@ class NovelDetail(BasePage):
 
         # 取消回调
         def on_cancel():
-            if self.refine_worker and self.refine_worker.isRunning():
-                self.refine_worker.cancel()
-                self.refine_worker.quit()
-                self.refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            try:
+                if self.refine_worker and self.refine_worker.isRunning():
+                    self.refine_worker.cancel()
+                    self.refine_worker.quit()
+                    self.refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass  # C++ 对象已被删除，忽略
             # 恢复按钮状态
             if hasattr(self, 'refine_btn') and self.refine_btn:
                 self.refine_btn.setEnabled(True)

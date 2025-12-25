@@ -12,6 +12,27 @@ class DesignSystemConstants:
     子类只需定义颜色相关属性。
     """
 
+    # ==================== 字体族规范 ====================
+    # 深色主题 (Academia/Classical) 使用衬线字体
+    # 浅色主题 (Organic/Natural) 使用衬线标题 + 圆角无衬线正文
+
+    # 标题字体 - 衬线字体（优雅、古典）
+    # Academia: Cormorant Garamond - 高对比度老式衬线，书法优雅
+    # Organic: Fraunces - 可变字体，有柔和轴，老派温暖但现代
+    FONT_HEADING = "'Noto Serif SC', 'Source Han Serif SC', serif"
+
+    # 正文字体 - 适合长时间阅读
+    # Academia: Crimson Pro - 书籍风格衬线，适合长文阅读
+    # Organic: Nunito - 圆角终端，与有机形状呼应
+    FONT_BODY = "'Noto Sans SC', 'Source Han Sans SC', sans-serif"
+
+    # 展示/标签字体 - 用于特殊强调
+    # Academia: Cinzel - 雕刻风格，全大写展示字体
+    FONT_DISPLAY = "'Noto Serif SC', 'Source Han Serif SC', serif"
+
+    # UI字体 - 界面元素
+    FONT_UI = "'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif"
+
     # ==================== 圆角规范 - 方正风格（微圆角设计）====================
     # 遵循 4px 递增规律：2 -> 4 -> 6 -> 8 -> 12 -> 16
     RADIUS_XS = "2px"    # 超小元素（几乎直角）
@@ -19,6 +40,8 @@ class DesignSystemConstants:
     RADIUS_MD = "6px"    # 中等元素：卡片、输入框
     RADIUS_LG = "8px"    # 大元素：大型容器
     RADIUS_XL = "16px"   # 超大元素：模态框（符合8pt网格）
+    RADIUS_2XL = "24px"  # 特大元素：Organic主题大圆角
+    RADIUS_3XL = "32px"  # 超特大：Organic主题容器
     RADIUS_ROUND = "50%"  # 圆形：头像、图标按钮
 
     # ==================== 间距规范 - 8px网格系统 ====================
@@ -56,3 +79,24 @@ class DesignSystemConstants:
     LETTER_SPACING_NORMAL = "0"
     LETTER_SPACING_WIDE = "0.05em"
     LETTER_SPACING_WIDER = "0.1em"
+    LETTER_SPACING_WIDEST = "0.15em"  # Academia标签使用
+
+    # ==================== 动画/过渡规范 ====================
+    # Academia: 庄重、沉稳、平滑 - 像翻阅皮革书籍
+    # Organic: 自然、轻柔 - 像拾起河石
+
+    TRANSITION_FAST = "150ms"     # 快速交互（按钮按压、焦点）
+    TRANSITION_BASE = "300ms"     # 标准过渡（hover、边框变化）
+    TRANSITION_SLOW = "500ms"     # 缓慢过渡（卡片抬升）
+    TRANSITION_DRAMATIC = "700ms" # 戏剧性效果（棕褐色滤镜、缩放）
+
+    EASING_DEFAULT = "ease-out"   # 自然减速（两种主题通用）
+
+    # ==================== 按钮尺寸规范 ====================
+    BUTTON_HEIGHT_SM = "40px"
+    BUTTON_HEIGHT_DEFAULT = "48px"
+    BUTTON_HEIGHT_LG = "56px"
+
+    BUTTON_PADDING_SM = "24px"
+    BUTTON_PADDING_DEFAULT = "32px"
+    BUTTON_PADDING_LG = "40px"

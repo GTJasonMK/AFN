@@ -189,7 +189,7 @@ class InspirationMode(BasePage):
             QPushButton:hover {{
                 color: {highlight_color};
                 border-color: {highlight_color};
-                background-color: rgba(0,0,0,0.05);
+                background-color: {theme_manager.PRIMARY_PALE};
             }}
         """
 

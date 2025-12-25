@@ -31,168 +31,212 @@ class ThemeMode(Enum):
 
 
 class LightTheme(DesignSystemConstants):
-    """亮色主题 - Claude晨曦风格 (Morning Theme)
+    """亮色主题 - 书香风格（Book Style）
 
     设计理念：
-    - 温暖舒适的暖色调（适合长时间创作）
-    - 赭红色主色调（Claude品牌色，温暖亲切）
-    - 米色背景（护眼柔和，减少蓝光）
-    - 棕色系文字（自然阅读体验）
+    - 温暖的书香氛围（古旧书页、羊皮纸、赭石墨水）
+    - 材质感参考（米色纸张、皮革书脊、陈旧羊皮纸）
+    - 统一的赭石/琥珀色系
 
-    灵感来源：Claude AI品牌色彩体系
+    视觉DNA：
+    - 温暖的米色背景
+    - 赭石色强调
+    - 深褐色文字
     """
 
-    # ==================== 色彩系统 - Claude晨曦风格 ====================
-    # 主色调 - 温暖赭红色（Claude品牌色）
-    PRIMARY = "#c6613f"  # 赭红色（温暖亲切）
-    PRIMARY_LIGHT = "#d4826a"  # 浅赭红
-    PRIMARY_DARK = "#a8502f"   # 深赭红
-    PRIMARY_PALE = "#faf5f0"   # 极浅暖色（hover/focus状态）
-    PRIMARY_GRADIENT = ["#d4826a", "#c6613f", "#a8502f"]  # 赭红渐变
+    # ==================== 色彩系统 - 书香风格 ====================
+    # 主色调 - 赭石色（Sienna）- 书香、温暖、经典
+    PRIMARY = "#8B4513"          # 赭石色（与book_accent_color一致）
+    PRIMARY_LIGHT = "#A0522D"    # 浅赭石
+    PRIMARY_DARK = "#6B3410"     # 深赭石
+    PRIMARY_PALE = "#FDF5ED"     # 极浅赭石（hover/focus状态）
+    PRIMARY_GRADIENT = ["#A0522D", "#8B4513", "#6B3410"]  # 赭石渐变
 
-    # 强调色 - 暖调鼠尾草绿（自然舒适）
-    ACCENT = "#7c9a76"    # 鼠尾草绿
-    ACCENT_LIGHT = "#9db897"
-    ACCENT_DARK = "#5f7d59"
-    ACCENT_PALE = "#f0f5ee"
-    ACCENT_GRADIENT = ["#9db897", "#7c9a76", "#5f7d59"]  # 鼠尾草渐变
+    # 强调色 - 陶土色（Terracotta）- 温暖、手工质感
+    ACCENT = "#A0522D"           # 陶土色
+    ACCENT_LIGHT = "#B8653D"     # 浅陶土
+    ACCENT_DARK = "#8B4513"      # 深陶土（与PRIMARY相同）
+    ACCENT_PALE = "#FAF5F0"      # 极浅陶土
+    ACCENT_GRADIENT = ["#B8653D", "#A0522D", "#8B4513"]  # 陶土渐变
 
-    # 成功色 - 暖调翠绿（自然舒适）
+    # 成功色 - 翠绿（自然舒适）
     SUCCESS = "#4a9f6e"
     SUCCESS_LIGHT = "#6db88a"
     SUCCESS_DARK = "#3a8558"
     SUCCESS_BG = "#f0f9f4"
-    SUCCESS_GRADIENT = ["#8fcca6", "#6db88a", "#4a9f6e"]  # 暖翠绿渐变
+    SUCCESS_GRADIENT = ["#8fcca6", "#6db88a", "#4a9f6e"]
 
-    # 错误色 - 暖调砖红（柔和警示）
-    ERROR = "#d4564e"
-    ERROR_LIGHT = "#e07a74"
-    ERROR_DARK = "#b8433c"
+    # 错误色 - 烧焦赭色（柔和警示）
+    ERROR = "#A85448"
+    ERROR_LIGHT = "#C4706A"
+    ERROR_DARK = "#8B3F35"
     ERROR_BG = "#fdf3f2"
-    ERROR_GRADIENT = ["#eba09b", "#e07a74", "#d4564e"]  # 砖红渐变
+    ERROR_GRADIENT = ["#C4706A", "#A85448", "#8B3F35"]
 
-    # 警告色 - 暖调琥珀（温暖提醒）
+    # 警告色 - 暖琥珀（温暖提醒）
     WARNING = "#d4923a"
     WARNING_LIGHT = "#e5ad5c"
     WARNING_DARK = "#b87a2a"
     WARNING_BG = "#fdf8f0"
-    WARNING_GRADIENT = ["#f0c67d", "#e5ad5c", "#d4923a"]  # 琥珀渐变
+    WARNING_GRADIENT = ["#f0c67d", "#e5ad5c", "#d4923a"]
 
-    # 信息色 - 暖调青石蓝（沉稳资讯）
+    # 信息色 - 青石蓝（沉稳资讯）
     INFO = "#4a8db3"
     INFO_LIGHT = "#6da8c9"
     INFO_DARK = "#3a7499"
     INFO_BG = "#f0f6fa"
-    INFO_GRADIENT = ["#90c5dd", "#6da8c9", "#4a8db3"]  # 青石蓝渐变
+    INFO_GRADIENT = ["#90c5dd", "#6da8c9", "#4a8db3"]
 
-    # 文字颜色 - 暖棕色调（自然阅读）
-    TEXT_PRIMARY = "#2c2621"     # 深棕色（主文本）
-    TEXT_SECONDARY = "#615e5a"    # 中棕灰
-    TEXT_TERTIARY = "#8a8580"     # 浅棕灰
-    TEXT_PLACEHOLDER = "#a39e99"  # 占位符
-    TEXT_DISABLED = "#c4c0bc"     # 禁用
+    # 文字颜色 - 书香深褐色调
+    TEXT_PRIMARY = "#2C1810"     # 深褐（主文本，与book_text_primary一致）
+    TEXT_SECONDARY = "#5D4037"   # 中褐（次级文本，与book_text_secondary一致）
+    TEXT_TERTIARY = "#6D6560"    # 浅褐
+    TEXT_PLACEHOLDER = "#8D8580" # 占位符
+    TEXT_DISABLED = "#B0A8A0"    # 禁用
 
-    # 背景颜色 - 温暖米色（护眼舒适）
-    BG_PRIMARY = "#f1ede6"       # 温暖米色（主背景）
-    BG_SECONDARY = "#f7f3ee"     # 浅米白（次级背景）
-    BG_TERTIARY = "#ebe4db"      # 浅棕色（输入框/代码块）
-    BG_CARD = "#f7f3ee"          # 卡片背景（与次级背景统一）
-    BG_CARD_HOVER = "#e8e4df"    # 悬浮状态
-    BG_GRADIENT = ["#f7f3ee", "#f1ede6", "#ebe4db"]  # 温暖渐变背景
+    # 背景颜色 - 书香米色纸张
+    BG_PRIMARY = "#F9F5F0"       # 米色（主背景，与book_bg_primary一致）
+    BG_SECONDARY = "#FFFBF0"     # 浅米色（卡片背景，与book_bg_secondary一致）
+    BG_TERTIARY = "#F0EBE5"      # 石材色（输入框/代码块）
+    BG_CARD = "#FFFBF0"          # 卡片背景
+    BG_CARD_HOVER = "#F5F0EA"    # 悬浮状态
+    BG_GRADIENT = ["#F9F5F0", "#FFFBF0", "#F0EBE5"]  # 自然渐变背景
+    BG_MUTED = "#F0EBE5"         # 柔和背景
+    BG_ACCENT = "#E6DCCD"        # 沙色强调背景
 
-    # 边框颜色 - 暖灰色调（柔和分隔）
-    BORDER_DEFAULT = "#ddd9d3"   # 适中边框
-    BORDER_LIGHT = "#e8e4df"     # 浅边框
-    BORDER_DARK = "#c4c0bc"      # 深边框
+    # 边框颜色 - 书香边框（与book_border_color一致）
+    BORDER_DEFAULT = "#D7CCC8"   # 默认边框
+    BORDER_LIGHT = "#E8E4DF"     # 浅边框
+    BORDER_DARK = "#C4C0BC"      # 深边框
 
     # 特殊效果色
-    GLASS_BG = "rgba(247, 243, 238, 0.85)"  # 暖色玻璃态背景
-    SHADOW_COLOR = "rgba(44, 38, 33, 0.08)"  # 暖色阴影
-    OVERLAY_COLOR = "rgba(44, 38, 33, 0.25)"  # 暖色遮罩层
+    GLASS_BG = "rgba(249, 245, 240, 0.85)"  # 米白玻璃态
+    SHADOW_COLOR = "rgba(44, 24, 16, 0.08)" # 书香色阴影
+    OVERLAY_COLOR = "rgba(44, 24, 16, 0.25)" # 书香遮罩层
 
-    # 按钮文字颜色（在有色按钮上）
-    BUTTON_TEXT = "#ffffff"      # 白色文字（在PRIMARY/ACCENT等深色按钮上）
-    BUTTON_TEXT_SECONDARY = "#2c2621"  # 深棕文字（在浅色按钮上）
+    # 按钮文字颜色
+    BUTTON_TEXT = "#FFFBF0"      # 浅米色（在赭石按钮上）
+    BUTTON_TEXT_SECONDARY = "#2C1810"  # 深褐（在浅色按钮上）
+
+    # ==================== 书香风格特有效果 ====================
+    # 赭石色阴影
+    SHADOW_SIENNA = "0 4px 20px -2px rgba(139,69,19,0.15)"
+    SHADOW_SIENNA_HOVER = "0 6px 24px -4px rgba(139,69,19,0.25)"
+
+    # 卡片阴影
+    SHADOW_CARD = "0 4px 20px -2px rgba(139,69,19,0.10)"
+    SHADOW_CARD_HOVER = "0 20px 40px -10px rgba(139,69,19,0.15)"
+
+    # 有机圆角（blob形状）
+    RADIUS_ORGANIC = "60% 40% 30% 70% / 60% 30% 70% 40%"
+    RADIUS_ORGANIC_ALT = "30% 70% 70% 30% / 30% 30% 70% 70%"
+
+    # 药丸形按钮圆角
+    RADIUS_PILL = "9999px"
 
 
 class DarkTheme(DesignSystemConstants):
-    """深色主题 - 暖夜书香风格 (2025 Modern Design)
+    """深色主题 - 书香风格（Book Style Dark）
 
     设计理念：
-    - 深邃温暖的背景（护眼舒适，带褐色调）
-    - 暖琥珀金色主调（与亮色主题赭红呼应）
-    - 高亮度文字（清晰可读）
-    - 温暖典雅的文学气质
+    - 与亮色主题统一的书香氛围
+    - 温暖的琥珀色调（夜间阅读的温馨感）
+    - 深色背景配合暖色强调
+
+    视觉DNA：
+    - 深褐色背景（古旧书房）
+    - 琥珀色强调（烛光温暖）
+    - 羊皮纸色文字
     """
 
-    # ==================== 色彩系统 - 暖夜书香风格 ====================
-    # 主色调 - 暖琥珀金（与亮色主题赭红呼应，温暖典雅）
-    PRIMARY = "#E89B6C"      # 暖橙琥珀
-    PRIMARY_LIGHT = "#F2B896"
-    PRIMARY_DARK = "#D4784F"
-    PRIMARY_PALE = "#3D2A1F"  # 深褐色背景tint
-    PRIMARY_GRADIENT = ["#F2B896", "#E89B6C", "#D4784F"]  # 暖琥珀渐变
+    # ==================== 色彩系统 - 书香风格（暗色版） ====================
+    # 主色调 - 琥珀色（Amber）- 与亮色主题的赭石色呼应
+    PRIMARY = "#E89B6C"          # 琥珀色（与book_accent_color dark一致）
+    PRIMARY_LIGHT = "#F0B088"    # 浅琥珀
+    PRIMARY_DARK = "#D4845A"     # 深琥珀
+    PRIMARY_PALE = "#2A2520"     # 琥珀背景tint
+    PRIMARY_GRADIENT = ["#F0B088", "#E89B6C", "#D4845A"]  # 琥珀渐变
 
-    # 强调色 - 温润青玉（与主色形成优雅对比）
-    ACCENT = "#5AB8A8"       # 青玉色
-    ACCENT_LIGHT = "#7DCCC0"
-    ACCENT_DARK = "#3D9C8C"
-    ACCENT_PALE = "#1F3D38"
-    ACCENT_GRADIENT = ["#9DDCD2", "#7DCCC0", "#5AB8A8"]  # 青玉渐变
+    # 强调色 - 暖陶土色（Warm Terracotta）- 与亮色主题统一
+    ACCENT = "#D4845A"           # 暖陶土
+    ACCENT_LIGHT = "#E89B6C"     # 浅陶土（与PRIMARY相同）
+    ACCENT_DARK = "#B86E48"      # 深陶土
+    ACCENT_PALE = "#2D2118"      # 陶土背景tint
+    ACCENT_GRADIENT = ["#E89B6C", "#D4845A", "#B86E48"]  # 陶土渐变
 
-    # 成功色 - 翠绿（舒适自然）
-    SUCCESS = "#22c55e"
-    SUCCESS_LIGHT = "#4ade80"
-    SUCCESS_DARK = "#16a34a"
-    SUCCESS_BG = "#14532d"
-    SUCCESS_GRADIENT = ["#86efac", "#4ade80", "#22c55e"]
+    # 成功色 - 暖调翠绿
+    SUCCESS = "#4a9f6e"
+    SUCCESS_LIGHT = "#6db88a"
+    SUCCESS_DARK = "#3a8558"
+    SUCCESS_BG = "#1a2f22"
+    SUCCESS_GRADIENT = ["#8fcca6", "#6db88a", "#4a9f6e"]
 
-    # 错误色 - 玫瑰红（温和警示）
-    ERROR = "#f43f5e"
-    ERROR_LIGHT = "#fb7185"
-    ERROR_DARK = "#e11d48"
-    ERROR_BG = "#881337"
-    ERROR_GRADIENT = ["#fda4af", "#fb7185", "#f43f5e"]
+    # 错误色 - 烧焦赭色（Burnt Sienna）
+    ERROR = "#A85448"
+    ERROR_LIGHT = "#C4706A"
+    ERROR_DARK = "#8B3F35"
+    ERROR_BG = "#2D1F1C"
+    ERROR_GRADIENT = ["#C4706A", "#A85448", "#8B3F35"]
 
-    # 警告色 - 琥珀色（温暖提醒）
-    WARNING = "#f59e0b"
-    WARNING_LIGHT = "#fbbf24"
-    WARNING_DARK = "#d97706"
-    WARNING_BG = "#78350f"
-    WARNING_GRADIENT = ["#fcd34d", "#fbbf24", "#f59e0b"]
+    # 警告色 - 暖琥珀
+    WARNING = "#D4923A"
+    WARNING_LIGHT = "#E5AD5C"
+    WARNING_DARK = "#B87A2A"
+    WARNING_BG = "#2D2518"
+    WARNING_GRADIENT = ["#E5AD5C", "#D4923A", "#B87A2A"]
 
-    # 信息色 - 天空蓝（清新资讯）
-    INFO = "#0ea5e9"
-    INFO_LIGHT = "#38bdf8"
-    INFO_DARK = "#0284c7"
-    INFO_BG = "#0c4a6e"
-    INFO_GRADIENT = ["#7dd3fc", "#38bdf8", "#0ea5e9"]
+    # 信息色 - 青石蓝
+    INFO = "#4A8DB3"
+    INFO_LIGHT = "#6DA8C9"
+    INFO_DARK = "#3A7499"
+    INFO_BG = "#1A2530"
+    INFO_GRADIENT = ["#6DA8C9", "#4A8DB3", "#3A7499"]
 
-    # 文字颜色 - 暖调高亮度（护眼清晰）
-    TEXT_PRIMARY = "#F5F0EB"     # 暖白色
-    TEXT_SECONDARY = "#D4CCC4"   # 暖浅灰
-    TEXT_TERTIARY = "#A89E94"    # 暖中灰
-    TEXT_PLACEHOLDER = "#6D635A" # 暖暗灰
-    TEXT_DISABLED = "#4A433D"    # 暖深灰
+    # 文字颜色 - 古董羊皮纸色调（Antique Parchment）
+    TEXT_PRIMARY = "#E8DFD4"     # 古董羊皮纸（主文本）
+    TEXT_SECONDARY = "#9C8B7A"   # 褪色墨水（次级文本）
+    TEXT_TERTIARY = "#7A6B5A"    # 暗褪色墨水
+    TEXT_PLACEHOLDER = "#5A4D40" # 占位符
+    TEXT_DISABLED = "#4A3F35"    # 禁用（与边框同色）
 
-    # 背景颜色 - 深邃暖褐（温暖护眼）
-    BG_PRIMARY = "#0F0D0B"       # 深暖黑
-    BG_SECONDARY = "#171412"     # 暗褐灰
-    BG_TERTIARY = "#1F1B18"      # 中褐灰
-    BG_CARD = "#1A1714"          # 卡片深褐
-    BG_CARD_HOVER = "#252220"    # 悬浮亮褐
-    BG_GRADIENT = ["#0F0D0B", "#171412", "#1F1B18"]  # 暖夜渐变背景
+    # 背景颜色 - 深色木质（Mahogany Wood）
+    BG_PRIMARY = "#1C1714"       # 深桃花心木（主背景）
+    BG_SECONDARY = "#251E19"     # 古老橡木（卡片/面板背景）
+    BG_TERTIARY = "#3D332B"      # 磨损皮革（三级背景）
+    BG_CARD = "#251E19"          # 卡片背景（与次级背景统一）
+    BG_CARD_HOVER = "#2D2520"    # 悬浮状态
+    BG_GRADIENT = ["#1C1714", "#251E19", "#3D332B"]  # 木质渐变背景
+    BG_MUTED = "#3D332B"         # 柔和背景（Worn Leather）
 
-    # 边框颜色 - 暖灰色调
-    BORDER_DEFAULT = "#3D3835"   # 暖灰边框
-    BORDER_LIGHT = "#2D2926"
-    BORDER_DARK = "#4D4845"
+    # 边框颜色 - 木纹色调（Wood Grain）
+    BORDER_DEFAULT = "#4A3F35"   # 木纹边框
+    BORDER_LIGHT = "#3D332B"     # 浅木纹
+    BORDER_DARK = "#5A4D40"      # 深木纹
 
     # 特殊效果色
-    GLASS_BG = "rgba(26, 23, 20, 0.75)"   # 暖色玻璃态
-    SHADOW_COLOR = "rgba(0, 0, 0, 0.5)"   # 深色阴影
-    OVERLAY_COLOR = "rgba(0, 0, 0, 0.45)" # 遮罩层颜色
+    GLASS_BG = "rgba(37, 30, 25, 0.85)"    # 橡木玻璃态
+    SHADOW_COLOR = "rgba(0, 0, 0, 0.3)"    # 深色阴影
+    OVERLAY_COLOR = "rgba(28, 23, 20, 0.4)" # 桃花心木遮罩
 
-    # 按钮文字颜色（在有色按钮上）
-    BUTTON_TEXT = "#ffffff"          # 白色文字
-    BUTTON_TEXT_SECONDARY = "#F5F0EB"  # 暖白文字
+    # 按钮文字颜色
+    BUTTON_TEXT = "#1C1714"          # 深色文字（在琥珀按钮上）
+    BUTTON_TEXT_SECONDARY = "#E8DFD4"  # 羊皮纸文字（在深色按钮上）
+
+    # ==================== 书香风格特有效果（暗色版） ====================
+    # 琥珀色阴影（与亮色主题的赭石阴影呼应）
+    SHADOW_SIENNA = "0 4px 20px -2px rgba(232,155,108,0.15)"
+    SHADOW_SIENNA_HOVER = "0 6px 24px -4px rgba(232,155,108,0.25)"
+
+    # 卡片阴影
+    SHADOW_CARD = "0 4px 20px -2px rgba(232,155,108,0.10)"
+    SHADOW_CARD_HOVER = "0 20px 40px -10px rgba(232,155,108,0.15)"
+
+    # 琥珀光晕（hover状态）
+    SHADOW_AMBER_GLOW = "0 4px 12px rgba(232,155,108,0.3)"
+
+    # 有机圆角（blob形状）- 与亮色主题统一
+    RADIUS_ORGANIC = "60% 40% 30% 70% / 60% 30% 70% 40%"
+    RADIUS_ORGANIC_ALT = "30% 70% 70% 30% / 30% 30% 70% 70%"
+
+    # 药丸形按钮圆角
+    RADIUS_PILL = "9999px"

@@ -21,6 +21,7 @@ from .image_config import ImageGenerationConfig, GeneratedImage
 from .llm_config import LLMConfig
 from .part_outline import PartOutline
 from .prompt import Prompt
+from .theme_config import ThemeConfig
 from .user import User
 
 __all__ = [
@@ -43,5 +44,6 @@ __all__ = [
     "NovelProject",
     "PartOutline",
     "Prompt",
+    "ThemeConfig",
     "User",
 ]

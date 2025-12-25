@@ -424,11 +424,14 @@ class ChapterOutlineSection(ThemeAwareWidget):
     def _cleanup_part_outline_sse(self):
         """清理部分大纲SSE相关资源"""
         if self._sse_worker:
-            # SSEWorker.stop() 已经断开信号并关闭连接，无需 blockSignals
-            self._sse_worker.stop()
-            if self._sse_worker.isRunning():
-                self._sse_worker.quit()
-                self._sse_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            try:
+                # SSEWorker.stop() 已经断开信号并关闭连接，无需 blockSignals
+                self._sse_worker.stop()
+                if self._sse_worker.isRunning():
+                    self._sse_worker.quit()
+                    self._sse_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass  # C++ 对象已被删除，忽略
             self._sse_worker = None
 
         if self._progress_dialog:
@@ -1001,11 +1004,14 @@ class ChapterOutlineSection(ThemeAwareWidget):
     def _cleanup_chapter_outline_sse(self):
         """清理章节大纲SSE相关资源"""
         if self._sse_worker:
-            # SSEWorker.stop() 已经断开信号并关闭连接，无需 blockSignals
-            self._sse_worker.stop()
-            if self._sse_worker.isRunning():
-                self._sse_worker.quit()
-                self._sse_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            try:
+                # SSEWorker.stop() 已经断开信号并关闭连接，无需 blockSignals
+                self._sse_worker.stop()
+                if self._sse_worker.isRunning():
+                    self._sse_worker.quit()
+                    self._sse_worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass  # C++ 对象已被删除，忽略
             self._sse_worker = None
 
         if self._progress_dialog:

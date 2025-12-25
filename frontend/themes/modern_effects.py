@@ -1,7 +1,10 @@
 """
 现代美学效果库 - 提供渐变、玻璃态、新拟态等现代设计效果
 
-提供各种现代UI设计效果，提升应用的视觉美感
+提供各种现代UI设计效果，提升应用的视觉美感。
+支持两种主题风格：
+- Academia/Classical (深色): 黄铜渐变、浮雕效果、蜡封阴影
+- Organic/Natural (浅色): 苔藓色阴影、陶土渐变、柔和效果
 """
 
 from typing import Tuple, Optional
@@ -15,45 +18,55 @@ class ModernEffects:
 
     # 优雅渐变色组合 - 与主题系统对应
     GRADIENTS = {
-        # 海洋系列 - 天空蓝/星空蓝
-        "ocean": {
-            "light": ["#60A5FA", "#3B82F6", "#2563EB"],    # 天空蓝渐变（亮色主题主色）
-            "dark": ["#48CAE4", "#00B4D8", "#0077B6"],     # 星空蓝渐变（深色主题信息色）
+        # 黄铜系列 - Academia主题主色
+        "brass": {
+            "light": ["#D4A87A", "#C18C5D", "#A87040"],    # 陶土渐变（浅色主题强调色）
+            "dark": ["#D4B872", "#C9A962", "#B8953F"],     # 黄铜渐变（深色主题主色）
         },
-        # 晚霞系列 - 珊瑚粉/霓虹橙
-        "sunset": {
-            "light": ["#FDA4AF", "#FB7185", "#F43F5E"],    # 晨霞渐变（亮色主题强调色）
-            "dark": ["#FFAB00", "#FF9500", "#FF6D00"],     # 霓虹橙渐变（深色主题警告色）
+        # 苔藓系列 - Organic主题主色
+        "moss": {
+            "light": ["#7A9474", "#5D7052", "#4A5D40"],    # 苔藓绿渐变
+            "dark": ["#7A9474", "#5D7052", "#4A5D40"],     # 深色主题也可用
         },
-        # 森林系列 - 薄荷绿/荧光绿
-        "forest": {
-            "light": ["#6EE7B7", "#34D399", "#10B981"],    # 薄荷渐变（亮色主题成功色）
-            "dark": ["#86EFAC", "#4ADE80", "#22C55E"],     # 荧光绿渐变（深色主题成功色）
+        # 深红系列 - Academia主题强调色
+        "crimson": {
+            "light": ["#C4706A", "#A85448", "#8B3F35"],    # 烧焦赭色渐变
+            "dark": ["#A83344", "#8B2635", "#6E1E2A"],     # 图书馆深红渐变
         },
-        # 紫罗兰系列 - 薰衣草/暖琥珀（深色主题改用暖色）
-        "violet": {
-            "light": ["#E9D5FF", "#C084FC", "#9333EA"],    # 薰衣草紫（柔和）
-            "dark": ["#F2B896", "#E89B6C", "#D4784F"],     # 暖琥珀渐变（深色主题主色）
+        # 陶土系列 - Organic主题强调色
+        "terracotta": {
+            "light": ["#D4A87A", "#C18C5D", "#A87040"],    # 陶土渐变
+            "dark": ["#D4A87A", "#C18C5D", "#A87040"],     # 陶土渐变
         },
-        # 玫瑰系列 - 玫瑰红/激光红
-        "rose": {
-            "light": ["#FCA5A5", "#F87171", "#EF4444"],    # 玫瑰渐变（亮色主题错误色）
-            "dark": ["#FFA8A8", "#FF6B6B", "#F03E3E"],     # 激光红渐变（深色主题错误色）
+        # 成功色系列
+        "success": {
+            "light": ["#8fcca6", "#6db88a", "#4a9f6e"],    # 翠绿渐变
+            "dark": ["#8fcca6", "#6db88a", "#4a9f6e"],     # 翠绿渐变
+        },
+        # 警告色系列
+        "warning": {
+            "light": ["#f0c67d", "#e5ad5c", "#d4923a"],    # 暖琥珀渐变
+            "dark": ["#E5AD5C", "#D4923A", "#B87A2A"],     # 暖琥珀渐变
+        },
+        # 错误色系列
+        "error": {
+            "light": ["#C4706A", "#A85448", "#8B3F35"],    # 烧焦赭色渐变
+            "dark": ["#C4706A", "#A85448", "#8B3F35"],     # 烧焦赭色渐变
+        },
+        # 信息色系列
+        "info": {
+            "light": ["#90c5dd", "#6da8c9", "#4a8db3"],    # 青石蓝渐变
+            "dark": ["#6DA8C9", "#4A8DB3", "#3A7499"],     # 青石蓝渐变
         },
         # 极光系列 - 多彩渐变
         "aurora": {
-            "light": ["#60A5FA", "#FDA4AF", "#C084FC"],    # 晨曦极光（天空+晨霞+薰衣草）
-            "dark": ["#E89B6C", "#5AB8A8", "#F2B896"],     # 暖夜极光（暖琥珀+青玉）
+            "light": ["#5D7052", "#C18C5D", "#7A9474"],    # 自然极光（苔藓+陶土）
+            "dark": ["#C9A962", "#8B2635", "#D4B872"],     # 学院极光（黄铜+深红）
         },
-        # 霓虹系列 - 赛博朋克风
-        "neon": {
-            "light": ["#3B82F6", "#10B981", "#F59E0B"],    # 活力霓虹（蓝+绿+橙）
-            "dark": ["#14F195", "#00B4D8", "#E89B6C"],     # 赛博霓虹（青+蓝+暖琥珀）
-        },
-        # 糖果系列 - 甜美风格
-        "candy": {
-            "light": ["#FDA4AF", "#FBBF24", "#86EFAC"],    # 糖果色（粉+黄+绿）
-            "dark": ["#F9A8D4", "#E89B6C", "#5AB8A8"],     # 梦幻糖果（粉+暖琥珀+青玉）
+        # 木质系列 - 背景渐变
+        "wood": {
+            "light": ["#FDFCF8", "#FEFEFA", "#F0EBE5"],    # 米白纸张渐变
+            "dark": ["#1C1714", "#251E19", "#3D332B"],     # 桃花心木渐变
         },
     }
 
@@ -100,18 +113,18 @@ class ModernEffects:
                         注意：此参数已废弃，边框应由调用方在StyleSheet中单独设置
         """
         if is_dark:
-            # 深色主题 - 暖褐玻璃效果（与暖夜书香主题一致）
+            # 深色主题 Academia - 深桃花心木玻璃效果
             return ModernEffects.glassmorphism(
-                bg_color="rgba(26, 23, 20, 0.65)",  # 暖褐色底色
-                blur_radius=24,  # 更强的模糊效果
-                include_border=False  # 不包含边框，由调用方设置
+                bg_color="rgba(28, 23, 20, 0.85)",  # 深桃花心木底色
+                blur_radius=24,
+                include_border=False
             )
         else:
-            # 亮色主题 - 暖调晨曦玻璃效果（Claude Morning Theme）
+            # 亮色主题 Organic - 米白纸张玻璃效果
             return ModernEffects.glassmorphism(
-                bg_color="rgba(247, 243, 238, 0.82)",  # 暖米色玻璃底色
+                bg_color="rgba(253, 252, 248, 0.85)",  # 米白纸张底色
                 blur_radius=20,
-                include_border=False  # 不包含边框，由调用方设置
+                include_border=False
             )
 
     # ==================== 新拟态效果 ====================
@@ -176,6 +189,7 @@ class ModernEffects:
     # ==================== 高级阴影系统 ====================
 
     SHADOWS = {
+        # 通用阴影
         "xs": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
         "sm": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)",
         "md": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
@@ -183,6 +197,20 @@ class ModernEffects:
         "xl": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
         "2xl": "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
         "inner": "inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)",
+
+        # Academia主题特有阴影
+        "engraved": "1px 1px 1px rgba(0,0,0,0.4), -1px -1px 1px rgba(255,255,255,0.1)",
+        "brass-glow": "0 4px 12px rgba(201,169,98,0.3)",
+        "wax-seal": "inset 0 2px 4px rgba(255,255,255,0.2), inset 0 -2px 4px rgba(0,0,0,0.3), 0 4px 8px rgba(0,0,0,0.4)",
+        "card-dark": "none",
+        "card-dark-hover": "0 8px 24px rgba(0,0,0,0.3)",
+
+        # Organic主题特有阴影
+        "moss": "0 4px 20px -2px rgba(93,112,82,0.15)",
+        "moss-hover": "0 6px 24px -4px rgba(93,112,82,0.25)",
+        "clay": "0 10px 40px -10px rgba(193,140,93,0.2)",
+        "card-light": "0 4px 20px -2px rgba(93,112,82,0.15)",
+        "card-light-hover": "0 20px 40px -10px rgba(93,112,82,0.15)",
     }
 
     @staticmethod
@@ -211,16 +239,25 @@ class ModernEffects:
     # ==================== 动画和过渡 ====================
 
     TRANSITIONS = {
-        "fast": "all 0.15s ease",
-        "base": "all 0.2s ease",
-        "slow": "all 0.3s ease",
-        "slower": "all 0.5s ease",
+        # 通用过渡
+        "fast": "all 0.15s ease-out",
+        "base": "all 0.3s ease-out",
+        "slow": "all 0.5s ease-out",
+        "dramatic": "all 0.7s ease-out",
 
         # 特定属性过渡
-        "colors": "background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease",
-        "transform": "transform 0.2s ease",
-        "shadow": "box-shadow 0.2s ease",
-        "opacity": "opacity 0.2s ease",
+        "colors": "background-color 0.3s ease-out, border-color 0.3s ease-out, color 0.3s ease-out",
+        "transform": "transform 0.3s ease-out",
+        "shadow": "box-shadow 0.3s ease-out",
+        "opacity": "opacity 0.3s ease-out",
+
+        # Academia主题 - 庄重平滑
+        "academia": "all 0.3s ease-out",
+        "academia-hover": "all 0.5s ease-out",
+
+        # Organic主题 - 自然轻柔
+        "organic": "all 0.3s ease-out",
+        "organic-hover": "all 0.5s ease-out",
     }
 
     ANIMATIONS = {
@@ -457,12 +494,11 @@ class ModernEffects:
             CSS样式
         """
         if is_dark:
-            # 深色主题 - 暖夜极光效果（暖琥珀、青玉、暖橙的温暖组合）
-            colors = ["#E89B6C", "#5AB8A8", "#F2B896", "#7DCCC0"]
+            # 深色主题 Academia - 黄铜与深红的学院极光
+            colors = ["#C9A962", "#8B2635", "#D4B872", "#A83344"]
         else:
-            # 亮色主题 - 暖调晨曦极光（Claude Morning Theme）
-            # 使用赭红、暖橙、鼠尾草绿、暖棕的温暖组合
-            colors = ["#c6613f", "#d4923a", "#7c9a76", "#d4826a"]
+            # 亮色主题 Organic - 苔藓与陶土的自然极光
+            colors = ["#5D7052", "#C18C5D", "#7A9474", "#D4A87A"]
 
         return f"""
             background: linear-gradient(-45deg, {', '.join(colors)});
@@ -475,6 +511,26 @@ class ModernEffects:
                 100% { background-position: 0% 50%; }
             }
         """
+
+    @staticmethod
+    def brass_gradient_style() -> str:
+        """生成黄铜渐变样式 - Academia主题按钮专用"""
+        return "qlineargradient(x1: 0.5, y1: 0, x2: 0.5, y2: 1, stop: 0 #D4B872, stop: 0.5 #C9A962, stop: 1 #B8953F)"
+
+    @staticmethod
+    def crimson_gradient_style() -> str:
+        """生成深红渐变样式 - Academia主题强调按钮专用"""
+        return "qlineargradient(x1: 0.5, y1: 0, x2: 0.5, y2: 1, stop: 0 #A83344, stop: 0.5 #8B2635, stop: 1 #6E1E2A)"
+
+    @staticmethod
+    def moss_gradient_style() -> str:
+        """生成苔藓绿渐变样式 - Organic主题按钮专用"""
+        return "qlineargradient(x1: 0.5, y1: 0, x2: 0.5, y2: 1, stop: 0 #7A9474, stop: 0.5 #5D7052, stop: 1 #4A5D40)"
+
+    @staticmethod
+    def terracotta_gradient_style() -> str:
+        """生成陶土渐变样式 - Organic主题强调按钮专用"""
+        return "qlineargradient(x1: 0.5, y1: 0, x2: 0.5, y2: 1, stop: 0 #D4A87A, stop: 0.5 #C18C5D, stop: 1 #A87040)"
 
     @staticmethod
     def floating_animation() -> str:

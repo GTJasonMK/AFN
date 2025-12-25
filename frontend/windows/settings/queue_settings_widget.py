@@ -307,6 +307,11 @@ class QueueSettingsWidget(QWidget):
             }}
         """)
 
+        # 强制刷新样式缓存
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
     def _load_config(self):
         """加载当前配置"""
         try:
