@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget, QScrollArea, QGraphicsDropShadowEffect, QSizePolicy
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QPixmap
 from components.base import ThemeAwareFrame
 from components.empty_state import EmptyState
 from themes.theme_manager import theme_manager
@@ -21,6 +21,8 @@ from utils.message_service import MessageService, confirm
 from api.manager import APIClientManager
 from .chapter_card import ChapterCard
 from .outline_edit_dialog import OutlineEditDialog
+from .flippable_blueprint_card import FlippableBlueprintCard
+from .utils import extract_protagonist_name
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ class WDSidebar(ThemeAwareFrame):
     generateChapter = pyqtSignal(int)
     generateOutline = pyqtSignal()
     createChapter = pyqtSignal()  # 手动新增章节（用于空白项目）
+    viewProtagonistProfile = pyqtSignal()  # 查看主角档案
 
     def __init__(self, project=None, parent=None):
         self.project = project or {}
@@ -41,13 +44,7 @@ class WDSidebar(ThemeAwareFrame):
         self.api_client = APIClientManager.get_client()  # 使用单例客户端
 
         # 保存组件引用
-        self.bp_style = None
-        self.bp_summary = None
-        self.expand_btn = None  # 展开/收起按钮
-        self.summary_card = None  # 故事概要卡片
-        self.blueprint_card = None  # 蓝图卡片（用于展开时更新布局）
-        self._summary_expanded = False  # 概要展开状态
-        self._summary_max_collapsed_height = dp(100)  # 收起状态最大高度
+        self.blueprint_card = None  # 可翻转的蓝图卡片
         self.chapters_container = None  # 章节卡片容器
         self.empty_state = None
         self.outline_btn = None
@@ -65,86 +62,9 @@ class WDSidebar(ThemeAwareFrame):
         layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))  # 从16减少到12
         layout.setSpacing(dp(12))  # 从16减少到12
 
-        # 蓝图预览卡片 - 紧凑版渐变背景
-        self.blueprint_card = QFrame()
-        self.blueprint_card.setObjectName("blueprint_card")
-        blueprint_layout = QVBoxLayout(self.blueprint_card)
-        blueprint_layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))  # 修正：14不符合8pt网格
-        blueprint_layout.setSpacing(dp(12))  # 修正：10不符合8pt网格
-
-        # 蓝图标题行
-        bp_header = QHBoxLayout()
-        bp_header.setSpacing(dp(12))
-
-        bp_icon = QLabel("◐")
-        bp_icon.setObjectName("bp_icon")
-        bp_header.addWidget(bp_icon)
-
-        bp_title_widget = QWidget()
-        bp_title_layout = QVBoxLayout(bp_title_widget)
-        bp_title_layout.setContentsMargins(0, 0, 0, 0)
-        bp_title_layout.setSpacing(dp(4))
-
-        bp_title = QLabel("故事蓝图")
-        bp_title.setObjectName("bp_title")
-        bp_title_layout.addWidget(bp_title)
-
-        self.bp_style = QLabel("未设定风格")
-        self.bp_style.setObjectName("bp_style")
-        bp_title_layout.addWidget(self.bp_style)
-
-        bp_header.addWidget(bp_title_widget, stretch=1)
-        blueprint_layout.addLayout(bp_header)
-
-        # 故事概要卡片 - 紧凑版（支持展开/收起）
-        self.summary_card = QFrame()
-        self.summary_card.setObjectName("summary_card")
-        # 设置大小策略，允许垂直方向随内容变化（Preferred允许扩展）
-        self.summary_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        summary_layout = QVBoxLayout(self.summary_card)
-        summary_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))  # 修正：10不符合8pt网格
-        summary_layout.setSpacing(dp(4))
-
-        # 概要标题行（标题 + 展开/收起按钮）
-        summary_header = QHBoxLayout()
-        summary_header.setContentsMargins(0, 0, 0, 0)
-
-        summary_label = QLabel("故事概要")
-        summary_label.setObjectName("summary_label")
-        summary_header.addWidget(summary_label)
-
-        summary_header.addStretch()
-
-        # 展开/收起按钮
-        self.expand_btn = QPushButton("展开")
-        self.expand_btn.setObjectName("expand_btn")
-        self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.expand_btn.setFixedHeight(dp(32))  # 修正：20px不符合触控目标最小值32px
-        self.expand_btn.clicked.connect(self._toggle_summary_expand)
-        summary_header.addWidget(self.expand_btn)
-
-        summary_layout.addLayout(summary_header)
-
-        self.bp_summary = QLabel("暂无概要")
-        self.bp_summary.setObjectName("bp_summary")
-        self.bp_summary.setWordWrap(True)
-        # 设置文本交互标志以支持选择
-        self.bp_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        # 收起状态时限制最大高度
-        self.bp_summary.setMaximumHeight(self._summary_max_collapsed_height)
-        summary_layout.addWidget(self.bp_summary)
-
-        # 记录展开状态
-        self._summary_expanded = False
-
-        # 为摘要卡片添加阴影效果
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(dp(12))
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, dp(2))
-        self.summary_card.setGraphicsEffect(shadow)
-
-        blueprint_layout.addWidget(self.summary_card)
+        # 可翻转的蓝图卡片（正面：蓝图信息，背面：主角立绘）
+        self.blueprint_card = FlippableBlueprintCard()
+        self.blueprint_card.viewProfileRequested.connect(self._on_view_profile_requested)
         layout.addWidget(self.blueprint_card)
 
         # 章节列表标题
@@ -209,7 +129,6 @@ class WDSidebar(ThemeAwareFrame):
         """应用主题样式（可多次调用）"""
         # 使用现代UI字体
         ui_font = theme_manager.ui_font()
-        serif_font = theme_manager.serif_font()
 
         # Sidebar背景
         self.setStyleSheet(f"""
@@ -218,93 +137,7 @@ class WDSidebar(ThemeAwareFrame):
             }}
         """)
 
-        # 蓝图卡片 - 使用渐变背景
-        if self.blueprint_card:
-            gradient = ModernEffects.linear_gradient(
-                theme_manager.PRIMARY_GRADIENT,
-                135
-            )
-            self.blueprint_card.setStyleSheet(f"""
-                QFrame#blueprint_card {{
-                    background: {gradient};
-                    border-radius: {theme_manager.RADIUS_LG};
-                    border: none;
-                }}
-            """)
-
-        # 蓝图图标
-        if bp_icon := self.findChild(QLabel, "bp_icon"):
-            bp_icon.setStyleSheet(f"""
-                font-size: {sp(28)}px;
-                color: {theme_manager.BUTTON_TEXT};
-            """)
-
-        # 蓝图标题
-        if bp_title := self.findChild(QLabel, "bp_title"):
-            bp_title.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: {theme_manager.FONT_SIZE_LG};
-                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
-                color: {theme_manager.BUTTON_TEXT};
-            """)
-
-        # 风格标签
-        if self.bp_style:
-            self.bp_style.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: {theme_manager.FONT_SIZE_SM};
-                color: rgba(255, 255, 255, 0.9);
-                background-color: rgba(255, 255, 255, 0.15);
-                padding: {dp(4)}px {dp(8)}px;  /* 修正：10不符合8pt网格 */
-                border-radius: {theme_manager.RADIUS_SM};
-            """)
-
-        # 摘要卡片 - 白色卡片风格
-        if self.summary_card:
-            self.summary_card.setStyleSheet(f"""
-                QFrame#summary_card {{
-                    background-color: {theme_manager.BG_CARD};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-radius: {theme_manager.RADIUS_MD};
-                }}
-            """)
-
-        # 摘要标签
-        if summary_label := self.findChild(QLabel, "summary_label"):
-            summary_label.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: {theme_manager.FONT_SIZE_XS};
-                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
-                color: {theme_manager.TEXT_SECONDARY};
-                text-transform: uppercase;
-                letter-spacing: {theme_manager.LETTER_SPACING_WIDE};
-            """)
-
-        # 摘要内容
-        if self.bp_summary:
-            self.bp_summary.setStyleSheet(f"""
-                font-family: {serif_font};
-                font-size: {theme_manager.FONT_SIZE_SM};
-                color: {theme_manager.TEXT_PRIMARY};
-                line-height: {theme_manager.LINE_HEIGHT_RELAXED};
-            """)
-
-        # 展开/收起按钮
-        if self.expand_btn:
-            self.expand_btn.setStyleSheet(f"""
-                QPushButton#expand_btn {{
-                    font-family: {ui_font};
-                    background: transparent;
-                    border: none;
-                    color: {theme_manager.PRIMARY};
-                    font-size: {theme_manager.FONT_SIZE_XS};
-                    padding: 0 {dp(4)}px;
-                }}
-                QPushButton#expand_btn:hover {{
-                    color: {theme_manager.TEXT_PRIMARY};
-                    text-decoration: underline;
-                }}
-            """)
+        # 蓝图卡片主题由FlippableBlueprintCard自行管理
 
         # 列表标题区
         if list_header := self.findChild(QWidget, "list_header"):
@@ -357,21 +190,20 @@ class WDSidebar(ThemeAwareFrame):
         # 判断是否为空白项目
         is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
 
-        if blueprint:
-            logger.info(f"blueprint键: {list(blueprint.keys()) if isinstance(blueprint, dict) else 'NOT A DICT'}")
-            style = blueprint.get('style', '未设定风格')
-            summary = blueprint.get('one_sentence_summary', '暂无概要')
+        if self.blueprint_card:
+            if blueprint:
+                logger.info(f"blueprint键: {list(blueprint.keys()) if isinstance(blueprint, dict) else 'NOT A DICT'}")
+                style = blueprint.get('style', '未设定风格')
+                summary = blueprint.get('one_sentence_summary', '暂无概要')
+                self.blueprint_card.setStyle(style)
+                self.blueprint_card.setSummary(summary)
+            else:
+                # 空白项目：显示提示信息
+                self.blueprint_card.setStyle("自由创作模式")
+                self.blueprint_card.setSummary("可直接创建章节开始写作，无需生成蓝图和大纲")
 
-            if self.bp_style:
-                self.bp_style.setText(style)
-            if self.bp_summary:
-                self.bp_summary.setText(summary)
-        else:
-            # 空白项目：显示提示信息
-            if self.bp_style:
-                self.bp_style.setText("自由创作模式")
-            if self.bp_summary:
-                self.bp_summary.setText("可直接创建章节开始写作，无需生成蓝图和大纲")
+            # 加载主角立绘
+            self._load_protagonist_portrait()
 
         # 根据项目类型调整按钮显示
         if self.outline_btn:
@@ -706,64 +538,96 @@ class WDSidebar(ThemeAwareFrame):
         # 清除标记
         self.generating_chapter = None
 
-    def _toggle_summary_expand(self):
-        """切换故事概要的展开/收起状态"""
-        self._summary_expanded = not self._summary_expanded
-        logger.info(f"切换概要展开状态: expanded={self._summary_expanded}")
+    def _load_protagonist_portrait(self):
+        """加载主角立绘"""
+        if not self.project or not self.blueprint_card:
+            logger.debug("无法加载立绘：project或blueprint_card不存在")
+            return
 
-        if self._summary_expanded:
-            # 展开状态：计算文本实际需要的高度
-            available_width = self.bp_summary.width()
-            if available_width <= 0:
-                available_width = self.summary_card.width() - dp(20)  # 减去padding
-            if available_width <= 0:
-                available_width = dp(200)  # 默认宽度
+        project_id = self.project.get('id')
+        if not project_id:
+            logger.debug("无法加载立绘：project_id不存在")
+            return
 
-            # 获取文本实际需要的高度
-            font_metrics = self.bp_summary.fontMetrics()
-            text = self.bp_summary.text()
-            # 使用boundingRect计算多行文本高度
-            text_rect = font_metrics.boundingRect(
-                0, 0, available_width, 0,
-                Qt.TextFlag.TextWordWrap, text
-            )
-            needed_height = text_rect.height() + dp(10)  # 加一点padding
-            logger.info(f"计算展开高度: width={available_width}, needed_height={needed_height}")
+        # 使用辅助函数提取主角名称
+        protagonist_name = extract_protagonist_name(self.project) or "主角"
+        logger.info(f"尝试加载主角立绘: {protagonist_name}")
 
-            # 展开：移除固定高度限制，让文本自然展开
-            self.bp_summary.setMinimumHeight(needed_height)
-            self.bp_summary.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
-            self.expand_btn.setText("收起")
-        else:
-            # 收起状态：设置最大高度限制
-            logger.info(f"设置收起高度: max={self._summary_max_collapsed_height}")
-            self.bp_summary.setMinimumHeight(0)
-            self.bp_summary.setMaximumHeight(self._summary_max_collapsed_height)
-            self.expand_btn.setText("展开")
+        # 尝试获取主角立绘
+        try:
+            # 获取已激活的立绘
+            result = self.api_client.get_active_portraits(project_id)
+            portraits = result.get('portraits', [])
+            logger.info(f"获取到 {len(portraits)} 个激活的立绘")
 
-        # 强制更新所有相关布局
-        self.bp_summary.adjustSize()
-        self.bp_summary.updateGeometry()
+            if portraits:
+                # 找到主角的立绘
+                for portrait in portraits:
+                    char_name = portrait.get('character_name')
+                    logger.debug(f"检查立绘角色: {char_name}")
+                    if char_name == protagonist_name:
+                        image_path = portrait.get('image_path')
+                        if image_path:
+                            # 构建完整URL并加载图片
+                            image_url = self.api_client.get_portrait_image_url(image_path)
+                            logger.info(f"找到主角立绘，URL: {image_url}")
+                            self._load_portrait_image(image_url, protagonist_name)
+                            return
 
-        if self.summary_card:
-            self.summary_card.adjustSize()
-            self.summary_card.updateGeometry()
-            if self.summary_card.layout():
-                self.summary_card.layout().invalidate()
-                self.summary_card.layout().activate()
+                # 如果没有找到主角的，使用第一个立绘
+                first_portrait = portraits[0]
+                image_path = first_portrait.get('image_path')
+                char_name = first_portrait.get('character_name', protagonist_name)
+                if image_path:
+                    image_url = self.api_client.get_portrait_image_url(image_path)
+                    logger.info(f"未找到主角立绘，使用第一个立绘: {char_name}, URL: {image_url}")
+                    self._load_portrait_image(image_url, char_name)
+                    return
 
-        if self.blueprint_card:
-            self.blueprint_card.adjustSize()
-            self.blueprint_card.updateGeometry()
-            if self.blueprint_card.layout():
-                self.blueprint_card.layout().invalidate()
-                self.blueprint_card.layout().activate()
+            # 没有立绘，显示占位符
+            logger.info("没有激活的立绘，显示占位符")
+            self.blueprint_card.setPortraitPlaceholder(protagonist_name)
 
-        if self.layout():
-            self.layout().invalidate()
-            self.layout().activate()
+        except Exception as e:
+            logger.warning(f"加载主角立绘失败: {e}")
+            self.blueprint_card.setPortraitPlaceholder(protagonist_name)
 
-        self.adjustSize()
-        self.updateGeometry()
-        self.update()
+    def _load_portrait_image(self, image_url: str, name: str):
+        """从URL加载立绘图片
+
+        Args:
+            image_url: 图片URL
+            name: 角色名称
+        """
+        try:
+            import requests
+            from PyQt6.QtGui import QPixmap
+
+            logger.debug(f"开始加载立绘图片: {image_url}")
+            response = requests.get(image_url, timeout=5)
+            logger.debug(f"响应状态码: {response.status_code}")
+
+            if response.status_code == 200:
+                pixmap = QPixmap()
+                pixmap.loadFromData(response.content)
+                if not pixmap.isNull():
+                    logger.info(f"立绘图片加载成功: {name}, 尺寸: {pixmap.width()}x{pixmap.height()}")
+                    self.blueprint_card.setPortrait(pixmap, name)
+                    return
+                else:
+                    logger.warning("加载的图片数据无效（QPixmap为空）")
+            else:
+                logger.warning(f"获取图片失败: HTTP {response.status_code}")
+
+            # 加载失败，显示占位符
+            self.blueprint_card.setPortraitPlaceholder(name)
+
+        except Exception as e:
+            logger.warning(f"加载立绘图片失败: {e}")
+            self.blueprint_card.setPortraitPlaceholder(name)
+
+    def _on_view_profile_requested(self):
+        """处理查看主角档案请求"""
+        logger.info("请求查看主角档案")
+        self.viewProtagonistProfile.emit()
 

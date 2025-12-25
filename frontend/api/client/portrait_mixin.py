@@ -244,4 +244,4 @@ class PortraitMixin:
         """
         if not image_path:
             return ""
-        return f"{self.base_url}/api/images/{image_path}"
+        return f"{self.base_url}/api/image-generation/files/{image_path}"

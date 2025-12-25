@@ -184,3 +184,75 @@ tags: blueprint, worldbuilding, character
 
 **注意**：以上仅为 total_chapters、needs_part_outlines、chapter_outline 字段的示例，完整的蓝图JSON必须包含所有必填字段（title、target_audience、genre、style、tone、one_sentence_summary、full_synopsis、world_setting、characters、relationships等）。
 
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！JSON被截断，relationships字段未完成
+{
+  "title": "xxx",
+  "characters": [...],
+  "relationships": [
+    {"character_from": "张三", "character_to": "李四", "description": "他们是...
+// 错误：句子被截断，JSON未闭合！
+
+// 错误！full_synopsis过于简短
+{
+  "full_synopsis": "主角打败了坏人。"  // 太短！必须500-800字
+}
+
+// 错误！characters数组为空
+{
+  "characters": []  // 错误：必须有至少3个角色
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| title | 字符串 | 小说标题 |
+| target_audience | 字符串 | 目标读者 |
+| genre | 字符串 | 题材类型 |
+| style | 字符串 | 写作风格 |
+| tone | 字符串 | 叙事基调 |
+| one_sentence_summary | 字符串 | 一句话概括（20-50字） |
+| full_synopsis | 字符串 | 完整大纲（500-800字） |
+| world_setting | 对象 | 世界观设定 |
+| characters | 数组 | 至少3个角色 |
+| relationships | 数组 | 角色关系 |
+| chapter_outline | 数组 | 必须为空数组 [] |
+| needs_part_outlines | 布尔 | 是否需要分部大纲 |
+| total_chapters | 整数 | 总章节数 |
+
+---
+
+## JSON完整性要求（最重要！）
+
+**必须确保JSON完整闭合！** 这是最高优先级的要求。
+
+1. **full_synopsis 控制在800字以内**：不要超过限制
+2. **relationships 描述简洁**：每个关系描述控制在50字以内
+3. **先完成结构，再填充内容**：确保所有数组和对象都有正确的闭合括号
+4. **宁可简短也不要截断**：如果内容过长，优先保证JSON结构完整
+5. **检查所有引号和括号**：确保每个字符串有闭合引号，数组有闭合方括号
+
+**正确的relationship描述示例**（简洁有力）：
+- "青梅竹马，相互信任，暗生情愫"
+- "师徒关系，亦师亦友，传承衣钵"
+
+**错误的relationship描述示例**（过长）：
+- "他们从小一起长大，经历了无数风风雨雨，在那个夏天的午后..."（过长，容易导致JSON截断）
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **chapter_outline必须为空数组**：`"chapter_outline": []`
+3. **角色数量要足够**：主角+配角至少3个
+4. **关系网络要完整**：重要角色之间要有关系定义
+5. **保持创意和趣味性**：内容要有惊喜感，避免套路化

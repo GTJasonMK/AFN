@@ -143,6 +143,7 @@ class WritingDesk(
         self.sidebar.generateChapter.connect(self.onGenerateChapter)
         self.sidebar.generateOutline.connect(self.onGenerateOutline)
         self.sidebar.createChapter.connect(self.onCreateChapter)
+        self.sidebar.viewProtagonistProfile.connect(self.onViewProtagonistProfile)
 
         # Workspace 信号
         self.workspace.generateChapterRequested.connect(self.onGenerateChapter)
@@ -296,6 +297,25 @@ class WritingDesk(
         worker.success.connect(_on_success)
         worker.error.connect(_on_error)
         self.worker_manager.start(worker, 'create_chapter')
+
+    def onViewProtagonistProfile(self):
+        """查看主角档案"""
+        if not self.project:
+            MessageService.show_warning(self, "请先加载项目")
+            return
+
+        project_id = self.project.get('id')
+        if not project_id:
+            return
+
+        # 使用辅助函数获取主角名称
+        from .utils import extract_protagonist_name
+        protagonist_name = extract_protagonist_name(self.project)
+
+        # 显示主角档案对话框
+        from .protagonist_profile_dialog import ProtagonistProfileDialog
+        dialog = ProtagonistProfileDialog(project_id, protagonist_name, self)
+        dialog.exec()
 
     # ==================== 导航 ====================
 

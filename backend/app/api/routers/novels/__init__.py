@@ -34,6 +34,7 @@ from .blueprints import router as blueprints_router
 from .outlines import router as outlines_router
 from .export import router as export_router
 from .import_analysis import router as import_analysis_router
+from ..protagonist import router as protagonist_router
 
 logger = logging.getLogger(__name__)
 
@@ -172,5 +173,6 @@ router.include_router(blueprints_router)
 router.include_router(outlines_router)
 router.include_router(export_router)
 router.include_router(import_analysis_router)
+router.include_router(protagonist_router, tags=["Protagonist Profile"])
 
 __all__ = ["router"]

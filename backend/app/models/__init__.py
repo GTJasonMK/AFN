@@ -21,6 +21,12 @@ from .image_config import ImageGenerationConfig, GeneratedImage
 from .llm_config import LLMConfig
 from .part_outline import PartOutline
 from .prompt import Prompt
+from .protagonist import (
+    ProtagonistProfile,
+    ProtagonistAttributeChange,
+    ProtagonistBehaviorRecord,
+    ProtagonistDeletionMark,
+)
 from .theme_config import ThemeConfig
 from .user import User
 
@@ -44,6 +50,10 @@ __all__ = [
     "NovelProject",
     "PartOutline",
     "Prompt",
+    "ProtagonistProfile",
+    "ProtagonistAttributeChange",
+    "ProtagonistBehaviorRecord",
+    "ProtagonistDeletionMark",
     "ThemeConfig",
     "User",
 ]

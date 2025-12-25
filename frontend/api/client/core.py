@@ -32,6 +32,7 @@ from .queue_mixin import QueueMixin
 from .portrait_mixin import PortraitMixin
 from .import_mixin import ImportMixin
 from .theme_config_mixin import ThemeConfigMixin
+from .protagonist_mixin import ProtagonistMixin
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class AFNAPIClient(
     PortraitMixin,
     ImportMixin,
     ThemeConfigMixin,
+    ProtagonistMixin,
 ):
     """AFN API 客户端
 
@@ -76,7 +78,11 @@ class AFNAPIClient(
     - MangaMixin: 漫画提示词
     - ConfigMixin: 配置管理
     - ImageMixin: 图片生成
+    - QueueMixin: 任务队列
+    - PortraitMixin: 角色立绘
     - ImportMixin: 外部小说导入和分析
+    - ThemeConfigMixin: 主题配置
+    - ProtagonistMixin: 主角档案管理
     """
 
     def __init__(self, base_url: str = "http://127.0.0.1:8123"):
