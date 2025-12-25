@@ -4,14 +4,15 @@
 提供用户自定义主题的完整编辑界面。
 """
 
+import json
 import logging
 from typing import Optional, Dict, Any, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QStackedWidget, QScrollArea,
-    QTabWidget, QLineEdit, QInputDialog, QMessageBox, QSizePolicy,
-    QGroupBox, QGridLayout, QSpacerItem
+    QTabWidget, QLineEdit, QSizePolicy,
+    QGroupBox, QGridLayout, QSpacerItem, QFileDialog
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
@@ -21,6 +22,7 @@ from utils.async_worker import AsyncWorker
 from utils.message_service import MessageService
 from api.manager import APIClientManager
 from components.inputs import ColorPickerWidget, SizeInputWidget, FontFamilySelector
+from components.dialogs import InputDialog
 
 logger = logging.getLogger(__name__)
 
@@ -396,6 +398,20 @@ class ThemeSettingsWidget(QWidget):
         self.reset_btn.clicked.connect(self._reset_config)
         layout.addWidget(self.reset_btn)
 
+        # 导入按钮
+        self.import_btn = QPushButton("导入")
+        self.import_btn.setObjectName("import_btn")
+        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_btn.clicked.connect(self._import_configs)
+        layout.addWidget(self.import_btn)
+
+        # 导出按钮
+        self.export_btn = QPushButton("导出")
+        self.export_btn.setObjectName("export_btn")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(self._export_configs)
+        layout.addWidget(self.export_btn)
+
         layout.addStretch()
 
         # 保存按钮
@@ -618,6 +634,25 @@ class ThemeSettingsWidget(QWidget):
             }}
         """)
 
+        # 导入导出按钮样式
+        io_btn_style = f"""
+            QPushButton {{
+                font-family: {palette.ui_font};
+                font-size: {sp(13)}px;
+                color: {palette.text_secondary};
+                background-color: transparent;
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px {dp(16)}px;
+            }}
+            QPushButton:hover {{
+                color: {palette.accent_color};
+                border-color: {palette.accent_color};
+            }}
+        """
+        self.import_btn.setStyleSheet(io_btn_style)
+        self.export_btn.setStyleSheet(io_btn_style)
+
         # 保存按钮
         self.save_btn.setStyleSheet(f"""
             QPushButton#save_btn {{
@@ -792,9 +827,12 @@ class ThemeSettingsWidget(QWidget):
 
     def _create_new_config(self):
         """创建新配置"""
-        name, ok = QInputDialog.getText(
-            self, "新建子主题", "请输入子主题名称：",
-            text=f"我的{self._current_mode == 'light' and '浅色' or '深色'}主题"
+        default_name = f"我的{'浅色' if self._current_mode == 'light' else '深色'}主题"
+        name, ok = InputDialog.getTextStatic(
+            parent=self,
+            title="新建子主题",
+            label="请输入子主题名称：",
+            text=default_name
         )
         if not ok or not name.strip():
             return
@@ -844,12 +882,13 @@ class ThemeSettingsWidget(QWidget):
             MessageService.show_warning(self, "请先选择一个配置")
             return
 
-        reply = QMessageBox.question(
-            self, "确认删除",
+        if not MessageService.confirm(
+            self,
             "确定要删除此配置吗？此操作不可恢复。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            "确认删除",
+            confirm_text="删除",
+            cancel_text="取消"
+        ):
             return
 
         def do_delete():
@@ -921,12 +960,13 @@ class ThemeSettingsWidget(QWidget):
             MessageService.show_warning(self, "请先选择一个配置")
             return
 
-        reply = QMessageBox.question(
-            self, "确认重置",
+        if not MessageService.confirm(
+            self,
             "确定要将此配置重置为默认值吗？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            "确认重置",
+            confirm_text="重置",
+            cancel_text="取消"
+        ):
             return
 
         def do_reset():
@@ -956,6 +996,94 @@ class ThemeSettingsWidget(QWidget):
         # 调用主题管理器应用自定义主题
         if hasattr(theme_manager, 'apply_custom_theme'):
             theme_manager.apply_custom_theme(flat_config)
+
+    def _export_configs(self):
+        """导出主题配置"""
+        # 选择保存路径
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出主题配置",
+            "theme_configs.json",
+            "JSON文件 (*.json)"
+        )
+        if not file_path:
+            return
+
+        def do_export():
+            return self.api_client.export_all_theme_configs()
+
+        def on_success(export_data):
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, ensure_ascii=False, indent=2)
+                MessageService.show_success(self, f"已导出到：{file_path}")
+            except Exception as e:
+                MessageService.show_error(self, f"保存文件失败：{e}")
+
+        def on_error(error):
+            MessageService.show_error(self, f"导出失败：{error}")
+
+        self._worker = AsyncWorker(do_export)
+        self._worker.success.connect(on_success)
+        self._worker.error.connect(on_error)
+        self._worker.start()
+
+    def _import_configs(self):
+        """导入主题配置"""
+        # 选择文件
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入主题配置",
+            "",
+            "JSON文件 (*.json)"
+        )
+        if not file_path:
+            return
+
+        # 读取文件
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                import_data = json.load(f)
+        except json.JSONDecodeError as e:
+            MessageService.show_error(self, f"JSON格式错误：{e}")
+            return
+        except Exception as e:
+            MessageService.show_error(self, f"读取文件失败：{e}")
+            return
+
+        # 确认导入
+        config_count = len(import_data.get('configs', []))
+        if config_count == 0:
+            MessageService.show_warning(self, "文件中没有可导入的配置")
+            return
+
+        if not MessageService.confirm(
+            self,
+            f"即将导入 {config_count} 个主题配置。\n\n"
+            "同名配置将被跳过，是否继续？",
+            "确认导入"
+        ):
+            return
+
+        def do_import():
+            return self.api_client.import_theme_configs(import_data)
+
+        def on_success(result):
+            imported = result.get('imported_count', 0)
+            skipped = result.get('skipped_count', 0)
+            msg = f"成功导入 {imported} 个配置"
+            if skipped > 0:
+                msg += f"，跳过 {skipped} 个同名配置"
+            MessageService.show_success(self, msg)
+            self._load_configs()
+
+        def on_error(error):
+            MessageService.show_error(self, f"导入失败：{error}")
+
+        self._worker = AsyncWorker(do_import)
+        self._worker.success.connect(on_success)
+        self._worker.error.connect(on_error)
+        self._worker.start()
 
     def refresh(self):
         """刷新配置列表"""

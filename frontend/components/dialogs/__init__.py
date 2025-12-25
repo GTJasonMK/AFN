@@ -11,6 +11,7 @@
 - PartOutlineConfigDialog: 部分大纲配置对话框
 - CreateModeDialog: 创作模式选择对话框
 - ImportProgressDialog: 导入分析进度对话框
+- SaveDiscardDialog: 保存/不保存/取消 三按钮对话框
 
 基类：
 - BaseDialog: 无边框自定义对话框基类
@@ -34,6 +35,7 @@ from .loading_dialog import LoadingDialog
 from .config_dialogs import PartOutlineConfigDialog
 from .create_mode_dialog import CreateModeDialog
 from .import_progress_dialog import ImportProgressDialog
+from .save_discard_dialog import SaveDiscardDialog, SaveDiscardResult
 
 __all__ = [
     'DialogStyles',
@@ -48,4 +50,6 @@ __all__ = [
     'PartOutlineConfigDialog',
     'CreateModeDialog',
     'ImportProgressDialog',
+    'SaveDiscardDialog',
+    'SaveDiscardResult',
 ]

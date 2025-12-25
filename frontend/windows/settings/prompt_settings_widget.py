@@ -6,7 +6,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QFrame, QMessageBox
+    QListWidget, QListWidgetItem, QFrame
 )
 from PyQt6.QtCore import Qt, QSize
 from api.manager import APIClientManager
@@ -254,15 +254,11 @@ class PromptSettingsWidget(QWidget):
         title = prompt_data.get('title') or name
 
         # 确认对话框
-        reply = QMessageBox.question(
+        if MessageService.confirm(
             self,
-            "确认恢复",
             f"确定要将「{title}」恢复到默认值吗？\n您的修改将会丢失。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
+            "确认恢复"
+        ):
             self._do_reset_single(name)
 
     @handle_errors("恢复默认值")
@@ -275,15 +271,11 @@ class PromptSettingsWidget(QWidget):
     def _on_reset_all(self):
         """恢复全部提示词默认值"""
         # 确认对话框
-        reply = QMessageBox.question(
+        if MessageService.confirm(
             self,
-            "确认恢复全部",
             "确定要将所有提示词恢复到默认值吗？\n您的所有修改将会丢失。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
+            "确认恢复全部"
+        ):
             self._do_reset_all()
 
     @handle_errors("恢复全部默认值")

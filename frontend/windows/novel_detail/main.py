@@ -1400,23 +1400,21 @@ class NovelDetail(BasePage):
         summary = self.dirty_tracker.get_dirty_summary()
 
         # 显示三按钮对话框
-        from components.dialogs import ConfirmDialog
-        from PyQt6.QtWidgets import QMessageBox
+        from components.dialogs import SaveDiscardDialog, SaveDiscardResult
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("确认离开")
-        msg.setText(f"有未保存的修改（{summary}）")
-        msg.setInformativeText("是否保存修改？")
-        msg.setStandardButtons(
-            QMessageBox.StandardButton.Save |
-            QMessageBox.StandardButton.Discard |
-            QMessageBox.StandardButton.Cancel
+        dialog = SaveDiscardDialog(
+            parent=self,
+            title="确认离开",
+            message=f"有未保存的修改（{summary}）",
+            detail="是否保存修改？",
+            save_text="保存",
+            discard_text="不保存",
+            cancel_text="取消"
         )
-        msg.setDefaultButton(QMessageBox.StandardButton.Save)
 
-        result = msg.exec()
+        result = dialog.exec()
 
-        if result == QMessageBox.StandardButton.Save:
+        if result == SaveDiscardResult.SAVE:
             # 同步保存（阻塞）
             try:
                 dirty_data = self.dirty_tracker.get_dirty_data()
@@ -1430,7 +1428,7 @@ class NovelDetail(BasePage):
             except Exception as e:
                 MessageService.show_error(self, f"保存失败：{str(e)}", "错误")
                 return False
-        elif result == QMessageBox.StandardButton.Discard:
+        elif result == SaveDiscardResult.DISCARD:
             # 不保存，直接继续
             self.dirty_tracker.reset()
             return True
