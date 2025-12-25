@@ -28,7 +28,7 @@ class EmbeddingSettingsWidget(QWidget):
         self._test_worker = None  # 异步测试Worker
         self._create_ui_structure()
         self._apply_styles()
-        self.loadConfigs()
+        # 注意：loadConfigs() 由 SettingsView._load_page_data() 延迟调用
 
         # 连接主题切换信号
         theme_manager.theme_changed.connect(self._on_theme_changed)

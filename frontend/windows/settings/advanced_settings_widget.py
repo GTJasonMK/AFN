@@ -27,7 +27,7 @@ class AdvancedSettingsWidget(QWidget):
         self.config_data = {}
         self._create_ui_structure()
         self._apply_styles()
-        self.loadConfig()
+        # 注意：loadConfig() 由 SettingsView._load_page_data() 延迟调用
 
         # 连接主题切换信号
         theme_manager.theme_changed.connect(self._on_theme_changed)

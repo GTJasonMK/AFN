@@ -219,7 +219,7 @@ class ThemeSettingsWidget(QWidget):
 
         self._create_ui()
         self._apply_theme()
-        self._load_configs()
+        # 注意：_load_configs() 由 SettingsView._load_page_data() 通过 refresh() 延迟调用
 
         # 监听主题变化
         theme_manager.theme_changed.connect(self._apply_theme)
@@ -374,6 +374,7 @@ class ThemeSettingsWidget(QWidget):
                     widget.value_changed.connect(lambda: self._mark_modified())
                 else:  # text
                     widget = QLineEdit()
+                    widget.setObjectName("text_field_input")
                     widget.textChanged.connect(lambda: self._mark_modified())
 
                 grid.addWidget(widget, row, 1)
@@ -562,6 +563,29 @@ class ThemeSettingsWidget(QWidget):
                 }}
             """)
 
+        # 滚动内容区域背景
+        scroll_content = self.findChild(QWidget, "scroll_content")
+        if scroll_content:
+            scroll_content.setStyleSheet(f"""
+                QWidget#scroll_content {{
+                    background-color: {palette.bg_secondary};
+                }}
+            """)
+
+        # 配置名称标签
+        name_label = self.config_layout.itemAt(0)
+        if name_label and name_label.layout():
+            label_widget = name_label.layout().itemAt(0)
+            if label_widget and label_widget.widget():
+                label_widget.widget().setStyleSheet(f"""
+                    QLabel {{
+                        font-family: {palette.ui_font};
+                        font-size: {sp(14)}px;
+                        color: {palette.text_primary};
+                        background-color: transparent;
+                    }}
+                """)
+
         # 配置名称输入
         self.name_input.setStyleSheet(f"""
             QLineEdit {{
@@ -608,6 +632,24 @@ class ThemeSettingsWidget(QWidget):
             group_box = self.findChild(QGroupBox, f"group_{group_key}")
             if group_box:
                 group_box.setStyleSheet(group_style)
+
+        # 文本类型输入框样式（阴影颜色、遮罩颜色等）
+        text_input_style = f"""
+            QLineEdit#text_field_input {{
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: {sp(13)}px;
+                color: {palette.text_primary};
+                background-color: {theme_manager.BG_TERTIARY};
+                border: 1px solid {palette.border_color};
+                border-radius: {dp(4)}px;
+                padding: {dp(6)}px {dp(8)}px;
+            }}
+            QLineEdit#text_field_input:focus {{
+                border-color: {palette.accent_color};
+            }}
+        """
+        for text_input in self.findChildren(QLineEdit, "text_field_input"):
+            text_input.setStyleSheet(text_input_style)
 
         # 底部操作栏
         self.findChild(QFrame, "bottom_bar").setStyleSheet(f"""

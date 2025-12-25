@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "export_time": "2025-12-25T09:57:49.624014+00:00",
+  "export_time": "2025-12-25T11:02:32.493780+00:00",
   "export_type": "all",
   "llm_configs": [
     {
@@ -58,6 +58,341 @@
           " image-generation",
           " svg"
         ]
+      }
+    ]
+  },
+  "theme_configs": {
+    "version": "1.0",
+    "export_time": "2025-12-25T11:02:32.493780+00:00",
+    "configs": [
+      {
+        "config_name": "我的深色主题",
+        "parent_mode": "dark",
+        "primary_colors": {
+          "PRIMARY": "#E89B6C",
+          "PRIMARY_LIGHT": "#F0B088",
+          "PRIMARY_DARK": "#D4845A",
+          "PRIMARY_PALE": "#2A2520",
+          "PRIMARY_GRADIENT": [
+            "#F0B088",
+            "#E89B6C",
+            "#D4845A"
+          ]
+        },
+        "accent_colors": {
+          "ACCENT": "#D4845A",
+          "ACCENT_LIGHT": "#E89B6C",
+          "ACCENT_DARK": "#B86E48",
+          "ACCENT_PALE": "#2D2118",
+          "ACCENT_GRADIENT": [
+            "#E89B6C",
+            "#D4845A",
+            "#B86E48"
+          ]
+        },
+        "semantic_colors": {
+          "SUCCESS": "#4a9f6e",
+          "SUCCESS_LIGHT": "#6db88a",
+          "SUCCESS_DARK": "#3a8558",
+          "SUCCESS_BG": "#1a2f22",
+          "SUCCESS_GRADIENT": [
+            "#8fcca6",
+            "#6db88a",
+            "#4a9f6e"
+          ],
+          "ERROR": "#A85448",
+          "ERROR_LIGHT": "#C4706A",
+          "ERROR_DARK": "#8B3F35",
+          "ERROR_BG": "#2D1F1C",
+          "ERROR_GRADIENT": [
+            "#C4706A",
+            "#A85448",
+            "#8B3F35"
+          ],
+          "WARNING": "#D4923A",
+          "WARNING_LIGHT": "#E5AD5C",
+          "WARNING_DARK": "#B87A2A",
+          "WARNING_BG": "#2D2518",
+          "WARNING_GRADIENT": [
+            "#E5AD5C",
+            "#D4923A",
+            "#B87A2A"
+          ],
+          "INFO": "#4A8DB3",
+          "INFO_LIGHT": "#6DA8C9",
+          "INFO_DARK": "#3A7499",
+          "INFO_BG": "#1A2530",
+          "INFO_GRADIENT": [
+            "#6DA8C9",
+            "#4A8DB3",
+            "#3A7499"
+          ]
+        },
+        "text_colors": {
+          "TEXT_PRIMARY": "#E8DFD4",
+          "TEXT_SECONDARY": "#9C8B7A",
+          "TEXT_TERTIARY": "#7A6B5A",
+          "TEXT_PLACEHOLDER": "#5A4D40",
+          "TEXT_DISABLED": "#4A3F35"
+        },
+        "background_colors": {
+          "BG_PRIMARY": "#1C1714",
+          "BG_SECONDARY": "#251E19",
+          "BG_TERTIARY": "#3D332B",
+          "BG_CARD": "#251E19",
+          "BG_CARD_HOVER": "#2D2520",
+          "BG_GRADIENT": [
+            "#1C1714",
+            "#251E19",
+            "#3D332B"
+          ],
+          "BG_MUTED": "#3D332B",
+          "BG_ACCENT": "#3D332B",
+          "GLASS_BG": "rgba(37, 30, 25, 0.85)"
+        },
+        "border_effects": {
+          "BORDER_DEFAULT": "#4A3F35",
+          "BORDER_LIGHT": "#3D332B",
+          "BORDER_DARK": "#5A4D40",
+          "SHADOW_COLOR": "rgba(0, 0, 0, 0.3)",
+          "OVERLAY_COLOR": "rgba(28, 23, 20, 0.4)",
+          "SHADOW_CARD": "0 4px 20px -2px rgba(232,155,108,0.10)",
+          "SHADOW_CARD_HOVER": "0 20px 40px -10px rgba(232,155,108,0.15)",
+          "SHADOW_SIENNA": "0 4px 20px -2px rgba(232,155,108,0.15)",
+          "SHADOW_SIENNA_HOVER": "0 6px 24px -4px rgba(232,155,108,0.25)",
+          "SHADOW_AMBER_GLOW": "0 4px 12px rgba(232,155,108,0.3)"
+        },
+        "button_colors": {
+          "BUTTON_TEXT": "#1C1714",
+          "BUTTON_TEXT_SECONDARY": "#E8DFD4"
+        },
+        "typography": {
+          "FONT_HEADING": "'Noto Serif SC', 'Source Han Serif SC', serif",
+          "FONT_BODY": "'Noto Sans SC', 'Source Han Sans SC', sans-serif",
+          "FONT_DISPLAY": "'Noto Serif SC', 'Source Han Serif SC', serif",
+          "FONT_UI": "'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif",
+          "FONT_SIZE_XS": "12px",
+          "FONT_SIZE_SM": "12px",
+          "FONT_SIZE_BASE": "14px",
+          "FONT_SIZE_MD": "16px",
+          "FONT_SIZE_LG": "18px",
+          "FONT_SIZE_XL": "20px",
+          "FONT_SIZE_2XL": "24px",
+          "FONT_SIZE_3XL": "32px",
+          "FONT_WEIGHT_NORMAL": "400",
+          "FONT_WEIGHT_MEDIUM": "500",
+          "FONT_WEIGHT_SEMIBOLD": "600",
+          "FONT_WEIGHT_BOLD": "700",
+          "LINE_HEIGHT_TIGHT": "1.4",
+          "LINE_HEIGHT_NORMAL": "1.5",
+          "LINE_HEIGHT_RELAXED": "1.6",
+          "LINE_HEIGHT_LOOSE": "1.8",
+          "LETTER_SPACING_TIGHT": "-0.02em",
+          "LETTER_SPACING_NORMAL": "0",
+          "LETTER_SPACING_WIDE": "0.05em",
+          "LETTER_SPACING_WIDER": "0.1em",
+          "LETTER_SPACING_WIDEST": "0.15em"
+        },
+        "border_radius": {
+          "RADIUS_XS": "2px",
+          "RADIUS_SM": "4px",
+          "RADIUS_MD": "6px",
+          "RADIUS_LG": "8px",
+          "RADIUS_XL": "16px",
+          "RADIUS_2XL": "24px",
+          "RADIUS_3XL": "32px",
+          "RADIUS_ROUND": "50%",
+          "RADIUS_ORGANIC": "60% 40% 30% 70% / 60% 30% 70% 40%",
+          "RADIUS_ORGANIC_ALT": "30% 70% 70% 30% / 30% 30% 70% 70%",
+          "RADIUS_PILL": "9999px"
+        },
+        "spacing": {
+          "SPACING_XS": "8px",
+          "SPACING_SM": "16px",
+          "SPACING_MD": "24px",
+          "SPACING_LG": "32px",
+          "SPACING_XL": "40px",
+          "SPACING_XXL": "48px"
+        },
+        "animation": {
+          "TRANSITION_FAST": "150ms",
+          "TRANSITION_BASE": "300ms",
+          "TRANSITION_SLOW": "500ms",
+          "TRANSITION_DRAMATIC": "700ms",
+          "EASING_DEFAULT": "ease-out"
+        },
+        "button_sizes": {
+          "BUTTON_HEIGHT_SM": "40px",
+          "BUTTON_HEIGHT_DEFAULT": "48px",
+          "BUTTON_HEIGHT_LG": "56px",
+          "BUTTON_PADDING_SM": "24px",
+          "BUTTON_PADDING_DEFAULT": "32px",
+          "BUTTON_PADDING_LG": "40px"
+        }
+      },
+      {
+        "config_name": "我的浅色主题",
+        "parent_mode": "light",
+        "primary_colors": {
+          "PRIMARY": "#8B4513",
+          "PRIMARY_LIGHT": "#A0522D",
+          "PRIMARY_DARK": "#6B3410",
+          "PRIMARY_PALE": "#FDF5ED",
+          "PRIMARY_GRADIENT": [
+            "#A0522D",
+            "#8B4513",
+            "#6B3410"
+          ]
+        },
+        "accent_colors": {
+          "ACCENT": "#A0522D",
+          "ACCENT_LIGHT": "#B8653D",
+          "ACCENT_DARK": "#8B4513",
+          "ACCENT_PALE": "#FAF5F0",
+          "ACCENT_GRADIENT": [
+            "#B8653D",
+            "#A0522D",
+            "#8B4513"
+          ]
+        },
+        "semantic_colors": {
+          "SUCCESS": "#4a9f6e",
+          "SUCCESS_LIGHT": "#6db88a",
+          "SUCCESS_DARK": "#3a8558",
+          "SUCCESS_BG": "#f0f9f4",
+          "SUCCESS_GRADIENT": [
+            "#8fcca6",
+            "#6db88a",
+            "#4a9f6e"
+          ],
+          "ERROR": "#A85448",
+          "ERROR_LIGHT": "#C4706A",
+          "ERROR_DARK": "#8B3F35",
+          "ERROR_BG": "#fdf3f2",
+          "ERROR_GRADIENT": [
+            "#C4706A",
+            "#A85448",
+            "#8B3F35"
+          ],
+          "WARNING": "#d4923a",
+          "WARNING_LIGHT": "#e5ad5c",
+          "WARNING_DARK": "#b87a2a",
+          "WARNING_BG": "#fdf8f0",
+          "WARNING_GRADIENT": [
+            "#f0c67d",
+            "#e5ad5c",
+            "#d4923a"
+          ],
+          "INFO": "#4a8db3",
+          "INFO_LIGHT": "#6da8c9",
+          "INFO_DARK": "#3a7499",
+          "INFO_BG": "#f0f6fa",
+          "INFO_GRADIENT": [
+            "#90c5dd",
+            "#6da8c9",
+            "#4a8db3"
+          ]
+        },
+        "text_colors": {
+          "TEXT_PRIMARY": "#2C1810",
+          "TEXT_SECONDARY": "#5D4037",
+          "TEXT_TERTIARY": "#6D6560",
+          "TEXT_PLACEHOLDER": "#8D8580",
+          "TEXT_DISABLED": "#B0A8A0"
+        },
+        "background_colors": {
+          "BG_PRIMARY": "#F9F5F0",
+          "BG_SECONDARY": "#FFFBF0",
+          "BG_TERTIARY": "#F0EBE5",
+          "BG_CARD": "#FFFBF0",
+          "BG_CARD_HOVER": "#F5F0EA",
+          "BG_GRADIENT": [
+            "#F9F5F0",
+            "#FFFBF0",
+            "#F0EBE5"
+          ],
+          "BG_MUTED": "#F0EBE5",
+          "BG_ACCENT": "#E6DCCD",
+          "GLASS_BG": "rgba(249, 245, 240, 0.85)"
+        },
+        "border_effects": {
+          "BORDER_DEFAULT": "#D7CCC8",
+          "BORDER_LIGHT": "#E8E4DF",
+          "BORDER_DARK": "#C4C0BC",
+          "SHADOW_COLOR": "rgba(44, 24, 16, 0.08)",
+          "OVERLAY_COLOR": "rgba(44, 24, 16, 0.25)",
+          "SHADOW_CARD": "0 4px 20px -2px rgba(139,69,19,0.10)",
+          "SHADOW_CARD_HOVER": "0 20px 40px -10px rgba(139,69,19,0.15)",
+          "SHADOW_SIENNA": "0 4px 20px -2px rgba(139,69,19,0.15)",
+          "SHADOW_SIENNA_HOVER": "0 6px 24px -4px rgba(139,69,19,0.25)"
+        },
+        "button_colors": {
+          "BUTTON_TEXT": "#FFFBF0",
+          "BUTTON_TEXT_SECONDARY": "#2C1810"
+        },
+        "typography": {
+          "FONT_HEADING": "'Noto Serif SC', 'Source Han Serif SC', serif",
+          "FONT_BODY": "'Noto Sans SC', 'Source Han Sans SC', sans-serif",
+          "FONT_DISPLAY": "'Noto Serif SC', 'Source Han Serif SC', serif",
+          "FONT_UI": "'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif",
+          "FONT_SIZE_XS": "12px",
+          "FONT_SIZE_SM": "12px",
+          "FONT_SIZE_BASE": "14px",
+          "FONT_SIZE_MD": "16px",
+          "FONT_SIZE_LG": "18px",
+          "FONT_SIZE_XL": "20px",
+          "FONT_SIZE_2XL": "24px",
+          "FONT_SIZE_3XL": "32px",
+          "FONT_WEIGHT_NORMAL": "400",
+          "FONT_WEIGHT_MEDIUM": "500",
+          "FONT_WEIGHT_SEMIBOLD": "600",
+          "FONT_WEIGHT_BOLD": "700",
+          "LINE_HEIGHT_TIGHT": "1.4",
+          "LINE_HEIGHT_NORMAL": "1.5",
+          "LINE_HEIGHT_RELAXED": "1.6",
+          "LINE_HEIGHT_LOOSE": "1.8",
+          "LETTER_SPACING_TIGHT": "-0.02em",
+          "LETTER_SPACING_NORMAL": "0",
+          "LETTER_SPACING_WIDE": "0.05em",
+          "LETTER_SPACING_WIDER": "0.1em",
+          "LETTER_SPACING_WIDEST": "0.15em"
+        },
+        "border_radius": {
+          "RADIUS_XS": "2px",
+          "RADIUS_SM": "4px",
+          "RADIUS_MD": "6px",
+          "RADIUS_LG": "8px",
+          "RADIUS_XL": "16px",
+          "RADIUS_2XL": "24px",
+          "RADIUS_3XL": "32px",
+          "RADIUS_ROUND": "50%",
+          "RADIUS_ORGANIC": "60% 40% 30% 70% / 60% 30% 70% 40%",
+          "RADIUS_ORGANIC_ALT": "30% 70% 70% 30% / 30% 30% 70% 70%",
+          "RADIUS_PILL": "9999px"
+        },
+        "spacing": {
+          "SPACING_XS": "8px",
+          "SPACING_SM": "16px",
+          "SPACING_MD": "24px",
+          "SPACING_LG": "32px",
+          "SPACING_XL": "40px",
+          "SPACING_XXL": "48px"
+        },
+        "animation": {
+          "TRANSITION_FAST": "150ms",
+          "TRANSITION_BASE": "300ms",
+          "TRANSITION_SLOW": "500ms",
+          "TRANSITION_DRAMATIC": "700ms",
+          "EASING_DEFAULT": "ease-out"
+        },
+        "button_sizes": {
+          "BUTTON_HEIGHT_SM": "40px",
+          "BUTTON_HEIGHT_DEFAULT": "48px",
+          "BUTTON_HEIGHT_LG": "56px",
+          "BUTTON_PADDING_SM": "24px",
+          "BUTTON_PADDING_DEFAULT": "32px",
+          "BUTTON_PADDING_LG": "40px"
+        }
       }
     ]
   }

@@ -136,6 +136,10 @@ class SizeInputWidget(QWidget):
                 selection-background-color: {theme_manager.PRIMARY_PALE};
                 selection-color: {palette.accent_color};
             }}
+            QComboBox QAbstractItemView::item {{
+                color: {palette.text_primary};
+                padding: {dp(4)}px;
+            }}
         """)
 
     def _on_value_changed(self, text: str):

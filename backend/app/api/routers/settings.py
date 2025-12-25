@@ -101,6 +101,7 @@ class AllConfigExportData(BaseModel):
     advanced_config: Optional[Dict[str, Any]] = None
     queue_config: Optional[Dict[str, Any]] = None
     prompt_configs: Optional[Dict[str, Any]] = None  # 提示词配置
+    theme_configs: Optional[Dict[str, Any]] = None  # 主题配置
 
 
 class ConfigImportResult(BaseModel):
@@ -388,7 +389,7 @@ async def export_all_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> AllConfigExportData:
     """
-    导出所有配置（LLM、嵌入、图片、高级、队列、提示词）
+    导出所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
 
     Returns:
         包含所有配置的JSON数据
@@ -398,6 +399,7 @@ async def export_all_configs(
     from ...services.image_generation import ImageConfigService
     from ...services.queue import LLMRequestQueue, ImageRequestQueue
     from ...services.prompt_service import PromptService
+    from ...services.theme_config_service import ThemeConfigService
 
     # 获取LLM配置（使用service的export方法获取完整数据）
     llm_service = LLMConfigService(session)
@@ -456,6 +458,15 @@ async def export_all_configs(
     except Exception:
         prompt_configs_data = {"count": 0, "prompts": []}
 
+    # 获取主题配置
+    theme_service = ThemeConfigService(session)
+    try:
+        theme_export = await theme_service.export_all_configs(desktop_user.id)
+        # 转换为字典
+        theme_configs_data = theme_export.model_dump()
+    except Exception:
+        theme_configs_data = {"count": 0, "configs": []}
+
     return AllConfigExportData(
         export_time=datetime.now(timezone.utc).isoformat(),
         llm_configs=llm_configs_data,
@@ -464,6 +475,7 @@ async def export_all_configs(
         advanced_config=advanced_config,
         queue_config=queue_config,
         prompt_configs=prompt_configs_data,
+        theme_configs=theme_configs_data,
     )
 
 
@@ -474,7 +486,7 @@ async def import_all_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> ConfigImportResult:
     """
-    导入所有配置（LLM、嵌入、图片、高级、队列、提示词）
+    导入所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
 
     支持选择性导入：只导入import_data中存在的配置类型
 
@@ -489,6 +501,7 @@ async def import_all_configs(
     from ...services.image_generation import ImageConfigService
     from ...services.queue import LLMRequestQueue, ImageRequestQueue
     from ...services.prompt_service import PromptService
+    from ...services.theme_config_service import ThemeConfigService
 
     details = []
     has_error = False
@@ -593,6 +606,24 @@ async def import_all_configs(
                     has_error = True
             except Exception as e:
                 details.append(f"提示词配置导入失败: {str(e)}")
+                has_error = True
+
+        # 导入主题配置
+        if import_data.get("theme_configs"):
+            try:
+                from ...schemas.theme_config import ThemeConfigExportData as ThemeExportData
+                theme_service = ThemeConfigService(session)
+                # 将字典转换为 ThemeConfigExportData 对象
+                theme_import_data = ThemeExportData(**import_data["theme_configs"])
+                result = await theme_service.import_configs(desktop_user.id, theme_import_data)
+                imported = result.imported_count
+                skipped = result.skipped_count
+                msg = f"导入 {imported} 个"
+                if skipped > 0:
+                    msg += f"，跳过 {skipped} 个同名"
+                details.append(f"主题配置: {msg}")
+            except Exception as e:
+                details.append(f"主题配置导入失败: {str(e)}")
                 has_error = True
 
         await session.commit()

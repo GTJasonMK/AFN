@@ -122,8 +122,10 @@ class FontFamilySelector(QWidget):
             QComboBox QAbstractItemView::item {{
                 padding: {dp(8)}px;
                 min-height: {dp(32)}px;
+                color: {palette.text_primary};
             }}
             QComboBox QLineEdit {{
+                color: {palette.text_primary};
                 background-color: transparent;
                 border: none;
                 padding: 0;

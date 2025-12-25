@@ -305,7 +305,7 @@ class ConfigMixin:
 
     def export_all_configs(self) -> Dict[str, Any]:
         """
-        导出所有配置（LLM、嵌入、图片、高级、队列）
+        导出所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
 
         Returns:
             包含所有配置的导出数据
@@ -314,7 +314,7 @@ class ConfigMixin:
 
     def import_all_configs(self, import_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        导入所有配置
+        导入所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
 
         Args:
             import_data: 包含所有配置的导入数据
