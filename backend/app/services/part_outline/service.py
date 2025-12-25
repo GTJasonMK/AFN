@@ -358,7 +358,13 @@ class PartOutlineService:
             )
 
             part_data = self._parser.parse_single_part(response, current_part_num)
-            part_outline = self._model_factory.create_from_dict(project_id, part_data)
+            part_outline = self._model_factory.create_from_dict(
+                project_id,
+                part_data,
+                default_part_number=current_part_num,
+                total_chapters=total_chapters,
+                total_parts=total_parts,
+            )
 
             await self.repo.add(part_outline)
             await self.session.commit()
@@ -634,7 +640,13 @@ class PartOutlineService:
         )
 
         part_data = self._parser.parse_single_part(response, part_number)
-        new_part = self._model_factory.create_from_dict(project_id, part_data)
+        new_part = self._model_factory.create_from_dict(
+            project_id,
+            part_data,
+            default_part_number=part_number,
+            total_chapters=total_chapters,
+            total_parts=total_parts,
+        )
 
         await self.repo.add(new_part)
 

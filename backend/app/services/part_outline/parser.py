@@ -2,6 +2,7 @@
 部分大纲LLM响应解析器
 
 负责解析LLM返回的部分大纲JSON数据。
+采用简洁直接的方式，解析失败直接报错，依靠完善的提示词确保格式正确。
 """
 
 import json
@@ -9,7 +10,7 @@ import logging
 from typing import Dict, List
 
 from ...exceptions import JSONParseError
-from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, repair_truncated_json
+from ...utils.json_utils import remove_think_tags, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,12 @@ class PartOutlineParser:
     部分大纲解析器
 
     负责解析LLM返回的部分大纲JSON，支持批量解析和单个解析两种模式。
+    解析失败直接报错，不尝试猜测修复。
     """
 
-    def _parse_json_with_repair(self, text: str, context: str) -> Dict:
+    def _parse_json(self, text: str, context: str) -> Dict:
         """
-        解析JSON，失败时尝试修复
+        解析JSON，失败直接报错
 
         Args:
             text: 待解析的JSON文本
@@ -33,29 +35,23 @@ class PartOutlineParser:
             Dict: 解析后的字典
 
         Raises:
-            JSONParseError: 如果解析和修复都失败
+            JSONParseError: 如果解析失败
         """
         try:
             return json.loads(text)
         except json.JSONDecodeError as exc:
-            logger.warning("JSON解析失败，尝试修复: %s", exc)
-            # 尝试修复被截断的JSON
-            try:
-                repaired = repair_truncated_json(text)
-                result = json.loads(repaired)
-                logger.info("JSON修复成功: %s", context)
-                return result
-            except json.JSONDecodeError as repair_exc:
-                # 记录更详细的错误信息
-                logger.error(
-                    "解析%sJSON失败（修复后仍失败）: %s\n原始位置: 行%d 列%d\n内容预览: %s",
-                    context,
-                    str(repair_exc),
-                    exc.lineno,
-                    exc.colno,
-                    text[:500] if text else "空"
-                )
-                raise JSONParseError(context, "格式错误") from repair_exc
+            logger.error(
+                "解析%sJSON失败: %s\n位置: 行%d 列%d\n内容预览: %s",
+                context,
+                exc.msg,
+                exc.lineno,
+                exc.colno,
+                text[:500] if text else "空"
+            )
+            raise JSONParseError(
+                context,
+                f"JSON格式错误: {exc.msg} (行{exc.lineno} 列{exc.colno})"
+            ) from exc
 
     def parse_multiple_parts(self, response: str) -> List[Dict]:
         """
@@ -72,17 +68,21 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        result = self._parse_json_with_repair(unwrapped, "部分大纲")
+        result = self._parse_json(unwrapped, "部分大纲")
 
         parts_data = result.get("parts", [])
         if not parts_data:
-            raise JSONParseError("部分大纲", "LLM未返回有效的部分大纲")
+            raise JSONParseError("部分大纲", "LLM未返回有效的部分大纲（缺少parts字段）")
 
         return parts_data
 
     def parse_single_part(self, response: str, expected_part_number: int) -> Dict:
         """
         解析LLM返回的单个部分大纲JSON（串行生成模式）
+
+        支持两种格式：
+        1. 平面对象: {"part_number": 1, "title": "...", ...}
+        2. 包装数组: {"parts": [{"part_number": 1, ...}]}（会自动提取）
 
         Args:
             response: LLM响应字符串
@@ -96,7 +96,36 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        part_data = self._parse_json_with_repair(unwrapped, f"部分大纲第{expected_part_number}部分")
+        parsed = self._parse_json(unwrapped, f"部分大纲第{expected_part_number}部分")
+
+        # 处理LLM可能返回的两种格式
+        if "parts" in parsed and isinstance(parsed.get("parts"), list):
+            # 包装数组格式，提取数据
+            parts_list = parsed["parts"]
+            if not parts_list:
+                raise JSONParseError(
+                    f"部分大纲第{expected_part_number}部分",
+                    "LLM返回的parts数组为空"
+                )
+
+            # 尝试找到匹配期望编号的部分
+            part_data = None
+            for part in parts_list:
+                if part.get("part_number") == expected_part_number:
+                    part_data = part
+                    logger.info("从parts数组中提取第%d部分", expected_part_number)
+                    break
+
+            if part_data is None:
+                # 没找到匹配的，使用第一个
+                part_data = parts_list[0]
+                logger.warning(
+                    "parts数组中未找到第%d部分，使用第一个元素",
+                    expected_part_number
+                )
+        else:
+            # 平面对象格式，直接使用
+            part_data = parsed
 
         # 验证part_number
         if part_data.get("part_number") != expected_part_number:
@@ -106,6 +135,34 @@ class PartOutlineParser:
                 expected_part_number
             )
             part_data["part_number"] = expected_part_number
+
+        # 记录解析结果
+        logger.info(
+            "第%d部分解析成功: title=%s, summary_len=%d, theme_len=%d, events=%d",
+            expected_part_number,
+            part_data.get("title", "无"),
+            len(part_data.get("summary", "") or ""),
+            len(part_data.get("theme", "") or ""),
+            len(part_data.get("key_events", []) or []),
+        )
+
+        # 检查关键字段是否过于简略（仅警告，不阻止）
+        summary = part_data.get("summary", "") or ""
+        key_events = part_data.get("key_events", []) or []
+
+        if len(summary) < 50:
+            logger.warning(
+                "第%d部分摘要过短(%d字符)，建议检查提示词或重新生成",
+                expected_part_number,
+                len(summary),
+            )
+
+        if len(key_events) < 3:
+            logger.warning(
+                "第%d部分关键事件过少(%d个)，建议检查提示词或重新生成",
+                expected_part_number,
+                len(key_events),
+            )
 
         return part_data
 
@@ -124,11 +181,11 @@ class PartOutlineParser:
         """
         cleaned = remove_think_tags(response)
         unwrapped = unwrap_markdown_json(cleaned)
-        result = self._parse_json_with_repair(unwrapped, "章节大纲")
+        result = self._parse_json(unwrapped, "章节大纲")
 
         chapters_data = result.get("chapter_outline", [])
         if not chapters_data:
-            raise JSONParseError("章节大纲", "LLM未返回有效的章节大纲")
+            raise JSONParseError("章节大纲", "LLM未返回有效的章节大纲（缺少chapter_outline字段）")
 
         return chapters_data
 

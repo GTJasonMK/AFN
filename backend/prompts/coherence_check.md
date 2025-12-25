@@ -74,3 +74,80 @@ tags: optimization, coherence, editing
 ```
 
 如果没有发现问题，返回空的issues数组。
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少 issues 包装
+[
+  { "type": "coherence", ... }
+]
+
+// 错误！使用了错误的字段名
+{
+  "problems": [...]  // 错误：应该用 issues
+}
+
+// 错误！type 使用了非法值
+{
+  "issues": [
+    {
+      "type": "logic_error",  // 错误：只能用 coherence/character/foreshadow/timeline/style/scene
+      "description": "..."
+    }
+  ]
+}
+
+// 错误！severity 使用了非法值
+{
+  "issues": [
+    {
+      "type": "coherence",
+      "severity": "critical"  // 错误：只能用 high/medium/low
+    }
+  ]
+}
+
+// 错误！缺少必需字段
+{
+  "issues": [
+    {
+      "type": "coherence",
+      "description": "..."
+      // 缺少 severity, original_text, suggested_text, reason
+    }
+  ]
+}
+
+// 错误！没有发现问题时返回null
+{
+  "issues": null  // 错误：应该返回空数组 []
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| issues | 数组 | 问题列表（无问题时为空数组） |
+| issues[].type | 字符串 | coherence/character/foreshadow/timeline/style/scene |
+| issues[].description | 字符串 | 问题描述 |
+| issues[].severity | 字符串 | high/medium/low |
+| issues[].original_text | 字符串 | 原文片段 |
+| issues[].suggested_text | 字符串 | 建议修改后的文本 |
+| issues[].reason | 字符串 | 修改理由 |
+| summary | 字符串 | 整体评价 |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **必须包含 issues 和 summary**：这是解析器期望的字段名
+3. **type 只能用指定值**：coherence/character/foreshadow/timeline/style/scene
+4. **severity 只能用指定值**：high/medium/low
+5. **无问题时返回空数组**：`"issues": []`，不要返回null

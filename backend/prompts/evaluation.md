@@ -133,3 +133,73 @@ versions: 这是一个数组，包含了同一章节的多个不同版本（版�
 ```
 
 重要：你的回答必须遵守上面的JSON 格式。
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！best_choice 使用字符串而非数字
+{
+  "best_choice": "版本2",  // 错误：应该是数字 2
+  "reason_for_choice": "..."
+}
+
+// 错误！缺少 evaluation 字段
+{
+  "best_choice": 1,
+  "reason_for_choice": "..."
+  // 缺少 evaluation 对象
+}
+
+// 错误！evaluation 中版本命名不正确
+{
+  "evaluation": {
+    "v1": {...},     // 错误：应该用 version1
+    "v2": {...}      // 错误：应该用 version2
+  }
+}
+
+// 错误！版本评价缺少必需字段
+{
+  "evaluation": {
+    "version1": {
+      "comments": "..."  // 错误：应该有 pros, cons, overall_review
+    }
+  }
+}
+
+// 错误！pros 和 cons 不是数组
+{
+  "evaluation": {
+    "version1": {
+      "pros": "优点描述",      // 错误：应该是数组
+      "cons": "缺点描述",      // 错误：应该是数组
+      "overall_review": "..."
+    }
+  }
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| best_choice | 整数 | 最佳版本号（1, 2, 3...） |
+| reason_for_choice | 字符串 | 选择理由的详细说明 |
+| evaluation | 对象 | 包含所有版本的评价 |
+| evaluation.versionN.pros | 数组 | 优点列表（至少2项） |
+| evaluation.versionN.cons | 数组 | 缺点列表（可为空数组） |
+| evaluation.versionN.overall_review | 字符串 | 整体评价 |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **best_choice 必须是数字**：不要用字符串"版本1"
+3. **评价所有版本**：输入多少版本就评价多少版本
+4. **版本命名格式固定**：使用 version1, version2... 不要用其他格式
+5. **pros 和 cons 必须是数组**：即使只有一项也要用数组格式

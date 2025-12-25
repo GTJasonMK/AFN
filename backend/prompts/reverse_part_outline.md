@@ -94,3 +94,81 @@ tags: "导入分析,大纲,长篇"
 - 如果总章节数少于50章，可以只划分2个部分
 - 确保每个部分的summary连接起来能概述整个故事
 - ending_hook应该说明本部分与下一部分的关联
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少 parts 包装
+[
+  { "part_number": 1, ... }
+]
+
+// 错误！summary 过于简略
+{
+  "parts": [
+    {
+      "part_number": 1,
+      "title": "开始",
+      "summary": "故事开始了"  // 太短！必须100-200字
+    }
+  ]
+}
+
+// 错误！缺少必需字段
+{
+  "parts": [
+    {
+      "part_number": 1,
+      "title": "xxx",
+      "start_chapter": 1
+      // 缺少 end_chapter, summary, theme, key_events 等必需字段
+    }
+  ]
+}
+
+// 错误！key_events 过少
+{
+  "parts": [
+    {
+      "key_events": ["事件1"]  // 太少！至少3个
+    }
+  ]
+}
+
+// 错误！章节范围有遗漏或重叠
+{
+  "parts": [
+    {"start_chapter": 1, "end_chapter": 20},
+    {"start_chapter": 22, "end_chapter": 50}  // 错误：第21章被遗漏
+  ]
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| parts | 数组 | 必须包含所有部分 |
+| part_number | 整数 | 从1开始递增 |
+| title | 字符串 | 富有主题性的标题（非纯序号） |
+| start_chapter | 整数 | 本部分起始章节号 |
+| end_chapter | 整数 | 本部分结束章节号 |
+| summary | 字符串 | 100-200字的内容概述 |
+| theme | 字符串 | 核心主题 |
+| key_events | 数组 | 至少3个关键事件 |
+| character_arcs | 对象 | 主要角色的成长变化 |
+| ending_hook | 字符串 | 与下一部分的衔接点 |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **必须使用 parts 字段**：这是解析器期望的字段名
+3. **章节范围必须连续无遗漏**：第一部分结束章节+1 = 第二部分起始章节
+4. **summary必须100-200字**：每个部分的概述都要详细
+5. **key_events至少3个**：提取最重要的事件

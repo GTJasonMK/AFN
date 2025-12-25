@@ -135,7 +135,12 @@ class PartOutlineWorkflow:
         previous_parts: List[PartOutline],
         system_prompt: str,
     ) -> PartOutline:
-        """生成单个部分大纲"""
+        """
+        生成单个部分大纲
+
+        解析失败直接报错，不尝试重试。
+        如果多次失败，应该检查提示词或更换模型。
+        """
         # 构建提示词
         user_prompt = self._part_service.prompt_builder.build_part_outline_prompt(
             total_chapters=self.total_chapters,
@@ -159,10 +164,16 @@ class PartOutlineWorkflow:
             timeout_override=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
         )
 
-        # 解析响应
+        # 解析响应（失败直接抛异常）
         part_data = self._part_service._parser.parse_single_part(response, part_number)
+
+        # 创建模型
         part_outline = self._part_service._model_factory.create_from_dict(
-            self.project_id, part_data
+            self.project_id,
+            part_data,
+            default_part_number=part_number,
+            total_chapters=self.total_chapters,
+            total_parts=self.target_total_parts,
         )
 
         # 保存到数据库
@@ -170,6 +181,10 @@ class PartOutlineWorkflow:
         await self.session.commit()
 
         return part_outline
+
+    # 已移除 _validate_part_content 方法
+    # 内容质量检查已移至 parser.py，以警告日志形式输出
+    # 不再用于重试判断，依靠完善的提示词确保输出质量
 
     async def _update_project_status(self) -> None:
         """更新项目状态为PART_OUTLINES_READY"""

@@ -54,3 +54,64 @@ tags: writing, chapter, generation
 ```
 
 **注意**：`full_content` 是纯文本小说内容，不含任何标记或格式符号。
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少必需字段
+{
+  "content": "..."  // 错误：应该用 full_content
+}
+
+// 错误！字段名不正确
+{
+  "chapter_title": "...",     // 错误：应该用 title
+  "chapter_summary": "...",   // 错误：应该用 summary
+  "chapter_content": "..."    // 错误：应该用 full_content
+}
+
+// 错误！full_content 过短
+{
+  "title": "...",
+  "summary": "...",
+  "full_content": "很短的内容..."  // 太短！必须4500字以上
+}
+
+// 错误！full_content 包含格式符号
+{
+  "title": "...",
+  "summary": "...",
+  "full_content": "# 章节标题\n\n**加粗**内容..."  // 错误：应为纯文本
+}
+
+// 错误！添加了额外字段
+{
+  "title": "...",
+  "summary": "...",
+  "full_content": "...",
+  "chapter_number": 1,   // 错误：不需要返回
+  "word_count": 5000     // 错误：不需要返回
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| title | 字符串 | 章节标题 |
+| summary | 字符串 | 100字左右的情节摘要 |
+| full_content | 字符串 | 完整章节内容（4500字以上，纯文本） |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **只返回3个字段**：title, summary, full_content
+3. **full_content必须4500字以上**：不能过短
+4. **full_content必须是纯文本**：不含markdown、HTML或其他格式符号
+5. **角色名必须一致**：严格使用输入中提供的角色名

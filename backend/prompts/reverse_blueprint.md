@@ -186,3 +186,79 @@ tags: "导入分析,蓝图"
 - [ ] characters 是否都有 relationship_to_protagonist 字段
 - [ ] relationships 描述是否具体有故事性
 - [ ] world_setting 是否有 core_rules、key_locations、factions 三个子字段
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少必需的顶层字段
+{
+  "title": "...",
+  "genre": "..."
+  // 缺少 style, tone, characters, world_setting 等必需字段
+}
+
+// 错误！world_setting 结构不完整
+{
+  "world_setting": {
+    "description": "..."  // 错误：应该有 core_rules, key_locations, factions
+  }
+}
+
+// 错误！角色缺少必需字段
+{
+  "characters": [
+    {
+      "name": "张三",
+      "identity": "主角"
+      // 缺少 personality, goals, abilities, relationship_to_protagonist
+    }
+  ]
+}
+
+// 错误！关系描述太泛泛
+{
+  "relationships": [
+    {
+      "character_from": "张三",
+      "character_to": "李四",
+      "description": "朋友"  // 太简单！需要具体描述
+    }
+  ]
+}
+
+// 错误！one_sentence_summary 太长
+{
+  "one_sentence_summary": "这是一个关于主角在末世中求生存，经历各种磨难，最终找到真爱并拯救世界的故事..."
+  // 太长！必须30字以内
+}
+```
+
+---
+
+## 必需字段清单
+
+| 顶层字段 | 类型 | 要求 |
+|----------|------|------|
+| title | 字符串 | 小说标题 |
+| genre | 字符串 | 题材类型 |
+| style | 字符串 | 写作风格 |
+| tone | 字符串 | 叙事基调 |
+| target_audience | 字符串 | 目标读者群体 |
+| one_sentence_summary | 字符串 | 30字以内的一句话概括 |
+| full_synopsis | 字符串 | 500-800字的完整大纲 |
+| world_setting | 对象 | 必含 core_rules, key_locations, factions |
+| characters | 数组 | 每个角色必含完整字段 |
+| relationships | 数组 | 每段关系需具体描述 |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **所有顶层字段必须存在**：缺少任何字段都会导致解析失败
+3. **one_sentence_summary必须30字以内**：超过会被截断
+4. **full_synopsis必须500-800字**：不能过短或过长
+5. **角色数量控制在5-10个**：只保留对剧情有重要影响的角色
+6. **关系描述要具体**：不要用"朋友""敌人"等泛泛之词

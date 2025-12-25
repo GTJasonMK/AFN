@@ -126,3 +126,64 @@ tags: analysis, rag, extraction
 - 角色状态只记录本章有实际描写的角色
 - 伏笔需要有一定的判断，不是所有细节都是伏笔
 - 关键事件只记录真正重要的转折点，不要事无巨细
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少必需的顶层字段
+{
+  "characters": ["角色1"],  // 错误：应该包含在 metadata 中
+  "summary": "..."          // 错误：应该包含在 summaries 中
+}
+
+// 错误！字段结构不正确
+{
+  "metadata": {
+    "characters": "角色1,角色2"  // 错误：应该是数组，不是字符串
+  }
+}
+
+// 错误！摘要字段名错误
+{
+  "summaries": {
+    "short": "...",      // 错误：应该用 compressed 和 one_line
+    "long": "..."
+  }
+}
+
+// 错误！伏笔结构不完整
+{
+  "foreshadowing": {
+    "planted": [
+      {
+        "description": "某伏笔"
+        // 缺少 original_text, category, priority, related_entities
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 必需字段清单
+
+| 顶层字段 | 类型 | 必需子字段 |
+|----------|------|------------|
+| metadata | 对象 | characters, locations, items, tags, tone, timeline_marker |
+| summaries | 对象 | compressed, one_line, keywords |
+| character_states | 对象 | 每个角色: location, status, changes |
+| foreshadowing | 对象 | planted, resolved, tensions |
+| key_events | 数组 | 每个事件: type, description, importance, involved_characters |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **必须包含所有5个顶层字段**：metadata, summaries, character_states, foreshadowing, key_events
+3. **数组字段不能为null**：如果没有内容使用空数组 `[]`
+4. **compressed摘要必须100字左右**：不能过短
+5. **角色名保持原文一致**：不要使用昵称或变体

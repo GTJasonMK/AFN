@@ -167,3 +167,70 @@ tags: outline, long-form, batch
 ```
 
 现在，请根据输入的小说蓝图，为这部长篇小说设计完整的分层大纲结构。记住，你的设计将直接影响整部作品的可读性和吸引力。
+
+---
+
+## 错误格式（绝对禁止）
+
+```json
+// 错误！缺少 parts 包装
+[
+  { "part_number": 1, ... }
+]
+
+// 错误！缺少 overall_structure 字段
+{
+  "parts": [...]
+}
+
+// 错误！summary 过于简略
+{
+  "parts": [
+    {
+      "part_number": 1,
+      "title": "开始",
+      "summary": "主角出发了"  // 太短！必须200-300字
+    }
+  ]
+}
+
+// 错误！缺少必需字段
+{
+  "parts": [
+    {
+      "part_number": 1,
+      "title": "xxx"
+      // 缺少 start_chapter, end_chapter, theme, summary 等必需字段
+    }
+  ]
+}
+```
+
+---
+
+## 必需字段清单
+
+| 字段 | 类型 | 要求 |
+|------|------|------|
+| parts | 数组 | 必须包含所有部分 |
+| part_number | 整数 | 从1开始递增 |
+| title | 字符串 | 富有文学性的标题 |
+| start_chapter | 整数 | 本部分起始章节号 |
+| end_chapter | 整数 | 本部分结束章节号 |
+| theme | 字符串 | 核心主题 |
+| summary | 字符串 | 200-300字概要 |
+| key_events | 数组 | 至少3个关键事件 |
+| character_arcs | 对象 | 主要角色成长弧线 |
+| conflicts | 数组 | 至少1个主要冲突 |
+| ending_hook | 字符串 | 结尾悬念 |
+| overall_structure | 对象 | 整体结构描述 |
+
+---
+
+## 重要提醒
+
+1. **只输出纯JSON**：不要添加解释文字或markdown标记
+2. **必须包含 parts 和 overall_structure**：这是解析器期望的字段名
+3. **部分数量必须正确**：根据总章节数和每部分章节数计算
+4. **summary必须200-300字**：每个部分的概要都要详细
+5. **章节编号必须正确**：start_chapter 和 end_chapter 必须连续无遗漏

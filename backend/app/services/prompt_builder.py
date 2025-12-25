@@ -109,6 +109,35 @@ class PromptBuilder:
         if optimization_prompt:
             prompt += f"\n\n## 用户特别要求\n\n{optimization_prompt}"
 
+        # 添加输出格式强调（防止LLM返回错误格式）
+        prompt += f"""
+
+---
+
+## 输出要求（重要）
+
+请直接输出第 {current_part_number} 部分的JSON对象，格式如下：
+
+```json
+{{
+  "part_number": {current_part_number},
+  "title": "...",
+  "start_chapter": {start_chapter},
+  "end_chapter": {end_chapter},
+  "summary": "200-300字详细摘要...",
+  "theme": "...",
+  "key_events": ["事件1", "事件2", "事件3"],
+  "character_arcs": {{"角色名": "发展轨迹"}},
+  "conflicts": ["冲突1", "冲突2"],
+  "ending_hook": "..."
+}}
+```
+
+**注意**：
+- 直接输出 `{{...}}` 单个对象
+- 不要包装成 `{{"parts": [...]}}` 数组格式
+- 所有字段必须完整填写，summary 必须 200 字以上"""
+
         return prompt
 
     async def build_part_chapters_prompt(
