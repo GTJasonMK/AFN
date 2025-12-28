@@ -296,6 +296,8 @@ class MainWindow(QMainWindow):
                         page.hide()
                         # 同时设置页面为不透明，防止透过去看到
                         page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                        # 将页面放到最底层
+                        page.lower()
 
                 # 2. 设置透明属性
                 self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -334,8 +336,10 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"启用窗口透明效果失败: {e}")
 
-                # 5. 确保当前页面可见
+                # 5. 确保当前页面可见并设置正确的透明属性
                 if current_page:
+                    # 当前页面需要支持透明
+                    current_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
                     current_page.show()
                     current_page.raise_()
 
@@ -350,6 +354,10 @@ class MainWindow(QMainWindow):
                     page = self.page_stack.widget(i)
                     if page and page != current_page:
                         page.hide()
+                        # 确保页面不透明
+                        page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                        # 将页面放到最底层
+                        page.lower()
 
                 # 2. 禁用系统级透明效果（传入背景色以匹配主题）
                 try:
@@ -656,8 +664,18 @@ class MainWindow(QMainWindow):
                     pass
             # 显式隐藏旧页面，防止透明模式下的穿透
             old_widget.hide()
+            # 确保旧页面不透明，防止透过新页面看到
+            old_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            # 将旧页面放到最底层
+            old_widget.lower()
 
         # 确保新页面可见
+        # 根据透明模式设置正确的透明属性
+        transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
+        if transparency_enabled:
+            page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        else:
+            page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         page.show()
         page.raise_()  # 确保在最上层
 
@@ -714,8 +732,18 @@ class MainWindow(QMainWindow):
         # 显式隐藏当前页面，防止透明模式下的穿透
         if current_widget and current_widget != prev_page:
             current_widget.hide()
+            # 确保旧页面不透明，防止透过新页面看到
+            current_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            # 将旧页面放到最底层
+            current_widget.lower()
 
         # 确保目标页面可见
+        # 根据透明模式设置正确的透明属性
+        transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
+        if transparency_enabled:
+            prev_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        else:
+            prev_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         prev_page.show()
         prev_page.raise_()  # 确保在最上层
 

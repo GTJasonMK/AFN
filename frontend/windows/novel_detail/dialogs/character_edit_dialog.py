@@ -17,18 +17,30 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
+from components.base import ThemeAwareWidget
 from utils.dpi_utils import dp, sp
 
 
-class CharacterItemWidget(QFrame):
+class CharacterItemWidget(ThemeAwareWidget, QFrame):
     """单个角色编辑组件"""
 
     def __init__(self, character_data: dict, index: int, parent=None):
-        super().__init__(parent)
         self.character_data = character_data or {}
         self.index = index
+        # 初始化UI组件引用
+        self.avatar = None
+        self.index_label = None
+        self.delete_btn = None
+        self.name_input = None
+        self.identity_input = None
+        self.personality_input = None
+        self.goal_input = None
+        self.ability_input = None
+        self.background_input = None
+        self.relation_input = None
+        super().__init__(parent)
         self._setup_ui()
-        self._apply_style()
+        self._apply_theme()
 
     def _setup_ui(self):
         """设置UI"""
@@ -161,8 +173,11 @@ class CharacterItemWidget(QFrame):
         first_char = text[0] if text else '?'
         self.avatar.setText(first_char)
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
+        if not self.avatar:
+            return
+
         ui_font = theme_manager.ui_font()
         bg_color = theme_manager.book_bg_secondary()
         bg_primary = theme_manager.book_bg_primary()
@@ -252,15 +267,21 @@ class CharacterItemWidget(QFrame):
         self.index_label.setText(f"角色 #{new_index + 1}")
 
 
-class CharacterListEditDialog(QDialog):
+class CharacterListEditDialog(ThemeAwareWidget, QDialog):
     """角色列表编辑对话框"""
 
     def __init__(self, characters: list, parent=None):
-        super().__init__(parent)
         self.characters = characters or []
         self.character_widgets = []
+        # 初始化UI组件引用
+        self.add_btn = None
+        self.count_label = None
+        self.scroll = None
+        self.content = None
+        self.content_layout = None
+        super().__init__(parent)
         self._setup_ui()
-        self._apply_style()
+        self._apply_theme()
 
     def _setup_ui(self):
         """设置UI"""
@@ -389,8 +410,11 @@ class CharacterListEditDialog(QDialog):
                 result.append(data)
         return result
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
+        if not self.add_btn:
+            return
+
         ui_font = theme_manager.ui_font()
         bg_color = theme_manager.book_bg_primary()
         bg_secondary = theme_manager.book_bg_secondary()
