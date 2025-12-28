@@ -75,7 +75,8 @@ class TabManagerMixin:
         system_blur_enabled = transparency_config.get("system_blur", False)
 
         if transparency_enabled:
-            opacity = transparency_config.get("header_opacity", 0.90)
+            # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+            opacity = theme_manager.get_component_opacity("header")
             tab_bg_style = ModernEffects.hex_to_rgba(tab_bg, opacity)
             border_style = ModernEffects.hex_to_rgba(border_color, 0.5)
             # 只有系统级模糊启用时才设置WA_TranslucentBackground

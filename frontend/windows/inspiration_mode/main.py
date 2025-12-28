@@ -150,7 +150,8 @@ class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage)
         # 获取透明效果配置
         transparency_config = theme_manager.get_transparency_config()
         transparency_enabled = transparency_config.get("enabled", False)
-        content_opacity = transparency_config.get("content_opacity", 0.95)
+        # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+        content_opacity = theme_manager.get_component_opacity("content")
 
         if transparency_enabled:
             # 透明模式：页面背景使用RGBA实现半透明
@@ -187,7 +188,8 @@ class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage)
         # Header - 简约风格（透明模式下使用半透明背景）
         if hasattr(self, 'header'):
             if transparency_enabled:
-                header_opacity = transparency_config.get("header_opacity", 0.90)
+                # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+                header_opacity = theme_manager.get_component_opacity("header")
                 header_bg_rgba = ModernEffects.hex_to_rgba(header_bg, header_opacity)
                 border_rgba = ModernEffects.hex_to_rgba(border_color, 0.3)
                 self.header.setStyleSheet(f"""

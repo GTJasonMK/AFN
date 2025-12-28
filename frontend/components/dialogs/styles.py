@@ -492,7 +492,8 @@ class DialogStyles:
         transparency_enabled = use_transparency if use_transparency is not None else transparency_config.get("enabled", False)
 
         if transparency_enabled:
-            opacity = transparency_config.get("dialog_opacity", 0.95)
+            # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+            opacity = theme_manager.get_component_opacity("dialog")
             bg_rgba = ModernEffects.hex_to_rgba(palette.bg_primary, opacity)
             return f"""
                 QDialog {{

@@ -1075,10 +1075,15 @@ class V2ThemeEditorWidget(QWidget):
         def on_success(config):
             MessageService.show_success(self, f"已激活：{config.get('config_name')}")
             self._load_configs()
-            # 应用主题配置
-            self._apply_active_theme(config)
-            # 应用透明效果
-            theme_manager.apply_transparency()
+            # 使用批量更新模式，避免多次信号发射
+            theme_manager.begin_batch_update()
+            try:
+                # 应用主题配置
+                self._apply_active_theme(config)
+                # 透明度配置已在主题应用中处理，无需单独调用
+            finally:
+                # 结束批量更新，统一发射一次信号
+                theme_manager.end_batch_update()
 
         def on_error(error):
             MessageService.show_error(self, f"激活失败：{error}")

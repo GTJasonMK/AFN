@@ -42,8 +42,10 @@ class V2ConfigMixin:
         self._v2_config = config
         self._use_v2 = True
 
-        # 发射主题切换信号（由父类提供）
-        if hasattr(self, 'theme_changed') and hasattr(self, '_current_mode'):
+        # 发射主题切换信号（使用防抖版本，由父类提供）
+        if hasattr(self, '_emit_theme_changed'):
+            self._emit_theme_changed()
+        elif hasattr(self, 'theme_changed') and hasattr(self, '_current_mode'):
             self.theme_changed.emit(self._current_mode.value)
 
     def reset_v2_config(self):
@@ -51,7 +53,10 @@ class V2ConfigMixin:
         self._v2_config = None
         self._use_v2 = False
 
-        if hasattr(self, 'theme_changed') and hasattr(self, '_current_mode'):
+        # 发射主题切换信号（使用防抖版本，由父类提供）
+        if hasattr(self, '_emit_theme_changed'):
+            self._emit_theme_changed()
+        elif hasattr(self, 'theme_changed') and hasattr(self, '_current_mode'):
             self.theme_changed.emit(self._current_mode.value)
 
     @property
@@ -300,10 +305,23 @@ class V2ConfigMixin:
     # ==================== 统一组件透明度访问 ====================
     # 注意：透明度配置已统一到V1经典模式管理，始终从本地ConfigManager读取
 
-    def get_component_opacity(self, component_id: str) -> float:
-        """获取组件透明度
+    def get_master_opacity(self) -> float:
+        """获取主控透明度系数
 
-        透明度始终从本地ConfigManager读取，不使用V2配置。
+        主控透明度会与所有组件透明度相乘，用于统一调控整体透明效果。
+
+        Returns:
+            主控透明度值 (0.0-1.0)，默认1.0表示不影响
+        """
+        if hasattr(self, 'get_transparency_config'):
+            config = self.get_transparency_config()
+            return config.get("master_opacity", 1.0)
+        return 1.0
+
+    def get_component_opacity(self, component_id: str) -> float:
+        """获取组件透明度（已应用主控透明度系数）
+
+        最终透明度 = 组件透明度 * 主控透明度系数
 
         Args:
             component_id: 组件标识符（如 "sidebar", "header", "dialog"）
@@ -315,15 +333,24 @@ class V2ConfigMixin:
         if not self.is_transparency_globally_enabled():
             return OpacityTokens.FULL
 
+        # 获取主控透明度系数
+        master = self.get_master_opacity()
+
         # 透明度始终从本地配置读取
+        base_opacity = OpacityTokens.FULL
         if hasattr(self, 'get_transparency_config'):
             config = self.get_transparency_config()
             config_key = f"{component_id}_opacity"
             if config_key in config:
-                return config[config_key]
+                base_opacity = config[config_key]
+            else:
+                # 回退到Token默认值
+                base_opacity = OpacityTokens.get_component_opacity(component_id)
+        else:
+            base_opacity = OpacityTokens.get_component_opacity(component_id)
 
-        # 回退到Token默认值
-        return OpacityTokens.get_component_opacity(component_id)
+        # 应用主控透明度系数
+        return base_opacity * master
 
     def is_transparency_globally_enabled(self) -> bool:
         """检查透明效果是否全局启用

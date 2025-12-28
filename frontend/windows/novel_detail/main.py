@@ -131,7 +131,8 @@ class NovelDetail(
         # 获取透明效果配置
         transparency_config = theme_manager.get_transparency_config()
         transparency_enabled = transparency_config.get("enabled", False)
-        content_opacity = transparency_config.get("content_opacity", 0.95)
+        # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+        content_opacity = theme_manager.get_component_opacity("content")
 
         if transparency_enabled:
             # 透明模式：使用RGBA背景色实现半透明效果

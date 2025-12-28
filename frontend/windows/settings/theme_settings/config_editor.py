@@ -166,6 +166,7 @@ class ThemeConfigEditorMixin:
         return {
             "TRANSPARENCY_ENABLED": config.get("enabled", False),
             "SYSTEM_BLUR": config.get("system_blur", False),
+            "MASTER_OPACITY": int(config.get("master_opacity", 1.0) * 100),
             "SIDEBAR_OPACITY": int(config.get("sidebar_opacity", 0.85) * 100),
             "HEADER_OPACITY": int(config.get("header_opacity", 0.90) * 100),
             "CONTENT_OPACITY": int(config.get("content_opacity", 0.95) * 100),
@@ -188,6 +189,7 @@ class ThemeConfigEditorMixin:
         return {
             "enabled": fields.get("TRANSPARENCY_ENABLED", False),
             "system_blur": fields.get("SYSTEM_BLUR", False),
+            "master_opacity": fields.get("MASTER_OPACITY", 100) / 100.0,
             "sidebar_opacity": fields.get("SIDEBAR_OPACITY", 85) / 100.0,
             "header_opacity": fields.get("HEADER_OPACITY", 90) / 100.0,
             "content_opacity": fields.get("CONTENT_OPACITY", 95) / 100.0,
@@ -428,10 +430,15 @@ class ThemeConfigEditorMixin:
         def on_success(config):
             MessageService.show_success(self, f"已激活：{config.get('config_name')}")
             self._load_configs()
-            # 应用主题配置
-            self._apply_active_theme(config)
-            # 应用透明效果
-            theme_manager.apply_transparency()
+            # 使用批量更新模式，避免多次信号发射
+            theme_manager.begin_batch_update()
+            try:
+                # 应用主题配置
+                self._apply_active_theme(config)
+                # 透明度配置已在主题应用中处理，无需单独调用
+            finally:
+                # 结束批量更新，统一发射一次信号
+                theme_manager.end_batch_update()
 
         def on_error(error):
             MessageService.show_error(self, f"激活失败：{error}")

@@ -272,10 +272,11 @@ class MainWindow(QMainWindow):
             transparency_config = theme_manager.get_transparency_config()
             transparency_enabled = transparency_config.get("enabled", False)
             system_blur = transparency_config.get("system_blur", False)  # 系统级模糊开关
-            content_opacity = transparency_config.get("content_opacity", 0.95)
+            # 使用get_component_opacity获取已应用主控透明度的值
+            content_opacity = theme_manager.get_component_opacity("content")
 
             logger.info(f"=== MainWindow.apply_window_theme ===")
-            logger.info(f"transparency_enabled: {transparency_enabled}, system_blur: {system_blur}, content_opacity: {content_opacity}")
+            logger.info(f"transparency_enabled: {transparency_enabled}, system_blur: {system_blur}, content_opacity: {content_opacity}, master_opacity: {transparency_config.get('master_opacity', 1.0)}")
 
             # 获取背景色
             bg_color = theme_manager.BG_PRIMARY

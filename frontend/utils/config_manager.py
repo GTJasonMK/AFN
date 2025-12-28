@@ -124,11 +124,13 @@ class ConfigManager:
             dict: 透明效果配置字典，包含：
                 - enabled: 是否启用透明效果
                 - system_blur: 是否启用系统级模糊（仅Windows）
+                - master_opacity: 主控透明度系数（与所有组件透明度相乘）
                 - {component_id}_opacity: 各组件的透明度值
         """
         config = {
             "enabled": self.settings.value("transparency/enabled", False, type=bool),
             "system_blur": self.settings.value("transparency/system_blur", False, type=bool),
+            "master_opacity": self.settings.value("transparency/master_opacity", 1.0, type=float),
         }
 
         # 加载所有组件的透明度配置
@@ -149,6 +151,8 @@ class ConfigManager:
             self.settings.setValue("transparency/enabled", config["enabled"])
         if "system_blur" in config:
             self.settings.setValue("transparency/system_blur", config["system_blur"])
+        if "master_opacity" in config:
+            self.settings.setValue("transparency/master_opacity", config["master_opacity"])
 
         # 保存所有组件的透明度配置
         for comp_id in self._OPACITY_DEFAULTS.keys():
@@ -194,6 +198,7 @@ class ConfigManager:
         """重置透明效果配置为默认值"""
         self.settings.setValue("transparency/enabled", False)
         self.settings.setValue("transparency/system_blur", False)
+        self.settings.setValue("transparency/master_opacity", 1.0)
 
         # 重置所有组件透明度为默认值
         for comp_id, default_value in self._OPACITY_DEFAULTS.items():

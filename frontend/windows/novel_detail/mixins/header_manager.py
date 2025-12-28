@@ -191,7 +191,8 @@ class HeaderManagerMixin:
 
         # 根据透明效果配置决定背景颜色
         if transparency_enabled:
-            opacity = transparency_config.get("header_opacity", 0.90)
+            # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+            opacity = theme_manager.get_component_opacity("header")
             header_bg_style = ModernEffects.hex_to_rgba(header_bg, opacity)
             border_style = ModernEffects.hex_to_rgba(border_color, 0.5)
             # 只有系统级模糊启用时才设置WA_TranslucentBackground

@@ -272,7 +272,8 @@ class HomePage(BasePage):
         from themes.modern_effects import ModernEffects
         transparency_config = theme_manager.get_transparency_config()
         transparency_enabled = transparency_config.get("enabled", False)
-        content_opacity = transparency_config.get("content_opacity", 0.95)
+        # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+        content_opacity = theme_manager.get_component_opacity("content")
 
         logger.info("="*50)
         logger.info(f"HomePage._apply_theme() 透明效果配置:")

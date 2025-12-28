@@ -461,7 +461,8 @@ class OptimizationContent(
             mode_frame = self.content_area.findChild(QFrame, "mode_frame")
             if mode_frame:
                 if transparency_enabled:
-                    opacity = transparency_config.get("dialog_opacity", 0.95)
+                    # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+                    opacity = theme_manager.get_component_opacity("dialog")
                     bg_rgba = ModernEffects.hex_to_rgba(theme_manager.BG_SECONDARY, opacity)
                     border_rgba = ModernEffects.hex_to_rgba(theme_manager.BORDER_DEFAULT, 0.5)
                     mode_frame.setStyleSheet(f"""

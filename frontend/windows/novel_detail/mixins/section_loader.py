@@ -109,22 +109,48 @@ class SectionLoaderMixin:
         return scroll, container, layout
 
     def _fill_section_content(self: "NovelDetail", section_id, container, layout):
-        """填充Section内容（异步执行）"""
+        """填充Section内容（异步执行）
+
+        注意：此方法由QTimer异步调用，需要检查对象是否仍然有效
+        """
         try:
+            # 安全检查：确保布局和容器对象仍然存在
+            # 使用 sip.isdeleted 或捕获 RuntimeError 来检测已删除的对象
+            try:
+                # 尝试访问布局属性来检测是否已删除
+                _ = layout.count()
+                _ = container.isVisible()
+            except RuntimeError:
+                # 对象已被删除，静默退出
+                logger.debug("Section '%s' 的布局已被删除，跳过填充", section_id)
+                return
+
             section = self._create_section_content(section_id)
             if section:
                 layout.addWidget(section, stretch=1)
+        except RuntimeError as e:
+            # C++对象已删除，静默处理
+            logger.debug("填充Section '%s' 时对象已删除: %s", section_id, str(e))
         except Exception as e:
             logger.error("创建Section '%s' 时出错: %s", section_id, str(e), exc_info=True)
-            # 创建一个错误提示widget
-            error_label = QLabel(f"加载 {section_id} 失败: {str(e)}")
-            error_label.setWordWrap(True)
-            error_label.setStyleSheet(f"color: {theme_manager.ERROR}; padding: {dp(20)}px;")
-            layout.addWidget(error_label)
+            # 创建一个错误提示widget（需要再次检查布局有效性）
+            try:
+                _ = layout.count()  # 检查布局是否有效
+                error_label = QLabel(f"加载 {section_id} 失败: {str(e)}")
+                error_label.setWordWrap(True)
+                error_label.setStyleSheet(f"color: {theme_manager.ERROR}; padding: {dp(20)}px;")
+                layout.addWidget(error_label)
+            except RuntimeError:
+                # 布局已删除，无法添加错误提示
+                pass
         finally:
             # 隐藏加载状态
             if hasattr(self, '_section_loading_overlay') and self._section_loading_overlay:
-                self._section_loading_overlay.hide_with_animation()
+                try:
+                    self._section_loading_overlay.hide_with_animation()
+                except RuntimeError:
+                    # 遮罩层也可能已被删除
+                    pass
 
     def _create_section_content(self: "NovelDetail", section_id):
         """创建Section内容组件"""

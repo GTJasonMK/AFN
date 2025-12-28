@@ -148,26 +148,20 @@ class TransparencyAwareMixin:
         return config.get("enabled", False) and config.get("system_blur", False)
 
     def _get_current_opacity(self) -> float:
-        """获取当前透明度值
+        """获取当前透明度值（已应用主控透明度系数）
 
-        优先从配置中获取组件特定透明度，
-        如果没有则使用组件默认透明度。
+        使用theme_manager.get_component_opacity()获取透明度，
+        该方法会自动应用主控透明度系数（master_opacity）。
 
         Returns:
-            当前透明度值 (0.0-1.0)
+            当前透明度值 (0.0-1.0)，已乘以主控透明度系数
         """
         if not self._transparency_component_id:
             return OpacityTokens.FULL
 
-        config = self._get_transparency_config()
-
-        # 尝试获取组件特定配置
-        config_key = f"{self._transparency_component_id}_opacity"
-        if config_key in config:
-            return config[config_key]
-
-        # 回退到默认值
-        return self._get_default_opacity()
+        # 使用theme_manager的方法，自动应用主控透明度系数
+        theme_manager = self._get_theme_manager()
+        return theme_manager.get_component_opacity(self._transparency_component_id)
 
     def _apply_transparency(self):
         """应用透明效果

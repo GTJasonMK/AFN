@@ -181,6 +181,8 @@ CONFIG_GROUPS = {
             # 总开关 - switch类型自带标签
             "TRANSPARENCY_ENABLED": ("switch", "启用透明效果", "开启后界面将显示半透明效果"),
             "SYSTEM_BLUR": ("switch", "系统级模糊", "仅Windows有效，使用系统原生模糊API"),
+            # 主控透明度 - 与所有组件透明度相乘
+            "MASTER_OPACITY": ("slider", "主控透明度", {"min": 0, "max": 100, "step": 1, "default": 100}),
             # 布局组件 (范围0-100，内部转换为0-1)
             "SIDEBAR_OPACITY": ("slider", "侧边栏透明度", {"min": 0, "max": 100, "step": 1, "default": 85}),
             "HEADER_OPACITY": ("slider", "标题栏透明度", {"min": 0, "max": 100, "step": 1, "default": 90}),

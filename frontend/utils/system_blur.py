@@ -336,7 +336,9 @@ class SystemBlurManager:
             return SystemBlurManager.enable_mica(hwnd, dark_mode=False)
         elif SystemBlurManager.is_supported():
             # Windows 10使用Acrylic
-            opacity = config.get("sidebar_opacity", 0.85)
+            # 使用get_component_opacity获取透明度，自动应用主控透明度系数
+            from themes.theme_manager import theme_manager
+            opacity = theme_manager.get_component_opacity("sidebar")
             return SystemBlurManager.enable_acrylic(hwnd, opacity=opacity)
         else:
             return False
