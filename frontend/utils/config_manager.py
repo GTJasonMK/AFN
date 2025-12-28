@@ -89,3 +89,112 @@ class ConfigManager:
             mode: 主题模式 ('light' 或 'dark')
         """
         self.settings.setValue("appearance/theme_mode", mode)
+
+    # ==================== 透明效果配置 ====================
+    # 支持15种组件类型的独立透明度配置
+
+    # 组件透明度默认值（与OpacityTokens保持一致）
+    _OPACITY_DEFAULTS = {
+        # 布局组件
+        "sidebar": 0.85,
+        "header": 0.90,
+        "content": 0.95,
+        # 浮层组件
+        "dialog": 0.95,
+        "modal": 0.92,
+        "dropdown": 0.95,
+        "tooltip": 0.90,
+        "popover": 0.92,
+        # 卡片组件
+        "card": 0.95,
+        "card_glass": 0.85,
+        # 反馈组件
+        "overlay": 0.50,
+        "loading": 0.85,
+        "toast": 0.95,
+        # 输入组件
+        "input": 0.98,
+        "button": 1.00,
+    }
+
+    def get_transparency_config(self) -> dict:
+        """获取透明效果配置
+
+        Returns:
+            dict: 透明效果配置字典，包含：
+                - enabled: 是否启用透明效果
+                - system_blur: 是否启用系统级模糊（仅Windows）
+                - {component_id}_opacity: 各组件的透明度值
+        """
+        config = {
+            "enabled": self.settings.value("transparency/enabled", False, type=bool),
+            "system_blur": self.settings.value("transparency/system_blur", False, type=bool),
+        }
+
+        # 加载所有组件的透明度配置
+        for comp_id, default_value in self._OPACITY_DEFAULTS.items():
+            key = f"transparency/{comp_id}_opacity"
+            config[f"{comp_id}_opacity"] = self.settings.value(key, default_value, type=float)
+
+        return config
+
+    def set_transparency_config(self, config: dict):
+        """保存透明效果配置
+
+        Args:
+            config: 透明效果配置字典
+        """
+        # 保存基础配置
+        if "enabled" in config:
+            self.settings.setValue("transparency/enabled", config["enabled"])
+        if "system_blur" in config:
+            self.settings.setValue("transparency/system_blur", config["system_blur"])
+
+        # 保存所有组件的透明度配置
+        for comp_id in self._OPACITY_DEFAULTS.keys():
+            config_key = f"{comp_id}_opacity"
+            if config_key in config:
+                self.settings.setValue(f"transparency/{config_key}", config[config_key])
+
+        # 强制同步到磁盘
+        self.settings.sync()
+
+    def get_transparency_enabled(self) -> bool:
+        """获取透明效果是否启用"""
+        return self.settings.value("transparency/enabled", False, type=bool)
+
+    def set_transparency_enabled(self, enabled: bool):
+        """设置透明效果是否启用"""
+        self.settings.setValue("transparency/enabled", enabled)
+
+    def get_component_opacity(self, component_id: str) -> float:
+        """获取组件透明度
+
+        Args:
+            component_id: 组件标识符
+
+        Returns:
+            float: 透明度值 (0.0-1.0)
+        """
+        default = self._OPACITY_DEFAULTS.get(component_id, 1.0)
+        key = f"transparency/{component_id}_opacity"
+        return self.settings.value(key, default, type=float)
+
+    def set_component_opacity(self, component_id: str, opacity: float):
+        """设置组件透明度
+
+        Args:
+            component_id: 组件标识符
+            opacity: 透明度值 (0.0-1.0)
+        """
+        key = f"transparency/{component_id}_opacity"
+        self.settings.setValue(key, opacity)
+
+    def reset_transparency_config(self):
+        """重置透明效果配置为默认值"""
+        self.settings.setValue("transparency/enabled", False)
+        self.settings.setValue("transparency/system_blur", False)
+
+        # 重置所有组件透明度为默认值
+        for comp_id, default_value in self._OPACITY_DEFAULTS.items():
+            self.settings.setValue(f"transparency/{comp_id}_opacity", default_value)

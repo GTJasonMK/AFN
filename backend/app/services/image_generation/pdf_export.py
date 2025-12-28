@@ -7,6 +7,7 @@ PDF导出服务
 3. 专业排版导出：根据AI生成的排版方案，将图片按分镜布局排列
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -21,6 +22,30 @@ from ...models.novel import ChapterMangaPrompt
 from ...core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# 异步文件操作辅助函数
+# ============================================================================
+
+async def async_exists(path: Path) -> bool:
+    """异步检查文件是否存在"""
+    return await asyncio.to_thread(path.exists)
+
+
+async def async_mkdir(path: Path, parents: bool = False, exist_ok: bool = False) -> None:
+    """异步创建目录"""
+    await asyncio.to_thread(path.mkdir, parents=parents, exist_ok=exist_ok)
+
+
+async def async_stat(path: Path):
+    """异步获取文件状态"""
+    return await asyncio.to_thread(path.stat)
+
+
+async def async_glob(path: Path, pattern: str) -> List[Path]:
+    """异步glob匹配"""
+    return await asyncio.to_thread(lambda: list(path.glob(pattern)))
 
 # 使用统一的路径配置
 EXPORT_DIR = settings.exports_dir
@@ -146,8 +171,8 @@ class PDFExportService:
                     error_message="未找到要导出的图片",
                 )
 
-            # 确保导出目录存在
-            EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+            # 确保导出目录存在（异步）
+            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -229,9 +254,9 @@ class PDFExportService:
                 # 场景标题
                 story.append(Paragraph(f"场景 {img.scene_id}", prompt_style))
 
-                # 添加图片
+                # 添加图片（异步检查文件存在性）
                 img_path = IMAGES_ROOT / img.file_path
-                if img_path.exists():
+                if await async_exists(img_path):
                     try:
                         pdf_image = Image(str(img_path), width=img_width, height=img_height)
                         pdf_image.hAlign = 'CENTER'
@@ -271,18 +296,20 @@ class PDFExportService:
             )
 
     async def get_export_history(self, project_id: str) -> List[dict]:
-        """获取项目的导出历史"""
+        """获取项目的导出历史（使用异步文件操作）"""
         export_dir = EXPORT_DIR
-        if not export_dir.exists():
+        if not await async_exists(export_dir):
             return []
 
         exports = []
-        for file in export_dir.glob(f"*{project_id}*.pdf"):
+        files = await async_glob(export_dir, f"*{project_id}*.pdf")
+        for file in files:
+            stat = await async_stat(file)
             exports.append({
                 "file_name": file.name,
                 "file_path": str(file),
-                "file_size": file.stat().st_size,
-                "created_at": datetime.fromtimestamp(file.stat().st_ctime),
+                "file_size": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_ctime),
             })
 
         return sorted(exports, key=lambda x: x["created_at"], reverse=True)
@@ -360,8 +387,8 @@ class PDFExportService:
                     error_message="该章节暂无图片",
                 )
 
-            # 确保导出目录存在
-            EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+            # 确保导出目录存在（异步）
+            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -386,13 +413,13 @@ class PDFExportService:
             # 按场景分组，每个场景的图片连续排列
             for img in images:
                 img_path = IMAGES_ROOT / img.file_path
-                if not img_path.exists():
+                if not await async_exists(img_path):
                     logger.warning(f"图片不存在: {img_path}")
                     continue
 
                 try:
-                    # 读取图片获取尺寸
-                    pil_img = PILImage.open(str(img_path))
+                    # 读取图片获取尺寸（异步）
+                    pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
                     img_width, img_height = pil_img.size
 
                     # 计算图片在页面上的尺寸（保持比例，最大化显示）
@@ -565,8 +592,8 @@ class PDFExportService:
 
             logger.info(f"图片索引: panel_id={len(panel_image_map)}, scene_id={len(scene_image_map)}")
 
-            # 确保导出目录存在
-            EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+            # 确保导出目录存在（异步）
+            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -659,7 +686,7 @@ class PDFExportService:
                         continue
 
                     img_path = IMAGES_ROOT / img_record.file_path
-                    if not img_path.exists():
+                    if not await async_exists(img_path):
                         logger.warning(f"图片不存在: {img_path}")
                         continue
 
@@ -710,8 +737,8 @@ class PDFExportService:
                     panel_y = page_height - content_y - rel_y * content_height - panel_height
 
                     try:
-                        # 读取图片
-                        pil_img = PILImage.open(str(img_path))
+                        # 读取图片（异步）
+                        pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
                         img_width, img_height = pil_img.size
 
                         # 计算图片在格子内的尺寸（保持比例，适配格子）

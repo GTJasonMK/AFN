@@ -9,8 +9,9 @@ import asyncio
 import json
 import logging
 import os
+import time
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from openai import (
@@ -35,6 +36,77 @@ from ..utils.encryption import decrypt_api_key
 from ..utils.exception_helpers import log_exception
 
 logger = logging.getLogger(__name__)
+
+# 配置缓存TTL（秒）
+_CONFIG_CACHE_TTL = 300  # 5分钟
+
+
+class LLMConfigCache:
+    """LLM配置缓存
+
+    使用带TTL的内存缓存，减少数据库查询次数。
+    线程安全：使用asyncio.Lock保护并发访问。
+
+    性能优化：
+    - 缓存命中时避免数据库查询
+    - TTL过期后自动刷新
+    - 支持手动清除缓存（配置变更时）
+    """
+
+    def __init__(self, ttl: int = _CONFIG_CACHE_TTL):
+        self._cache: Dict[int, Tuple[Dict[str, Optional[str]], float]] = {}
+        self._ttl = ttl
+        self._lock = asyncio.Lock()
+
+    async def get(self, user_id: int) -> Optional[Dict[str, Optional[str]]]:
+        """获取缓存的配置
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            缓存的配置字典，如果不存在或已过期则返回None
+        """
+        async with self._lock:
+            if user_id not in self._cache:
+                return None
+
+            config, expire_at = self._cache[user_id]
+            if time.monotonic() > expire_at:
+                # 缓存已过期，删除并返回None
+                del self._cache[user_id]
+                return None
+
+            return config
+
+    async def set(self, user_id: int, config: Dict[str, Optional[str]]) -> None:
+        """设置配置缓存
+
+        Args:
+            user_id: 用户ID
+            config: 配置字典
+        """
+        async with self._lock:
+            expire_at = time.monotonic() + self._ttl
+            self._cache[user_id] = (config, expire_at)
+
+    async def invalidate(self, user_id: Optional[int] = None) -> None:
+        """使缓存失效
+
+        Args:
+            user_id: 指定用户ID，如果为None则清除所有缓存
+        """
+        async with self._lock:
+            if user_id is None:
+                self._cache.clear()
+                logger.debug("LLM配置缓存已全部清除")
+            elif user_id in self._cache:
+                del self._cache[user_id]
+                logger.debug("LLM配置缓存已清除: user_id=%s", user_id)
+
+
+# 全局配置缓存实例
+_config_cache = LLMConfigCache()
 
 
 class LLMService:
@@ -455,8 +527,41 @@ class LLMService:
     # ------------------------------------------------------------------
     # 配置解析
     # ------------------------------------------------------------------
-    async def _resolve_llm_config(self, user_id: Optional[int], skip_daily_limit_check: bool = False) -> Dict[str, Optional[str]]:
-        """解析LLM配置"""
+    async def _resolve_llm_config(
+        self,
+        user_id: Optional[int],
+        skip_daily_limit_check: bool = False,
+        use_cache: bool = True,
+    ) -> Dict[str, Optional[str]]:
+        """解析LLM配置
+
+        Args:
+            user_id: 用户ID
+            skip_daily_limit_check: 跳过每日限额检查
+            use_cache: 是否使用缓存（默认True）
+
+        Returns:
+            包含api_key、base_url、model的配置字典
+        """
+        # 尝试从缓存获取
+        if use_cache and user_id is not None:
+            cached = await _config_cache.get(user_id)
+            if cached is not None:
+                logger.debug("使用缓存的LLM配置: user_id=%s", user_id)
+                return cached
+
+        # 缓存未命中，查询数据库
+        config = await self._fetch_llm_config(user_id)
+
+        # 存入缓存
+        if use_cache and user_id is not None:
+            await _config_cache.set(user_id, config)
+            logger.debug("LLM配置已缓存: user_id=%s", user_id)
+
+        return config
+
+    async def _fetch_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
+        """从数据库获取LLM配置（内部方法）"""
         if user_id is not None:
             try:
                 config = await self.llm_repo.get_active_config(user_id)
@@ -489,8 +594,22 @@ class LLMService:
         user_id: Optional[int],
         skip_daily_limit_check: bool = False
     ) -> Dict[str, Optional[str]]:
-        """解析LLM配置（公共接口）"""
-        return await self._resolve_llm_config(user_id, skip_daily_limit_check)
+        """解析LLM配置（公共接口，使用缓存）
+
+        用于在调用链入口处预先获取配置，然后传递给后续调用，
+        避免每次LLM调用都查询数据库。
+        """
+        return await self._resolve_llm_config(user_id, skip_daily_limit_check, use_cache=True)
+
+    async def invalidate_config_cache(self, user_id: Optional[int] = None) -> None:
+        """使配置缓存失效
+
+        当用户修改LLM配置后调用此方法，确保下次调用使用新配置。
+
+        Args:
+            user_id: 指定用户ID，如果为None则清除所有缓存
+        """
+        await _config_cache.invalidate(user_id)
 
     async def _get_config_value(self, key: str) -> Optional[str]:
         """从环境变量读取配置"""

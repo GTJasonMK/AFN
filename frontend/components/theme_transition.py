@@ -209,17 +209,19 @@ class ThemeSwitchHelper:
         self._overlay.set_transition_color(to_dark)
 
         def do_switch():
-            """执行实际的主题切换"""
-            # 禁用窗口更新
-            self._window.setUpdatesEnabled(False)
+            """执行实际的主题切换
 
+            注意：不再禁用窗口更新，因为：
+            1. 覆盖层动画已经遮盖了视觉闪烁
+            2. 禁用更新时调用 DWM API 和 setAttribute 会导致崩溃
+            3. 主题信号处理器中包含需要窗口更新的操作
+            """
             try:
-                # 切换主题
+                # 切换主题（这会触发 theme_changed 信号）
                 target_mode = ThemeMode.DARK if to_dark else ThemeMode.LIGHT
                 theme_manager.switch_theme(target_mode)
-            finally:
-                # 恢复窗口更新
-                self._window.setUpdatesEnabled(True)
+            except Exception as e:
+                logger.error(f"主题切换失败: {e}")
 
         def on_complete():
             """过渡完成"""

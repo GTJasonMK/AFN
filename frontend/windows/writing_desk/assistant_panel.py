@@ -16,6 +16,8 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from components.base import ThemeAwareWidget, ThemeAwareFrame
 from themes.theme_manager import theme_manager
+from themes.transparency_aware_mixin import TransparencyAwareMixin
+from themes.transparency_tokens import OpacityTokens
 from utils.dpi_utils import dp, sp
 from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
@@ -23,7 +25,7 @@ from utils.constants import WorkerTimeouts
 from api.manager import APIClientManager
 
 # 复用灵感模式的输入组件
-from windows.inspiration_mode.conversation_input import ConversationInput
+from windows.inspiration_mode.components import ConversationInput
 
 # 优化模式组件
 from .optimization_content import OptimizationContent
@@ -32,8 +34,14 @@ from .optimization_content import OptimizationContent
 logger = logging.getLogger(__name__)
 
 
-class RAGResultCard(ThemeAwareFrame):
-    """RAG检索结果卡片"""
+class RAGResultCard(TransparencyAwareMixin, ThemeAwareFrame):
+    """RAG检索结果卡片
+
+    使用 TransparencyAwareMixin 提供透明度控制能力。
+    """
+
+    # 透明度组件标识符
+    _transparency_component_id = "card"
 
     def __init__(self, result_type: str, data: dict, parent=None):
         """
@@ -44,6 +52,7 @@ class RAGResultCard(ThemeAwareFrame):
         self.result_type = result_type
         self.data = data
         super().__init__(parent)
+        self._init_transparency_state()  # 初始化透明度状态
         self.setupUI()
 
     def _create_ui_structure(self):
@@ -115,17 +124,33 @@ class RAGResultCard(ThemeAwareFrame):
                     layout.addWidget(self.meta_label)
 
     def _apply_theme(self):
-        """应用主题"""
+        """应用主题 - 使用TransparencyAwareMixin"""
+        # 应用透明度效果
+        self._apply_transparency()
+
         ui_font = theme_manager.ui_font()
 
-        # 卡片背景
-        self.setStyleSheet(f"""
-            RAGResultCard {{
+        # 卡片背景 - 支持透明效果
+        if self._transparency_enabled:
+            bg_rgba = self._hex_to_rgba(theme_manager.BG_PRIMARY, self._current_opacity)
+            border_rgba = self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_MEDIUM)
+
+            # 注意：不使用Python类名选择器，Qt不识别Python类名
+            # 直接设置样式
+            self.setStyleSheet(f"""
+                background-color: {bg_rgba};
+                border: 1px solid {border_rgba};
+                border-radius: {dp(6)}px;
+            """)
+            self._make_widget_transparent(self)
+        else:
+            # 注意：不使用Python类名选择器，Qt不识别Python类名
+            # 直接设置样式
+            self.setStyleSheet(f"""
                 background-color: {theme_manager.BG_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
                 border-radius: {dp(6)}px;
-            }}
-        """)
+            """)
 
         # 章节标签
         if hasattr(self, 'chapter_label'):
@@ -219,8 +244,14 @@ class RAGResultSection(ThemeAwareWidget):
             """)
 
 
-class AssistantPanel(ThemeAwareFrame):
-    """写作台右侧助手面板 - 支持RAG查询和正文优化两种模式"""
+class AssistantPanel(TransparencyAwareMixin, ThemeAwareFrame):
+    """写作台右侧助手面板 - 支持RAG查询和正文优化两种模式
+
+    使用 TransparencyAwareMixin 提供透明度控制能力。
+    """
+
+    # 透明度组件标识符 - 作为侧边面板
+    _transparency_component_id = "sidebar"
 
     # 信号
     suggestion_applied = pyqtSignal(dict)  # 建议被应用
@@ -258,6 +289,7 @@ class AssistantPanel(ThemeAwareFrame):
         self.optimization_content = None
 
         super().__init__(parent)
+        self._init_transparency_state()  # 初始化透明度状态
 
         # 注意：宽度由父组件 main.py 通过 setFixedWidth() 控制
         # 此处不再设置 SizePolicy，避免冲突
@@ -416,16 +448,79 @@ class AssistantPanel(ThemeAwareFrame):
         self.suggestion_applied.emit(suggestion)
 
     def _apply_theme(self):
-        """应用主题"""
+        """应用主题 - 使用TransparencyAwareMixin"""
+        # 应用透明度效果
+        self._apply_transparency()
+
         ui_font = theme_manager.ui_font()
 
-        # 背景
-        self.setStyleSheet(f"""
-            AssistantPanel {{
+        # 背景 - 支持透明效果
+        if self._transparency_enabled:
+            bg_style = self._get_transparent_bg(
+                theme_manager.BG_SECONDARY,
+                border_color=theme_manager.BORDER_LIGHT,
+                border_opacity=OpacityTokens.BORDER_LIGHT
+            )
+
+            # 注意：不使用Python类名选择器，Qt不识别Python类名
+            # 直接设置样式
+            self.setStyleSheet(f"""
+                {bg_style}
+                border-left: 1px solid {self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_LIGHT)};
+            """)
+
+            # 确保子组件背景透明
+            if self.mode_switch_container:
+                self.mode_switch_container.setStyleSheet("background-color: transparent;")
+                self._make_widget_transparent(self.mode_switch_container)
+
+            if self.rag_content:
+                self.rag_content.setStyleSheet("background-color: transparent;")
+                self._make_widget_transparent(self.rag_content)
+
+            if self.header_bar:
+                self.header_bar.setStyleSheet("background-color: transparent;")
+                self._make_widget_transparent(self.header_bar)
+
+            # 滚动区域透明
+            if self.scroll_area:
+                self.scroll_area.setStyleSheet("""
+                    QScrollArea {
+                        background-color: transparent;
+                        border: none;
+                    }
+                    QScrollArea > QWidget > QWidget {
+                        background-color: transparent;
+                    }
+                """)
+                self.scroll_area.viewport().setStyleSheet("background-color: transparent;")
+                self._make_widget_transparent(self.scroll_area.viewport())
+
+            if self.result_content:
+                self.result_content.setStyleSheet("background-color: transparent;")
+                self._make_widget_transparent(self.result_content)
+
+            # 输入区域半透明
+            if self.input_container:
+                input_opacity = self._current_opacity * 0.8
+                input_bg_rgba = self._hex_to_rgba(theme_manager.BG_SECONDARY, input_opacity)
+                border_rgba = self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_MEDIUM)
+                self.input_container.setStyleSheet(f"""
+                    background-color: {input_bg_rgba};
+                    border-top: 1px solid {border_rgba};
+                """)
+                self._make_widget_transparent(self.input_container)
+
+            # content_stack透明
+            if self.content_stack:
+                self.content_stack.setStyleSheet("background-color: transparent;")
+        else:
+            # 注意：不使用Python类名选择器，Qt不识别Python类名
+            # 直接设置样式
+            self.setStyleSheet(f"""
                 background-color: {theme_manager.BG_SECONDARY};
                 border-left: 1px solid {theme_manager.BORDER_LIGHT};
-            }}
-        """)
+            """)
 
         # 模式切换按钮样式
         mode_btn_style = f"""

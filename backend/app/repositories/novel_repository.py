@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload, load_only
 
 from .base import BaseRepository
-from ..models import Chapter, NovelProject
+from ..models import Chapter, ChapterOutline, NovelProject
 from ..models.novel import NovelBlueprint
 
 
@@ -66,6 +66,7 @@ class NovelRepository(BaseRepository[NovelProject]):
         total = await self.count_by_user(user_id)
 
         # 分页查询
+        # 性能优化：只加载必要的列，避免加载完整的关联对象
         result = await self.session.execute(
             select(NovelProject)
             .where(NovelProject.user_id == user_id)
@@ -75,9 +76,14 @@ class NovelRepository(BaseRepository[NovelProject]):
             .options(
                 # 只加载blueprint的genre字段，避免加载world_setting等大字段
                 selectinload(NovelProject.blueprint).load_only(NovelBlueprint.genre),
-                selectinload(NovelProject.outlines),
+                # 大纲只需要章节号用于计数
+                selectinload(NovelProject.outlines).load_only(ChapterOutline.chapter_number),
                 selectinload(NovelProject.part_outlines),
-                selectinload(NovelProject.chapters).selectinload(Chapter.selected_version),
+                # 章节只需要selected_version_id用于判断完成状态，不需要加载完整的版本对象
+                selectinload(NovelProject.chapters).load_only(
+                    Chapter.chapter_number,
+                    Chapter.selected_version_id,
+                ),
             )
         )
         return result.scalars().all(), total
@@ -108,6 +114,7 @@ class NovelRepository(BaseRepository[NovelProject]):
         total = await self.count_all()
 
         # 分页查询
+        # 性能优化：只加载必要的列，避免加载完整的关联对象
         result = await self.session.execute(
             select(NovelProject)
             .order_by(NovelProject.updated_at.desc())
@@ -117,9 +124,14 @@ class NovelRepository(BaseRepository[NovelProject]):
                 selectinload(NovelProject.owner),
                 # 只加载blueprint的genre字段，避免加载world_setting等大字段
                 selectinload(NovelProject.blueprint).load_only(NovelBlueprint.genre),
-                selectinload(NovelProject.outlines),
+                # 大纲只需要章节号用于计数
+                selectinload(NovelProject.outlines).load_only(ChapterOutline.chapter_number),
                 selectinload(NovelProject.part_outlines),
-                selectinload(NovelProject.chapters).selectinload(Chapter.selected_version),
+                # 章节只需要selected_version_id用于判断完成状态
+                selectinload(NovelProject.chapters).load_only(
+                    Chapter.chapter_number,
+                    Chapter.selected_version_id,
+                ),
             )
         )
         return result.scalars().all(), total

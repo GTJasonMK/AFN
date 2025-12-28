@@ -19,6 +19,7 @@
 """
 
 from themes.theme_manager import theme_manager
+from themes.transparency_tokens import OpacityTokens
 from utils.dpi_utils import dp, sp
 
 
@@ -27,16 +28,77 @@ class DialogStyles:
 
     提供统一的对话框样式生成方法，减少代码重复。
     所有方法都接受 object_name 参数以支持 Qt 的 object name selector。
+    使用 OpacityTokens 获取标准透明度值。
     """
 
     @staticmethod
-    def container(object_name: str) -> str:
-        """对话框容器样式"""
+    def _hex_to_rgba(hex_color: str, opacity: float) -> str:
+        """将十六进制颜色转换为rgba格式"""
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) == 3:
+            hex_color = ''.join([c * 2 for c in hex_color])
+
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+
+        return f"rgba({r}, {g}, {b}, {opacity})"
+
+    @staticmethod
+    def container(object_name: str, use_transparency: bool = None) -> str:
+        """对话框容器样式 - 支持透明效果
+
+        Args:
+            object_name: QWidget的objectName
+            use_transparency: 是否使用透明效果，None时自动根据配置决定
+        """
+        # 获取透明效果配置
+        transparency_enabled = theme_manager.is_transparency_globally_enabled() if use_transparency is None else use_transparency
+
+        if transparency_enabled:
+            # 使用组件透明度方法获取对话框透明度
+            opacity = theme_manager.get_component_opacity("dialog")
+            bg_rgba = DialogStyles._hex_to_rgba(theme_manager.BG_CARD, opacity)
+            border_rgba = DialogStyles._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_STRONG)
+            return f"""
+                #{object_name} {{
+                    background-color: {bg_rgba};
+                    border: 1px solid {border_rgba};
+                    border-radius: {dp(16)}px;
+                }}
+            """
+        else:
+            return f"""
+                #{object_name} {{
+                    background-color: {theme_manager.BG_CARD};
+                    border: 1px solid {theme_manager.BORDER_LIGHT};
+                    border-radius: {dp(16)}px;
+                }}
+            """
+
+    @staticmethod
+    def overlay(object_name: str = None, is_dark: bool = None) -> str:
+        """对话框遮罩层样式
+
+        Args:
+            object_name: QWidget的objectName，为None时不使用选择器
+            is_dark: 是否深色模式，None时自动检测
+        """
+        if is_dark is None:
+            is_dark = theme_manager.is_dark_mode()
+
+        # 使用 Token 系统的 OVERLAY 透明度
+        opacity = theme_manager.get_component_opacity("overlay") if theme_manager.is_transparency_globally_enabled() else OpacityTokens.OVERLAY
+
+        if is_dark:
+            bg_color = DialogStyles._hex_to_rgba("#000000", opacity)
+        else:
+            bg_color = DialogStyles._hex_to_rgba("#000000", opacity)
+
+        selector = f"#{object_name}" if object_name else "QWidget"
         return f"""
-            #{object_name} {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(16)}px;
+            {selector} {{
+                background-color: {bg_color};
             }}
         """
 
@@ -415,14 +477,34 @@ class DialogStyles:
     # 用于设置页面等需要书籍风格的对话框
 
     @staticmethod
-    def book_dialog_background() -> str:
-        """书籍风格对话框背景"""
-        palette = theme_manager.get_book_palette()
-        return f"""
-            QDialog {{
-                background-color: {palette.bg_primary};
-            }}
+    def book_dialog_background(use_transparency: bool = None) -> str:
+        """书籍风格对话框背景 - 支持透明效果
+
+        Args:
+            use_transparency: 是否使用透明效果，None时自动根据配置决定
         """
+        from themes.modern_effects import ModernEffects
+
+        palette = theme_manager.get_book_palette()
+
+        # 获取透明效果配置
+        transparency_config = theme_manager.get_transparency_config()
+        transparency_enabled = use_transparency if use_transparency is not None else transparency_config.get("enabled", False)
+
+        if transparency_enabled:
+            opacity = transparency_config.get("dialog_opacity", 0.95)
+            bg_rgba = ModernEffects.hex_to_rgba(palette.bg_primary, opacity)
+            return f"""
+                QDialog {{
+                    background-color: {bg_rgba};
+                }}
+            """
+        else:
+            return f"""
+                QDialog {{
+                    background-color: {palette.bg_primary};
+                }}
+            """
 
     @staticmethod
     def book_title(object_name: str) -> str:

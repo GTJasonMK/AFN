@@ -12,13 +12,21 @@ from PyQt6.QtGui import QColor
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from themes.modern_effects import ModernEffects
+from themes.transparency_aware_mixin import TransparencyAwareMixin
+from themes.transparency_tokens import OpacityTokens
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.formatters import count_chinese_characters, format_word_count
 
 
-class WDHeader(ThemeAwareFrame):
-    """写作台顶部导航栏 - 现代化设计"""
+class WDHeader(TransparencyAwareMixin, ThemeAwareFrame):
+    """写作台顶部导航栏 - 现代化设计
+
+    使用 TransparencyAwareMixin 提供透明度控制能力。
+    """
+
+    # 透明度组件标识符
+    _transparency_component_id = "header"
 
     goBackClicked = pyqtSignal()
     viewDetailClicked = pyqtSignal()
@@ -39,6 +47,7 @@ class WDHeader(ThemeAwareFrame):
         self.assistant_btn = None
 
         super().__init__(parent)
+        self._init_transparency_state()  # 初始化透明度状态
         self.setupUI()
 
     def _create_ui_structure(self):
@@ -128,31 +137,86 @@ class WDHeader(ThemeAwareFrame):
             self.assistant_btn.setStyleSheet(style)
 
     def _apply_theme(self):
-        """应用主题样式（可多次调用）- 现代化设计"""
+        """应用主题样式（可多次调用）- 使用TransparencyAwareMixin"""
+        # 应用透明度效果
+        self._apply_transparency()
+
         # 使用现代UI字体
         ui_font = theme_manager.ui_font()
 
-        # Header背景 - 透明以显示下层渐变
-        self.setStyleSheet(f"""
-            WDHeader {{
-                background-color: transparent;
-                border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
-            }}
-        """)
-
-        # 玻璃拟态容器
-        if self.container:
-            glassmorphism_style = ModernEffects.glassmorphism_card(
-                is_dark=theme_manager.is_dark_mode()
+        # Header背景 - 支持透明效果
+        if self._transparency_enabled:
+            # 使用Mixin提供的透明背景样式
+            bg_style = self._get_transparent_bg(
+                theme_manager.BG_SECONDARY,
+                border_color=theme_manager.BORDER_LIGHT,
+                border_opacity=OpacityTokens.BORDER_LIGHT
             )
-            self.container.setStyleSheet(f"""
-                QFrame#header_container {{
-                    {glassmorphism_style}
-                    border-radius: {theme_manager.RADIUS_LG};
-                }}
+
+            # 直接设置样式，不使用Python类名选择器
+            self.setStyleSheet(f"""
+                {bg_style}
+                border-bottom: 1px solid {self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_LIGHT)};
             """)
 
-            # 添加阴影
+            # 容器使用稍低透明度
+            container_opacity = self._current_opacity * 0.7
+            if self.container:
+                container_rgba = self._hex_to_rgba(theme_manager.BG_TERTIARY, container_opacity)
+                border_rgba = self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_LIGHT)
+                self.container.setStyleSheet(f"""
+                    QFrame#header_container {{
+                        background-color: {container_rgba};
+                        border: 1px solid {border_rgba};
+                        border-radius: {theme_manager.RADIUS_LG};
+                    }}
+                """)
+                self._make_widget_transparent(self.container)
+
+            # 项目信息卡片也使用半透明背景
+            if info_card := self.findChild(QFrame, "info_card"):
+                info_card_rgba = self._hex_to_rgba(theme_manager.BG_TERTIARY, container_opacity * 0.7)
+                border_rgba = self._hex_to_rgba(theme_manager.BORDER_LIGHT, OpacityTokens.BORDER_LIGHT)
+                info_card.setStyleSheet(f"""
+                    QFrame#info_card {{
+                        background-color: {info_card_rgba};
+                        border: 1px solid {border_rgba};
+                        border-radius: {theme_manager.RADIUS_MD};
+                    }}
+                """)
+                self._make_widget_transparent(info_card)
+        else:
+            # 非透明模式 - 使用正常背景色
+            # 直接设置样式，不使用Python类名选择器
+            self.setStyleSheet(f"""
+                background-color: {theme_manager.BG_SECONDARY};
+                border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
+            """)
+
+            # 玻璃拟态容器（非透明模式）
+            if self.container:
+                glassmorphism_style = ModernEffects.glassmorphism_card(
+                    is_dark=theme_manager.is_dark_mode()
+                )
+                self.container.setStyleSheet(f"""
+                    QFrame#header_container {{
+                        {glassmorphism_style}
+                        border-radius: {theme_manager.RADIUS_LG};
+                    }}
+                """)
+
+            # 项目信息卡片（非透明模式）
+            if info_card := self.findChild(QFrame, "info_card"):
+                info_card.setStyleSheet(f"""
+                    QFrame#info_card {{
+                        background-color: {theme_manager.BG_TERTIARY};
+                        border: 1px solid {theme_manager.BORDER_LIGHT};
+                        border-radius: {theme_manager.RADIUS_MD};
+                    }}
+                """)
+
+        # 添加阴影（两种模式都需要）
+        if self.container:
             shadow = QGraphicsDropShadowEffect()
             shadow.setBlurRadius(dp(12))
             shadow.setColor(QColor(0, 0, 0, 25))
@@ -182,16 +246,6 @@ class WDHeader(ThemeAwareFrame):
                 }}
                 QPushButton:pressed {{
                     padding-top: 1px;
-                }}
-            """)
-
-        # 项目信息卡片
-        if info_card := self.findChild(QFrame, "info_card"):
-            info_card.setStyleSheet(f"""
-                QFrame#info_card {{
-                    background-color: {theme_manager.BG_TERTIARY};
-                    border: 1px solid {theme_manager.BORDER_LIGHT};
-                    border-radius: {theme_manager.RADIUS_MD};
                 }}
             """)
 

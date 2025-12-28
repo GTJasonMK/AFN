@@ -2,6 +2,9 @@
 主题配置Schema模块
 
 定义主题配置的请求/响应模型。
+支持两种配置格式：
+- V1（旧版）：面向常量的配置
+- V2（新版）：面向组件的配置
 """
 
 from datetime import datetime
@@ -314,3 +317,174 @@ class ThemeConfigImportResult(BaseModel):
     skipped_count: int = 0
     failed_count: int = 0
     details: list[str] = []
+
+
+# ==================== V2: 面向组件的配置模型 ====================
+
+class ThemeConfigV2Create(BaseModel):
+    """创建V2格式主题配置的请求模型"""
+    config_name: str = Field(default="自定义主题", description="配置名称", max_length=100)
+    parent_mode: Literal["light", "dark"] = Field(..., description="顶级主题模式")
+
+    # V2 设计令牌
+    token_colors: Optional[dict[str, Any]] = None
+    token_typography: Optional[dict[str, Any]] = None
+    token_spacing: Optional[dict[str, Any]] = None
+    token_radius: Optional[dict[str, Any]] = None
+
+    # V2 组件配置
+    comp_button: Optional[dict[str, Any]] = None
+    comp_card: Optional[dict[str, Any]] = None
+    comp_input: Optional[dict[str, Any]] = None
+    comp_sidebar: Optional[dict[str, Any]] = None
+    comp_header: Optional[dict[str, Any]] = None
+    comp_dialog: Optional[dict[str, Any]] = None
+    comp_scrollbar: Optional[dict[str, Any]] = None
+    comp_tooltip: Optional[dict[str, Any]] = None
+    comp_tabs: Optional[dict[str, Any]] = None
+    comp_text: Optional[dict[str, Any]] = None
+    comp_semantic: Optional[dict[str, Any]] = None
+
+    # V2 效果配置
+    effects: Optional[dict[str, Any]] = None
+
+
+class ThemeConfigV2Update(BaseModel):
+    """更新V2格式主题配置的请求模型（所有字段可选）"""
+    config_name: Optional[str] = Field(default=None, max_length=100)
+
+    # V2 设计令牌
+    token_colors: Optional[dict[str, Any]] = None
+    token_typography: Optional[dict[str, Any]] = None
+    token_spacing: Optional[dict[str, Any]] = None
+    token_radius: Optional[dict[str, Any]] = None
+
+    # V2 组件配置
+    comp_button: Optional[dict[str, Any]] = None
+    comp_card: Optional[dict[str, Any]] = None
+    comp_input: Optional[dict[str, Any]] = None
+    comp_sidebar: Optional[dict[str, Any]] = None
+    comp_header: Optional[dict[str, Any]] = None
+    comp_dialog: Optional[dict[str, Any]] = None
+    comp_scrollbar: Optional[dict[str, Any]] = None
+    comp_tooltip: Optional[dict[str, Any]] = None
+    comp_tabs: Optional[dict[str, Any]] = None
+    comp_text: Optional[dict[str, Any]] = None
+    comp_semantic: Optional[dict[str, Any]] = None
+
+    # V2 效果配置
+    effects: Optional[dict[str, Any]] = None
+
+
+class ThemeConfigV2Read(BaseModel):
+    """V2格式主题配置的响应模型"""
+    id: int
+    user_id: int
+    config_name: str
+    parent_mode: str
+    is_active: bool
+    config_version: int = 2
+
+    # V2 设计令牌
+    token_colors: Optional[dict[str, Any]] = None
+    token_typography: Optional[dict[str, Any]] = None
+    token_spacing: Optional[dict[str, Any]] = None
+    token_radius: Optional[dict[str, Any]] = None
+
+    # V2 组件配置
+    comp_button: Optional[dict[str, Any]] = None
+    comp_card: Optional[dict[str, Any]] = None
+    comp_input: Optional[dict[str, Any]] = None
+    comp_sidebar: Optional[dict[str, Any]] = None
+    comp_header: Optional[dict[str, Any]] = None
+    comp_dialog: Optional[dict[str, Any]] = None
+    comp_scrollbar: Optional[dict[str, Any]] = None
+    comp_tooltip: Optional[dict[str, Any]] = None
+    comp_tabs: Optional[dict[str, Any]] = None
+    comp_text: Optional[dict[str, Any]] = None
+    comp_semantic: Optional[dict[str, Any]] = None
+
+    # V2 效果配置
+    effects: Optional[dict[str, Any]] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ThemeV2DefaultsResponse(BaseModel):
+    """获取V2格式默认主题值的响应"""
+    mode: str
+    config_version: int = 2
+
+    # 设计令牌
+    token_colors: dict[str, Any]
+    token_typography: dict[str, Any]
+    token_spacing: dict[str, Any]
+    token_radius: dict[str, Any]
+
+    # 组件配置
+    comp_button: dict[str, Any]
+    comp_card: dict[str, Any]
+    comp_input: dict[str, Any]
+    comp_sidebar: dict[str, Any]
+    comp_header: dict[str, Any]
+    comp_dialog: dict[str, Any]
+    comp_scrollbar: dict[str, Any]
+    comp_tooltip: dict[str, Any]
+    comp_tabs: dict[str, Any]
+    comp_text: dict[str, Any]
+    comp_semantic: dict[str, Any]
+
+    # 效果配置
+    effects: dict[str, Any]
+
+
+class ThemeConfigUnifiedRead(BaseModel):
+    """统一的主题配置响应模型（支持V1和V2）"""
+    id: int
+    user_id: int
+    config_name: str
+    parent_mode: str
+    is_active: bool
+    config_version: int = 1
+
+    # V1 配置（面向常量）
+    primary_colors: Optional[dict[str, Any]] = None
+    accent_colors: Optional[dict[str, Any]] = None
+    semantic_colors: Optional[dict[str, Any]] = None
+    text_colors: Optional[dict[str, Any]] = None
+    background_colors: Optional[dict[str, Any]] = None
+    border_effects: Optional[dict[str, Any]] = None
+    button_colors: Optional[dict[str, Any]] = None
+    typography: Optional[dict[str, Any]] = None
+    border_radius: Optional[dict[str, Any]] = None
+    spacing: Optional[dict[str, Any]] = None
+    animation: Optional[dict[str, Any]] = None
+    button_sizes: Optional[dict[str, Any]] = None
+
+    # V2 配置（面向组件）
+    token_colors: Optional[dict[str, Any]] = None
+    token_typography: Optional[dict[str, Any]] = None
+    token_spacing: Optional[dict[str, Any]] = None
+    token_radius: Optional[dict[str, Any]] = None
+    comp_button: Optional[dict[str, Any]] = None
+    comp_card: Optional[dict[str, Any]] = None
+    comp_input: Optional[dict[str, Any]] = None
+    comp_sidebar: Optional[dict[str, Any]] = None
+    comp_header: Optional[dict[str, Any]] = None
+    comp_dialog: Optional[dict[str, Any]] = None
+    comp_scrollbar: Optional[dict[str, Any]] = None
+    comp_tooltip: Optional[dict[str, Any]] = None
+    comp_tabs: Optional[dict[str, Any]] = None
+    comp_text: Optional[dict[str, Any]] = None
+    comp_semantic: Optional[dict[str, Any]] = None
+    effects: Optional[dict[str, Any]] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

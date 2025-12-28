@@ -126,6 +126,11 @@ class WDWorkspace(
 
     def setProjectId(self, project_id):
         """设置项目ID"""
+        # 如果项目ID变化，清空旧项目的缓存
+        if self.project_id and self.project_id != project_id:
+            from utils.chapter_cache import get_chapter_cache
+            get_chapter_cache().invalidate(self.project_id)
+
         self.project_id = project_id
 
     # ==================== 信号发射包装方法 ====================

@@ -1,0 +1,235 @@
+"""
+人物关系 Section - 垂直列表布局
+
+展示角色之间的关系网络，采用横条式垂直列表布局（无水平滚动）
+"""
+
+from PyQt6.QtWidgets import (
+    QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget, QScrollArea
+)
+from PyQt6.QtCore import pyqtSignal, Qt
+from components.base import ThemeAwareWidget
+from utils.dpi_utils import dp
+from utils.component_pool import ComponentPool, reset_relationship_row
+
+from ..components import RelationshipRow
+from ..section_styles import SectionStyles
+
+
+class RelationshipsSection(ThemeAwareWidget):
+    """人物关系组件 - 垂直列表布局"""
+
+    editRequested = pyqtSignal(str, str, object)
+
+    def __init__(self, data=None, editable=True, parent=None):
+        self.data = data or []
+        self.editable = editable
+
+        # 保存组件引用
+        self.header_widget = None
+        self.count_label = None
+        self.edit_btn = None
+        self.scroll_area = None
+        self.content_widget = None
+        self.content_layout = None
+        self.no_data_widget = None
+        self.relationship_rows = []
+
+        # 组件池：复用关系行组件
+        self._relationship_row_pool = ComponentPool(
+            RelationshipRow,
+            max_size=50,
+            factory_kwargs={'data': {}},
+            reset_callback=reset_relationship_row
+        )
+
+        super().__init__(parent)
+        self.setupUI()
+
+    def _create_ui_structure(self):
+        """创建UI结构"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(dp(16))
+
+        # 顶部标题栏
+        self._create_header(layout)
+
+        # 内容区域（带滚动）
+        self._create_content_area(layout)
+
+    def _create_header(self, parent_layout):
+        """创建标题栏"""
+        self.header_widget = QFrame()
+        header_layout = QHBoxLayout(self.header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(dp(12))
+
+        # 标题
+        title = QLabel("人物关系")
+        title.setObjectName("section_title")
+        header_layout.addWidget(title)
+
+        # 数量标签
+        self.count_label = QLabel(f"{len(self.data)} 条关系")
+        self.count_label.setObjectName("count_label")
+        header_layout.addWidget(self.count_label)
+
+        header_layout.addStretch()
+
+        # 编辑按钮
+        if self.editable:
+            self.edit_btn = QPushButton("编辑关系")
+            self.edit_btn.setObjectName("edit_btn")
+            self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.edit_btn.clicked.connect(
+                lambda: self.editRequested.emit('relationships', '人物关系', self.data)
+            )
+            header_layout.addWidget(self.edit_btn)
+
+        parent_layout.addWidget(self.header_widget)
+
+    def _create_content_area(self, parent_layout):
+        """创建内容区域"""
+        # 滚动区域（只允许垂直滚动）
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # 内容容器
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, dp(8), 0)  # 右边留出滚动条空间
+        self.content_layout.setSpacing(dp(8))
+
+        if not self.data:
+            self._create_empty_state()
+        else:
+            self._create_relationship_rows()
+
+        self.content_layout.addStretch()
+        self.scroll_area.setWidget(self.content_widget)
+        parent_layout.addWidget(self.scroll_area, stretch=1)
+
+    def _create_empty_state(self):
+        """创建空状态提示"""
+        self.no_data_widget = QFrame()
+        self.no_data_widget.setObjectName("empty_state")
+        layout = QVBoxLayout(self.no_data_widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(dp(12))
+
+        text = QLabel("暂无人物关系")
+        text.setObjectName("empty_text")
+        text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text)
+
+        hint = QLabel("点击\"编辑关系\"按钮添加角色之间的关系")
+        hint.setObjectName("empty_hint")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint)
+
+        self.content_layout.addWidget(self.no_data_widget)
+
+    def _create_relationship_rows(self):
+        """创建关系横条列表
+
+        性能优化：
+        - 使用组件池复用关系行
+        - 对于大量关系，使用分批创建避免UI卡顿
+        """
+        from PyQt6.QtCore import QTimer
+
+        self.relationship_rows.clear()
+
+        # 如果关系数量较少（<=10），直接同步创建
+        if len(self.data) <= 10:
+            for relationship in self.data:
+                row = self._relationship_row_pool.acquire()
+                row.update_data(relationship)
+                self.relationship_rows.append(row)
+                self.content_layout.addWidget(row)
+                row.show()  # 池中的组件被hide了，需要显示
+            return
+
+        # 对于大量关系，使用分批创建
+        self._pending_relationships = list(self.data)
+        self._relationship_batch_index = 0
+        self._relationship_batch_size = 5  # 每批创建5个
+        self._create_next_relationship_batch()
+
+    def _create_next_relationship_batch(self):
+        """创建下一批关系行"""
+        from PyQt6.QtCore import QTimer
+
+        if not hasattr(self, '_pending_relationships') or not self._pending_relationships:
+            return
+
+        start_idx = self._relationship_batch_index * self._relationship_batch_size
+        end_idx = min(start_idx + self._relationship_batch_size, len(self._pending_relationships))
+
+        if start_idx >= len(self._pending_relationships):
+            # 所有关系创建完成
+            self._pending_relationships = None
+            return
+
+        # 创建这一批关系行（使用组件池）
+        for i in range(start_idx, end_idx):
+            relationship = self._pending_relationships[i]
+            row = self._relationship_row_pool.acquire()
+            row.update_data(relationship)
+            self.relationship_rows.append(row)
+            # 插入到stretch之前
+            self.content_layout.insertWidget(self.content_layout.count() - 1, row)
+            row.show()  # 池中的组件被hide了，需要显示
+
+        # 继续创建下一批
+        self._relationship_batch_index += 1
+        if self._relationship_batch_index * self._relationship_batch_size < len(self._pending_relationships):
+            QTimer.singleShot(8, self._create_next_relationship_batch)
+        else:
+            self._pending_relationships = None
+
+    def _apply_theme(self):
+        """应用主题样式"""
+        # 使用共享的 Section 样式
+        self.setStyleSheet(SectionStyles.list_section_stylesheet())
+        self.scroll_area.setStyleSheet(SectionStyles.scroll_area_stylesheet())
+        self.content_widget.setStyleSheet(SectionStyles.transparent_background())
+
+        # 更新所有关系横条样式
+        for row in self.relationship_rows:
+            row.update_theme()
+
+    def updateData(self, new_data):
+        """更新数据并刷新显示"""
+        self.data = new_data
+
+        # 更新数量标签
+        if self.count_label:
+            self.count_label.setText(f"{len(new_data)} 条关系")
+
+        # 释放现有行回组件池（而不是删除）
+        for row in self.relationship_rows:
+            self.content_layout.removeWidget(row)
+            self._relationship_row_pool.release(row)
+
+        # 清空其他widget
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget() and item.widget() not in self.relationship_rows:
+                item.widget().deleteLater()
+
+        self.relationship_rows.clear()
+        self.no_data_widget = None
+
+        # 重建内容
+        if not new_data:
+            self._create_empty_state()
+        else:
+            self._create_relationship_rows()
+
+        self.content_layout.addStretch()
+        self._apply_theme()

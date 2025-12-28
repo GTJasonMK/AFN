@@ -32,15 +32,229 @@
 - 自动断开信号，防止内存泄漏
 - 统一主题切换行为
 - 使用延迟刷新优化大量组件的主题切换
+- 优先刷新可见组件
 """
 
 import logging
-import random
-from PyQt6.QtWidgets import QWidget, QFrame, QPushButton
+from typing import Set, Optional, List
+from weakref import WeakSet
+from PyQt6.QtWidgets import QWidget, QFrame, QPushButton, QApplication
 from PyQt6.QtCore import QEvent, QTimer
 from themes.theme_manager import theme_manager
 
 logger = logging.getLogger(__name__)
+
+
+# 批量刷新管理器（模块级单例）
+class _ThemeRefreshManager:
+    """主题刷新管理器
+
+    用于批量处理主题切换时的组件刷新，避免每个组件独立刷新导致的性能问题。
+
+    性能优化：三阶段优先级提交
+    1. 收集阶段：收集所有需要刷新的组件（不执行_apply_theme）
+    2. 分类阶段：按可见性和优先级分类组件
+    3. 执行阶段：
+       - 先刷新可见组件（用户能看到的）
+       - 延迟刷新不可见组件（用户看不到的）
+
+    这样可以避免：
+    - 每个组件独立刷新导致的多次重绘
+    - _apply_theme和polish交替执行导致的布局抖动
+    - 刷新不可见组件造成的性能浪费
+    """
+
+    _instance: Optional['_ThemeRefreshManager'] = None
+
+    # 组件优先级（数值越小优先级越高）
+    PRIORITY_HIGH = 0     # 顶层窗口、主要容器
+    PRIORITY_NORMAL = 1   # 普通组件
+    PRIORITY_LOW = 2      # 不可见组件、后台组件
+
+    def __init__(self):
+        self._pending_widgets: Set[QWidget] = set()
+        self._deferred_widgets: WeakSet[QWidget] = WeakSet()  # 延迟刷新的不可见组件
+        self._refresh_timer: Optional[QTimer] = None
+        self._deferred_timer: Optional[QTimer] = None
+        self._is_refreshing = False  # 防止递归刷新
+
+    @classmethod
+    def instance(cls) -> '_ThemeRefreshManager':
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def schedule_theme_update(self, widget: QWidget):
+        """调度组件主题更新（三阶段优先级提交：收集阶段）
+
+        将组件添加到待更新集合，延迟执行实际的主题应用。
+        """
+        try:
+            # 防止递归刷新期间添加新组件
+            if self._is_refreshing:
+                return
+
+            # 检查组件是否有效
+            if widget is None:
+                return
+
+            # 添加到待刷新集合
+            self._pending_widgets.add(widget)
+
+            # 启动或重置刷新定时器
+            if self._refresh_timer is None:
+                self._refresh_timer = QTimer()
+                self._refresh_timer.setSingleShot(True)
+                self._refresh_timer.timeout.connect(self._do_priority_refresh)
+
+            # 重置定时器（合并多个刷新请求）
+            if not self._refresh_timer.isActive():
+                self._refresh_timer.start(16)  # 16ms，约1帧的延迟
+        except RuntimeError:
+            # 组件可能已被删除
+            pass
+
+    def _classify_widgets(self, widgets: List[QWidget]) -> tuple:
+        """按优先级分类组件
+
+        Returns:
+            (visible_widgets, invisible_widgets): 可见组件列表和不可见组件列表
+        """
+        visible = []
+        invisible = []
+
+        for widget in widgets:
+            try:
+                if widget is None:
+                    continue
+                # 检查组件及其所有父级是否可见
+                if self._is_widget_visible(widget):
+                    visible.append(widget)
+                else:
+                    invisible.append(widget)
+            except RuntimeError:
+                # C++对象已删除
+                continue
+
+        return visible, invisible
+
+    def _is_widget_visible(self, widget: QWidget) -> bool:
+        """检查组件是否真正可见（包括父级）"""
+        try:
+            # 检查组件本身
+            if not widget.isVisible():
+                return False
+
+            # 检查父级链
+            parent = widget.parent()
+            while parent is not None:
+                if isinstance(parent, QWidget):
+                    if not parent.isVisible():
+                        return False
+                parent = parent.parent() if hasattr(parent, 'parent') else None
+
+            return True
+        except RuntimeError:
+            return False
+
+    def _do_priority_refresh(self):
+        """执行优先级刷新"""
+        if not self._pending_widgets or self._is_refreshing:
+            return
+
+        self._is_refreshing = True
+
+        # 获取并清空待刷新集合
+        widgets = list(self._pending_widgets)
+        self._pending_widgets.clear()
+
+        # 分类组件
+        visible_widgets, invisible_widgets = self._classify_widgets(widgets)
+
+        # 获取主窗口
+        main_window = None
+        app = QApplication.instance()
+        if app:
+            for w in app.topLevelWidgets():
+                if w.isVisible() and hasattr(w, 'setUpdatesEnabled'):
+                    main_window = w
+                    break
+
+        # 阶段1：禁用UI更新
+        if main_window:
+            main_window.setUpdatesEnabled(False)
+
+        try:
+            # 阶段2a：优先刷新可见组件
+            for widget in visible_widgets:
+                try:
+                    if widget is not None and hasattr(widget, '_apply_theme'):
+                        widget._apply_theme()
+                except (RuntimeError, AttributeError):
+                    continue
+
+            # 阶段2b：批量执行polish（仅可见组件）
+            for widget in visible_widgets:
+                try:
+                    if widget is not None:
+                        widget.style().unpolish(widget)
+                        widget.style().polish(widget)
+                except (RuntimeError, AttributeError):
+                    continue
+
+            # 将不可见组件加入延迟队列
+            for widget in invisible_widgets:
+                self._deferred_widgets.add(widget)
+
+        finally:
+            # 阶段3：恢复UI更新并触发一次重绘
+            self._is_refreshing = False
+            if main_window:
+                main_window.setUpdatesEnabled(True)
+                main_window.repaint()
+
+        # 启动延迟刷新定时器（如果有不可见组件）
+        if self._deferred_widgets:
+            if self._deferred_timer is None:
+                self._deferred_timer = QTimer()
+                self._deferred_timer.setSingleShot(True)
+                self._deferred_timer.timeout.connect(self._do_deferred_refresh)
+
+            if not self._deferred_timer.isActive():
+                self._deferred_timer.start(100)  # 100ms后刷新不可见组件
+
+    def _do_deferred_refresh(self):
+        """延迟刷新不可见组件"""
+        if self._is_refreshing:
+            return
+
+        self._is_refreshing = True
+
+        # 获取延迟刷新的组件
+        widgets = list(self._deferred_widgets)
+        self._deferred_widgets.clear()
+
+        try:
+            # 批量刷新
+            for widget in widgets:
+                try:
+                    if widget is not None and hasattr(widget, '_apply_theme'):
+                        widget._apply_theme()
+                        widget.style().unpolish(widget)
+                        widget.style().polish(widget)
+                except (RuntimeError, AttributeError):
+                    continue
+        finally:
+            self._is_refreshing = False
+
+    # 保留旧方法以兼容
+    def schedule_refresh(self, widget: QWidget):
+        """兼容旧接口：调度组件刷新"""
+        self.schedule_theme_update(widget)
+
+
+# 获取全局刷新管理器实例
+_refresh_manager = _ThemeRefreshManager.instance()
 
 
 class ThemeAwareMixin:
@@ -125,16 +339,20 @@ class ThemeAwareMixin:
     def _on_theme_changed(self, mode: str):
         """主题改变时的内部处理
 
+        性能优化：不立即执行_apply_theme，而是注册到刷新管理器。
+        刷新管理器会在收集完所有组件后，统一执行两阶段提交刷新。
+
         子类通常不需要重写此方法。
         如果需要在主题切换时做额外处理，可以重写此方法，但记得调用 super()。
         """
         if self._is_cleaned_up:
             return
         try:
-            logger.info(f"ThemeAwareMixin._on_theme_changed({mode}) for {self.__class__.__name__}")
-            self._apply_theme()
-            # 强制刷新自身样式缓存
-            self._force_style_refresh()
+            # 使用debug级别避免主题切换时的日志洪流
+            logger.debug("Theme changed to %s for %s", mode, self.__class__.__name__)
+            # 性能优化：只注册到刷新管理器，不立即执行_apply_theme
+            # 刷新管理器会批量执行所有组件的_apply_theme
+            _refresh_manager.schedule_theme_update(self)
         except RuntimeError:
             # C++ 对象可能已被删除
             self._disconnect_theme_signal()

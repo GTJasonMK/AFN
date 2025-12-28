@@ -10,6 +10,7 @@ from __future__ import annotations
 所有关键步骤均包含中文注释，方便团队理解 RAG 流程。
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -110,16 +111,20 @@ class ChapterContextService:
             logger.warning("检索查询向量生成失败: project=%s chapter_query=%s", project_id, query)
             return ChapterRAGContext(query=query, chunks=[], summaries=[])
 
-        chunks = await self._vector_store.query_chunks(
-            project_id=project_id,
-            embedding=embedding,
-            top_k=resolved_top_k_chunks,
+        # 性能优化：并行执行chunk和summary的检索
+        chunks, summaries = await asyncio.gather(
+            self._vector_store.query_chunks(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=resolved_top_k_chunks,
+            ),
+            self._vector_store.query_summaries(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=resolved_top_k_summaries,
+            ),
         )
-        summaries = await self._vector_store.query_summaries(
-            project_id=project_id,
-            embedding=embedding,
-            top_k=resolved_top_k_summaries,
-        )
+
         logger.info(
             "章节上下文检索完成: project=%s chunks=%d summaries=%d query_preview=%s",
             project_id,
@@ -287,21 +292,22 @@ class EnhancedChapterContextService:
             )
 
             if main_embedding:
-                # 使用时序感知检索
-                chunks = await self._temporal_retriever.retrieve_chunks_with_temporal(
-                    project_id=project_id,
-                    query_embedding=main_embedding,
-                    target_chapter=chapter_number,
-                    total_chapters=total_chapters,
-                    top_k=top_k_chunks,
-                )
-
-                summaries = await self._temporal_retriever.retrieve_summaries_with_temporal(
-                    project_id=project_id,
-                    query_embedding=main_embedding,
-                    target_chapter=chapter_number,
-                    total_chapters=total_chapters,
-                    top_k=top_k_summaries,
+                # 性能优化：并行执行chunk和summary的时序感知检索
+                chunks, summaries = await asyncio.gather(
+                    self._temporal_retriever.retrieve_chunks_with_temporal(
+                        project_id=project_id,
+                        query_embedding=main_embedding,
+                        target_chapter=chapter_number,
+                        total_chapters=total_chapters,
+                        top_k=top_k_chunks,
+                    ),
+                    self._temporal_retriever.retrieve_summaries_with_temporal(
+                        project_id=project_id,
+                        query_embedding=main_embedding,
+                        target_chapter=chapter_number,
+                        total_chapters=total_chapters,
+                        top_k=top_k_summaries,
+                    ),
                 )
 
                 logger.info(
@@ -363,29 +369,50 @@ class EnhancedChapterContextService:
         """补充角色相关的检索结果
 
         当主查询结果不足时，使用角色查询补充检索
+
+        性能优化：并行获取多个角色查询的embedding和检索结果
         """
         if not self._temporal_retriever or max_additional <= 0:
             return
 
         existing_contents = {c.content[:100] for c in existing_chunks}
+        queries_to_process = character_queries[:2]  # 最多处理2个角色查询
 
-        for char_query in character_queries[:2]:  # 最多处理2个角色查询
-            # 使用数据库中激活的嵌入配置
-            char_embedding = await self._llm_service.get_embedding(
-                char_query, user_id=user_id,
-            )
-            if not char_embedding:
-                continue
+        if not queries_to_process:
+            return
 
-            char_chunks = await self._temporal_retriever.retrieve_chunks_with_temporal(
+        # 性能优化：并行获取所有角色查询的embedding
+        embedding_tasks = [
+            self._llm_service.get_embedding(query, user_id=user_id)
+            for query in queries_to_process
+        ]
+        embeddings = await asyncio.gather(*embedding_tasks)
+
+        # 过滤有效的embedding
+        valid_pairs = [
+            (query, embedding)
+            for query, embedding in zip(queries_to_process, embeddings)
+            if embedding
+        ]
+
+        if not valid_pairs:
+            return
+
+        # 性能优化：并行执行所有角色的检索
+        retrieval_tasks = [
+            self._temporal_retriever.retrieve_chunks_with_temporal(
                 project_id=project_id,
-                query_embedding=char_embedding,
+                query_embedding=embedding,
                 target_chapter=chapter_number,
                 total_chapters=total_chapters,
                 top_k=3,
             )
+            for _, embedding in valid_pairs
+        ]
+        all_char_chunks = await asyncio.gather(*retrieval_tasks)
 
-            # 去重并添加
+        # 去重并添加
+        for char_chunks in all_char_chunks:
             for chunk in char_chunks:
                 if chunk.content[:100] not in existing_contents:
                     existing_chunks.append(chunk)

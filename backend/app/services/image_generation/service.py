@@ -11,10 +11,62 @@ import uuid
 import base64
 import hashlib
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
 
 import httpx
+
+
+# ============================================================================
+# 异步文件操作辅助函数
+# ============================================================================
+
+async def async_exists(path: Path) -> bool:
+    """异步检查文件是否存在"""
+    return await asyncio.to_thread(path.exists)
+
+
+async def async_mkdir(path: Path, parents: bool = False, exist_ok: bool = False) -> None:
+    """异步创建目录"""
+    await asyncio.to_thread(path.mkdir, parents=parents, exist_ok=exist_ok)
+
+
+async def async_read_bytes(path: Path) -> bytes:
+    """异步读取文件内容"""
+    return await asyncio.to_thread(path.read_bytes)
+
+
+async def async_write_bytes(path: Path, data: bytes) -> None:
+    """异步写入文件内容"""
+    await asyncio.to_thread(path.write_bytes, data)
+
+
+async def async_rename(src: Path, dst: Path) -> None:
+    """异步重命名文件"""
+    await asyncio.to_thread(src.rename, dst)
+
+
+async def async_unlink(path: Path, missing_ok: bool = False) -> None:
+    """异步删除文件"""
+    await asyncio.to_thread(path.unlink, missing_ok=missing_ok)
+
+
+async def async_rmdir(path: Path) -> None:
+    """异步删除空目录"""
+    await asyncio.to_thread(path.rmdir)
+
+
+async def async_is_dir(path: Path) -> bool:
+    """异步检查是否为目录"""
+    return await asyncio.to_thread(path.is_dir)
+
+
+async def async_iterdir(path: Path) -> List[Path]:
+    """异步列出目录内容"""
+    return await asyncio.to_thread(lambda: list(path.iterdir()))
+
+
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -279,6 +331,7 @@ class ImageGenerationService:
         准备参考图信息
 
         读取图片文件并转换为 Base64 格式。
+        使用异步文件操作避免阻塞事件循环。
 
         Args:
             image_paths: 图片路径列表
@@ -298,15 +351,16 @@ class ImageGenerationService:
                 else:
                     full_path = Path(path)
 
-                if not full_path.exists():
+                # 异步检查文件存在性
+                if not await async_exists(full_path):
                     # 尝试 IMAGES_ROOT 下查找
                     full_path = IMAGES_ROOT / path
-                    if not full_path.exists():
+                    if not await async_exists(full_path):
                         logger.warning("参考图片不存在: %s", path)
                         continue
 
-                # 读取并转换为 Base64
-                image_content = full_path.read_bytes()
+                # 异步读取并转换为 Base64
+                image_content = await async_read_bytes(full_path)
                 b64_data = base64.b64encode(image_content).decode("utf-8")
 
                 reference_images.append(ReferenceImageInfo(
@@ -342,6 +396,8 @@ class ImageGenerationService:
         1. 标准HTTP(S) URL：从远程服务器下载图片
         2. Base64数据URL（data:image/png;base64,...）：直接解码保存
 
+        使用异步文件操作避免阻塞事件循环。
+
         Args:
             chapter_version_id: 章节版本ID，用于版本追溯
             panel_id: 画格ID，用于精确匹配
@@ -349,9 +405,9 @@ class ImageGenerationService:
 
         saved_images = []
 
-        # 确保目录存在
+        # 异步确保目录存在
         save_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}"
-        save_dir.mkdir(parents=True, exist_ok=True)
+        await async_mkdir(save_dir, parents=True, exist_ok=True)
 
         # 使用共享的HTTP客户端（连接池复用）
         client = await HTTPClientManager.get_client()
@@ -395,12 +451,12 @@ class ImageGenerationService:
                 # 原子写入：先写入临时文件，再重命名（防止写入中断导致文件损坏）
                 temp_path = save_dir / f".tmp_{unique_id}.png"
                 try:
-                    temp_path.write_bytes(image_content)
-                    temp_path.rename(file_path)  # rename在大多数文件系统上是原子操作
+                    await async_write_bytes(temp_path, image_content)
+                    await async_rename(temp_path, file_path)  # rename在大多数文件系统上是原子操作
                 except Exception:
-                    # 清理临时文件
-                    if temp_path.exists():
-                        temp_path.unlink()
+                    # 异步清理临时文件
+                    if await async_exists(temp_path):
+                        await async_unlink(temp_path)
                     raise
 
                 # 创建数据库记录
@@ -516,7 +572,7 @@ class ImageGenerationService:
         return list(result.scalars().all())
 
     async def delete_image(self, image_id: int) -> bool:
-        """删除图片"""
+        """删除图片（使用异步文件操作）"""
         result = await self.session.execute(
             select(GeneratedImage).where(GeneratedImage.id == image_id)
         )
@@ -524,10 +580,10 @@ class ImageGenerationService:
         if not image:
             return False
 
-        # 删除文件
+        # 异步删除文件
         file_path = IMAGES_ROOT / image.file_path
-        if file_path.exists():
-            file_path.unlink()
+        if await async_exists(file_path):
+            await async_unlink(file_path)
 
         # 删除数据库记录
         await self.session.delete(image)
@@ -543,6 +599,7 @@ class ImageGenerationService:
         """删除画格的所有图片
 
         用于重新生成画格图片时清理旧图片，确保每个画格只保留最新生成的图片。
+        使用异步文件操作避免阻塞事件循环。
 
         Args:
             project_id: 项目ID
@@ -567,11 +624,11 @@ class ImageGenerationService:
 
         deleted_count = 0
         for image in images:
-            # 删除文件
+            # 异步删除文件
             file_path = IMAGES_ROOT / image.file_path
-            if file_path.exists():
+            if await async_exists(file_path):
                 try:
-                    file_path.unlink()
+                    await async_unlink(file_path)
                     logger.debug("已删除图片文件: %s", file_path)
                 except Exception as e:
                     logger.warning("删除图片文件失败: %s - %s", file_path, e)
@@ -596,6 +653,7 @@ class ImageGenerationService:
         """删除章节的所有图片
 
         用于重新生成漫画提示词时清理旧图片。
+        使用异步文件操作避免阻塞事件循环。
 
         Args:
             project_id: 项目ID
@@ -618,11 +676,11 @@ class ImageGenerationService:
 
         deleted_count = 0
         for image in images:
-            # 删除文件
+            # 异步删除文件
             file_path = IMAGES_ROOT / image.file_path
-            if file_path.exists():
+            if await async_exists(file_path):
                 try:
-                    file_path.unlink()
+                    await async_unlink(file_path)
                 except Exception as e:
                     logger.warning("删除图片文件失败: %s - %s", file_path, e)
 
@@ -632,17 +690,21 @@ class ImageGenerationService:
 
         await self.session.flush()
 
-        # 尝试清理空目录
+        # 尝试异步清理空目录
         try:
             chapter_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}"
-            if chapter_dir.exists():
+            if await async_exists(chapter_dir):
                 # 删除空的场景子目录
-                for scene_dir in chapter_dir.iterdir():
-                    if scene_dir.is_dir() and not any(scene_dir.iterdir()):
-                        scene_dir.rmdir()
+                scene_dirs = await async_iterdir(chapter_dir)
+                for scene_dir in scene_dirs:
+                    if await async_is_dir(scene_dir):
+                        scene_contents = await async_iterdir(scene_dir)
+                        if not scene_contents:
+                            await async_rmdir(scene_dir)
                 # 如果章节目录也空了，删除它
-                if not any(chapter_dir.iterdir()):
-                    chapter_dir.rmdir()
+                chapter_contents = await async_iterdir(chapter_dir)
+                if not chapter_contents:
+                    await async_rmdir(chapter_dir)
         except Exception as e:
             logger.warning("清理空目录失败: %s", e)
 

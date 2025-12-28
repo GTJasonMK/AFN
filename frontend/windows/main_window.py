@@ -21,6 +21,7 @@ from themes.theme_manager import theme_manager, ThemeMode
 from themes.modern_effects import ModernEffects
 from themes.svg_icons import SVGIcons
 from utils.dpi_utils import dpi_helper, dp, sp
+from utils.window_blur import WindowBlurManager
 from api.manager import APIClientManager
 from components.loading_spinner import LoadingOverlay
 from components.theme_transition import ThemeSwitchHelper
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
 
         # 创建中心容器
         self.central_widget = QWidget()
+        self.central_widget.setObjectName("centralWidget")  # 立即设置objectName以便样式选择器匹配
         self.setCentralWidget(self.central_widget)
 
         # 主布局
@@ -107,6 +109,11 @@ class MainWindow(QMainWindow):
         # 主题信号连接标志
         self._theme_connected = False
         self._connect_theme_signal()
+
+        # 防止主题切换时重复加载配置
+        self._is_reloading_theme_config = False
+        # 主题配置加载的 AsyncWorker（防止被垃圾回收）
+        self._theme_config_worker = None
 
         # 创建主题切换辅助类（带过渡动画）
         self._theme_switch_helper = ThemeSwitchHelper(self)
@@ -252,23 +259,160 @@ class MainWindow(QMainWindow):
         self._theme_switch_helper.switch_theme()
 
     def apply_window_theme(self):
-        """应用主题样式到窗口和容器"""
-        # 设置主窗口和中心容器的背景色 - 使用objectName选择器避免影响子组件
-        window_style = f"""
-            QMainWindow {{
-                background-color: {theme_manager.BG_PRIMARY};
-            }}
-            QWidget#centralWidget {{
-                background-color: {theme_manager.BG_PRIMARY};
-            }}
-            QStackedWidget#mainPageStack {{
-                background-color: {theme_manager.BG_PRIMARY};
-            }}
-        """
-        self.setStyleSheet(window_style)
+        """应用主题样式到窗口和容器 - 支持真正的窗口透明
 
-        # 设置central_widget的对象名称以便样式选择器使用
-        self.central_widget.setObjectName("centralWidget")
+        透明模式实现真正的窗口透明效果，能看到窗口后面的桌面和其他应用。
+        透明度为0时完全透明，透明度为1时完全不透明。
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QWidget
+
+        try:
+            # 获取透明效果配置
+            transparency_config = theme_manager.get_transparency_config()
+            transparency_enabled = transparency_config.get("enabled", False)
+            system_blur = transparency_config.get("system_blur", False)  # 系统级模糊开关
+            content_opacity = transparency_config.get("content_opacity", 0.95)
+
+            logger.info(f"=== MainWindow.apply_window_theme ===")
+            logger.info(f"transparency_enabled: {transparency_enabled}, system_blur: {system_blur}, content_opacity: {content_opacity}")
+
+            # 获取背景色
+            bg_color = theme_manager.BG_PRIMARY
+
+            # 获取当前显示的页面
+            current_page = self.page_stack.currentWidget()
+
+            if transparency_enabled:
+                # 透明模式：使用真正的窗口透明效果（能看到桌面）
+                is_dark = theme_manager.is_dark_mode()
+
+                # 1. 首先隐藏所有非当前页面（必须在设置透明属性之前）
+                #    这是防止页面重合的关键步骤
+                for i in range(self.page_stack.count()):
+                    page = self.page_stack.widget(i)
+                    if page and page != current_page:
+                        page.hide()
+                        # 同时设置页面为不透明，防止透过去看到
+                        page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+                # 2. 设置透明属性
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                self.central_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                self.page_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                self.setAutoFillBackground(False)
+                self.central_widget.setAutoFillBackground(False)
+                self.page_stack.setAutoFillBackground(False)
+
+                # 3. Qt窗口和容器都设置为透明
+                window_style = f"""
+                    QMainWindow {{
+                        background-color: transparent;
+                    }}
+                    QWidget#centralWidget {{
+                        background-color: transparent;
+                    }}
+                    QStackedWidget#mainPageStack {{
+                        background-color: transparent;
+                    }}
+                """
+                self.setStyleSheet(window_style)
+
+                # 4. 启用系统级窗口透明
+                #    - blur=True: 使用DWM Acrylic/BlurBehind效果（毛玻璃）
+                #    - blur=False: 纯透明，不使用DWM模糊（可以清晰看到桌面）
+                try:
+                    success = WindowBlurManager.enable_window_transparency(
+                        self,
+                        opacity=content_opacity,
+                        blur=system_blur,  # 根据用户设置决定是否启用模糊
+                        is_dark=is_dark
+                    )
+                    blur_status = "模糊" if system_blur else "纯透明"
+                    logger.info(f"窗口透明效果({blur_status}): {'成功' if success else '失败'}")
+                except Exception as e:
+                    logger.warning(f"启用窗口透明效果失败: {e}")
+
+                # 5. 确保当前页面可见
+                if current_page:
+                    current_page.show()
+                    current_page.raise_()
+
+                blur_desc = "（带模糊）" if system_blur else "（纯透明）"
+                logger.info(f"透明模式已启用{blur_desc}，透明度: {content_opacity}")
+
+            else:
+                # 非透明模式：完全不透明
+
+                # 1. 首先隐藏所有非当前页面
+                for i in range(self.page_stack.count()):
+                    page = self.page_stack.widget(i)
+                    if page and page != current_page:
+                        page.hide()
+
+                # 2. 禁用系统级透明效果（传入背景色以匹配主题）
+                try:
+                    WindowBlurManager.disable_window_transparency(self, bg_color=bg_color)
+                except Exception as e:
+                    logger.debug(f"禁用透明效果: {e}")
+
+                # 3. 禁用Qt透明属性
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                self.central_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                self.page_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+                # 4. 启用自动填充背景
+                self.setAutoFillBackground(True)
+                self.central_widget.setAutoFillBackground(True)
+                self.page_stack.setAutoFillBackground(True)
+
+                # 5. 设置实色背景样式
+                window_style = f"""
+                    QMainWindow {{
+                        background-color: {bg_color};
+                    }}
+                    QWidget#centralWidget {{
+                        background-color: {bg_color};
+                    }}
+                    QStackedWidget#mainPageStack {{
+                        background-color: {bg_color};
+                    }}
+                """
+                self.setStyleSheet(window_style)
+
+                # 6. 确保当前页面可见并正确显示
+                if current_page:
+                    current_page.show()
+                    current_page.raise_()
+
+                # 7. 强制刷新窗口
+                self.style().unpolish(self)
+                self.style().polish(self)
+                self.update()
+                self.repaint()
+                self.central_widget.update()
+                self.central_widget.repaint()
+                self.page_stack.update()
+                self.page_stack.repaint()
+                if current_page:
+                    current_page.update()
+                    current_page.repaint()
+
+                logger.info(f"普通模式：使用实色背景 {bg_color}")
+
+        except Exception as e:
+            logger.error(f"apply_window_theme 失败: {e}")
+            # 回退到安全的不透明模式
+            try:
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                window_style = f"""
+                    QMainWindow {{
+                        background-color: {theme_manager.BG_PRIMARY};
+                    }}
+                """
+                self.setStyleSheet(window_style)
+            except Exception:
+                pass
 
     def on_theme_changed(self, mode: str):
         """主题改变时的处理
@@ -277,6 +421,7 @@ class MainWindow(QMainWindow):
         - 各组件已通过 ThemeAware 基类自动响应主题信号
         - 此处只需更新主窗口自身的样式和浮动工具栏
         - 不再遍历整棵组件树，提升性能
+        - 新增：从后端重新加载对应模式的激活配置
         """
         # 应用窗口主题
         self.apply_window_theme()
@@ -286,6 +431,86 @@ class MainWindow(QMainWindow):
 
         # 强制刷新主窗口的样式缓存（仅顶层）
         self._refresh_top_level_style()
+
+        # 从后端加载激活的配置（异步，防止重复调用）
+        if not self._is_reloading_theme_config:
+            self._reload_active_theme_config(mode)
+
+    def _reload_active_theme_config(self, mode: str):
+        """从后端重新加载激活的主题配置
+
+        Args:
+            mode: 主题模式（'light' 或 'dark'）
+        """
+        from utils.async_worker import AsyncWorker
+
+        # 设置标志防止重复加载
+        self._is_reloading_theme_config = True
+
+        def do_load():
+            try:
+                api_client = APIClientManager.get_client()
+                return api_client.get_active_unified_theme_config(mode)
+            except Exception as e:
+                logger.warning(f"加载激活的主题配置失败: {e}")
+                return None
+
+        def on_success(config):
+            try:
+                if config is None:
+                    logger.info(f"没有激活的{mode}主题配置，使用默认主题")
+                    return
+
+                config_version = config.get('config_version', 1)
+                config_name = config.get('config_name', '未命名')
+                logger.info(f"重新加载激活的主题配置: {config_name} (V{config_version})")
+
+                if config_version == 2 and config.get('effects'):
+                    # V2配置：直接设置配置数据，不发射信号
+                    theme_manager._v2_config = config
+                    theme_manager._use_v2 = True
+                    # 重置V1配置
+                    theme_manager._use_custom = False
+                    theme_manager._custom_theme_config = None
+                elif any(config.get(k) for k in ['primary_colors', 'text_colors', 'background_colors']):
+                    # V1配置：合并为平面字典
+                    flat_config = {}
+                    v1_groups = [
+                        'primary_colors', 'accent_colors', 'semantic_colors',
+                        'text_colors', 'background_colors', 'border_effects',
+                        'button_colors', 'typography', 'border_radius',
+                        'spacing', 'animation', 'button_sizes'
+                    ]
+                    for group in v1_groups:
+                        group_values = config.get(group, {}) or {}
+                        flat_config.update(group_values)
+                    if flat_config:
+                        # 直接设置配置，不发射信号
+                        theme_manager._custom_theme_config = flat_config
+                        theme_manager._use_custom = True
+                        theme_manager._v2_config = None
+                        theme_manager._use_v2 = False
+                        theme_manager._current_theme = theme_manager._create_theme_from_config(flat_config)
+
+                # 注意：不再调用 apply_window_theme()，因为：
+                # 1. on_theme_changed 已经调用了 apply_window_theme()
+                # 2. 异步回调中再次调用可能导致竞态条件
+                # 3. 透明效果在初始 apply_window_theme() 中已应用
+            except Exception as e:
+                logger.error(f"应用主题配置失败: {e}")
+            finally:
+                # 重置标志
+                self._is_reloading_theme_config = False
+
+        def on_error(error):
+            logger.warning(f"加载主题配置失败: {error}")
+            self._is_reloading_theme_config = False
+
+        # 使用 AsyncWorker 异步加载（存储引用防止垃圾回收）
+        self._theme_config_worker = AsyncWorker(do_load)
+        self._theme_config_worker.success.connect(on_success)
+        self._theme_config_worker.error.connect(on_error)
+        self._theme_config_worker.start()
 
     def _refresh_top_level_style(self):
         """刷新顶层组件的样式（轻量级刷新）
@@ -337,11 +562,15 @@ class MainWindow(QMainWindow):
         dpi_helper.update_screen_info(self)
 
     def navigateTo(self, page_type: str, params: dict = None):
-        """导航到指定页面（优化版：支持加载动画）
+        """导航到指定页面（性能优化版）
 
         Args:
             page_type: 页面类型（HOME, INSPIRATION, DETAIL, WRITING_DESK, SETTINGS）
             params: 页面参数（如project_id等）
+
+        性能优化：
+        - 移除50ms人为延迟，改为最小延迟(10ms)仅用于动画启动
+        - 减少processEvents()调用次数
         """
         from PyQt6.QtWidgets import QApplication
 
@@ -365,10 +594,8 @@ class MainWindow(QMainWindow):
         if needs_loading:
             # 显示加载动画
             self._show_nav_loading("正在加载页面...")
-            # 强制处理事件，确保动画开始显示和转动
-            QApplication.processEvents()
-            # 延迟执行页面创建和切换，给动画足够时间启动
-            QTimer.singleShot(50, lambda: self._doNavigate(page_type, params))
+            # 最小延迟：仅给动画一帧的启动时间(约16ms)，然后立即执行导航
+            QTimer.singleShot(10, lambda: self._doNavigate(page_type, params))
         else:
             # 已缓存的页面或简单页面，直接切换
             self._doNavigate(page_type, params)
@@ -391,17 +618,16 @@ class MainWindow(QMainWindow):
         Args:
             page_type: 页面类型
             params: 页面参数
+
+        性能优化：将4次processEvents()调用减少到1次（仅在页面创建后刷新前）
         """
         from PyQt6.QtWidgets import QApplication
 
-        # 让动画更新
-        QApplication.processEvents()
+        # 记录当前页面（用于后续隐藏，防止透明穿透）
+        old_widget = self.page_stack.currentWidget()
 
         # 获取或创建页面
         page = self.getOrCreatePage(page_type, params)
-
-        # 让动画更新
-        QApplication.processEvents()
 
         if page is None:
             logger.error(
@@ -413,15 +639,26 @@ class MainWindow(QMainWindow):
 
         logger.info("Page created/retrieved successfully: %s", type(page).__name__)
 
-        # 让动画更新
+        # 仅在页面创建完成后调用一次processEvents，确保UI更新
         QApplication.processEvents()
 
         # 调用页面刷新方法
         if hasattr(page, 'refresh'):
             page.refresh(**params)
 
-        # 让动画更新
-        QApplication.processEvents()
+        # 调用旧页面隐藏钩子
+        if old_widget and old_widget != page:
+            if hasattr(old_widget, 'onHide'):
+                try:
+                    old_widget.onHide()
+                except RuntimeError:
+                    pass
+            # 显式隐藏旧页面，防止透明模式下的穿透
+            old_widget.hide()
+
+        # 确保新页面可见
+        page.show()
+        page.raise_()  # 确保在最上层
 
         # 切换到页面
         self.page_stack.setCurrentWidget(page)
@@ -472,6 +709,14 @@ class MainWindow(QMainWindow):
         # 刷新上一页
         if hasattr(prev_page, 'refresh'):
             prev_page.refresh(**prev_params)
+
+        # 显式隐藏当前页面，防止透明模式下的穿透
+        if current_widget and current_widget != prev_page:
+            current_widget.hide()
+
+        # 确保目标页面可见
+        prev_page.show()
+        prev_page.raise_()  # 确保在最上层
 
         # 切换到上一页
         self.page_stack.setCurrentWidget(prev_page)
@@ -710,6 +955,17 @@ class MainWindow(QMainWindow):
         """窗口关闭时清理资源"""
         # 断开主题信号
         self._disconnect_theme_signal()
+
+        # 清理主题配置加载 worker
+        if hasattr(self, '_theme_config_worker') and self._theme_config_worker is not None:
+            try:
+                if hasattr(self._theme_config_worker, 'cancel'):
+                    self._theme_config_worker.cancel()
+                if self._theme_config_worker.isRunning():
+                    self._theme_config_worker.wait(100)
+            except Exception:
+                pass
+            self._theme_config_worker = None
 
         # 清理主题切换辅助类
         if hasattr(self, '_theme_switch_helper'):

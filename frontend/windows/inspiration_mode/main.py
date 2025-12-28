@@ -10,28 +10,27 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QFrame, QLabel, QPushButton,
     QStackedWidget, QScrollArea
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from pages.base_page import BasePage
 from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
-from themes import ModernEffects, ButtonStyles
-from utils.message_service import MessageService, confirm
-from utils.async_worker import AsyncAPIWorker
-from utils.sse_worker import SSEWorker
-from utils.constants import WorkerTimeouts
+from utils.message_service import confirm
 from utils.dpi_utils import dp, sp
 
-from .chat_bubble import ChatBubble
-from .conversation_input import ConversationInput
-from .conversation_state import ConversationState
-from .blueprint_confirmation import BlueprintConfirmation
-from .blueprint_display import BlueprintDisplay
-from .inspired_option_card import InspiredOptionsContainer
+from .components import (
+    ChatBubble,
+    ConversationInput,
+    BlueprintConfirmation,
+    BlueprintDisplay,
+    InspiredOptionsContainer,
+)
+from .services import ConversationState
+from .mixins import BlueprintHandlerMixin, ConversationManagerMixin
 
 logger = logging.getLogger(__name__)
 
 
-class InspirationMode(BasePage):
+class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage):
     """灵感模式 - AI对话生成蓝图"""
 
     def __init__(self, parent=None):
@@ -136,6 +135,10 @@ class InspirationMode(BasePage):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QWidget
+        from themes.modern_effects import ModernEffects
+
         # 使用 theme_manager 的书香风格便捷方法
         bg_color = theme_manager.book_bg_primary()
         header_bg = theme_manager.book_bg_secondary()
@@ -144,26 +147,64 @@ class InspirationMode(BasePage):
         highlight_color = theme_manager.book_accent_color()
         serif_font = theme_manager.serif_font()
 
-        # 整体背景
-        self.setStyleSheet(f"""
-            InspirationMode {{
-                background-color: {bg_color};
-            }}
-        """)
+        # 获取透明效果配置
+        transparency_config = theme_manager.get_transparency_config()
+        transparency_enabled = transparency_config.get("enabled", False)
+        content_opacity = transparency_config.get("content_opacity", 0.95)
+
+        if transparency_enabled:
+            # 透明模式：页面背景使用RGBA实现半透明
+            bg_rgba = ModernEffects.hex_to_rgba(bg_color, content_opacity)
+            self.setStyleSheet(f"background-color: {bg_rgba};")
+
+            # 设置WA_TranslucentBackground使透明生效
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setAutoFillBackground(False)
+
+            # 指定容器设置透明（不使用findChildren避免影响其他页面）
+            transparent_containers = ['header', 'stack', 'conversation_page', 'chat_container', 'confirmation_page', 'display_page']
+            for container_name in transparent_containers:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(False)
+        else:
+            # 普通模式：使用实色背景，恢复背景填充
+            self.setStyleSheet(f"background-color: {bg_color};")
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAutoFillBackground(True)
+
+            # 恢复容器的背景填充
+            containers_to_restore = ['header', 'stack', 'conversation_page', 'chat_container', 'confirmation_page', 'display_page']
+            for container_name in containers_to_restore:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(True)
 
         # QStackedWidget - 透明背景
         if hasattr(self, 'stack'):
             self.stack.setStyleSheet("background: transparent;")
 
-        # Header - 简约风格
+        # Header - 简约风格（透明模式下使用半透明背景）
         if hasattr(self, 'header'):
-            self.header.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {header_bg};
-                    border: none;
-                    border-bottom: 1px solid {border_color};
-                }}
-            """)
+            if transparency_enabled:
+                header_opacity = transparency_config.get("header_opacity", 0.90)
+                header_bg_rgba = ModernEffects.hex_to_rgba(header_bg, header_opacity)
+                border_rgba = ModernEffects.hex_to_rgba(border_color, 0.3)
+                self.header.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {header_bg_rgba};
+                        border: none;
+                        border-bottom: 1px solid {border_rgba};
+                    }}
+                """)
+            else:
+                self.header.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {header_bg};
+                        border: none;
+                        border-bottom: 1px solid {border_color};
+                    }}
+                """)
 
         # 标题
         if hasattr(self, 'title'):
@@ -234,6 +275,9 @@ class InspirationMode(BasePage):
                 }}
                 {theme_manager.scrollbar()}
             """)
+            # 设置viewport透明背景
+            if self.chat_scroll.viewport():
+                self.chat_scroll.viewport().setStyleSheet("background-color: transparent;")
 
     def initConversation(self):
         """初始化对话"""
@@ -241,7 +285,7 @@ class InspirationMode(BasePage):
         welcome_msg = "你好！我是AFN AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
         self.addMessage(welcome_msg, is_user=False)
 
-    def addMessage(self, message, is_user=True, typing_effect=False):
+    def addMessage(self, message: str, is_user: bool = True, typing_effect: bool = False):
         """添加消息到对话历史"""
         bubble = ChatBubble(message, is_user, typing_effect=typing_effect)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
@@ -251,7 +295,7 @@ class InspirationMode(BasePage):
             self.chat_scroll.verticalScrollBar().maximum()
         ))
 
-    def onMessageSent(self, message):
+    def onMessageSent(self, message: str):
         """用户发送消息（SSE流式版本）"""
         # 添加用户消息
         self.addMessage(message, is_user=True)
@@ -279,193 +323,6 @@ class InspirationMode(BasePage):
         # 启动SSE流式监听
         self._start_sse_stream(message)
 
-    def onGenerateBlueprint(self):
-        """生成蓝图"""
-        if not self._state.project_id:
-            MessageService.show_warning(self, "请先进行对话", "提示")
-            return
-
-        # 检查对话是否完成
-        if not self._state.is_complete:
-            if not confirm(
-                self,
-                "AI表示还需要更多信息来生成蓝图。\n\n"
-                "确定要继续生成吗？将使用「随机生成」模式，AI会自动补全缺失的设定。",
-                "对话未完成"
-            ):
-                return
-            # 用户确认使用随机生成模式
-            self._do_generate_blueprint(allow_incomplete=True)
-            return
-
-        if not confirm(self, "确定要根据当前对话生成蓝图吗？", "确认生成"):
-            return
-
-        self._do_generate_blueprint()
-
-    def _do_generate_blueprint(self, force_regenerate=False, allow_incomplete=False):
-        """执行蓝图生成（异步方式，不阻塞UI）
-
-        Args:
-            force_regenerate: 是否强制重新生成（将删除所有章节大纲、部分大纲、章节内容）
-            allow_incomplete: 是否允许在灵感对话未完成时生成蓝图（随机生成模式）
-        """
-        # 防御性检查：确保项目ID存在
-        if not self._state.project_id:
-            MessageService.show_warning(self, "请先进行对话创建项目", "提示")
-            return
-
-        # 创建加载提示对话框
-        from components.dialogs import LoadingDialog
-        self._blueprint_loading_dialog = LoadingDialog(
-            parent=self,
-            title="请稍候",
-            message="正在生成蓝图...",
-            cancelable=True
-        )
-        self._blueprint_loading_dialog.show()
-
-        # 禁用生成按钮，防止重复点击
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            try:
-                self.generate_btn.setEnabled(False)
-            except RuntimeError:
-                pass
-
-        # 清理之前的worker（如果有）
-        self._cleanup_blueprint_worker()
-
-        # 创建异步worker（传递force_regenerate和allow_incomplete参数）
-        self.blueprint_worker = AsyncAPIWorker(
-            self.api_client.generate_blueprint,
-            self._state.project_id,
-            force_regenerate=force_regenerate,
-            allow_incomplete=allow_incomplete
-        )
-
-        self.blueprint_worker.success.connect(self._on_blueprint_success)
-        self.blueprint_worker.error.connect(self._on_blueprint_error)
-        self._blueprint_loading_dialog.rejected.connect(self._on_blueprint_cancelled)
-        self.blueprint_worker.start()
-
-    def _close_blueprint_loading_dialog(self):
-        """安全关闭蓝图加载对话框"""
-        try:
-            if hasattr(self, '_blueprint_loading_dialog') and self._blueprint_loading_dialog:
-                if self._blueprint_loading_dialog.isVisible():
-                    self._blueprint_loading_dialog.close()
-        except RuntimeError:
-            pass
-        self._blueprint_loading_dialog = None
-
-    def _restore_generate_button(self):
-        """恢复生成按钮状态"""
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            try:
-                self.generate_btn.setEnabled(True)
-            except RuntimeError:
-                pass
-
-    def _on_blueprint_success(self, response):
-        """蓝图生成成功回调"""
-        logger.info("Blueprint generation success")
-        self._close_blueprint_loading_dialog()
-        self._restore_generate_button()
-
-        try:
-            # 验证响应是字典
-            if not isinstance(response, dict):
-                logger.error("响应数据类型错误，期望dict，实际为%s", type(response).__name__)
-                MessageService.show_error(self, "蓝图生成失败：API响应格式错误", "生成蓝图失败")
-                return
-
-            # 验证蓝图数据
-            self._state.blueprint = response.get('blueprint', {})
-
-            if not isinstance(self._state.blueprint, dict):
-                logger.error("蓝图数据类型错误，期望dict，实际为%s", type(self._state.blueprint).__name__)
-                MessageService.show_error(self, "蓝图生成失败：蓝图数据格式错误", "生成蓝图失败")
-                self._state.blueprint = {}
-                return
-
-            if not self._state.blueprint:
-                MessageService.show_error(self, "蓝图生成失败：蓝图数据为空", "生成蓝图失败")
-                return
-
-            # 验证蓝图必需字段
-            required_fields = ['world_setting', 'characters']
-            missing_fields = [f for f in required_fields if not self._state.blueprint.get(f)]
-            if missing_fields:
-                MessageService.show_error(
-                    self,
-                    f"蓝图数据不完整，缺少字段：{', '.join(missing_fields)}",
-                    "生成蓝图失败"
-                )
-                return
-
-            # 更新蓝图数据并切换页面
-            if hasattr(self, 'confirmation_page') and self.confirmation_page:
-                self.confirmation_page.setBlueprint(self._state.blueprint)
-
-            self._show_confirmation_page()
-            logger.info("Blueprint generation completed successfully")
-
-        except Exception as e:
-            logger.error("处理蓝图数据失败: %s", str(e), exc_info=True)
-            MessageService.show_error(self, f"处理蓝图数据失败：{str(e)}", "生成蓝图失败")
-
-    def _on_blueprint_error(self, error_msg):
-        """蓝图生成错误回调"""
-        logger.info("Blueprint generation error: %s", error_msg[:100] if error_msg else "empty")
-        self._close_blueprint_loading_dialog()
-        self._restore_generate_button()
-
-        # 检查是否是冲突错误（已有章节大纲）
-        if "已有" in error_msg and "章节大纲" in error_msg:
-            # 显示确认对话框，明确告知会删除所有数据
-            if confirm(
-                self,
-                "检测到项目已有章节大纲。\n\n"
-                "重新生成蓝图将会删除以下所有数据：\n"
-                "* 所有章节大纲\n"
-                "* 所有部分大纲（如有）\n"
-                "* 所有已生成的章节内容\n"
-                "* 所有章节版本\n"
-                "* 向量库数据\n\n"
-                "此操作不可恢复，确定要继续吗？",
-                "确认重新生成蓝图"
-            ):
-                # 用户确认，强制重新生成
-                self._do_generate_blueprint(force_regenerate=True)
-        else:
-            # 其他错误，直接显示
-            MessageService.show_error(self, f"生成蓝图失败：{error_msg}", "生成蓝图失败")
-
-    def _on_blueprint_cancelled(self):
-        """蓝图生成取消回调"""
-        self._cleanup_blueprint_worker()
-        self._restore_generate_button()
-
-    def _cleanup_blueprint_worker(self):
-        """清理蓝图生成worker"""
-        if self.blueprint_worker:
-            try:
-                # 断开信号连接
-                try:
-                    self.blueprint_worker.success.disconnect()
-                    self.blueprint_worker.error.disconnect()
-                except (TypeError, RuntimeError):
-                    pass  # 信号可能已经断开或对象已删除
-
-                if self.blueprint_worker.isRunning():
-                    self.blueprint_worker.cancel()
-                    self.blueprint_worker.quit()
-                    self.blueprint_worker.wait(WorkerTimeouts.DEFAULT_MS)
-            except RuntimeError:
-                pass  # C++ 对象可能已被删除
-            finally:
-                self.blueprint_worker = None
-
     def _show_confirmation_page(self):
         """切换到蓝图确认页面"""
         if hasattr(self, 'stack') and self.stack:
@@ -481,143 +338,6 @@ class InspirationMode(BasePage):
         # 显示生成蓝图按钮
         if hasattr(self, 'generate_btn') and self.generate_btn:
             self.generate_btn.show()
-
-    def onBlueprintConfirmed(self):
-        """蓝图确认"""
-        # 使用navigateReplace跳转到项目详情页
-        # 这样返回时会跳过灵感对话页面，直接返回首页
-        self.navigateReplace('DETAIL', project_id=self._state.project_id)
-
-    def onBlueprintRejected(self):
-        """重新生成蓝图 - 使用refine API直接优化"""
-        from components.dialogs import TextInputDialog, LoadingDialog
-
-        # 显示输入对话框获取优化方向
-        optimization_prompt, ok = TextInputDialog.getTextStatic(
-            parent=self,
-            title="重新生成蓝图",
-            label="请输入您希望的优化方向：\n\n"
-                  "（可选，留空则按原设定重新生成）",
-            placeholder="示例：增加更多悬念、调整角色关系、修改结局走向、深化世界观设定"
-        )
-
-        if not ok:
-            return  # 用户取消
-
-        # 如果用户输入了优化方向，使用refine API直接优化
-        if optimization_prompt.strip():
-            self._do_refine_blueprint(optimization_prompt.strip())
-        else:
-            # 没有输入优化方向，直接重新生成
-            self._do_generate_blueprint(force_regenerate=True)
-
-    def _do_refine_blueprint(self, refinement_instruction: str):
-        """使用refine API优化蓝图
-
-        Args:
-            refinement_instruction: 用户输入的优化方向
-        """
-        from components.dialogs import LoadingDialog
-
-        # 创建加载对话框
-        self._refine_loading_dialog = LoadingDialog(
-            parent=self,
-            title="请稍候",
-            message="正在优化蓝图...",
-            cancelable=True
-        )
-        self._refine_loading_dialog.show()
-
-        # 禁用按钮
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            try:
-                self.generate_btn.setEnabled(False)
-            except RuntimeError:
-                pass
-
-        # 清理之前的worker（如果有）
-        self._cleanup_refine_worker()
-
-        # 创建异步worker
-        self._refine_worker = AsyncAPIWorker(
-            self.api_client.refine_blueprint,
-            self._state.project_id,
-            refinement_instruction,
-            force=True  # 强制优化，允许删除已有数据
-        )
-
-        self._refine_worker.success.connect(self._on_refine_success)
-        self._refine_worker.error.connect(self._on_refine_error)
-        self._refine_loading_dialog.rejected.connect(self._on_refine_cancelled)
-        self._refine_worker.start()
-
-    def _close_refine_loading_dialog(self):
-        """安全关闭优化蓝图加载对话框"""
-        try:
-            if hasattr(self, '_refine_loading_dialog') and self._refine_loading_dialog:
-                if self._refine_loading_dialog.isVisible():
-                    self._refine_loading_dialog.close()
-        except RuntimeError:
-            pass
-        self._refine_loading_dialog = None
-
-    def _cleanup_refine_worker(self):
-        """清理优化蓝图worker"""
-        if hasattr(self, '_refine_worker') and self._refine_worker:
-            try:
-                try:
-                    self._refine_worker.success.disconnect()
-                    self._refine_worker.error.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-
-                if self._refine_worker.isRunning():
-                    self._refine_worker.cancel()
-                    self._refine_worker.quit()
-                    self._refine_worker.wait(WorkerTimeouts.DEFAULT_MS)
-            except RuntimeError:
-                pass
-            finally:
-                self._refine_worker = None
-
-    def _on_refine_success(self, response):
-        """蓝图优化成功回调"""
-        logger.info("Blueprint refine success")
-        self._close_refine_loading_dialog()
-        self._restore_generate_button()
-
-        try:
-            # 获取优化后的蓝图
-            self._state.blueprint = response.get('blueprint', {})
-            if not self._state.blueprint:
-                MessageService.show_error(self, "蓝图优化失败：蓝图数据为空", "优化失败")
-                return
-
-            # 更新确认页面并显示
-            if hasattr(self, 'confirmation_page') and self.confirmation_page:
-                self.confirmation_page.setBlueprint(self._state.blueprint)
-            self._show_confirmation_page()
-
-            # 显示成功消息
-            ai_message = response.get('ai_message', '')
-            if ai_message:
-                MessageService.show_success(self, ai_message)
-
-        except Exception as e:
-            logger.error("处理优化蓝图数据失败: %s", str(e), exc_info=True)
-            MessageService.show_error(self, f"处理蓝图数据失败：{str(e)}", "优化失败")
-
-    def _on_refine_error(self, error_msg):
-        """蓝图优化错误回调"""
-        logger.error("Blueprint refine error: %s", error_msg[:100] if error_msg else "empty")
-        self._close_refine_loading_dialog()
-        self._restore_generate_button()
-        MessageService.show_error(self, f"蓝图优化失败：{error_msg}", "优化失败")
-
-    def _on_refine_cancelled(self):
-        """蓝图优化取消回调"""
-        self._cleanup_refine_worker()
-        self._restore_generate_button()
 
     def refresh(self, **params):
         """刷新页面"""
@@ -645,94 +365,6 @@ class InspirationMode(BasePage):
             self.initConversation()
 
         self._show_conversation_page()
-
-    def _load_conversation_history(self, project_id):
-        """加载并恢复对话历史"""
-        try:
-            # 获取对话历史
-            history = self.api_client.get_conversation_history(project_id)
-
-            if not history:
-                # 没有历史，显示初始欢迎消息
-                self.initConversation()
-                return
-
-            # 预处理：找出所有用户选择消息的索引，用于判断哪些选项需要锁定
-            user_selection_indices = set()
-            for i, record in enumerate(history):
-                role = record.get('role')
-                content = record.get('content')
-                if role == 'user' and content:
-                    try:
-                        import json
-                        data = json.loads(content)
-                        user_msg = None
-                        if isinstance(data, dict):
-                            user_msg = data.get('message') or data.get('value')
-                        elif isinstance(data, str):
-                            user_msg = data
-                        # 检查是否是选择消息
-                        if user_msg and user_msg.startswith('选择：'):
-                            user_selection_indices.add(i)
-                    except (json.JSONDecodeError, TypeError, AttributeError):
-                        # JSON解析失败或类型错误，跳过此记录
-                        pass
-
-            # 逐条恢复对话气泡
-            for i, record in enumerate(history):
-                role = record.get('role')
-                content = record.get('content')
-
-                if not role or not content:
-                    continue
-
-                # 解析content（JSON字符串）
-                try:
-                    import json
-                    data = json.loads(content)
-                except json.JSONDecodeError:
-                    # JSON格式错误，跳过此记录
-                    continue
-
-                if role == 'user':
-                    # 用户消息
-                    # 兼容多种格式：{"message": "..."} 或 {"value": "..."}
-                    user_msg = None
-                    if isinstance(data, dict):
-                        user_msg = data.get('message') or data.get('value')
-                    elif isinstance(data, str):
-                        user_msg = data
-
-                    if user_msg:
-                        self.addMessage(user_msg, is_user=True)
-
-                elif role == 'assistant':
-                    # AI消息
-                    if isinstance(data, dict):
-                        ai_message = data.get('ai_message', '')
-                        ui_control = data.get('ui_control', {})
-
-                        # 添加AI消息气泡
-                        if ai_message:
-                            self.addMessage(ai_message, is_user=False)
-
-                        # 恢复灵感选项（如果有）
-                        if ui_control.get('type') == 'inspired_options':
-                            options_data = ui_control.get('options', [])
-                            if options_data:
-                                # 检查下一条消息是否是用户选择，如果是则锁定选项
-                                should_lock = (i + 1) in user_selection_indices
-                                self._add_inspired_options(options_data, locked=should_lock)
-
-                        # 更新对话完成状态
-                        if data.get('is_complete'):
-                            self._state.is_complete = True
-
-        except Exception as e:
-            logger.error(f"加载对话历史失败: {str(e)}")
-            # 加载失败，显示初始欢迎消息
-            self.initConversation()
-
 
     def onRestart(self):
         """重新开始对话"""
@@ -765,236 +397,11 @@ class InspirationMode(BasePage):
         self._cleanup_blueprint_worker()
         self._cleanup_refine_worker()
 
-    def _cleanup_sse_worker(self):
-        """清理SSE对话Worker"""
-        if not self.current_worker:
-            return
-
-        try:
-            if self.current_worker.isRunning():
-                # SSEWorker有专门的stop方法，会断开信号并关闭连接
-                if isinstance(self.current_worker, SSEWorker):
-                    self.current_worker.stop()
-                else:
-                    # 旧的AsyncAPIWorker
-                    try:
-                        self.current_worker.success.disconnect()
-                        self.current_worker.error.disconnect()
-                    except (TypeError, RuntimeError):
-                        pass
-
-                # 终止线程
-                self.current_worker.quit()
-                self.current_worker.wait(WorkerTimeouts.DEFAULT_MS)
-        except RuntimeError:
-            pass  # C++ 对象可能已被删除
-        finally:
-            self.current_worker = None
-
     def _cleanup_worker(self):
         """清理异步worker - 兼容旧调用，内部转发到统一清理方法"""
         self._cleanup_all_workers()
 
-    def _start_sse_stream(self, message):
-        """启动SSE流式监听"""
-        # 如果没有项目ID，先创建项目
-        if not self._state.project_id:
-            try:
-                response = self.api_client.create_novel(
-                    title="未命名项目",
-                    initial_prompt=message
-                )
-                self._state.project_id = response.get('id')
-            except Exception as e:
-                MessageService.show_error(self, f"创建项目失败：{str(e)}", "错误")
-                self.input_widget.setEnabled(True)
-                return
-
-        # 构造SSE URL
-        url = f"{self.api_client.base_url}/api/novels/{self._state.project_id}/inspiration/converse-stream"
-
-        # 构造请求负载
-        payload = {
-            "user_input": {"message": message},
-            "conversation_state": {}
-        }
-
-        # 重置选项缓存和上一轮容器引用（用于错误恢复）
-        self._state.pending_options = []
-        self._prev_options_container = None
-
-        # 创建SSE Worker
-        self.current_worker = SSEWorker(url, payload)
-
-        # 连接结构化流式事件信号（新版）
-        self.current_worker.streaming_start.connect(self._on_streaming_start)
-        self.current_worker.ai_message_chunk.connect(self._on_ai_message_chunk)
-        self.current_worker.option_received.connect(self._on_option_received)
-
-        # 连接完成和错误信号
-        self.current_worker.complete.connect(self._on_stream_complete)
-        self.current_worker.error.connect(self._on_stream_error)
-
-        # 兼容旧版token信号（如果有其他地方使用）
-        self.current_worker.token_received.connect(self._on_token_received)
-
-        self.current_worker.start()
-
-    def _on_token_received(self, token):
-        """收到一个token（SSE回调 - 兼容旧版）"""
-        if self.current_ai_bubble:
-            # 追加token到当前AI气泡
-            self.current_ai_bubble.append_text(token)
-
-            # 滚动到底部
-            QTimer.singleShot(10, lambda: self.chat_scroll.verticalScrollBar().setValue(
-                self.chat_scroll.verticalScrollBar().maximum()
-            ))
-
-    def _on_streaming_start(self, data):
-        """流式输出开始（禁用用户交互）"""
-        # 确保输入框被禁用
-        self.input_widget.setEnabled(False)
-
-        # 禁用生成蓝图按钮
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            self.generate_btn.setEnabled(False)
-
-        # 禁用返回按钮（可选，防止用户中途离开）
-        if hasattr(self, 'back_btn') and self.back_btn:
-            self.back_btn.setEnabled(False)
-
-    def _on_ai_message_chunk(self, text):
-        """收到AI消息文本片段（结构化流式）"""
-        if self.current_ai_bubble:
-            # 追加文本到当前AI气泡
-            self.current_ai_bubble.append_text(text)
-
-            # 滚动到底部
-            QTimer.singleShot(10, lambda: self.chat_scroll.verticalScrollBar().setValue(
-                self.chat_scroll.verticalScrollBar().maximum()
-            ))
-
-    def _on_option_received(self, data):
-        """收到单个选项（结构化流式）"""
-        # 缓存选项数据
-        if not hasattr(self, '_pending_options'):
-            self._state.pending_options = []
-
-        option = data.get('option', {})
-        if option:
-            self._state.pending_options.append(option)
-
-            # 动态添加选项到界面（逐个出现效果）
-            index = data.get('index', 0)
-            total = data.get('total', len(self._state.pending_options))
-
-            # 如果是第一个选项，创建选项容器
-            if index == 0:
-                # 保存当前容器引用用于错误恢复，然后锁定它
-                self._prev_options_container = self._current_options_container
-                if self._prev_options_container:
-                    try:
-                        self._prev_options_container.lock()
-                    except RuntimeError:
-                        self._prev_options_container = None
-
-                # 创建新的空容器，后续逐个添加选项
-                self._current_options_container = InspiredOptionsContainer([])
-                self._current_options_container.option_selected.connect(self._on_option_selected)
-                self.chat_layout.insertWidget(self.chat_layout.count() - 1, self._current_options_container)
-
-            # 向容器添加单个选项
-            if self._current_options_container:
-                self._current_options_container.add_option(option)
-
-                # 滚动到底部
-                QTimer.singleShot(50, lambda: self.chat_scroll.verticalScrollBar().setValue(
-                    self.chat_scroll.verticalScrollBar().maximum()
-                ))
-
-    def _on_stream_complete(self, metadata):
-        """流式响应完成（SSE回调）"""
-        # 清理worker引用
-        self.current_worker = None
-        self.current_ai_bubble = None
-
-        # 注意：不锁定当前选项容器，保持可点击状态
-        # _current_options_container 保留引用，用于用户选择后锁定
-
-        # 清理选项缓存和上一轮容器引用（流成功完成，不再需要恢复）
-        self._state.pending_options = []
-        self._prev_options_container = None
-
-        # 恢复被禁用的按钮状态
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            self.generate_btn.setEnabled(True)
-        if hasattr(self, 'back_btn') and self.back_btn:
-            self.back_btn.setEnabled(True)
-
-        # 更新输入框placeholder（从complete事件的metadata中获取）
-        placeholder = metadata.get('placeholder', '输入你的想法...')
-        self.input_widget.setPlaceholder(placeholder)
-
-        # 检查对话是否完成
-        self._state.is_complete = metadata.get('is_complete', False)
-
-        # 启用输入
-        self.input_widget.setEnabled(True)
-        self.input_widget.setFocus()
-
-    def _on_stream_error(self, error_msg):
-        """流式响应错误（SSE回调）"""
-        # 清理worker引用
-        self.current_worker = None
-
-        # 错误恢复：处理选项容器状态
-        if self._state.pending_options and self._current_options_container:
-            # 如果有选项被部分接收，说明新容器已创建，需要移除它
-            try:
-                self.chat_layout.removeWidget(self._current_options_container)
-                self._current_options_container.deleteLater()
-            except RuntimeError:
-                pass
-            self._current_options_container = None
-
-            # 恢复上一轮容器（如果有），解锁它允许用户重试
-            if self._prev_options_container:
-                try:
-                    self._prev_options_container.unlock()
-                    self._current_options_container = self._prev_options_container
-                except RuntimeError:
-                    pass
-        elif self._current_options_container:
-            # 没有新选项被接收，直接解锁当前容器
-            try:
-                self._current_options_container.unlock()
-            except RuntimeError:
-                pass
-
-        # 清理状态
-        self._state.pending_options = []
-        self._prev_options_container = None
-
-        # 恢复被禁用的按钮状态
-        if hasattr(self, 'generate_btn') and self.generate_btn:
-            self.generate_btn.setEnabled(True)
-        if hasattr(self, 'back_btn') and self.back_btn:
-            self.back_btn.setEnabled(True)
-
-        # 显示错误消息
-        MessageService.show_error(self, f"对话失败：{error_msg}", "错误")
-
-        # 移除空的AI气泡（如果存在）
-        if self.current_ai_bubble:
-            self.chat_layout.removeWidget(self.current_ai_bubble)
-            self.current_ai_bubble.deleteLater()
-            self.current_ai_bubble = None
-
-        # 启用输入
-        self.input_widget.setEnabled(True)
-
-    def _add_inspired_options(self, options_data, locked=False):
+    def _add_inspired_options(self, options_data: list, locked: bool = False):
         """添加灵感选项卡片
 
         Args:
@@ -1020,7 +427,7 @@ class InspirationMode(BasePage):
             self.chat_scroll.verticalScrollBar().maximum()
         ))
 
-    def _on_option_selected(self, option_id, option_label):
+    def _on_option_selected(self, option_id: str, option_label: str):
         """用户选择了某个灵感选项"""
         # 注意：不立即锁定，等待SSE流成功完成后再锁定
         # 保存当前选项容器引用，用于成功后锁定

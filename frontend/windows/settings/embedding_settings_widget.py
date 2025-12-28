@@ -12,8 +12,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService, confirm
 from utils.async_worker import AsyncAPIWorker
-from .embedding_config_dialog import EmbeddingConfigDialog
-from .test_result_dialog import TestResultDialog
+from .dialogs import EmbeddingConfigDialog, TestResultDialog
 import json
 
 

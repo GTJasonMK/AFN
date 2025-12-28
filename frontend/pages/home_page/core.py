@@ -19,6 +19,7 @@ from themes.theme_manager import theme_manager
 from api.manager import APIClientManager
 from utils.dpi_utils import dp
 from components.dialogs import CreateModeDialog, InputDialog, ImportProgressDialog
+from components.loading_spinner import ListLoadingState
 
 from .constants import CREATIVE_QUOTES, get_title_sort_key
 from .particles import ParticleBackground
@@ -49,6 +50,9 @@ class HomePage(BasePage):
             QTimer.singleShot(100, self._animate_entrance)
 
     def _create_ui_structure(self):
+        # 设置objectName以便CSS选择器生效
+        self.setObjectName("home_page")
+
         # 主布局
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -60,10 +64,10 @@ class HomePage(BasePage):
         self.particle_bg.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         # ========== 左侧区域 ==========
-        left_widget = QWidget()
-        left_widget.setMinimumWidth(dp(400))
-        left_widget.setMaximumWidth(dp(504))
-        left_layout = QVBoxLayout(left_widget)
+        self.left_widget = QWidget()
+        self.left_widget.setMinimumWidth(dp(400))
+        self.left_widget.setMaximumWidth(dp(504))
+        left_layout = QVBoxLayout(self.left_widget)
         left_layout.setContentsMargins(dp(64), dp(64), dp(40), dp(64))
         left_layout.setSpacing(dp(24))
 
@@ -141,11 +145,11 @@ class HomePage(BasePage):
         left_layout.addWidget(buttons_widget)
         left_layout.addStretch()
 
-        main_layout.addWidget(left_widget)
+        main_layout.addWidget(self.left_widget)
 
         # ========== 右侧区域（Tab切换：最近项目 / 全部项目） ==========
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
+        self.right_widget = QWidget()
+        right_layout = QVBoxLayout(self.right_widget)
         right_layout.setContentsMargins(dp(40), dp(64), dp(64), dp(64))
         right_layout.setSpacing(0)
 
@@ -176,6 +180,15 @@ class HomePage(BasePage):
         self.recent_layout.setSpacing(dp(8))
         self.recent_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        # 最近项目加载骨架屏
+        self.recent_loading = ListLoadingState(
+            row_count=5,
+            row_height=dp(64),
+            spacing=dp(8),
+            parent=self.recent_container
+        )
+        self.recent_layout.addWidget(self.recent_loading)
+
         # 最近项目空状态提示
         self.recent_empty_label = QLabel("暂无最近项目\n点击\"创建小说\"开始您的创作之旅")
         self.recent_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -205,6 +218,15 @@ class HomePage(BasePage):
         self.all_layout.setSpacing(dp(8))
         self.all_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        # 全部项目加载骨架屏
+        self.all_loading = ListLoadingState(
+            row_count=8,
+            row_height=dp(64),
+            spacing=dp(8),
+            parent=self.all_container
+        )
+        self.all_layout.addWidget(self.all_loading)
+
         # 全部项目空状态提示
         self.all_empty_label = QLabel("暂无项目\n点击\"创建小说\"开始您的创作之旅")
         self.all_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -218,7 +240,7 @@ class HomePage(BasePage):
 
         right_layout.addWidget(self.projects_stack, 1)
 
-        main_layout.addWidget(right_widget, 1)  # 右侧占据剩余空间
+        main_layout.addWidget(self.right_widget, 1)  # 右侧占据剩余空间
 
         # 为动画准备透明度效果
         self.title_opacity = QGraphicsOpacityEffect()
@@ -244,11 +266,97 @@ class HomePage(BasePage):
         logger.info(f"accent_color: {accent_color}, bg_secondary: {bg_secondary}")
         logger.info(f"text_secondary: {text_secondary}, border_color: {border_color}")
 
-        self.setStyleSheet(f"""
-            HomePage {{
-                background-color: {bg_color};
-            }}
-        """)
+        # 检查透明效果是否启用
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QWidget
+        from themes.modern_effects import ModernEffects
+        transparency_config = theme_manager.get_transparency_config()
+        transparency_enabled = transparency_config.get("enabled", False)
+        content_opacity = transparency_config.get("content_opacity", 0.95)
+
+        logger.info("="*50)
+        logger.info(f"HomePage._apply_theme() 透明效果配置:")
+        logger.info(f"  enabled={transparency_enabled}")
+        logger.info(f"  content_opacity={content_opacity}")
+        logger.info("="*50)
+
+        if transparency_enabled:
+            # 透明模式：页面背景使用RGBA实现半透明
+            # 当content_opacity=0时，页面完全透明，能看到桌面
+            bg_rgba = ModernEffects.hex_to_rgba(bg_color, content_opacity)
+            logger.info(f"应用透明背景: {bg_rgba}")
+
+            # 直接设置样式
+            self.setStyleSheet(f"background-color: {bg_rgba};")
+
+            # 设置WA_TranslucentBackground使透明生效
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setAutoFillBackground(False)
+
+            # 确保指定子容器透明（不使用findChildren避免影响其他页面）
+            transparent_containers = [
+                'left_widget', 'right_widget', 'quote_container',
+                'projects_stack', 'recent_page', 'all_page',
+                'recent_container', 'all_container', 'tab_bar'
+            ]
+            for container_name in transparent_containers:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setStyleSheet("background-color: transparent;")
+                    container.setAutoFillBackground(False)
+
+            # 设置ScrollArea和viewport透明
+            for scroll_name in ['recent_scroll', 'all_scroll']:
+                scroll = getattr(self, scroll_name, None)
+                if scroll:
+                    scroll.setStyleSheet(f"""
+                        QScrollArea {{
+                            background-color: transparent;
+                            border: none;
+                        }}
+                        {theme_manager.scrollbar()}
+                    """)
+                    scroll.setAutoFillBackground(False)
+                    if scroll.viewport():
+                        scroll.viewport().setStyleSheet("background-color: transparent;")
+                        scroll.viewport().setAutoFillBackground(False)
+
+            # 粒子背景也需要透明
+            if hasattr(self, 'particle_bg') and self.particle_bg:
+                self.particle_bg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+        else:
+            # 非透明模式：使用实色背景，恢复所有背景填充
+            self.setStyleSheet(f"background-color: {bg_color};")
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAutoFillBackground(True)
+
+            # 恢复所有容器的背景填充
+            containers_to_restore = [
+                'left_widget', 'right_widget', 'quote_container',
+                'projects_stack', 'recent_page', 'all_page',
+                'recent_container', 'all_container', 'tab_bar'
+            ]
+            for container_name in containers_to_restore:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(True)
+
+            # 恢复ScrollArea背景
+            for scroll_name in ['recent_scroll', 'all_scroll']:
+                scroll = getattr(self, scroll_name, None)
+                if scroll:
+                    scroll.setStyleSheet(f"""
+                        QScrollArea {{
+                            background-color: {bg_secondary};
+                            border: none;
+                        }}
+                        {theme_manager.scrollbar()}
+                    """)
+                    scroll.setAutoFillBackground(True)
+                    if scroll.viewport():
+                        scroll.viewport().setStyleSheet(f"background-color: {bg_secondary};")
+                        scroll.viewport().setAutoFillBackground(True)
 
         self.title.setStyleSheet(f"""
             QLabel {{
@@ -334,10 +442,17 @@ class HomePage(BasePage):
             }}
         """)
 
-        # 打开按钮样式（次要按钮）
+        # 打开按钮样式（次要按钮）- 透明模式下使用半透明背景
+        if transparency_enabled:
+            open_btn_bg = ModernEffects.hex_to_rgba(bg_secondary, 0.7)
+            open_btn_pressed_bg = ModernEffects.hex_to_rgba(bg_color, 0.5)
+        else:
+            open_btn_bg = bg_secondary
+            open_btn_pressed_bg = bg_color
+
         self.open_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {bg_secondary};
+                background-color: {open_btn_bg};
                 color: {text_primary};
                 border: 1px solid {border_color};
                 border-radius: {dp(8)}px;
@@ -350,7 +465,7 @@ class HomePage(BasePage):
                 color: {accent_color};
             }}
             QPushButton:pressed {{
-                background-color: {bg_color};
+                background-color: {open_btn_pressed_bg};
             }}
         """)
 
@@ -381,6 +496,12 @@ class HomePage(BasePage):
 
         self.recent_scroll.setStyleSheet(scroll_style)
         self.all_scroll.setStyleSheet(scroll_style)
+
+        # 设置ScrollArea的viewport透明背景（重要：viewport是实际绘制内容的区域）
+        if self.recent_scroll.viewport():
+            self.recent_scroll.viewport().setStyleSheet("background-color: transparent;")
+        if self.all_scroll.viewport():
+            self.all_scroll.viewport().setStyleSheet("background-color: transparent;")
 
         # 容器透明背景
         for container_name in ['recent_container', 'all_container', 'recent_page', 'all_page']:
@@ -622,8 +743,12 @@ class HomePage(BasePage):
         """加载项目数据（最近项目 + 全部项目）
 
         使用AsyncWorker在后台线程执行API调用，避免UI线程阻塞。
+        加载期间显示骨架屏，提升用户感知体验。
         """
         from utils.async_worker import AsyncWorker
+
+        # 显示加载骨架屏
+        self._show_loading_state()
 
         def fetch_projects():
             """后台线程执行的API调用"""
@@ -700,11 +825,46 @@ class HomePage(BasePage):
                 # 使用 deleteLater() 删除，ThemeAware 基类会自动断开信号
                 widget.deleteLater()
 
+    def _show_loading_state(self):
+        """显示加载骨架屏"""
+        # 隐藏空状态提示
+        if hasattr(self, 'recent_empty_label'):
+            self.recent_empty_label.hide()
+        if hasattr(self, 'all_empty_label'):
+            self.all_empty_label.hide()
+
+        # 显示骨架屏
+        if hasattr(self, 'recent_loading'):
+            self.recent_loading.show()
+            self.recent_loading.start()
+        if hasattr(self, 'all_loading'):
+            self.all_loading.show()
+            self.all_loading.start()
+
+    def _hide_loading_state(self):
+        """隐藏加载骨架屏"""
+        if hasattr(self, 'recent_loading'):
+            self.recent_loading.stop()
+            self.recent_loading.hide()
+        if hasattr(self, 'all_loading'):
+            self.all_loading.stop()
+            self.all_loading.hide()
+
     def _update_projects_ui(self):
         """更新项目列表UI（最近项目Tab + 全部项目Tab）"""
-        # 清空现有内容（保留empty_label不被删除）
-        self._clear_layout(self.recent_layout, preserve_widgets=[self.recent_empty_label])
-        self._clear_layout(self.all_layout, preserve_widgets=[self.all_empty_label])
+        # 隐藏加载骨架屏
+        self._hide_loading_state()
+
+        # 清空现有内容（保留empty_label和loading不被删除）
+        preserve_recent = [self.recent_empty_label]
+        preserve_all = [self.all_empty_label]
+        if hasattr(self, 'recent_loading'):
+            preserve_recent.append(self.recent_loading)
+        if hasattr(self, 'all_loading'):
+            preserve_all.append(self.all_loading)
+
+        self._clear_layout(self.recent_layout, preserve_widgets=preserve_recent)
+        self._clear_layout(self.all_layout, preserve_widgets=preserve_all)
 
         # ===== 更新最近项目Tab（不显示删除按钮） =====
         if self.recent_projects:

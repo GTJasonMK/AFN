@@ -14,7 +14,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
-from .prompt_edit_dialog import PromptEditDialog
+from .dialogs import PromptEditDialog
 
 
 class PromptSettingsWidget(QWidget):

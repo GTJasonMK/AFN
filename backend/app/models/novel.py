@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, UniqueConstraint
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -259,6 +259,10 @@ class ChapterVersion(Base):
     """章节生成的不同版本文本。"""
 
     __tablename__ = "chapter_versions"
+    __table_args__ = (
+        # 复合索引：用于快速查询章节的最新版本（按创建时间倒序）
+        Index('idx_chapter_version_chapter_created', 'chapter_id', 'created_at'),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
     chapter_id: Mapped[int] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -267,7 +271,7 @@ class ChapterVersion(Base):
     content: Mapped[str] = mapped_column(LONG_TEXT_TYPE, nullable=False)
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
     metadata = _MetadataAccessor()
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     chapter: Mapped[Chapter] = relationship(
         "Chapter",
@@ -334,6 +338,10 @@ class ForeshadowingIndex(Base):
     """
 
     __tablename__ = "foreshadowing_index"
+    __table_args__ = (
+        # 复合索引：用于快速查询项目的待回收伏笔
+        Index('idx_foreshadowing_project_status', 'project_id', 'status'),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)

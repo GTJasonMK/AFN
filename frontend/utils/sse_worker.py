@@ -22,10 +22,15 @@ import json
 import logging
 import platform
 import threading
+import time
 from typing import Optional, List, Callable
 
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
+
+# Token批量发射配置
+# 每100ms刷新一次缓冲区，减少信号发射频率，提升UI性能
+_TOKEN_FLUSH_INTERVAL = 0.1  # 秒
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +129,11 @@ class SSEWorker(QThread):
 
         # 当前事件类型（仅在工作线程内使用）
         self._current_event_type: Optional[str] = None
+
+        # Token批量发射缓冲区（性能优化）
+        # 将高频token累积后批量发射，减少UI更新频率
+        self._token_buffer: List[str] = []
+        self._last_token_flush: float = 0.0
 
         # 请求会话（用于可能的取消）
         self._session: Optional[requests.Session] = None
@@ -251,17 +261,21 @@ class SSEWorker(QThread):
         try:
             if event_type == 'token':
                 token = data.get('token', '')
-                self.token_received.emit(token)
+                self._buffer_token(token)
 
             elif event_type == 'progress':
                 logger.debug("SSE进度更新: %s", data)
                 self.progress_received.emit(data)
 
             elif event_type == 'complete':
+                # 完成前先刷新剩余的token缓冲区
+                self._flush_token_buffer(force=True)
                 logger.info("SSE流完成，发射complete信号")
                 self.complete.emit(data)
 
             elif event_type == 'cancelled':
+                # 取消前先刷新剩余的token缓冲区
+                self._flush_token_buffer(force=True)
                 logger.info("SSE流被取消，发射cancelled信号")
                 self.cancelled.emit(data)
 
@@ -292,6 +306,45 @@ class SSEWorker(QThread):
         except RuntimeError:
             # 接收者对象可能已被删除
             logger.debug("SSEWorker: receiver deleted, signal not emitted")
+
+    def _buffer_token(self, token: str):
+        """将token添加到缓冲区，达到时间阈值时批量发射
+
+        性能优化：将高频token累积后批量发射，减少UI更新频率。
+        原逻辑：每个token立即emit，约50-100次/秒
+        优化后：每100ms批量emit一次，约10次/秒
+
+        注意：此方法在 _emit_lock 保护下调用
+        """
+        self._token_buffer.append(token)
+        self._flush_token_buffer(force=False)
+
+    def _flush_token_buffer(self, force: bool = False):
+        """刷新token缓冲区
+
+        Args:
+            force: 是否强制刷新（用于complete/cancelled事件）
+
+        注意：此方法在 _emit_lock 保护下调用
+        """
+        if not self._token_buffer:
+            return
+
+        now = time.monotonic()
+        elapsed = now - self._last_token_flush
+
+        # 达到时间阈值或强制刷新时，批量发射
+        if force or elapsed >= _TOKEN_FLUSH_INTERVAL:
+            # 合并所有token为单个字符串
+            merged_tokens = ''.join(self._token_buffer)
+            self._token_buffer.clear()
+            self._last_token_flush = now
+
+            try:
+                self.token_received.emit(merged_tokens)
+            except RuntimeError:
+                # 接收者对象可能已被删除
+                logger.debug("SSEWorker: receiver deleted, token signal not emitted")
 
     def _safe_emit_error(self, message: str):
         """安全地发射错误信号（使用锁保护，防止竞态条件）"""

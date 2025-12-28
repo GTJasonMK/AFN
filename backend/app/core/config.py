@@ -200,11 +200,11 @@ class Settings(BaseSettings):
 
     # -------------------- 请求队列配置 --------------------
     llm_max_concurrent: int = Field(
-        default=3,
+        default=8,
         ge=1,
-        le=10,
+        le=20,
         env="LLM_MAX_CONCURRENT",
-        description="LLM请求最大并发数",
+        description="LLM请求最大并发数（提高默认值以支持章节多版本并行生成）",
     )
     image_max_concurrent: int = Field(
         default=2,

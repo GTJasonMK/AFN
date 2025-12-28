@@ -120,7 +120,14 @@ class AFNAPIClient(
             raise_on_status=False       # 不在重试时抛出异常
         )
 
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        # 配置HTTP适配器，优化连接池大小以支持高并发
+        # pool_connections: 保持的连接池数量（对应不同host）
+        # pool_maxsize: 每个连接池的最大连接数
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=20,        # 连接池数量
+            pool_maxsize=20,            # 每个池的最大连接数
+        )
         session.mount("http://", adapter)
         session.mount("https://", adapter)
 

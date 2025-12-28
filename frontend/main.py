@@ -75,10 +75,6 @@ def apply_global_theme():
     # 根据当前主题动态设置全局样式
     is_dark = theme_manager.is_dark_mode()
 
-    logger = logging.getLogger(__name__)
-    logger.info(f"=== apply_global_theme called: is_dark={is_dark} ===")
-    logger.info(f"PRIMARY={theme_manager.PRIMARY}, BUTTON_TEXT={theme_manager.BUTTON_TEXT}")
-
     # 系统对话框背景色
     dialog_bg = theme_manager.BG_CARD
     dialog_text = theme_manager.TEXT_PRIMARY
@@ -165,6 +161,55 @@ def apply_global_theme():
     app.setStyleSheet(base_style + "\n" + accessibility_style)
 
 
+def load_active_theme_config(logger):
+    """尝试从后端加载激活的主题配置
+
+    在后端可用时，加载用户激活的主题配置并应用。
+    支持V1和V2两种配置格式，优先使用V2。
+    如果后端不可用或没有激活的配置，则使用默认主题。
+    """
+    try:
+        from api.manager import APIClientManager
+
+        # 获取当前主题模式
+        mode = theme_manager.current_mode.value  # "light" 或 "dark"
+
+        # 尝试获取激活的统一格式主题配置（支持V1和V2）
+        api_client = APIClientManager.get_client()
+        active_config = api_client.get_active_unified_theme_config(mode)
+
+        if active_config:
+            config_version = active_config.get('config_version', 1)
+            config_name = active_config.get('config_name', '未命名')
+            logger.info(f"加载激活的主题配置: {config_name} (V{config_version})")
+
+            if config_version == 2 and active_config.get('effects'):
+                # V2配置：使用面向组件的配置
+                theme_manager.apply_v2_config(active_config)
+            elif any(active_config.get(k) for k in ['primary_colors', 'text_colors', 'background_colors']):
+                # V1配置：合并为平面字典
+                flat_config = {}
+                v1_groups = [
+                    'primary_colors', 'accent_colors', 'semantic_colors',
+                    'text_colors', 'background_colors', 'border_effects',
+                    'button_colors', 'typography', 'border_radius',
+                    'spacing', 'animation', 'button_sizes'
+                ]
+                for group in v1_groups:
+                    group_values = active_config.get(group, {}) or {}
+                    flat_config.update(group_values)
+                if flat_config:
+                    theme_manager.apply_custom_theme(flat_config)
+            else:
+                logger.info(f"配置 {config_name} 没有有效的配置数据，使用默认主题")
+        else:
+            logger.info(f"没有激活的{mode}主题配置，使用默认主题")
+
+    except Exception as e:
+        # 后端不可用或其他错误，使用默认主题
+        logger.warning(f"无法加载激活的主题配置（后端可能未启动）: {e}")
+
+
 def main():
     """主函数"""
     # 配置日志系统 - 同时输出到控制台和文件
@@ -218,8 +263,11 @@ def main():
     # 设置主题管理器的配置管理器
     theme_manager.set_config_manager(config_manager)
 
-    # 从配置文件加载主题
+    # 从配置文件加载主题模式（light/dark）
     theme_manager.load_theme_from_config()
+
+    # 尝试从后端加载激活的主题配置（V2）
+    load_active_theme_config(logger)
 
     # 连接主题切换信号，实时更新全局样式
     theme_manager.theme_changed.connect(lambda: apply_global_theme())

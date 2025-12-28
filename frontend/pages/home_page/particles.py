@@ -127,6 +127,12 @@ class ParticleBackground(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # 确保自身透明，不遮挡底层canvas_color
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
+        self.setStyleSheet("background-color: transparent;")
+
         self.particles = []
         self._theme_connected = False
         self._time_tick = 0
@@ -271,7 +277,8 @@ class ParticleBackground(QWidget):
         """绘制墨滴粒子"""
         color = colors['ink'] if random.random() > 0.3 else colors['ink_alt']
         opacity = particle.get_current_opacity()
-        color.setAlpha(int(opacity * 60))
+        # 提高透明度使粒子更可见（原值60）
+        color.setAlpha(int(opacity * 100))
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(color))
@@ -283,7 +290,7 @@ class ParticleBackground(QWidget):
         # 墨晕效果（更大更淡的外圈）
         if particle.spread > 0:
             halo_color = QColor(color)
-            halo_color.setAlpha(int(opacity * 15))
+            halo_color.setAlpha(int(opacity * 25))
             painter.setBrush(QBrush(halo_color))
             painter.drawEllipse(QPointF(particle.x, particle.y), size * 1.8, size * 1.8)
 
@@ -291,7 +298,8 @@ class ParticleBackground(QWidget):
         """绘制纸片粒子"""
         color = colors['paper']
         opacity = particle.get_current_opacity()
-        color.setAlpha(int(opacity * 40))
+        # 提高透明度使粒子更可见（原值40）
+        color.setAlpha(int(opacity * 70))
 
         painter.save()
         painter.translate(particle.x, particle.y)
@@ -352,7 +360,8 @@ class ParticleBackground(QWidget):
         """绘制书法笔触"""
         color = colors['stroke']
         opacity = particle.get_current_opacity()
-        color.setAlpha(int(opacity * 35))
+        # 提高透明度使粒子更可见（原值35）
+        color.setAlpha(int(opacity * 60))
 
         painter.save()
         painter.translate(particle.x, particle.y)

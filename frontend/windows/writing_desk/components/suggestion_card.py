@@ -268,6 +268,8 @@ class SuggestionCard(ThemeAwareFrame):
             """)
 
         # 设置卡片边框颜色
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 直接设置样式
         border_color = theme_manager.BORDER_DEFAULT
         if priority == "high":
             border_color = theme_manager.ERROR
@@ -275,11 +277,9 @@ class SuggestionCard(ThemeAwareFrame):
             border_color = theme_manager.WARNING
 
         self.setStyleSheet(f"""
-            SuggestionCard {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {border_color};
-                border-radius: {dp(8)}px;
-            }}
+            background-color: {theme_manager.BG_CARD};
+            border: 1px solid {border_color};
+            border-radius: {dp(8)}px;
         """)
 
     def _on_apply(self):
@@ -321,13 +321,13 @@ class SuggestionCard(ThemeAwareFrame):
             self.status_label.setVisible(True)
 
         # 降低透明度
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 直接设置样式
         self.setStyleSheet(f"""
-            SuggestionCard {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(8)}px;
-                opacity: 0.6;
-            }}
+            background-color: {theme_manager.BG_CARD};
+            border: 1px solid {theme_manager.BORDER_LIGHT};
+            border-radius: {dp(8)}px;
+            opacity: 0.6;
         """)
 
     def get_suggestion(self) -> dict:

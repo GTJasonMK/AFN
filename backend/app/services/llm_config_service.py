@@ -15,6 +15,23 @@ from ..utils.encryption import encrypt_api_key, decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
+# 延迟导入缓存，避免循环依赖
+_config_cache = None
+
+
+async def _invalidate_llm_config_cache(user_id: int) -> None:
+    """使LLM配置缓存失效（延迟导入避免循环依赖）
+
+    当用户更新、激活、删除或导入LLM配置时调用此函数，
+    确保下次LLM调用使用最新的配置。
+    """
+    global _config_cache
+    if _config_cache is None:
+        from .llm_service import _config_cache as cache
+        _config_cache = cache
+    await _config_cache.invalidate(user_id)
+    logger.debug("LLM配置缓存已失效: user_id=%s", user_id)
+
 
 class LLMConfigService:
     """
@@ -116,6 +133,9 @@ class LLMConfigService:
 
         await self.repo.update_fields(config, **data)
         await self.session.commit()
+        # 更新配置后使缓存失效，确保下次LLM调用使用新配置
+        if config.is_active:
+            await _invalidate_llm_config_cache(user_id)
         await self.session.refresh(config)
         return LLMConfigRead.from_orm_with_mask(config)
 
@@ -127,6 +147,8 @@ class LLMConfigService:
 
         await self.repo.activate_config(config_id, user_id)
         await self.session.commit()
+        # 切换激活配置后使缓存失效
+        await _invalidate_llm_config_cache(user_id)
         await self.session.refresh(config)
         return LLMConfigRead.from_orm_with_mask(config)
 
@@ -142,6 +164,8 @@ class LLMConfigService:
 
         await self.repo.delete(config)
         await self.session.commit()
+        # 删除配置后使缓存失效（防止缓存中引用已删除配置）
+        await _invalidate_llm_config_cache(user_id)
         return True
 
     async def test_config(self, config_id: int, user_id: int) -> LLMConfigTestResponse:
@@ -459,6 +483,9 @@ class LLMConfigService:
 
         # 提交所有更改
         await self.session.commit()
+        # 导入配置后使缓存失效
+        if imported_count > 0:
+            await _invalidate_llm_config_cache(user_id)
 
         return LLMConfigImportResult(
             success=imported_count > 0,

@@ -2,6 +2,9 @@
 主题配置 Mixin
 
 提供主题配置的API方法。
+支持两种配置格式：
+- V1（旧版）：面向常量的配置
+- V2（新版）：面向组件的配置
 """
 
 from typing import Any, Dict, List, Optional
@@ -10,7 +13,7 @@ from typing import Any, Dict, List, Optional
 class ThemeConfigMixin:
     """主题配置方法 Mixin"""
 
-    # ==================== 主题配置列表 ====================
+    # ==================== V1: 主题配置列表 ====================
 
     def get_theme_configs(self) -> List[Dict[str, Any]]:
         """获取用户的所有主题配置列表"""
@@ -52,7 +55,7 @@ class ThemeConfigMixin:
         """
         return self._request('GET', f'/api/theme-configs/defaults/{mode}')
 
-    # ==================== 主题配置CRUD ====================
+    # ==================== V1: 主题配置CRUD ====================
 
     def create_theme_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -95,7 +98,7 @@ class ThemeConfigMixin:
         """
         return self._request('DELETE', f'/api/theme-configs/{config_id}')
 
-    # ==================== 主题配置操作 ====================
+    # ==================== V1: 主题配置操作 ====================
 
     def activate_theme_config(self, config_id: int) -> Dict[str, Any]:
         """
@@ -167,3 +170,113 @@ class ThemeConfigMixin:
             导入结果
         """
         return self._request('POST', '/api/theme-configs/import', {'data': import_data})
+
+    # ==================== V2: 面向组件的主题配置 ====================
+
+    def get_theme_v2_defaults(self, mode: str) -> Dict[str, Any]:
+        """
+        获取V2格式指定模式的默认主题值
+
+        Args:
+            mode: 主题模式（'light' 或 'dark'）
+
+        Returns:
+            V2格式的默认主题值（包含 token_*, comp_*, effects）
+        """
+        return self._request('GET', f'/api/theme-configs/v2/defaults/{mode}')
+
+    def get_theme_v2_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        获取V2格式的主题配置详情
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            V2格式的配置详情
+        """
+        return self._request('GET', f'/api/theme-configs/v2/{config_id}')
+
+    def get_unified_theme_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        获取统一格式的主题配置详情（支持V1和V2）
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            包含V1和V2所有字段的统一格式配置
+        """
+        return self._request('GET', f'/api/theme-configs/unified/{config_id}')
+
+    def get_active_unified_theme_config(
+        self, parent_mode: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取指定模式下当前激活的统一格式主题配置
+
+        Args:
+            parent_mode: 顶级主题模式（'light' 或 'dark'）
+
+        Returns:
+            统一格式的激活配置，如果没有则返回None
+        """
+        return self._request(
+            'GET', f'/api/theme-configs/unified/active/{parent_mode}'
+        )
+
+    def create_theme_v2_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        创建V2格式的主题配置
+
+        Args:
+            config_data: V2格式配置数据，必须包含 config_name 和 parent_mode
+                        可选包含 token_*, comp_*, effects 等字段
+
+        Returns:
+            创建的V2格式配置
+        """
+        return self._request('POST', '/api/theme-configs/v2', config_data)
+
+    def update_theme_v2_config(
+        self,
+        config_id: int,
+        config_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        更新V2格式的主题配置
+
+        Args:
+            config_id: 配置ID
+            config_data: V2格式配置数据
+
+        Returns:
+            更新后的V2格式配置
+        """
+        return self._request('PUT', f'/api/theme-configs/v2/{config_id}', config_data)
+
+    def reset_theme_v2_config(self, config_id: int) -> Dict[str, Any]:
+        """
+        重置V2主题配置为默认值
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            重置后的V2格式配置
+        """
+        return self._request('POST', f'/api/theme-configs/v2/{config_id}/reset')
+
+    def migrate_theme_config_to_v2(self, config_id: int) -> Dict[str, Any]:
+        """
+        将V1配置迁移到V2格式
+
+        保留V1配置数据，同时填充V2字段为默认值。
+
+        Args:
+            config_id: 配置ID
+
+        Returns:
+            迁移后的V2格式配置
+        """
+        return self._request('POST', f'/api/theme-configs/{config_id}/migrate-to-v2')

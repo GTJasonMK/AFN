@@ -5,10 +5,15 @@
 支持两种主题风格：
 - Academia/Classical (深色): 黄铜渐变、浮雕效果、蜡封阴影
 - Organic/Natural (浅色): 苔藓色阴影、陶土渐变、柔和效果
+
+透明度效果使用 OpacityTokens 提供标准默认值。
 """
 
 from typing import Tuple, Optional
 from PyQt6.QtGui import QLinearGradient, QRadialGradient, QConicalGradient
+
+# 导入透明度Token系统
+from themes.transparency_tokens import OpacityTokens
 
 
 class ModernEffects:
@@ -107,22 +112,26 @@ class ModernEffects:
     def glassmorphism_card(is_dark: bool = False, border_color: str = None) -> str:
         """生成玻璃态卡片样式 - 针对亮色和深色主题优化
 
+        使用 OpacityTokens.CARD_GLASS 作为默认透明度。
+
         Args:
             is_dark: 是否深色模式
             border_color: 边框颜色（可选，未提供则使用默认配色）
                         注意：此参数已废弃，边框应由调用方在StyleSheet中单独设置
         """
+        opacity = OpacityTokens.CARD_GLASS
+
         if is_dark:
             # 深色主题 Academia - 深桃花心木玻璃效果
             return ModernEffects.glassmorphism(
-                bg_color="rgba(28, 23, 20, 0.85)",  # 深桃花心木底色
+                bg_color=f"rgba(28, 23, 20, {opacity})",  # 深桃花心木底色
                 blur_radius=24,
                 include_border=False
             )
         else:
             # 亮色主题 Organic - 米白纸张玻璃效果
             return ModernEffects.glassmorphism(
-                bg_color="rgba(253, 252, 248, 0.85)",  # 米白纸张底色
+                bg_color=f"rgba(253, 252, 248, {opacity})",  # 米白纸张底色
                 blur_radius=20,
                 include_border=False
             )
@@ -543,6 +552,262 @@ class ModernEffects:
                 100% { transform: translateY(0px); }
             }
         """
+
+    # ==================== 动态透明效果 ====================
+
+    @staticmethod
+    def hex_to_rgba(hex_color: str, opacity: float = 1.0) -> str:
+        """将十六进制颜色转换为rgba格式
+
+        Args:
+            hex_color: 十六进制颜色 (如 "#FFFFFF" 或 "FFFFFF")
+            opacity: 透明度 (0.0-1.0)
+
+        Returns:
+            rgba颜色字符串
+        """
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) == 3:
+            hex_color = ''.join([c*2 for c in hex_color])
+
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+
+        return f"rgba({r}, {g}, {b}, {opacity})"
+
+    @staticmethod
+    def dynamic_glass_background(
+        base_color: str,
+        opacity: float = 0.85,
+        border_color: str = None,
+        border_opacity: float = 0.1,
+        include_border: bool = True
+    ) -> str:
+        """动态毛玻璃背景 - 根据透明度配置生成样式
+
+        Args:
+            base_color: 基础背景色 (十六进制格式，如 "#FFFFFF")
+            opacity: 透明度 (0.0-1.0)
+            border_color: 边框颜色 (可选，默认使用白色)
+            border_opacity: 边框透明度
+            include_border: 是否包含边框样式
+
+        Returns:
+            QSS样式字符串（仅包含背景和边框属性）
+        """
+        # 将基础颜色转换为rgba
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        style = f"background-color: {bg_rgba};"
+
+        if include_border:
+            if border_color:
+                border_rgba = ModernEffects.hex_to_rgba(border_color, border_opacity)
+            else:
+                # 默认使用白色半透明边框
+                border_rgba = f"rgba(255, 255, 255, {border_opacity})"
+            style += f" border: 1px solid {border_rgba};"
+
+        return style
+
+    @staticmethod
+    def sidebar_transparent_style(
+        base_color: str,
+        opacity: float = None,
+        border_color: str = None
+    ) -> str:
+        """侧边栏透明样式
+
+        使用 OpacityTokens.SIDEBAR 作为默认透明度。
+
+        Args:
+            base_color: 基础背景色
+            opacity: 透明度（可选，默认使用Token值）
+            border_color: 边框颜色
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.SIDEBAR
+
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        if border_color:
+            border_rgba = ModernEffects.hex_to_rgba(border_color, OpacityTokens.BORDER_DEFAULT)
+        else:
+            border_rgba = f"rgba(255, 255, 255, {OpacityTokens.BORDER_LIGHT})"
+
+        return f"""
+            background-color: {bg_rgba};
+            border-right: 1px solid {border_rgba};
+        """
+
+    @staticmethod
+    def header_transparent_style(
+        base_color: str,
+        opacity: float = None,
+        border_color: str = None
+    ) -> str:
+        """标题栏透明样式
+
+        使用 OpacityTokens.HEADER 作为默认透明度。
+
+        Args:
+            base_color: 基础背景色
+            opacity: 透明度（可选，默认使用Token值）
+            border_color: 边框颜色
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.HEADER
+
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        if border_color:
+            border_rgba = ModernEffects.hex_to_rgba(border_color, OpacityTokens.BORDER_LIGHT)
+        else:
+            border_rgba = f"rgba(255, 255, 255, {OpacityTokens.BORDER_LIGHT})"
+
+        return f"""
+            background-color: {bg_rgba};
+            border-bottom: 1px solid {border_rgba};
+        """
+
+    @staticmethod
+    def dialog_transparent_style(
+        base_color: str,
+        opacity: float = None,
+        border_color: str = None,
+        border_radius: str = "8px"
+    ) -> str:
+        """对话框透明样式
+
+        使用 OpacityTokens.DIALOG 作为默认透明度。
+
+        Args:
+            base_color: 基础背景色
+            opacity: 透明度（可选，默认使用Token值）
+            border_color: 边框颜色
+            border_radius: 圆角大小
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.DIALOG
+
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        if border_color:
+            border_rgba = ModernEffects.hex_to_rgba(border_color, OpacityTokens.BORDER_LIGHT)
+        else:
+            border_rgba = f"rgba(255, 255, 255, {OpacityTokens.BORDER_LIGHT})"
+
+        return f"""
+            background-color: {bg_rgba};
+            border: 1px solid {border_rgba};
+            border-radius: {border_radius};
+        """
+
+    @staticmethod
+    def tooltip_transparent_style(
+        base_color: str,
+        opacity: float = None,
+        border_color: str = None,
+        border_radius: str = "4px"
+    ) -> str:
+        """工具提示透明样式
+
+        使用 OpacityTokens.TOOLTIP 作为默认透明度。
+
+        Args:
+            base_color: 基础背景色
+            opacity: 透明度（可选，默认使用Token值）
+            border_color: 边框颜色
+            border_radius: 圆角大小
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.TOOLTIP
+
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        if border_color:
+            border_rgba = ModernEffects.hex_to_rgba(border_color, OpacityTokens.BORDER_DEFAULT)
+        else:
+            border_rgba = f"rgba(255, 255, 255, {OpacityTokens.BORDER_LIGHT})"
+
+        return f"""
+            background-color: {bg_rgba};
+            border: 1px solid {border_rgba};
+            border-radius: {border_radius};
+        """
+
+    @staticmethod
+    def popover_transparent_style(
+        base_color: str,
+        opacity: float = None,
+        border_color: str = None,
+        border_radius: str = "8px"
+    ) -> str:
+        """弹出框透明样式
+
+        使用 OpacityTokens.POPOVER 作为默认透明度。
+
+        Args:
+            base_color: 基础背景色
+            opacity: 透明度（可选，默认使用Token值）
+            border_color: 边框颜色
+            border_radius: 圆角大小
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.POPOVER
+
+        bg_rgba = ModernEffects.hex_to_rgba(base_color, opacity)
+
+        if border_color:
+            border_rgba = ModernEffects.hex_to_rgba(border_color, OpacityTokens.BORDER_DEFAULT)
+        else:
+            border_rgba = f"rgba(255, 255, 255, {OpacityTokens.BORDER_LIGHT})"
+
+        return f"""
+            background-color: {bg_rgba};
+            border: 1px solid {border_rgba};
+            border-radius: {border_radius};
+        """
+
+    @staticmethod
+    def overlay_transparent_style(
+        is_dark: bool = True,
+        opacity: float = None
+    ) -> str:
+        """遮罩层透明样式
+
+        使用 OpacityTokens.OVERLAY 作为默认透明度。
+
+        Args:
+            is_dark: 是否深色遮罩
+            opacity: 透明度（可选，默认使用Token值）
+
+        Returns:
+            QSS样式字符串
+        """
+        if opacity is None:
+            opacity = OpacityTokens.OVERLAY
+
+        if is_dark:
+            return f"background-color: rgba(0, 0, 0, {opacity});"
+        else:
+            return f"background-color: rgba(255, 255, 255, {opacity});"
 
 
 # 导出便捷函数

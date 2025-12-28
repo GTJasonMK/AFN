@@ -26,11 +26,13 @@ from .sidebar import WDSidebar
 from .workspace import WDWorkspace
 from .assistant_panel import AssistantPanel
 
-# 导入Mixin模块
-from .chapter_generation_mixin import ChapterGenerationMixin
-from .content_management_mixin import ContentManagementMixin
-from .version_management_mixin import VersionManagementMixin
-from .evaluation_mixin import EvaluationMixin
+# 导入Mixin模块（从 mixins/ 子目录）
+from .mixins import (
+    ChapterGenerationMixin,
+    ContentManagementMixin,
+    VersionManagementMixin,
+    EvaluationMixin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,7 @@ class WritingDesk(
         self._apply_theme()
 
     def _create_ui_structure(self):
-        """创建UI结构（只调用一次，优化版：分步创建避免卡顿）"""
+        """创建UI结构（只调用一次，优化版：批量创建后处理事件）"""
         from PyQt6.QtWidgets import QApplication
 
         logger.info("WritingDesk._create_ui_structure 开始执行")
@@ -94,9 +96,6 @@ class WritingDesk(
         self.header = WDHeader()
         main_layout.addWidget(self.header)
 
-        # 让出事件循环
-        QApplication.processEvents()
-
         # 主内容区
         self.content_widget = QWidget()
         content_layout = QHBoxLayout(self.content_widget)
@@ -107,17 +106,11 @@ class WritingDesk(
         self.sidebar = WDSidebar()
         content_layout.addWidget(self.sidebar)
 
-        # 让出事件循环
-        QApplication.processEvents()
-
         # Workspace（占据剩余空间）
         self.workspace = WDWorkspace()
         self.workspace.setProjectId(self.project_id)
         self.workspace.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         content_layout.addWidget(self.workspace, stretch=1)
-
-        # 让出事件循环
-        QApplication.processEvents()
 
         # RAG Assistant Panel（固定宽度，初始隐藏）
         self.assistant_panel = AssistantPanel(self.project_id)
@@ -126,6 +119,9 @@ class WritingDesk(
         content_layout.addWidget(self.assistant_panel, stretch=0)
 
         main_layout.addWidget(self.content_widget, stretch=1)
+
+        # 所有主要组件创建完成后，处理一次事件循环
+        QApplication.processEvents()
 
         # 统一连接所有信号
         self._connect_signals()
@@ -165,20 +161,52 @@ class WritingDesk(
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
+        from PyQt6.QtCore import Qt
+        from themes.modern_effects import ModernEffects
+
         bg_color = theme_manager.book_bg_primary()
 
-        self.setStyleSheet(f"""
-            WritingDesk {{
-                background-color: {bg_color};
-            }}
-        """)
+        # 获取透明效果配置
+        transparency_config = theme_manager.get_transparency_config()
+        transparency_enabled = transparency_config.get("enabled", False)
+        content_opacity = transparency_config.get("content_opacity", 0.95)
 
-        if hasattr(self, 'content_widget'):
-            self.content_widget.setStyleSheet(f"""
-                QWidget {{
-                    background-color: transparent;
-                }}
-            """)
+        if transparency_enabled:
+            # 透明模式：使用RGBA背景色实现半透明效果
+            # 当content_opacity=0时，页面完全透明，能看到桌面
+            bg_rgba = ModernEffects.hex_to_rgba(bg_color, content_opacity)
+            self.setStyleSheet(f"background-color: {bg_rgba};")
+
+            # 设置WA_TranslucentBackground使透明生效（真正的窗口透明）
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setAutoFillBackground(False)
+
+            # 指定容器设置透明（不使用findChildren避免影响其他页面）
+            transparent_containers = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel']
+            for container_name in transparent_containers:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(False)
+
+            # content_widget 必须完全透明
+            if hasattr(self, 'content_widget') and self.content_widget:
+                self.content_widget.setStyleSheet("background-color: transparent;")
+        else:
+            # 普通模式：使用实色背景，恢复背景填充
+            self.setStyleSheet(f"background-color: {bg_color};")
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAutoFillBackground(True)
+
+            # 恢复容器的背景填充
+            containers_to_restore = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel']
+            for container_name in containers_to_restore:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(True)
+
+            # content_widget 恢复透明样式（因为它是内容容器）
+            if hasattr(self, 'content_widget') and self.content_widget:
+                self.content_widget.setStyleSheet("background-color: transparent;")
 
     # ==================== 项目加载 ====================
 
@@ -313,7 +341,7 @@ class WritingDesk(
         protagonist_name = extract_protagonist_name(self.project)
 
         # 显示主角档案对话框
-        from .protagonist_profile_dialog import ProtagonistProfileDialog
+        from .dialogs import ProtagonistProfileDialog
         dialog = ProtagonistProfileDialog(project_id, protagonist_name, self)
         dialog.exec()
 
@@ -361,17 +389,26 @@ class WritingDesk(
     # ==================== 生命周期 ====================
 
     def onHide(self):
-        """页面隐藏时清理资源"""
-        self._cleanup_workers()
+        """页面隐藏时停止运行中的任务（但保持manager可复用）"""
+        self._cleanup_workers(full_cleanup=False)
 
-    def _cleanup_workers(self):
-        """清理所有异步任务"""
+    def _cleanup_workers(self, full_cleanup: bool = True):
+        """清理所有异步任务
+
+        Args:
+            full_cleanup: True表示完全清理（组件销毁时），False表示只停止当前任务（页面隐藏时）
+        """
         # 清理SSE Worker
         self._cleanup_chapter_gen_sse()
 
         # 清理WorkerManager中的所有任务
         if hasattr(self, 'worker_manager') and self.worker_manager:
-            self.worker_manager.cleanup_all()
+            if full_cleanup:
+                # 完全清理：标记为已清理，不再接受新任务
+                self.worker_manager.cleanup_all()
+            else:
+                # 只停止运行中的任务，保持manager可复用
+                self.worker_manager.stop_all()
 
         # 清理进度对话框
         if self._progress_dialog:
@@ -381,13 +418,13 @@ class WritingDesk(
     def __del__(self):
         """析构时清理资源"""
         try:
-            self._cleanup_workers()
+            self._cleanup_workers(full_cleanup=True)
         except (RuntimeError, AttributeError):
             pass
 
     def closeEvent(self, event):
         """窗口关闭时清理"""
-        self._cleanup_workers()
+        self._cleanup_workers(full_cleanup=True)
         super().closeEvent(event)
 
     def refresh(self, **params):

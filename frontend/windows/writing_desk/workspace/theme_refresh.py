@@ -2,18 +2,142 @@
 写作台主工作区 - 主题刷新 Mixin
 
 包含所有主题样式刷新相关的方法。
+优化：使用组件缓存减少findChildren调用。
 """
 
+from typing import Dict, List, Optional
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QPushButton, QTextEdit, QScrollArea, QTabWidget
+    QFrame, QLabel, QPushButton, QTextEdit, QScrollArea, QTabWidget,
+    QGraphicsDropShadowEffect, QWidget
 )
+from PyQt6.QtGui import QColor
 
+from themes.theme_manager import theme_manager
+from themes.modern_effects import ModernEffects
+from themes.button_styles import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.constants import VersionConstants
 
 
 class ThemeRefreshMixin:
-    """主题刷新相关方法的 Mixin"""
+    """主题刷新相关方法的 Mixin
+
+    优化策略：
+    - 使用组件缓存减少findChildren遍历
+    - 首次刷新时构建缓存，后续刷新复用
+    - 内容变化时失效缓存
+    """
+
+    # 缓存属性（子类需要初始化）
+    _theme_cache_valid: bool = False
+    _cached_scroll_areas: List[QScrollArea] = None
+    _cached_tab_widgets: List[QTabWidget] = None
+    _cached_labels_by_prefix: Dict[str, List[QLabel]] = None
+    _cached_frames_by_prefix: Dict[str, List[QFrame]] = None
+    # 常用组件直接引用缓存（避免反复findChild）
+    _cached_components: Dict[str, QWidget] = None
+
+    def _init_theme_cache(self):
+        """初始化主题缓存（在子类__init__中调用）"""
+        self._theme_cache_valid = False
+        self._cached_scroll_areas = []
+        self._cached_tab_widgets = []
+        self._cached_labels_by_prefix = {}
+        self._cached_frames_by_prefix = {}
+        self._cached_components = {}
+
+    def _invalidate_theme_cache(self):
+        """失效主题缓存（内容变化时调用）"""
+        self._theme_cache_valid = False
+
+    def _build_theme_cache(self):
+        """构建组件缓存（一次遍历，分类存储）
+
+        性能优化：
+        - 一次遍历收集所有组件，避免多次 findChild/findChildren 调用
+        - 按objectName缓存常用组件，后续直接访问
+        """
+        if self._theme_cache_valid:
+            return
+
+        if not hasattr(self, 'content_widget') or not self.content_widget:
+            return
+
+        # 初始化缓存容器
+        self._cached_scroll_areas = []
+        self._cached_tab_widgets = []
+        self._cached_labels_by_prefix = {
+            "analysis_label_": [],
+            "analysis_text_": [],
+            "analysis_highlight_": [],
+            "other": [],
+        }
+        self._cached_frames_by_prefix = {
+            "char_state_card_": [],
+            "event_card_": [],
+            "foreshadow_card_": [],
+            "version_card_": [],
+            "version_info_bar_": [],
+            "eval_card_": [],
+            "other": [],
+        }
+        self._cached_components = {}
+
+        # 常用组件的objectName列表（用于直接缓存）
+        common_component_names = {
+            "chapter_header", "chapter_meta_label", "editor_container",
+            "content_toolbar", "word_count_label", "status_label",
+            "save_btn", "rag_btn", "summary_info_card", "summary_info_title",
+            "summary_info_desc", "summary_content_card", "summary_text_edit",
+            "summary_word_count", "analysis_scroll_area", "analysis_info_card",
+            "analysis_info_title", "analysis_info_desc", "recommendation_card",
+            "reeval_btn", "evaluate_btn"
+        }
+
+        # 一次遍历收集所有需要的组件
+        for child in self.content_widget.findChildren(QWidget):
+            obj_name = child.objectName()
+
+            # 缓存常用组件
+            if obj_name in common_component_names:
+                self._cached_components[obj_name] = child
+
+            if isinstance(child, QScrollArea):
+                self._cached_scroll_areas.append(child)
+            elif isinstance(child, QTabWidget):
+                self._cached_tab_widgets.append(child)
+            elif isinstance(child, QLabel):
+                # 按前缀分类
+                matched = False
+                for prefix in ["analysis_label_", "analysis_text_", "analysis_highlight_"]:
+                    if obj_name.startswith(prefix):
+                        self._cached_labels_by_prefix[prefix].append(child)
+                        matched = True
+                        break
+                if not matched:
+                    self._cached_labels_by_prefix["other"].append(child)
+            elif isinstance(child, QFrame):
+                # 按前缀分类
+                matched = False
+                for prefix in ["char_state_card_", "event_card_", "foreshadow_card_",
+                              "version_card_", "version_info_bar_", "eval_card_"]:
+                    if obj_name.startswith(prefix):
+                        self._cached_frames_by_prefix[prefix].append(child)
+                        matched = True
+                        break
+                if not matched:
+                    self._cached_frames_by_prefix["other"].append(child)
+
+        self._theme_cache_valid = True
+
+    def _get_cached_component(self, name: str, widget_type=None):
+        """从缓存获取组件，如果不存在则使用findChild（兼容回退）"""
+        if self._theme_cache_valid and self._cached_components and name in self._cached_components:
+            return self._cached_components[name]
+        # 回退到findChild
+        if self.content_widget:
+            return self.content_widget.findChild(widget_type or QWidget, name)
+        return None
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）
@@ -33,11 +157,12 @@ class ThemeRefreshMixin:
         self._content_builder.refresh_theme()
         self._manga_builder.refresh_theme()
 
-        self.setStyleSheet(f"""
-            WDWorkspace {{
-                background-color: transparent;
-            }}
-        """)
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 直接设置透明背景
+        self.setStyleSheet("background-color: transparent;")
+
+        # 构建组件缓存（仅在缓存失效时重建）
+        self._build_theme_cache()
 
         # 如果有显示中的章节内容，只更新样式，不重建
         # 重建会触发 _loadMangaDataAsync 等 API 调用，导致性能问题
@@ -53,58 +178,96 @@ class ThemeRefreshMixin:
                 self.tab_widget.setCurrentIndex(current_tab_index)
 
     def _refresh_content_styles(self):
-        """刷新内容区域的主题样式（主题切换时调用） - 书香风格"""
+        """刷新内容区域的主题样式（主题切换时调用） - 书香风格
+
+        性能优化：使用缓存组件引用，减少findChild调用
+        """
         if not self.content_widget:
             return
 
         # 使用缓存的样式器属性（避免重复调用theme_manager）
         s = self._styler
 
-        # 更新章节标题卡片 - 简约风格
-        if chapter_header := self.content_widget.findChild(QFrame, "chapter_header"):
+        # 更新章节标题卡片 - 渐变背景设计
+        if chapter_header := self._get_cached_component("chapter_header", QFrame):
+            # 重新应用渐变背景
+            gradient = ModernEffects.linear_gradient(
+                theme_manager.PRIMARY_GRADIENT,
+                135
+            )
             chapter_header.setStyleSheet(f"""
                 QFrame#chapter_header {{
-                    background-color: {s.bg_primary};
-                    border-bottom: 1px solid {s.border_color};
-                    border-radius: 0px;
+                    background: {gradient};
+                    border: none;
+                    border-radius: {theme_manager.RADIUS_MD};
                     padding: {dp(12)}px;
                 }}
             """)
-            chapter_header.setGraphicsEffect(None)
+            # 重新添加阴影效果
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(dp(12))
+            shadow.setColor(QColor(0, 0, 0, 30))
+            shadow.setOffset(0, dp(2))
+            chapter_header.setGraphicsEffect(shadow)
 
-        # 更新章节标题文字
+        # 更新章节标题文字 - 渐变背景上使用白色文字
         if self.chapter_title:
             self.chapter_title.setStyleSheet(f"""
                 font-family: {s.serif_font};
-                font-size: {sp(20)}px;
-                font-weight: bold;
-                color: {s.text_primary};
+                font-size: {sp(18)}px;
+                font-weight: 700;
+                color: {theme_manager.BUTTON_TEXT};
             """)
 
-        # 更新章节元信息标签
-        if meta_label := self.content_widget.findChild(QLabel, "chapter_meta_label"):
+        # 更新章节元信息标签 - 渐变背景上使用白色文字
+        if meta_label := self._get_cached_component("chapter_meta_label", QLabel):
             meta_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
+                font-family: {s.serif_font};
                 font-size: {sp(12)}px;
-                color: {s.text_secondary};
-                font-style: italic;
+                color: {theme_manager.BUTTON_TEXT};
+                opacity: 0.85;
             """)
 
-        # 更新生成按钮
+        # 更新预览按钮 - 渐变背景上的透明按钮
+        if self.preview_btn:
+            self.preview_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: {s.serif_font};
+                    background-color: transparent;
+                    color: {theme_manager.BUTTON_TEXT};
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(12)}px;
+                    font-size: {sp(12)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(255, 255, 255, 0.15);
+                    border-color: rgba(255, 255, 255, 0.5);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                }}
+            """)
+
+        # 更新生成按钮 - 渐变背景上的半透明按钮
         if self.generate_btn:
             self.generate_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {s.accent_color};
-                    color: {s.button_text};
-                    border: 1px solid {s.accent_color};
-                    border-radius: {dp(4)}px;
-                    padding: {dp(6)}px {dp(12)}px;
-                    font-family: {s.ui_font};
-                    font-weight: bold;
+                    font-family: {s.serif_font};
+                    background-color: rgba(255, 255, 255, 0.2);
+                    color: {theme_manager.BUTTON_TEXT};
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(16)}px;
+                    font-size: {sp(13)}px;
+                    font-weight: 600;
                 }}
                 QPushButton:hover {{
-                    background-color: {s.text_primary};
-                    border-color: {s.text_primary};
+                    background-color: rgba(255, 255, 255, 0.3);
+                    border-color: rgba(255, 255, 255, 0.5);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba(255, 255, 255, 0.15);
                 }}
             """)
 
@@ -132,15 +295,15 @@ class ThemeRefreshMixin:
                 }}
             """)
 
-        # 更新文本编辑器 - 纸张效果
+        # 更新文本编辑器 - 与创建时保持一致
         if self.content_text:
             self.content_text.setStyleSheet(f"""
                 QTextEdit {{
-                    background-color: {s.bg_secondary};
+                    background-color: {s.bg_card};
                     border: none;
-                    padding: {dp(32)}px;
+                    padding: {dp(16)}px;
                     font-family: {s.serif_font};
-                    font-size: {sp(16)}px;
+                    font-size: {sp(15)}px;
                     color: {s.text_primary};
                     line-height: 1.8;
                     selection-background-color: {s.accent_color};
@@ -149,29 +312,30 @@ class ThemeRefreshMixin:
                 {s.scrollbar_style()}
             """)
 
-        # 更新编辑器容器 - 去除玻璃态，改为边框
-        if editor_container := self.content_widget.findChild(QFrame, "editor_container"):
+        # 更新编辑器容器 - 与创建时保持一致
+        if editor_container := self._get_cached_component("editor_container", QFrame):
             editor_container.setStyleSheet(f"""
                 QFrame#editor_container {{
                     background-color: {s.bg_secondary};
-                    border: 1px solid {s.border_color};
-                    border-radius: {dp(2)}px;
+                    border: 1px solid {s.border_light};
+                    border-radius: {dp(8)}px;
+                    padding: {dp(2)}px;
                 }}
             """)
 
-        # 更新工具栏样式
-        if toolbar := self.content_widget.findChild(QFrame, "content_toolbar"):
+        # 更新工具栏样式 - 与创建时保持一致
+        if toolbar := self._get_cached_component("content_toolbar", QFrame):
             toolbar.setStyleSheet(f"""
                 QFrame#content_toolbar {{
-                    background-color: transparent;
-                    border-bottom: 1px solid {s.border_color};
-                    border-radius: 0;
+                    background-color: {s.bg_card};
+                    border: 1px solid {s.border_light};
+                    border-radius: {dp(8)}px;
                     padding: {dp(6)}px {dp(10)}px;
                 }}
             """)
 
         # 更新字数统计标签
-        if word_count_label := self.content_widget.findChild(QLabel, "word_count_label"):
+        if word_count_label := self._get_cached_component("word_count_label", QLabel):
             word_count_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
                 font-size: {sp(13)}px;
@@ -179,32 +343,24 @@ class ThemeRefreshMixin:
             """)
 
         # 更新状态标签
-        if status_label := self.content_widget.findChild(QLabel, "status_label"):
+        if status_label := self._get_cached_component("status_label", QLabel):
             status_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
                 font-size: {sp(13)}px;
                 color: {s.accent_color};
             """)
 
-        # 更新保存按钮
-        if save_btn := self.content_widget.findChild(QPushButton, "save_btn"):
-            save_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: {s.text_secondary};
-                    border: 1px solid {s.border_color};
-                    border-radius: {dp(4)}px;
-                    padding: {dp(4)}px {dp(12)}px;
-                    font-family: {s.ui_font};
-                }}
-                QPushButton:hover {{
-                    color: {s.accent_color};
-                    border-color: {s.accent_color};
-                }}
-            """)
+        # 更新保存按钮 - 使用 ButtonStyles.primary
+        if save_btn := self._get_cached_component("save_btn", QPushButton):
+            save_btn.setStyleSheet(ButtonStyles.primary('SM'))
 
-        # 更新滚动区域的样式
-        for scroll_area in self.content_widget.findChildren(QScrollArea):
+        # 更新RAG入库按钮 - 使用 ButtonStyles.secondary
+        if rag_btn := self._get_cached_component("rag_btn", QPushButton):
+            rag_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+
+        # 更新滚动区域的样式（使用缓存）
+        scroll_areas = self._cached_scroll_areas if self._theme_cache_valid else self.content_widget.findChildren(QScrollArea)
+        for scroll_area in scroll_areas:
             scroll_area.setStyleSheet(f"""
                 QScrollArea {{
                     border: none;
@@ -212,6 +368,9 @@ class ThemeRefreshMixin:
                 }}
                 {s.scrollbar_style()}
             """)
+            # 设置viewport透明背景
+            if scroll_area.viewport():
+                scroll_area.viewport().setStyleSheet("background-color: transparent;")
 
         # 更新版本卡片样式
         self._refresh_version_cards_styles()
@@ -370,8 +529,22 @@ class ThemeRefreshMixin:
                         color: {s.accent_color};
                     """)
 
-        # 更新所有子标签的样式
-        for label in self.content_widget.findChildren(QLabel):
+        # 更新所有分析标签的样式（使用缓存）
+        # 合并处理三类标签：analysis_label_*, analysis_text_*, analysis_highlight_*
+        analysis_labels = []
+        if self._theme_cache_valid:
+            analysis_labels = (
+                self._cached_labels_by_prefix.get("analysis_label_", []) +
+                self._cached_labels_by_prefix.get("analysis_text_", []) +
+                self._cached_labels_by_prefix.get("analysis_highlight_", [])
+            )
+        else:
+            analysis_labels = [
+                label for label in self.content_widget.findChildren(QLabel)
+                if label.objectName().startswith(("analysis_label_", "analysis_text_", "analysis_highlight_"))
+            ]
+
+        for label in analysis_labels:
             obj_name = label.objectName()
             if obj_name.startswith("analysis_label_"):
                 # 特殊处理语义标签 - 使用对应的语义文字色
@@ -450,41 +623,45 @@ class ThemeRefreshMixin:
                     border-radius: {dp(4)}px;
                 """)
 
-        # 更新角色状态卡片
-        for char_card in self.content_widget.findChildren(QFrame):
-            if char_card.objectName().startswith("char_state_card_"):
-                char_card.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {s.bg_secondary};
-                        border: 1px solid {s.border_color};
-                        border-radius: {dp(6)}px;
-                        padding: {dp(10)}px;
-                    }}
-                """)
+        # 更新角色状态卡片、事件卡片、伏笔卡片（使用缓存）
+        char_cards = self._cached_frames_by_prefix.get("char_state_card_", []) if self._theme_cache_valid else [
+            f for f in self.content_widget.findChildren(QFrame) if f.objectName().startswith("char_state_card_")
+        ]
+        for char_card in char_cards:
+            char_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {s.bg_secondary};
+                    border: 1px solid {s.border_color};
+                    border-radius: {dp(6)}px;
+                    padding: {dp(10)}px;
+                }}
+            """)
 
-        # 更新事件卡片
-        for event_card in self.content_widget.findChildren(QFrame):
-            if event_card.objectName().startswith("event_card_"):
-                event_card.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {s.bg_secondary};
-                        border-left: 3px solid {s.accent_color};
-                        border-radius: {dp(4)}px;
-                        padding: {dp(8)}px;
-                    }}
-                """)
+        event_cards = self._cached_frames_by_prefix.get("event_card_", []) if self._theme_cache_valid else [
+            f for f in self.content_widget.findChildren(QFrame) if f.objectName().startswith("event_card_")
+        ]
+        for event_card in event_cards:
+            event_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {s.bg_secondary};
+                    border-left: 3px solid {s.accent_color};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(8)}px;
+                }}
+            """)
 
-        # 更新伏笔卡片
-        for fs_card in self.content_widget.findChildren(QFrame):
-            if fs_card.objectName().startswith("foreshadow_card_"):
-                fs_card.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {s.warning}08;
-                        border-left: 2px solid {s.warning};
-                        border-radius: {dp(4)}px;
-                        padding: {dp(8)}px;
-                    }}
-                """)
+        fs_cards = self._cached_frames_by_prefix.get("foreshadow_card_", []) if self._theme_cache_valid else [
+            f for f in self.content_widget.findChildren(QFrame) if f.objectName().startswith("foreshadow_card_")
+        ]
+        for fs_card in fs_cards:
+            fs_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {s.warning}08;
+                    border-left: 2px solid {s.warning};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(8)}px;
+                }}
+            """)
 
     def _refresh_version_cards_styles(self):
         """刷新版本卡片的主题样式 - 书香风格"""
@@ -493,8 +670,9 @@ class ThemeRefreshMixin:
 
         s = self._styler  # 使用缓存的样式器属性
 
-        # 查找所有 QTabWidget，排除主TabWidget，应用简约Tab样式
-        for tab_widget in self.content_widget.findChildren(QTabWidget):
+        # 查找所有 QTabWidget，排除主TabWidget，应用简约Tab样式（使用缓存）
+        tab_widgets = self._cached_tab_widgets if self._theme_cache_valid else self.content_widget.findChildren(QTabWidget)
+        for tab_widget in tab_widgets:
             if tab_widget != self.tab_widget:
                 tab_widget.setStyleSheet(f"""
                     QTabWidget::pane {{ border: none; background: transparent; }}

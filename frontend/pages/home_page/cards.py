@@ -11,12 +11,21 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from components.base import ThemeAwareFrame, ThemeAwareButton
 from themes.theme_manager import theme_manager
+from themes.transparency_aware_mixin import TransparencyAwareMixin
+from themes.transparency_tokens import OpacityTokens
 from utils.dpi_utils import dp
 from utils.formatters import get_project_status_text
 
 
-class RecentProjectCard(ThemeAwareFrame):
-    """最近项目卡片 - 继承主题感知基类，自动管理主题信号"""
+class RecentProjectCard(TransparencyAwareMixin, ThemeAwareFrame):
+    """最近项目卡片 - 继承主题感知基类，支持透明度控制
+
+    使用 TransparencyAwareMixin 提供透明度控制能力。
+    使用 card_glass 透明度（0.85）以便能看到背景粒子效果。
+    """
+
+    # 透明度组件标识符 - 使用 card_glass 以获得更高透明度
+    _transparency_component_id = "card_glass"
 
     # 定义信号
     deleteRequested = pyqtSignal(str, str)  # project_id, title
@@ -31,6 +40,7 @@ class RecentProjectCard(ThemeAwareFrame):
         self.time_label = None
         self.delete_btn = None
         super().__init__(parent)
+        self._init_transparency_state()  # 初始化透明度状态
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(dp(80))
         self.setupUI()
@@ -111,6 +121,14 @@ class RecentProjectCard(ThemeAwareFrame):
             return time_str[:10] if len(time_str) >= 10 else time_str
 
     def _apply_theme(self):
+        # 应用透明度效果
+        self._apply_transparency()
+
+        # 调试日志
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"RecentProjectCard._apply_theme: enabled={self._transparency_enabled}, opacity={self._current_opacity}, component_id={self._transparency_component_id}")
+
         bg_color = theme_manager.book_bg_secondary()
         text_primary = theme_manager.book_text_primary()
         text_secondary = theme_manager.book_text_secondary()
@@ -118,17 +136,39 @@ class RecentProjectCard(ThemeAwareFrame):
         accent_color = theme_manager.book_accent_color()
         ui_font = theme_manager.ui_font()
 
-        self.setStyleSheet(f"""
-            RecentProjectCard {{
-                background-color: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: {dp(8)}px;
-            }}
-            RecentProjectCard:hover {{
-                border-color: {accent_color};
-                background-color: {theme_manager.book_bg_primary()};
-            }}
-        """)
+        # 卡片背景 - 支持透明效果
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 使用objectName选择器来支持hover伪类
+        self.setObjectName("recentProjectCard")
+
+        if self._transparency_enabled:
+            bg_rgba = self._hex_to_rgba(bg_color, self._current_opacity)
+            border_rgba = self._hex_to_rgba(border_color, OpacityTokens.BORDER_DEFAULT)
+            hover_bg_rgba = self._hex_to_rgba(theme_manager.book_bg_primary(), self._current_opacity)
+
+            self.setStyleSheet(f"""
+                QFrame#recentProjectCard {{
+                    background-color: {bg_rgba};
+                    border: 1px solid {border_rgba};
+                    border-radius: {dp(8)}px;
+                }}
+                QFrame#recentProjectCard:hover {{
+                    border-color: {accent_color};
+                    background-color: {hover_bg_rgba};
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#recentProjectCard {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(8)}px;
+                }}
+                QFrame#recentProjectCard:hover {{
+                    border-color: {accent_color};
+                    background-color: {theme_manager.book_bg_primary()};
+                }}
+            """)
 
         # 注意：这些属性在_create_ui_structure中创建，
         # setupUI保证_create_ui_structure在_apply_theme之前调用

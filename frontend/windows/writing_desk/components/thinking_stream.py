@@ -302,15 +302,15 @@ class ThinkingBlock(ThemeAwareFrame):
                 """)
 
         # 整体容器样式 - 左边框指示类型
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 直接设置样式
         border_color = color
         bg_alpha = "08" if self.block_type == self.TYPE_SUGGESTION else "00"
         self.setStyleSheet(f"""
-            ThinkingBlock {{
-                background-color: {color}{bg_alpha};
-                border-left: 3px solid {border_color};
-                border-radius: {dp(4)}px;
-                margin: {dp(2)}px 0;
-            }}
+            background-color: {color}{bg_alpha};
+            border-left: 3px solid {border_color};
+            border-radius: {dp(4)}px;
+            margin: {dp(2)}px 0;
         """)
 
 

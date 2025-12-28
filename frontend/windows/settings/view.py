@@ -5,10 +5,10 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QWidget, QListWidget, QStackedWidget, QListWidgetItem,
-    QGraphicsDropShadowEffect, QFileDialog
+    QGraphicsDropShadowEffect, QFileDialog, QApplication
 )
-from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtGui import QColor, QPainter, QPen
 from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
@@ -16,6 +16,144 @@ from utils.message_service import MessageService
 from api.manager import APIClientManager
 from components.dialogs import LoadingDialog
 import json
+
+
+class LoadingSpinner(QWidget):
+    """加载旋转动画组件"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._rotate)
+        self.setFixedSize(dp(40), dp(40))
+
+    def _get_angle(self):
+        return self._angle
+
+    def _set_angle(self, angle):
+        self._angle = angle
+        self.update()
+
+    angle = pyqtProperty(int, _get_angle, _set_angle)
+
+    def start(self):
+        """开始动画"""
+        self._timer.start(33)  # ~30fps，更流畅
+
+    def stop(self):
+        """停止动画"""
+        self._timer.stop()
+
+    def _rotate(self):
+        """旋转更新"""
+        self._angle = (self._angle + 15) % 360  # 每帧旋转15度，更平滑
+        self.update()
+
+    def paintEvent(self, event):
+        """绘制旋转动画"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 获取主题颜色
+        palette = theme_manager.get_book_palette()
+        pen = QPen(QColor(palette.accent_color))
+        pen.setWidth(dp(3))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+
+        # 绘制弧形
+        rect = self.rect().adjusted(dp(5), dp(5), -dp(5), -dp(5))
+        painter.drawArc(rect, self._angle * 16, 270 * 16)
+
+
+class SettingsLoadingOverlay(QWidget):
+    """设置页面加载遮罩
+
+    全屏遮罩，阻止用户在初始化完成前进行任何操作。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setAutoFillBackground(True)
+        self._setup_ui()
+        self._apply_theme()
+        theme_manager.theme_changed.connect(self._apply_theme)
+
+    def _setup_ui(self):
+        """设置UI"""
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(dp(16))
+
+        # 加载动画
+        self.spinner = LoadingSpinner(self)
+        layout.addWidget(self.spinner, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 加载文字
+        self.loading_label = QLabel("正在加载设置...")
+        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.loading_label)
+
+        # 提示文字
+        self.hint_label = QLabel("首次加载需要初始化界面组件，请稍候")
+        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.hint_label)
+
+    def _apply_theme(self, theme_name: str = None):
+        """应用主题"""
+        palette = theme_manager.get_book_palette()
+
+        # 半透明背景遮罩
+        self.setStyleSheet(f"""
+            SettingsLoadingOverlay {{
+                background-color: rgba(0, 0, 0, 0.3);
+            }}
+        """)
+
+        self.loading_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {palette.ui_font};
+                font-size: {sp(16)}px;
+                font-weight: 500;
+                color: {palette.text_primary};
+                background-color: {palette.bg_secondary};
+                padding: {dp(12)}px {dp(24)}px;
+                border-radius: {dp(8)}px;
+            }}
+        """)
+
+        self.hint_label.setStyleSheet(f"""
+            QLabel {{
+                font-family: {palette.ui_font};
+                font-size: {sp(12)}px;
+                color: {palette.text_tertiary};
+                background-color: transparent;
+            }}
+        """)
+
+    def showEvent(self, event):
+        """显示时启动动画"""
+        super().showEvent(event)
+        self.spinner.start()
+
+    def hideEvent(self, event):
+        """隐藏时停止动画"""
+        self.spinner.stop()
+        super().hideEvent(event)
+
+    def mousePressEvent(self, event):
+        """拦截所有鼠标点击事件"""
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """拦截所有鼠标释放事件"""
+        event.accept()
+
+    def keyPressEvent(self, event):
+        """拦截所有键盘事件"""
+        event.accept()
 
 
 class SettingsView(BasePage):
@@ -26,6 +164,12 @@ class SettingsView(BasePage):
         self.api_client = APIClientManager.get_client()
         self._widgets_initialized = False  # 标记子widget是否已初始化
         self._data_loaded = False  # 标记数据是否已加载
+        self._is_visible = False  # 标记页面是否可见（用于取消异步操作）
+        self._init_timer = None  # 初始化定时器引用
+        self._load_timer = None  # 数据加载定时器引用
+        self._loading_overlay = None  # 加载遮罩
+        self._init_step = 0  # 分步初始化步骤索引
+        self._widget_classes = None  # 缓存的widget类引用
         self._create_ui_structure()
         self._apply_theme()
         # 注意：不需要额外连接 theme_changed 信号
@@ -128,10 +272,6 @@ class SettingsView(BasePage):
         self.theme_settings = None
         self.advanced_settings = None
 
-        # 创建加载占位页面
-        self._loading_placeholder = self._create_loading_placeholder()
-        self.page_stack.addWidget(self._loading_placeholder)
-
         page_layout.addWidget(self.page_stack)
         content_layout.addWidget(self.page_frame, stretch=1)
 
@@ -141,88 +281,157 @@ class SettingsView(BasePage):
         # 默认选中第一项
         self.nav_list.setCurrentRow(0)
 
-    def _create_loading_placeholder(self) -> QWidget:
-        """创建加载占位页面"""
-        placeholder = QWidget()
-        layout = QVBoxLayout(placeholder)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(dp(16))
+        # 创建加载遮罩（覆盖整个设置页面）
+        self._loading_overlay = SettingsLoadingOverlay(self)
+        self._loading_overlay.hide()  # 默认隐藏
 
-        # 加载动画指示器（使用文字动画）
-        loading_label = QLabel("正在加载设置...")
-        loading_label.setObjectName("loading_label")
-        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(loading_label)
-
-        # 提示文字
-        hint_label = QLabel("首次加载需要初始化界面组件")
-        hint_label.setObjectName("loading_hint")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(hint_label)
-
-        return placeholder
+    def _is_widget_valid(self) -> bool:
+        """检查 widget 是否仍然有效（未被删除）"""
+        try:
+            # 使用 sip.isdeleted 检查 C++ 对象是否已被删除
+            from PyQt6 import sip
+            if sip.isdeleted(self):
+                return False
+            # 同时检查可见性标志
+            return self._is_visible
+        except (ImportError, RuntimeError):
+            return False
 
     def _init_widgets_async(self):
-        """异步初始化子widget（在事件循环中执行，不阻塞UI）"""
-        if self._widgets_initialized:
-            return
+        """启动异步分步初始化子widget"""
+        try:
+            if not self._is_widget_valid():
+                return
 
-        # 延迟导入，减少初始加载时间
-        from .llm_settings_widget import LLMSettingsWidget
-        from .embedding_settings_widget import EmbeddingSettingsWidget
-        from .advanced_settings_widget import AdvancedSettingsWidget
-        from .image_settings_widget import ImageSettingsWidget
-        from .queue_settings_widget import QueueSettingsWidget
-        from .prompt_settings_widget import PromptSettingsWidget
-        from .theme_settings_widget import ThemeSettingsWidget
+            if self._widgets_initialized:
+                return
 
-        # 移除占位符
-        self.page_stack.removeWidget(self._loading_placeholder)
-        self._loading_placeholder.deleteLater()
+            # 初始化步骤索引
+            self._init_step = 0
 
-        # 创建各个设置widget（它们的__init__中不再调用loadConfigs）
-        self.llm_settings = LLMSettingsWidget()
-        self.page_stack.addWidget(self.llm_settings)
+            # 延迟导入模块（先导入，避免每步都导入）
+            self._widget_classes = None
 
-        self.embedding_settings = EmbeddingSettingsWidget()
-        self.page_stack.addWidget(self.embedding_settings)
+            # 开始第一步
+            self._do_init_step()
 
-        self.image_settings = ImageSettingsWidget()
-        self.page_stack.addWidget(self.image_settings)
+        except RuntimeError:
+            pass
 
-        self.queue_settings = QueueSettingsWidget()
-        self.page_stack.addWidget(self.queue_settings)
+    def _do_init_step(self):
+        """执行单个初始化步骤，然后让出控制权给事件循环"""
+        try:
+            if not self._is_widget_valid():
+                self._hide_loading_overlay()
+                return
 
-        self.prompt_settings = PromptSettingsWidget()
-        self.page_stack.addWidget(self.prompt_settings)
+            # 检查初始化是否被取消（onHide时会清空_widget_classes）
+            if self._init_step > 0 and self._widget_classes is None:
+                self._hide_loading_overlay()
+                return
 
-        self.theme_settings = ThemeSettingsWidget()
-        self.page_stack.addWidget(self.theme_settings)
+            step = self._init_step
 
-        self.advanced_settings = AdvancedSettingsWidget()
-        self.page_stack.addWidget(self.advanced_settings)
+            # 步骤0: 导入模块
+            if step == 0:
+                from .llm_settings_widget import LLMSettingsWidget
+                from .embedding_settings_widget import EmbeddingSettingsWidget
+                from .advanced_settings_widget import AdvancedSettingsWidget
+                from .image_settings_widget import ImageSettingsWidget
+                from .queue_settings_widget import QueueSettingsWidget
+                from .prompt_settings_widget import PromptSettingsWidget
+                from .theme_settings import UnifiedThemeSettingsWidget
 
-        self._widgets_initialized = True
+                self._widget_classes = {
+                    'llm': LLMSettingsWidget,
+                    'embedding': EmbeddingSettingsWidget,
+                    'image': ImageSettingsWidget,
+                    'queue': QueueSettingsWidget,
+                    'prompt': PromptSettingsWidget,
+                    'theme': UnifiedThemeSettingsWidget,
+                    'advanced': AdvancedSettingsWidget,
+                }
 
-        # 设置当前页面索引
-        current_row = self.nav_list.currentRow()
-        if current_row >= 0:
-            self.page_stack.setCurrentIndex(current_row)
+            # 步骤1-7: 分别创建各个widget
+            elif step == 1:
+                self.llm_settings = self._widget_classes['llm']()
+                self.page_stack.addWidget(self.llm_settings)
 
-        # 延迟加载当前页面的数据
-        QTimer.singleShot(50, self._load_current_page_data)
+            elif step == 2:
+                self.embedding_settings = self._widget_classes['embedding']()
+                self.page_stack.addWidget(self.embedding_settings)
+
+            elif step == 3:
+                self.image_settings = self._widget_classes['image']()
+                self.page_stack.addWidget(self.image_settings)
+
+            elif step == 4:
+                self.queue_settings = self._widget_classes['queue']()
+                self.page_stack.addWidget(self.queue_settings)
+
+            elif step == 5:
+                self.prompt_settings = self._widget_classes['prompt']()
+                self.page_stack.addWidget(self.prompt_settings)
+
+            elif step == 6:
+                self.theme_settings = self._widget_classes['theme']()
+                self.page_stack.addWidget(self.theme_settings)
+
+            elif step == 7:
+                self.advanced_settings = self._widget_classes['advanced']()
+                self.page_stack.addWidget(self.advanced_settings)
+
+            # 步骤8: 完成初始化
+            elif step == 8:
+                self._widgets_initialized = True
+                self._widget_classes = None  # 释放引用
+
+                # 隐藏加载遮罩
+                self._hide_loading_overlay()
+
+                # 设置当前页面索引
+                current_row = self.nav_list.currentRow()
+                if current_row >= 0:
+                    self.page_stack.setCurrentIndex(current_row)
+
+                # 延迟加载当前页面的数据
+                self._load_timer = QTimer(self)
+                self._load_timer.setSingleShot(True)
+                self._load_timer.timeout.connect(self._load_current_page_data)
+                self._load_timer.start(50)
+                return  # 初始化完成，不再调度下一步
+
+            # 调度下一步（使用 singleShot 让出控制权给事件循环，使动画能更新）
+            # 延迟16ms约等于60fps的一帧时间，确保动画流畅
+            self._init_step += 1
+            QTimer.singleShot(16, self._do_init_step)
+
+        except RuntimeError:
+            # Widget 已被删除，静默处理
+            self._hide_loading_overlay()
 
     def _load_current_page_data(self):
         """加载当前页面的数据"""
-        current_row = self.nav_list.currentRow()
-        self._load_page_data(current_row)
+        try:
+            # 检查 widget 是否仍然有效
+            if not self._is_widget_valid():
+                return
+
+            current_row = self.nav_list.currentRow()
+            self._load_page_data(current_row)
+        except RuntimeError:
+            # Widget 已被删除，静默处理
+            pass
 
     def _load_page_data(self, page_index: int):
         """加载指定页面的数据"""
-        if not self._widgets_initialized:
-            return
-
         try:
+            if not self._widgets_initialized:
+                return
+
+            if not self._is_widget_valid():
+                return
+
             if page_index == 0 and self.llm_settings:
                 self.llm_settings.loadConfigs()
             elif page_index == 1 and self.embedding_settings:
@@ -237,6 +446,9 @@ class SettingsView(BasePage):
                 self.theme_settings.refresh()
             elif page_index == 6 and self.advanced_settings:
                 self.advanced_settings.loadConfig()
+        except RuntimeError:
+            # Widget 已被删除，静默处理
+            pass
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"加载页面数据失败: {e}")
@@ -244,9 +456,96 @@ class SettingsView(BasePage):
     def onShow(self):
         """页面显示时触发（生命周期钩子）"""
         super().onShow()
+        self._is_visible = True
+
         if not self._widgets_initialized:
-            # 使用 QTimer.singleShot 延迟初始化，让页面先显示
-            QTimer.singleShot(10, self._init_widgets_async)
+            # 显示加载遮罩，阻止用户操作
+            self._show_loading_overlay()
+            # 使用可取消的定时器延迟初始化
+            self._init_timer = QTimer(self)
+            self._init_timer.setSingleShot(True)
+            self._init_timer.timeout.connect(self._init_widgets_async)
+            self._init_timer.start(10)
+
+    def _show_loading_overlay(self):
+        """显示加载遮罩"""
+        if self._loading_overlay:
+            self._loading_overlay.setGeometry(self.rect())
+            self._loading_overlay.raise_()
+            self._loading_overlay.show()
+
+    def _hide_loading_overlay(self):
+        """隐藏加载遮罩"""
+        if self._loading_overlay:
+            self._loading_overlay.hide()
+
+    def resizeEvent(self, event):
+        """处理窗口大小变化"""
+        super().resizeEvent(event)
+        # 保持遮罩覆盖整个页面
+        if self._loading_overlay and self._loading_overlay.isVisible():
+            self._loading_overlay.setGeometry(self.rect())
+
+    def onHide(self):
+        """页面隐藏时触发（生命周期钩子）"""
+        self._is_visible = False
+
+        # 清理分步初始化状态（防止后续步骤继续执行）
+        self._widget_classes = None
+
+        # 隐藏加载遮罩
+        self._hide_loading_overlay()
+
+        # 取消待处理的初始化定时器
+        if self._init_timer is not None and self._init_timer.isActive():
+            self._init_timer.stop()
+            self._init_timer = None
+
+        # 取消待处理的数据加载定时器
+        if self._load_timer is not None and self._load_timer.isActive():
+            self._load_timer.stop()
+            self._load_timer = None
+
+        super().onHide()
+
+    def cleanup(self):
+        """清理资源（主窗口关闭时调用）"""
+        # 标记为不可见，防止异步回调执行
+        self._is_visible = False
+
+        # 清理分步初始化状态
+        self._widget_classes = None
+
+        # 停止加载遮罩动画
+        if self._loading_overlay is not None:
+            if hasattr(self._loading_overlay, 'spinner'):
+                self._loading_overlay.spinner.stop()
+
+        # 取消待处理的定时器
+        if self._init_timer is not None and self._init_timer.isActive():
+            self._init_timer.stop()
+            self._init_timer = None
+
+        if self._load_timer is not None and self._load_timer.isActive():
+            self._load_timer.stop()
+            self._load_timer = None
+
+        # 清理主题设置widget的异步工作线程
+        if self.theme_settings is not None:
+            if hasattr(self.theme_settings, '_cleanup_all'):
+                self.theme_settings._cleanup_all()
+            elif hasattr(self.theme_settings, '_cleanup_child_widgets'):
+                self.theme_settings._cleanup_child_widgets()
+
+        # 清理其他可能有异步工作的widget
+        for widget in [self.llm_settings, self.embedding_settings,
+                       self.image_settings, self.queue_settings,
+                       self.prompt_settings, self.advanced_settings]:
+            if widget is not None and hasattr(widget, '_cleanup_worker'):
+                try:
+                    widget._cleanup_worker()
+                except Exception:
+                    pass
 
     def _add_nav_item(self, title):
         """添加导航项"""
@@ -264,22 +563,56 @@ class SettingsView(BasePage):
             self._load_page_data(row)
 
     def _apply_theme(self):
-        """应用书籍风格主题"""
-        # 调试日志
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info("=== SettingsView._apply_theme() called ===")
-        logger.info(f"is_dark_mode: {theme_manager.is_dark_mode()}")
+        """应用书籍风格主题 - 支持透明效果"""
+        from PyQt6.QtCore import Qt
+        from themes.modern_effects import ModernEffects
 
         palette = theme_manager.get_book_palette()
-        logger.info(f"bg_primary: {palette.bg_primary}, text_primary: {palette.text_primary}")
 
-        # 主容器背景 - 使用 objectName 选择器避免影响子widget
-        self.main_container.setStyleSheet(f"""
-            QWidget#settings_main_container {{
-                background-color: {palette.bg_primary};
-            }}
-        """)
+        # 获取透明效果配置
+        transparency_config = theme_manager.get_transparency_config()
+        transparency_enabled = transparency_config.get("enabled", False)
+        content_opacity = transparency_config.get("content_opacity", 0.95)
+
+        if transparency_enabled:
+            # 透明模式：使用RGBA背景色实现半透明效果
+            # 当content_opacity=0时，页面完全透明，能看到桌面
+            bg_rgba = ModernEffects.hex_to_rgba(palette.bg_primary, content_opacity)
+            self.main_container.setStyleSheet(f"""
+                QWidget#settings_main_container {{
+                    background-color: {bg_rgba};
+                }}
+            """)
+
+            # 设置WA_TranslucentBackground使透明生效（真正的窗口透明）
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.main_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setAutoFillBackground(False)
+            self.main_container.setAutoFillBackground(False)
+
+            # 指定容器设置透明（不使用findChildren避免影响其他页面）
+            transparent_containers = ['nav_list', 'page_frame', 'page_stack']
+            for container_name in transparent_containers:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(False)
+        else:
+            # 主容器背景 - 使用 objectName 选择器避免影响子widget
+            self.main_container.setStyleSheet(f"""
+                QWidget#settings_main_container {{
+                    background-color: {palette.bg_primary};
+                }}
+            """)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAutoFillBackground(True)
+            self.main_container.setAutoFillBackground(True)
+
+            # 恢复容器的背景填充
+            containers_to_restore = ['nav_list', 'page_frame', 'page_stack']
+            for container_name in containers_to_restore:
+                container = getattr(self, container_name, None)
+                if container:
+                    container.setAutoFillBackground(True)
 
         # 返回按钮
         self.back_btn.setStyleSheet(f"""
@@ -354,40 +687,29 @@ class SettingsView(BasePage):
             }}
         """)
 
-        # 页面容器
-        self.page_frame.setStyleSheet(f"""
-            QFrame#page_frame {{
-                background-color: {palette.bg_secondary};
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(8)}px;
-            }}
-        """)
+        # 页面容器 - 支持透明效果
+        if transparency_enabled:
+            opacity = transparency_config.get("dialog_opacity", 0.95)
+            page_bg_rgba = ModernEffects.hex_to_rgba(palette.bg_secondary, opacity)
+            border_rgba = ModernEffects.hex_to_rgba(palette.border_color, 0.5)
+            self.page_frame.setStyleSheet(f"""
+                QFrame#page_frame {{
+                    background-color: {page_bg_rgba};
+                    border: 1px solid {border_rgba};
+                    border-radius: {dp(8)}px;
+                }}
+            """)
+        else:
+            self.page_frame.setStyleSheet(f"""
+                QFrame#page_frame {{
+                    background-color: {palette.bg_secondary};
+                    border: 1px solid {palette.border_color};
+                    border-radius: {dp(8)}px;
+                }}
+            """)
 
         # 确保 page_stack 透明，不覆盖子widget样式
         self.page_stack.setStyleSheet("background-color: transparent;")
-
-        # 加载占位符样式
-        loading_label = self.findChild(QLabel, "loading_label")
-        if loading_label:
-            loading_label.setStyleSheet(f"""
-                QLabel#loading_label {{
-                    font-family: {palette.ui_font};
-                    font-size: {sp(16)}px;
-                    color: {palette.text_primary};
-                    padding: {dp(40)}px {dp(40)}px {dp(8)}px {dp(40)}px;
-                }}
-            """)
-
-        loading_hint = self.findChild(QLabel, "loading_hint")
-        if loading_hint:
-            loading_hint.setStyleSheet(f"""
-                QLabel#loading_hint {{
-                    font-family: {palette.ui_font};
-                    font-size: {sp(12)}px;
-                    color: {palette.text_tertiary};
-                    font-style: italic;
-                }}
-            """)
 
         # 强制刷新样式缓存
         self.style().unpolish(self)

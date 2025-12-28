@@ -122,12 +122,15 @@ class ParagraphItem(QFrame):
         ui_font = theme_manager.ui_font()
 
         # 整个项的样式
+        # 注意：不使用Python类名选择器，Qt不识别Python类名
+        # 使用objectName选择器来支持hover伪类
+        self.setObjectName("paragraphItem")
         self.setStyleSheet(f"""
-            ParagraphItem {{
+            QFrame#paragraphItem {{
                 background-color: {theme_manager.BG_CARD};
                 border-bottom: 1px solid {theme_manager.BORDER_LIGHT};
             }}
-            ParagraphItem:hover {{
+            QFrame#paragraphItem:hover {{
                 background-color: {theme_manager.BG_CARD_HOVER};
             }}
         """)

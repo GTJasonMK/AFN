@@ -12,8 +12,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService, confirm
 from utils.async_worker import AsyncAPIWorker
-from .config_dialog import LLMConfigDialog
-from .test_result_dialog import TestResultDialog
+from .dialogs import LLMConfigDialog, TestResultDialog
 import json
 
 

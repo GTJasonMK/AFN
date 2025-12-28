@@ -16,8 +16,8 @@
 - 视觉节奏：正反打、蒙太奇等专业技法
 """
 
-# 主服务
-from .core_v2 import (
+# 主服务（从拆分后的子模块导入）
+from .core import (
     MangaPromptServiceV2,
     MangaGenerationResult,
     MangaStyle,
@@ -40,14 +40,14 @@ from .page_templates import (
     recommend_template,
 )
 
-# 场景展开服务
-from .scene_expansion_service import (
+# 场景展开服务（从拆分后的子模块导入）
+from .scene_expansion import (
     SceneExpansionService,
     expand_scene_to_manga,
 )
 
-# 画格提示词构建器
-from .panel_prompt_builder import (
+# 画格提示词构建器（从拆分后的子模块导入）
+from .panel_prompt import (
     PanelPromptBuilder,
     PanelPrompt,
     build_prompts_for_expansion,
