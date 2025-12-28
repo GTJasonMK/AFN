@@ -151,12 +151,17 @@ class AttributeCategoryPanel(ThemeAwareWidget):
 
         if icon_label := self.findChild(QLabel, "category_icon"):
             icon_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
+                font-family: {ui_font};
                 font-size: {sp(20)}px;
                 color: {theme_manager.PRIMARY};
             """)
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
@@ -165,6 +170,8 @@ class AttributeCategoryPanel(ThemeAwareWidget):
 
         if count_label := self.findChild(QLabel, "category_count"):
             count_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_TERTIARY};
@@ -172,6 +179,8 @@ class AttributeCategoryPanel(ThemeAwareWidget):
 
         if empty_label := self.findChild(QLabel, "empty_label"):
             empty_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_TERTIARY};
@@ -283,6 +292,7 @@ class ProtagonistProfileDialog(QDialog):
                     background-color: {theme_manager.BG_TERTIARY};
                     border: 2px dashed {theme_manager.BORDER_LIGHT};
                     border-radius: {theme_manager.RADIUS_MD};
+                    font-family: {ui_font};
                     font-size: {sp(40)}px;
                     color: {theme_manager.TEXT_TERTIARY};
                 }}
@@ -290,6 +300,8 @@ class ProtagonistProfileDialog(QDialog):
 
         if self.name_label:
             self.name_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_XL};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
@@ -298,6 +310,8 @@ class ProtagonistProfileDialog(QDialog):
 
         if self.sync_label:
             self.sync_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};

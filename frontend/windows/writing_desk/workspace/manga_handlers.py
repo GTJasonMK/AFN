@@ -147,6 +147,9 @@ class MangaHandlersMixin:
                 logger.info("Skipping manga tab update - generation in progress")
                 return
 
+            # 缓存漫画数据，用于主题切换时重建Tab
+            self._cached_manga_data = manga_data
+
             # 更新漫画Tab
             if self.tab_widget and self.tab_widget.count() >= 6:
                 # 保存当前选中的Tab索引，避免刷新后跳转到其他页面

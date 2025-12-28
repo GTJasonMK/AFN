@@ -67,10 +67,10 @@ class OutlineEmptyState(QFrame):
         """)
 
         self.title_label.setStyleSheet(
-            f"font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+            f"background: transparent; border: none; font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
         )
         self.desc_label.setStyleSheet(
-            f"font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"background: transparent; border: none; font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
         self.action_btn.setStyleSheet(ButtonStyles.primary())
 
@@ -97,7 +97,7 @@ class ShortNovelEmptyState(OutlineEmptyState):
     def _setup_ui(self):
         super()._setup_ui()
         self.icon_label.setText("*")
-        self.icon_label.setStyleSheet(f"font-size: {sp(48)}px;")
+        self.icon_label.setStyleSheet(f"background: transparent; border: none; font-size: {sp(48)}px;")
         self.title_label.setText("还没有章节大纲")
         self.desc_label.setText("请使用下方的\"生成大纲\"按钮开始创作")
         self.action_btn.setText("生成章节大纲")
@@ -105,7 +105,7 @@ class ShortNovelEmptyState(OutlineEmptyState):
     def _apply_style(self):
         super()._apply_style()
         self.desc_label.setStyleSheet(
-            f"font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"background: transparent; border: none; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
     def __del__(self):

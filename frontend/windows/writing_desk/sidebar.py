@@ -212,6 +212,8 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         # 章节列表标题
         if chapters_title := self.findChild(QLabel, "chapters_title"):
             chapters_title.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_LG};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};

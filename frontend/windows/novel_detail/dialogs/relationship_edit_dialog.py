@@ -187,7 +187,7 @@ class RelationshipItemWidget(QFrame):
                 background-color: {bg_primary};
                 border: 1px solid {border_color};
                 selection-background-color: {accent_color};
-                selection-color: white;
+                selection-color: {theme_manager.BUTTON_TEXT};
             }}
             QTextEdit#desc_input {{
                 font-family: {ui_font};
@@ -211,7 +211,7 @@ class RelationshipItemWidget(QFrame):
             }}
             QPushButton#delete_btn:hover {{
                 background-color: {theme_manager.ERROR};
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
             }}
         """)
 
@@ -421,7 +421,7 @@ class RelationshipListEditDialog(QDialog):
                 font-family: {ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 600;
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
                 background-color: {accent_color};
                 border: none;
                 border-radius: {dp(6)}px;

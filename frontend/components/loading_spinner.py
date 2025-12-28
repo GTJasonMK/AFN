@@ -272,6 +272,8 @@ class LoadingOverlay(ThemeAwareWidget):
         # 更新文字样式
         if self.label:
             self.label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: 15px;
                 color: {theme_manager.TEXT_SECONDARY};

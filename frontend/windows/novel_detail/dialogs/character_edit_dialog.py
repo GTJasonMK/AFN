@@ -195,7 +195,7 @@ class CharacterItemWidget(ThemeAwareWidget, QFrame):
             QLabel#avatar {{
                 font-family: {ui_font};
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {accent_color}, stop:1 {text_primary});
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
                 font-size: {sp(16)}px;
                 font-weight: 700;
                 border-radius: {dp(20)}px;
@@ -245,7 +245,7 @@ class CharacterItemWidget(ThemeAwareWidget, QFrame):
             }}
             QPushButton#delete_btn:hover {{
                 background-color: {theme_manager.ERROR};
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
             }}
         """)
 
@@ -466,7 +466,7 @@ class CharacterListEditDialog(ThemeAwareWidget, QDialog):
                 font-family: {ui_font};
                 font-size: {sp(14)}px;
                 font-weight: 600;
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
                 background-color: {accent_color};
                 border: none;
                 border-radius: {dp(6)}px;

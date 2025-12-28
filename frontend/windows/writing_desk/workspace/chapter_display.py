@@ -227,6 +227,9 @@ class ChapterDisplayMixin:
         # 保存章节数据用于主题切换
         self.current_chapter_data = chapter_data
 
+        # 清理旧章节的漫画缓存和状态
+        self._clear_manga_cache()
+
         # 尝试复用现有组件（如果结构相同）
         if self.content_widget and self.tab_widget:
             # 复用模式：更新现有组件数据
@@ -249,6 +252,15 @@ class ChapterDisplayMixin:
         if chapter_number:
             # 即使内容为空也发射信号，让优化面板显示正确的状态
             self.chapterContentLoaded.emit(chapter_number, content)
+
+    def _clear_manga_cache(self):
+        """清理漫画相关的缓存和状态
+
+        在切换章节时调用，确保旧章节的漫画数据不会影响新章节。
+        """
+        # 清理漫画数据缓存
+        if hasattr(self, '_cached_manga_data'):
+            self._cached_manga_data = None
 
     def _updateChapterContent(self, chapter_data):
         """更新现有组件的数据（复用模式）
@@ -409,6 +421,12 @@ class ChapterDisplayMixin:
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(dp(8))
 
+        # 渐变背景的动态覆盖色
+        # 亮色主题：渐变是深色赭石色，覆盖层使用白色
+        # 深色主题：渐变是亮色琥珀色，覆盖层使用深色
+        is_dark = theme_manager.is_dark_mode()
+        overlay_rgb = "0, 0, 0" if is_dark else "255, 255, 255"
+
         # 预览提示词按钮
         self.preview_btn = QPushButton("预览提示词")
         self.preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -417,17 +435,17 @@ class ChapterDisplayMixin:
                 font-family: {serif_font};
                 background-color: transparent;
                 color: {theme_manager.BUTTON_TEXT};
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba({overlay_rgb}, 0.3);
                 border-radius: {dp(6)}px;
                 padding: {dp(8)}px {dp(12)}px;
                 font-size: {sp(12)}px;
             }}
             QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
-                border-color: rgba(255, 255, 255, 0.5);
+                background-color: rgba({overlay_rgb}, 0.15);
+                border-color: rgba({overlay_rgb}, 0.5);
             }}
             QPushButton:pressed {{
-                background-color: rgba(255, 255, 255, 0.1);
+                background-color: rgba({overlay_rgb}, 0.1);
             }}
         """)
         self.preview_btn.clicked.connect(lambda: self.previewPromptRequested.emit(self.current_chapter))
@@ -439,20 +457,20 @@ class ChapterDisplayMixin:
         self.generate_btn.setStyleSheet(f"""
             QPushButton {{
                 font-family: {serif_font};
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba({overlay_rgb}, 0.2);
                 color: {theme_manager.BUTTON_TEXT};
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba({overlay_rgb}, 0.3);
                 border-radius: {dp(6)}px;
                 padding: {dp(8)}px {dp(16)}px;
                 font-size: {sp(13)}px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.3);
-                border-color: rgba(255, 255, 255, 0.5);
+                background-color: rgba({overlay_rgb}, 0.3);
+                border-color: rgba({overlay_rgb}, 0.5);
             }}
             QPushButton:pressed {{
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: rgba({overlay_rgb}, 0.15);
             }}
         """)
         self.generate_btn.clicked.connect(lambda: self.generateChapterRequested.emit(self.current_chapter))

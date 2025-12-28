@@ -315,7 +315,7 @@ class PromptPreviewDialog(QDialog):
             QLabel#final_tag {{
                 font-family: {palette.ui_font};
                 font-size: {sp(10)}px;
-                color: white;
+                color: {theme_manager.BUTTON_TEXT};
                 background-color: {palette.accent_color};
                 padding: {dp(2)}px {dp(8)}px;
                 border-radius: {dp(3)}px;
@@ -340,7 +340,7 @@ class PromptPreviewDialog(QDialog):
             QPushButton#primary_btn {{
                 font-family: {palette.ui_font};
                 background-color: {palette.accent_color};
-                color: {palette.bg_primary};
+                color: {theme_manager.BUTTON_TEXT};
                 border: none;
                 border-radius: {dp(6)}px;
                 padding: {dp(10)}px {dp(24)}px;

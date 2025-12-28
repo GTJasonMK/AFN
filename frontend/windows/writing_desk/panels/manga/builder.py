@@ -99,6 +99,14 @@ class MangaPanelBuilder(
             漫画Tab的根Widget
         """
         s = self._styler
+
+        # 检查是否正在加载
+        is_loading = manga_data.get('_is_loading', False)
+
+        # 如果正在加载，显示加载状态
+        if is_loading:
+            return self._create_loading_placeholder()
+
         scenes = manga_data.get('scenes') or []
         panels = manga_data.get('panels') or []
         has_content = manga_data.get('has_manga_prompt', False)
@@ -156,6 +164,50 @@ class MangaPanelBuilder(
         self._sub_tab_widget.addTab(images_tab, pdf_label)
 
         main_layout.addWidget(self._sub_tab_widget)
+
+        return container
+
+    def _create_loading_placeholder(self) -> QWidget:
+        """创建加载中的占位组件
+
+        Returns:
+            显示加载动画的Widget
+        """
+        from PyQt6.QtWidgets import QLabel
+        from components.loading_spinner import CircularSpinner
+
+        s = self._styler
+
+        container = QWidget()
+        container.setStyleSheet(f"""
+            QWidget {{
+                background-color: transparent;
+            }}
+        """)
+
+        layout = QVBoxLayout(container)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(dp(16))
+
+        # 加载动画
+        spinner = CircularSpinner(size=48, auto_start=True)
+        spinner_container = QWidget()
+        spinner_layout = QVBoxLayout(spinner_container)
+        spinner_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spinner_layout.addWidget(spinner)
+        layout.addWidget(spinner_container)
+
+        # 加载文字
+        loading_label = QLabel("正在加载漫画数据...")
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_label.setStyleSheet(f"""
+            background: transparent;
+            border: none;
+            font-family: {s.ui_font};
+            font-size: {sp(14)}px;
+            color: {s.text_secondary};
+        """)
+        layout.addWidget(loading_label)
 
         return container
 

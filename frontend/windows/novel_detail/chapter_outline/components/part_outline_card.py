@@ -171,10 +171,10 @@ class PartOutlineCard(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(20)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(20)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};"
         )
         self.subtitle_label.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
         # 重新生成按钮样式
@@ -222,19 +222,19 @@ class PartOutlineCard(QFrame):
                 name = child.objectName()
                 if name == "part_num":
                     child.setStyleSheet(
-                        f"font-family: {self.ui_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+                        f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
                     )
                 elif name == "part_range":
                     child.setStyleSheet(
-                        f"font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
+                        f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
                     )
                 elif name == "part_title":
                     child.setStyleSheet(
-                        f"font-family: {self.ui_font}; font-size: {sp(13)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+                        f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(13)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
                     )
                 elif name == "part_summary":
                     child.setStyleSheet(
-                        f"font-family: {self.ui_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};"
+                        f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};"
                     )
 
             # 查看详情按钮样式

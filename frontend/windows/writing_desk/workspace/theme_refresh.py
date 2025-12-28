@@ -144,6 +144,7 @@ class ThemeRefreshMixin:
 
         优化：不重建章节内容，只更新样式。
         重建会触发 API 调用（漫画数据、图片等），导致性能问题。
+        但漫画Tab由于结构复杂，需要重建以应用新主题。
         """
         # 刷新样式器的缓存值
         self._styler.refresh()
@@ -173,6 +174,10 @@ class ThemeRefreshMixin:
             # 只刷新样式，不重建
             self._refresh_content_styles()
 
+            # 漫画Tab需要重建以应用新主题（结构复杂，无法增量刷新）
+            # 使用已缓存的漫画数据重建，不重新调用API
+            self._refresh_manga_tab_theme()
+
             # 恢复tab索引（样式刷新不会改变tab数量，但以防万一）
             if self.tab_widget and current_tab_index < self.tab_widget.count():
                 self.tab_widget.setCurrentIndex(current_tab_index)
@@ -187,6 +192,12 @@ class ThemeRefreshMixin:
 
         # 使用缓存的样式器属性（避免重复调用theme_manager）
         s = self._styler
+
+        # 渐变背景的动态覆盖色
+        # 亮色主题：渐变是深色赭石色，覆盖层使用白色
+        # 深色主题：渐变是亮色琥珀色，覆盖层使用深色
+        is_dark = theme_manager.is_dark_mode()
+        overlay_rgb = "0, 0, 0" if is_dark else "255, 255, 255"
 
         # 更新章节标题卡片 - 渐变背景设计
         if chapter_header := self._get_cached_component("chapter_header", QFrame):
@@ -235,17 +246,17 @@ class ThemeRefreshMixin:
                     font-family: {s.serif_font};
                     background-color: transparent;
                     color: {theme_manager.BUTTON_TEXT};
-                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    border: 1px solid rgba({overlay_rgb}, 0.3);
                     border-radius: {dp(6)}px;
                     padding: {dp(8)}px {dp(12)}px;
                     font-size: {sp(12)}px;
                 }}
                 QPushButton:hover {{
-                    background-color: rgba(255, 255, 255, 0.15);
-                    border-color: rgba(255, 255, 255, 0.5);
+                    background-color: rgba({overlay_rgb}, 0.15);
+                    border-color: rgba({overlay_rgb}, 0.5);
                 }}
                 QPushButton:pressed {{
-                    background-color: rgba(255, 255, 255, 0.1);
+                    background-color: rgba({overlay_rgb}, 0.1);
                 }}
             """)
 
@@ -254,20 +265,20 @@ class ThemeRefreshMixin:
             self.generate_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {s.serif_font};
-                    background-color: rgba(255, 255, 255, 0.2);
+                    background-color: rgba({overlay_rgb}, 0.2);
                     color: {theme_manager.BUTTON_TEXT};
-                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    border: 1px solid rgba({overlay_rgb}, 0.3);
                     border-radius: {dp(6)}px;
                     padding: {dp(8)}px {dp(16)}px;
                     font-size: {sp(13)}px;
                     font-weight: 600;
                 }}
                 QPushButton:hover {{
-                    background-color: rgba(255, 255, 255, 0.3);
-                    border-color: rgba(255, 255, 255, 0.5);
+                    background-color: rgba({overlay_rgb}, 0.3);
+                    border-color: rgba({overlay_rgb}, 0.5);
                 }}
                 QPushButton:pressed {{
-                    background-color: rgba(255, 255, 255, 0.15);
+                    background-color: rgba({overlay_rgb}, 0.15);
                 }}
             """)
 
@@ -885,3 +896,34 @@ class ThemeRefreshMixin:
                     background-color: {s.text_primary};
                 }}
             """)
+
+    def _refresh_manga_tab_theme(self):
+        """刷新漫画Tab的主题样式
+
+        漫画Tab结构复杂，无法增量刷新样式。
+        使用已缓存的漫画数据重建整个Tab，避免重新调用API。
+        """
+        if not self.tab_widget or self.tab_widget.count() < 6:
+            return
+
+        # 检查是否有缓存的漫画数据
+        if not hasattr(self, '_cached_manga_data') or not self._cached_manga_data:
+            return
+
+        # 如果正在生成漫画提示词，跳过刷新避免破坏UI状态
+        if getattr(self, '_manga_generating', False):
+            return
+
+        try:
+            # 移除旧的漫画Tab
+            old_manga_tab = self.tab_widget.widget(5)  # 漫画是第6个Tab（索引5）
+            if old_manga_tab:
+                self.tab_widget.removeTab(5)
+                old_manga_tab.deleteLater()
+
+            # 使用缓存的漫画数据创建新Tab
+            new_manga_tab = self._manga_builder.create_manga_tab(self._cached_manga_data, self)
+            self.tab_widget.insertTab(5, new_manga_tab, "漫画")
+        except Exception:
+            # 刷新失败时静默处理，不影响其他功能
+            pass

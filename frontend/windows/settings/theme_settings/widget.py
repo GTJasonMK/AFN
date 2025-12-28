@@ -24,7 +24,7 @@ from utils.dpi_utils import dp
 from api.manager import APIClientManager
 from components.inputs import (
     ColorPickerWidget, SizeInputWidget, FontFamilySelector,
-    SliderInputWidget, SwitchWidget
+    SliderInputWidget, SwitchWidget, ImagePickerWidget
 )
 
 from .config_groups import CONFIG_GROUPS
@@ -270,6 +270,15 @@ class ThemeSettingsWidget(ThemeStylesMixin, ThemeConfigEditorMixin, ThemeIOHandl
                     widget.value_changed.connect(lambda v: self._mark_modified())
                     # 跨两列
                     grid.addWidget(widget, row, 0, 1, 2)
+                elif field_type == "image":
+                    # 图片选择器 - 自带标签，跨两列
+                    description = field_extra if isinstance(field_extra, str) else ""
+                    widget = ImagePickerWidget(label=field_label)
+                    if description:
+                        widget.setToolTip(description)
+                    widget.image_changed.connect(self._on_background_image_changed)
+                    # 跨两列
+                    grid.addWidget(widget, row, 0, 1, 2)
                 else:
                     # 普通字段：左侧标签 + 右侧输入
                     field_tooltip = field_extra if isinstance(field_extra, str) else ""
@@ -371,12 +380,64 @@ class ThemeSettingsWidget(ThemeStylesMixin, ThemeConfigEditorMixin, ThemeIOHandl
 
         transparency_widgets = self._field_widgets.get("transparency", {})
         for field_key, widget in transparency_widgets.items():
+            if field_key == "BACKGROUND_IMAGE":
+                # 背景图片单独处理
+                if isinstance(widget, ImagePickerWidget):
+                    image_path = theme_manager.get_background_image_path()
+                    widget.set_path(image_path, emit_signal=False)
+                continue
+
+            if field_key == "BACKGROUND_IMAGE_OPACITY":
+                # 背景图片透明度单独处理
+                if isinstance(widget, SliderInputWidget):
+                    opacity = theme_manager.get_background_image_opacity()
+                    # 转换为0-100范围
+                    widget.set_value(opacity * 100, emit_signal=False)
+                    # 连接信号处理
+                    try:
+                        widget.value_changed.disconnect()
+                    except TypeError:
+                        pass
+                    widget.value_changed.connect(self._on_background_opacity_slider_changed)
+                continue
+
             value = transparency_fields.get(field_key)
             if isinstance(widget, SwitchWidget):
                 widget.setChecked(bool(value))
             elif isinstance(widget, SliderInputWidget):
                 if value is not None:
                     widget.set_value(float(value), emit_signal=False)
+
+    def _on_background_image_changed(self, path: str):
+        """处理背景图片变更
+
+        Args:
+            path: 图片文件路径，空字符串表示清除
+        """
+        from themes.theme_manager import theme_manager
+
+        if path:
+            theme_manager.set_background_image_path(path)
+        else:
+            theme_manager.clear_background_image()
+
+        # 标记已修改（但不需要保存到后端，因为背景图片是本地设置）
+        self._mark_modified()
+
+    def _on_background_opacity_slider_changed(self, value: float):
+        """处理背景图片透明度滑块变更
+
+        Args:
+            value: 滑块值 (0-100)
+        """
+        from themes.theme_manager import theme_manager
+
+        # 转换为0-1范围
+        opacity = value / 100.0
+        theme_manager.set_background_image_opacity(opacity)
+
+        # 标记已修改
+        self._mark_modified()
 
 
 __all__ = [

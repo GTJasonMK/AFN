@@ -121,12 +121,12 @@ class OutlineActionBar(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-size: {sp(18)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
+            f"background: transparent; border: none; font-size: {sp(18)}px; font-weight: 700; color: {theme_manager.TEXT_PRIMARY};"
         )
 
         # 进度标签样式
         self.progress_label.setStyleSheet(
-            f"font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+            f"background: transparent; border: none; font-size: {sp(13)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
         # 按钮样式

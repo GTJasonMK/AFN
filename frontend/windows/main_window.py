@@ -8,13 +8,18 @@
 - LRU页面缓存淘汰机制避免内存泄漏
 - DPI感知和响应式布局
 - 页面切换时的加载动画
+- 透明模式下的背景图片支持
 """
 
 import json
 import logging
-from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout, QVBoxLayout
+import os
+from PyQt6.QtWidgets import (
+    QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout,
+    QVBoxLayout, QLabel, QGraphicsOpacityEffect
+)
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtGui import QAction, QKeySequence, QPixmap, QColor
 from typing import Dict, List, Tuple
 from collections import OrderedDict
 from themes.theme_manager import theme_manager, ThemeMode
@@ -78,6 +83,18 @@ class MainWindow(QMainWindow):
         self.central_widget.setObjectName("centralWidget")  # 立即设置objectName以便样式选择器匹配
         self.setCentralWidget(self.central_widget)
 
+        # 创建背景图片层（位于最底层，仅透明模式下可见）
+        self._background_label = QLabel(self.central_widget)
+        self._background_label.setObjectName("backgroundImageLabel")
+        self._background_label.setScaledContents(True)  # 自动缩放以填充
+        self._background_label.hide()  # 默认隐藏
+        self._background_pixmap = None  # 缓存原始图片
+
+        # 背景图片透明度效果
+        self._background_opacity_effect = QGraphicsOpacityEffect(self._background_label)
+        self._background_opacity_effect.setOpacity(theme_manager.get_background_image_opacity())
+        self._background_label.setGraphicsEffect(self._background_opacity_effect)
+
         # 主布局
         main_layout = QVBoxLayout(self.central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -118,8 +135,15 @@ class MainWindow(QMainWindow):
         # 创建主题切换辅助类（带过渡动画）
         self._theme_switch_helper = ThemeSwitchHelper(self)
 
+        # 连接背景图片变化信号
+        theme_manager.background_image_changed.connect(self._on_background_image_changed)
+        theme_manager.background_opacity_changed.connect(self._on_background_opacity_changed)
+
         # 应用主题样式到窗口
         self.apply_window_theme()
+
+        # 初始化背景图片
+        self._update_background_image()
 
         # 设置键盘快捷键
         self.setup_shortcuts()
@@ -343,6 +367,9 @@ class MainWindow(QMainWindow):
                     current_page.show()
                     current_page.raise_()
 
+                # 6. 显示背景图片（如果设置了）
+                self._show_background_image(True)
+
                 blur_desc = "（带模糊）" if system_blur else "（纯透明）"
                 logger.info(f"透明模式已启用{blur_desc}，透明度: {content_opacity}")
 
@@ -406,6 +433,9 @@ class MainWindow(QMainWindow):
                 if current_page:
                     current_page.update()
                     current_page.repaint()
+
+                # 8. 隐藏背景图片
+                self._show_background_image(False)
 
                 logger.info(f"普通模式：使用实色背景 {bg_color}")
 
@@ -555,20 +585,145 @@ class MainWindow(QMainWindow):
             pass
 
     def showEvent(self, event):
-        """窗口显示时，确保浮动工具栏位置正确"""
+        """窗口显示时，确保浮动工具栏和背景图片位置正确"""
         super().showEvent(event)
         self.position_floating_toolbar()
 
         # 更新DPI信息
         dpi_helper.update_screen_info(self)
 
+        # 重新定位背景图片（窗口显示后才能获取正确的尺寸）
+        self._position_background_image()
+
     def resizeEvent(self, event):
-        """窗口大小改变时，重新定位浮动工具栏"""
+        """窗口大小改变时，重新定位浮动工具栏和调整背景图片"""
         super().resizeEvent(event)
         self.position_floating_toolbar()
 
+        # 调整背景图片大小以覆盖整个窗口
+        self._position_background_image()
+
         # 更新响应式断点
         dpi_helper.update_screen_info(self)
+
+    # ==================== 背景图片相关方法 ====================
+
+    def _show_background_image(self, visible: bool):
+        """显示或隐藏背景图片
+
+        Args:
+            visible: True显示，False隐藏
+        """
+        if not hasattr(self, '_background_label') or self._background_label is None:
+            return
+
+        if visible and theme_manager.has_background_image():
+            # 确保图片已加载
+            if self._background_pixmap is None:
+                self._update_background_image()
+
+            if self._background_pixmap and not self._background_pixmap.isNull():
+                self._background_label.show()
+                self._background_label.lower()  # 确保在最底层
+                self._position_background_image()
+            else:
+                self._background_label.hide()
+        else:
+            self._background_label.hide()
+
+    def _update_background_image(self):
+        """加载并更新背景图片"""
+        if not hasattr(self, '_background_label') or self._background_label is None:
+            return
+
+        image_path = theme_manager.get_background_image_path()
+        logger.info(f"[MainWindow] _update_background_image: 读取到路径 '{image_path}'")
+
+        if not image_path or not os.path.exists(image_path):
+            # 没有设置背景图片或文件不存在
+            if image_path:
+                logger.warning(f"[MainWindow] 背景图片文件不存在: '{image_path}'")
+            self._background_pixmap = None
+            self._background_label.clear()
+            self._background_label.hide()
+            return
+
+        # 加载图片
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            logger.warning(f"无法加载背景图片: {image_path}")
+            self._background_pixmap = None
+            self._background_label.clear()
+            self._background_label.hide()
+            return
+
+        # 缓存原始图片
+        self._background_pixmap = pixmap
+        self._background_label.setPixmap(pixmap)
+
+        # 更新透明度
+        opacity = theme_manager.get_background_image_opacity()
+        if hasattr(self, '_background_opacity_effect') and self._background_opacity_effect:
+            self._background_opacity_effect.setOpacity(opacity)
+
+        # 如果当前是透明模式，显示背景图片
+        transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
+        if transparency_enabled:
+            self._show_background_image(True)
+
+        logger.info(f"背景图片已加载: {image_path}, 透明度: {opacity}")
+
+    def _position_background_image(self):
+        """调整背景图片位置和大小以覆盖整个窗口
+
+        无论背景图片是否可见都设置尺寸，确保显示时尺寸正确。
+        """
+        if not hasattr(self, '_background_label') or self._background_label is None:
+            return
+
+        # 获取中心容器的大小
+        container_rect = self.central_widget.rect()
+
+        # 如果容器尺寸还没有正确设置（窗口未显示），跳过
+        if container_rect.width() <= 0 or container_rect.height() <= 0:
+            return
+
+        # 设置背景图片覆盖整个容器
+        self._background_label.setGeometry(container_rect)
+
+        # 确保在最底层
+        self._background_label.lower()
+
+    def _on_background_image_changed(self, path: str):
+        """处理背景图片变化信号
+
+        Args:
+            path: 新的图片路径，空字符串表示清除
+        """
+        if path:
+            # 设置了新的背景图片
+            self._update_background_image()
+        else:
+            # 清除背景图片
+            self._background_pixmap = None
+            if hasattr(self, '_background_label') and self._background_label:
+                self._background_label.clear()
+                self._background_label.hide()
+
+        # 如果当前是透明模式，更新显示状态
+        transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
+        if transparency_enabled:
+            self._show_background_image(bool(path))
+
+    def _on_background_opacity_changed(self, opacity: float):
+        """处理背景图片透明度变化信号
+
+        Args:
+            opacity: 新的透明度值 (0.0-1.0)
+        """
+        if hasattr(self, '_background_opacity_effect') and self._background_opacity_effect:
+            self._background_opacity_effect.setOpacity(opacity)
+            logger.info(f"背景图片透明度已更新: {opacity:.2f}")
 
     def navigateTo(self, page_type: str, params: dict = None):
         """导航到指定页面（性能优化版）

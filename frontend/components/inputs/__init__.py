@@ -9,6 +9,7 @@ from .size_input import SizeInputWidget
 from .font_selector import FontFamilySelector
 from .slider_input import SliderInputWidget
 from .switch_input import SwitchWidget, SwitchControl
+from .image_picker import ImagePickerWidget
 
 __all__ = [
     "ColorPickerWidget",
@@ -17,4 +18,5 @@ __all__ = [
     "SliderInputWidget",
     "SwitchWidget",
     "SwitchControl",
+    "ImagePickerWidget",
 ]

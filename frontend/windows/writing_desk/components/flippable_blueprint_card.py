@@ -224,8 +224,17 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         ui_font = theme_manager.ui_font()
         serif_font = theme_manager.serif_font()
 
+        # 判断渐变背景的明暗
+        # 亮色主题：渐变是深色赭石色，覆盖层使用白色
+        # 深色主题：渐变是亮色琥珀色，覆盖层使用深色
+        is_dark = theme_manager.is_dark_mode()
+        overlay_rgb = "0, 0, 0" if is_dark else "255, 255, 255"
+
+        # 渐变背景上的文字颜色（与BUTTON_TEXT一致的逻辑）
+        gradient_text_color = theme_manager.BUTTON_TEXT
+
         # 计算透明度调整后的alpha值
-        # 当透明模式开启时，降低白色覆盖层的透明度
+        # 当透明模式开启时，降低覆盖层的透明度
         if self._transparency_enabled:
             base_alpha = self._current_opacity * 0.3  # 基础半透明
             hover_alpha = self._current_opacity * 0.45
@@ -276,6 +285,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         # 蓝图图标
         if bp_icon := self.findChild(QLabel, "bp_icon"):
             bp_icon.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-size: {sp(16)}px;
                 color: {theme_manager.BUTTON_TEXT};
             """)
@@ -285,7 +296,9 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
             sep_alpha = border_alpha if self._transparency_enabled else 0.5
             for separator in separators:
                 separator.setStyleSheet(f"""
-                    color: rgba(255, 255, 255, {sep_alpha});
+                    background: transparent;
+                    border: none;
+                    color: rgba({overlay_rgb}, {sep_alpha});
                     font-size: {sp(12)}px;
                 """)
 
@@ -294,10 +307,11 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
             if not self._portrait_pixmap:
                 self.portrait_mini.setStyleSheet(f"""
                     QLabel#portrait_mini {{
-                        background-color: rgba(255, 255, 255, {base_alpha});
-                        border: 1px dashed rgba(255, 255, 255, {border_alpha});
+                        background-color: rgba({overlay_rgb}, {base_alpha});
+                        border: 1px dashed rgba({overlay_rgb}, {border_alpha});
                         border-radius: {dp(14)}px;
-                        color: {theme_manager.BUTTON_TEXT};
+                        font-family: {ui_font};
+                        color: {gradient_text_color};
                         font-size: {sp(14)}px;
                     }}
                 """)
@@ -313,6 +327,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         # 风格标签
         if self.bp_style:
             self.bp_style.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
@@ -323,25 +339,27 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         if self.bp_summary_preview:
             text_alpha = 0.85 if not self._transparency_enabled else self._current_opacity * 0.9
             self.bp_summary_preview.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {serif_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
-                color: rgba(255, 255, 255, {text_alpha});
+                color: rgba({overlay_rgb}, {text_alpha});
             """)
 
         # 小按钮样式
         small_btn_style = f"""
             QPushButton {{
-                background-color: rgba(255, 255, 255, {base_alpha});
-                color: {theme_manager.BUTTON_TEXT};
+                background-color: rgba({overlay_rgb}, {base_alpha});
+                color: {gradient_text_color};
                 border: none;
                 border-radius: {dp(12)}px;
                 font-size: {sp(12)}px;
             }}
             QPushButton:hover {{
-                background-color: rgba(255, 255, 255, {hover_alpha});
+                background-color: rgba({overlay_rgb}, {hover_alpha});
             }}
             QPushButton:pressed {{
-                background-color: rgba(255, 255, 255, {pressed_alpha});
+                background-color: rgba({overlay_rgb}, {pressed_alpha});
             }}
         """
 
@@ -356,7 +374,7 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         if self.summary_container:
             self.summary_container.setStyleSheet(f"""
                 QFrame#summary_container {{
-                    background-color: rgba(255, 255, 255, {container_alpha});
+                    background-color: rgba({overlay_rgb}, {container_alpha});
                     border-radius: {theme_manager.RADIUS_SM};
                 }}
             """)
@@ -364,6 +382,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         # 完整概要
         if self.bp_summary_full:
             self.bp_summary_full.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {serif_font};
                 font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.BUTTON_TEXT};
@@ -375,10 +395,11 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
             if not self._portrait_pixmap:
                 self.portrait_label.setStyleSheet(f"""
                     QLabel#portrait_label {{
-                        background-color: rgba(255, 255, 255, {container_alpha + 0.05});
-                        border: 1px dashed rgba(255, 255, 255, {border_alpha - 0.1});
+                        background-color: rgba({overlay_rgb}, {container_alpha + 0.05});
+                        border: 1px dashed rgba({overlay_rgb}, {border_alpha - 0.1});
                         border-radius: {dp(24)}px;
-                        color: {theme_manager.BUTTON_TEXT};
+                        font-family: {ui_font};
+                        color: {gradient_text_color};
                         font-size: {sp(20)}px;
                     }}
                 """)
@@ -394,6 +415,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         # 角色名称
         if self.portrait_name_label:
             self.portrait_name_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
@@ -404,19 +427,19 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         if self.view_profile_btn:
             self.view_profile_btn.setStyleSheet(f"""
                 QPushButton#view_profile_btn {{
-                    background-color: rgba(255, 255, 255, {base_alpha});
-                    color: {theme_manager.BUTTON_TEXT};
-                    border: 1px solid rgba(255, 255, 255, {border_alpha});
+                    background-color: rgba({overlay_rgb}, {base_alpha});
+                    color: {gradient_text_color};
+                    border: 1px solid rgba({overlay_rgb}, {border_alpha});
                     border-radius: {theme_manager.RADIUS_SM};
                     font-family: {ui_font};
                     font-size: {theme_manager.FONT_SIZE_XS};
                     padding: {dp(4)}px {dp(12)}px;
                 }}
                 QPushButton#view_profile_btn:hover {{
-                    background-color: rgba(255, 255, 255, {hover_alpha});
+                    background-color: rgba({overlay_rgb}, {hover_alpha});
                 }}
                 QPushButton#view_profile_btn:pressed {{
-                    background-color: rgba(255, 255, 255, {pressed_alpha});
+                    background-color: rgba({overlay_rgb}, {pressed_alpha});
                 }}
             """)
 

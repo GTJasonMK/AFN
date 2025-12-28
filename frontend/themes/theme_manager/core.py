@@ -95,8 +95,15 @@ class ThemeManager(
             config_manager: ConfigManager实例
         """
         self._config_manager = config_manager
+        logger.info(f"[ThemeManager] set_config_manager: 配置管理器已设置 (id={id(config_manager)})")
         # 使透明度缓存失效，确保下次读取时从config_manager加载
         self._invalidate_transparency_cache()
+
+        # 打印当前保存的背景图片路径（调试用）
+        if config_manager:
+            path = config_manager.get_background_image_path()
+            opacity = config_manager.get_background_image_opacity()
+            logger.info(f"[ThemeManager] 初始化时读取 - 背景图片: '{path}', 透明度: {opacity}")
 
     def load_theme_from_config(self):
         """从配置文件加载主题"""
@@ -372,6 +379,82 @@ class ThemeManager(
 
         # 发射主题切换信号以刷新UI（使用防抖）
         self._emit_theme_changed()
+
+    # ==================== 背景图片配置 ====================
+
+    # 背景图片变化信号
+    background_image_changed = pyqtSignal(str)  # 参数为图片路径，空字符串表示清除
+    # 背景图片透明度变化信号
+    background_opacity_changed = pyqtSignal(float)  # 参数为透明度值 (0.0-1.0)
+
+    def get_background_image_path(self) -> str:
+        """获取背景图片路径
+
+        Returns:
+            str: 背景图片的绝对路径，如果未设置返回空字符串
+        """
+        if self._config_manager is None:
+            logger.warning("[ThemeManager] get_background_image_path: _config_manager 为 None!")
+            return ""
+        path = self._config_manager.get_background_image_path()
+        logger.debug(f"[ThemeManager] get_background_image_path: '{path}'")
+        return path
+
+    def set_background_image_path(self, path: str):
+        """设置背景图片路径
+
+        Args:
+            path: 背景图片的绝对路径，传入空字符串表示清除
+        """
+        logger.info(f"[ThemeManager] set_background_image_path: '{path}'")
+        if self._config_manager is not None:
+            self._config_manager.set_background_image_path(path)
+        else:
+            logger.error("[ThemeManager] set_background_image_path: _config_manager 为 None，无法保存!")
+        # 发射背景图片变化信号
+        self.background_image_changed.emit(path)
+
+    def clear_background_image(self):
+        """清除背景图片设置"""
+        logger.info("[ThemeManager] clear_background_image")
+        if self._config_manager is not None:
+            self._config_manager.clear_background_image()
+        # 发射背景图片变化信号
+        self.background_image_changed.emit("")
+
+    def has_background_image(self) -> bool:
+        """检查是否设置了背景图片
+
+        Returns:
+            bool: 如果设置了背景图片返回True
+        """
+        path = self.get_background_image_path()
+        return bool(path and path.strip())
+
+    def get_background_image_opacity(self) -> float:
+        """获取背景图片透明度
+
+        Returns:
+            float: 透明度值 (0.0-1.0)，默认0.3
+        """
+        if self._config_manager is None:
+            logger.warning("[ThemeManager] get_background_image_opacity: _config_manager 为 None!")
+            return 0.3
+        return self._config_manager.get_background_image_opacity()
+
+    def set_background_image_opacity(self, opacity: float):
+        """设置背景图片透明度
+
+        Args:
+            opacity: 透明度值 (0.0-1.0)
+        """
+        logger.info(f"[ThemeManager] set_background_image_opacity: {opacity}")
+        if self._config_manager is not None:
+            self._config_manager.set_background_image_opacity(opacity)
+        else:
+            logger.error("[ThemeManager] set_background_image_opacity: _config_manager 为 None，无法保存!")
+        # 发射透明度变化信号
+        self.background_opacity_changed.emit(opacity)
 
 
 # 全局主题管理器实例

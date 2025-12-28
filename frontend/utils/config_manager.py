@@ -203,3 +203,67 @@ class ConfigManager:
         # 重置所有组件透明度为默认值
         for comp_id, default_value in self._OPACITY_DEFAULTS.items():
             self.settings.setValue(f"transparency/{comp_id}_opacity", default_value)
+
+    # ==================== 背景图片配置 ====================
+
+    def get_background_image_path(self) -> str:
+        """获取背景图片路径
+
+        Returns:
+            str: 背景图片的绝对路径，如果未设置返回空字符串
+        """
+        path = self.settings.value("appearance/background_image", "", type=str)
+        # 调试日志
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"[ConfigManager] 读取背景图片路径: '{path}'")
+        return path
+
+    def set_background_image_path(self, path: str):
+        """设置背景图片路径
+
+        Args:
+            path: 背景图片的绝对路径，传入空字符串表示清除
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[ConfigManager] 保存背景图片路径: '{path}'")
+        self.settings.setValue("appearance/background_image", path)
+        self.settings.sync()
+        # 验证保存成功
+        saved = self.settings.value("appearance/background_image", "", type=str)
+        logger.info(f"[ConfigManager] 验证保存结果: '{saved}'")
+
+    def clear_background_image(self):
+        """清除背景图片设置"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("[ConfigManager] 清除背景图片设置")
+        self.settings.remove("appearance/background_image")
+        self.settings.sync()
+
+    def get_background_image_opacity(self) -> float:
+        """获取背景图片透明度
+
+        Returns:
+            float: 透明度值 (0.0-1.0)，默认0.3（较淡）
+        """
+        opacity = self.settings.value("appearance/background_image_opacity", 0.3, type=float)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"[ConfigManager] 读取背景图片透明度: {opacity}")
+        return opacity
+
+    def set_background_image_opacity(self, opacity: float):
+        """设置背景图片透明度
+
+        Args:
+            opacity: 透明度值 (0.0-1.0)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        # 限制范围
+        opacity = max(0.0, min(1.0, opacity))
+        logger.info(f"[ConfigManager] 保存背景图片透明度: {opacity}")
+        self.settings.setValue("appearance/background_image_opacity", opacity)
+        self.settings.sync()

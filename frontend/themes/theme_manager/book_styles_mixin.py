@@ -13,8 +13,9 @@ class BookStylesMixin:
     # ==================== 字体方法 ====================
 
     def ui_font(self) -> str:
-        """获取UI字体族 - 现代无衬线字体"""
-        return "'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Roboto', sans-serif"
+        """获取UI字体族 - 现代无衬线字体（包含emoji支持）"""
+        # 包含emoji字体以正确渲染表情符号，避免显示为方框
+        return "'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Roboto', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"
 
     def serif_font(self) -> str:
         """获取衬线字体族 - 书香风格核心字体"""
@@ -173,7 +174,7 @@ class BookStylesMixin:
             return f"""
                 QPushButton {{
                     background-color: {accent};
-                    color: #FFFFFF;
+                    color: {self.BUTTON_TEXT};
                     border: 1px solid {accent};
                     border-radius: 4px;
                     font-family: {serif};

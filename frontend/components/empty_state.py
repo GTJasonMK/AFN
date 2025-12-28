@@ -80,6 +80,7 @@ class EmptyState(ThemeAwareWidget):
 
         if self.icon_label:
             self.icon_label.setStyleSheet(f"""
+                font-family: {ui_font};
                 font-size: 96px;
                 color: {theme_manager.PRIMARY};
                 background-color: transparent;
@@ -168,11 +169,8 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
         illustration_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         illustration = QLabel(self.illustration_char)
+        illustration.setObjectName("illustration_emoji")
         illustration.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        illustration.setStyleSheet("""
-            font-size: 96px;
-            background-color: transparent;
-        """)
         illustration_layout.addWidget(illustration)
 
         layout.addWidget(self.illustration_container, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -222,6 +220,13 @@ class EmptyStateWithIllustration(ThemeAwareWidget):
                     border-radius: 100px;
                 }}
             """)
+            # 设置emoji插画样式（包含emoji字体支持）
+            if illustration := self.illustration_container.findChild(QLabel, "illustration_emoji"):
+                illustration.setStyleSheet(f"""
+                    font-family: {ui_font};
+                    font-size: 96px;
+                    background-color: transparent;
+                """)
 
         if self.title_label:
             self.title_label.setStyleSheet(f"""

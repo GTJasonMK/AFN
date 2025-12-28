@@ -85,6 +85,8 @@ class ChapterOutlineDetailDialog(QDialog):
         title = QLabel(self.chapter_data.get('title', f'第{chapter_num}章'))
         title.setWordWrap(True)
         title.setStyleSheet(f"""
+            background: transparent;
+            border: none;
             font-family: {self.ui_font};
             font-size: {sp(24)}px;
             font-weight: 700;
@@ -127,6 +129,8 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("关键情节点")
         title.setStyleSheet(f"""
+            background: transparent;
+            border: none;
             font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
@@ -139,6 +143,8 @@ class ChapterOutlineDetailDialog(QDialog):
             point_label = QLabel(f"{i}. {point}")
             point_label.setWordWrap(True)
             point_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {self.ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
@@ -169,6 +175,8 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel("出场角色")
         title.setStyleSheet(f"""
+            background: transparent;
+            border: none;
             font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
@@ -229,6 +237,8 @@ class ChapterOutlineDetailDialog(QDialog):
         # 标题
         title = QLabel(title_text)
         title.setStyleSheet(f"""
+            background: transparent;
+            border: none;
             font-family: {self.ui_font};
             font-size: {sp(16)}px;
             font-weight: 600;
@@ -240,6 +250,8 @@ class ChapterOutlineDetailDialog(QDialog):
         content = QLabel(content_text)
         content.setWordWrap(True)
         content.setStyleSheet(f"""
+            background: transparent;
+            border: none;
             font-family: {self.ui_font};
             font-size: {sp(14)}px;
             color: {theme_manager.TEXT_SECONDARY};

@@ -98,12 +98,12 @@ class ChapterOutlineCard(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(16)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
         )
 
         # 章节号标签样式
         self.num_tag.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
         )
 
         # 重新生成按钮样式
@@ -127,7 +127,7 @@ class ChapterOutlineCard(QFrame):
 
         # 摘要样式
         self.summary_label.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY}; line-height: 1.6;"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(14)}px; color: {theme_manager.TEXT_SECONDARY}; line-height: 1.6;"
         )
 
     def update_theme(self):

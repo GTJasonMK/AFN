@@ -252,6 +252,8 @@ class WDHeader(TransparencyAwareMixin, ThemeAwareFrame):
         # 标题
         if self.title_label:
             self.title_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {sp(15)}px;
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
@@ -261,6 +263,8 @@ class WDHeader(TransparencyAwareMixin, ThemeAwareFrame):
         # 元信息
         if self.meta_label:
             self.meta_label.setStyleSheet(f"""
+                background: transparent;
+                border: none;
                 font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};

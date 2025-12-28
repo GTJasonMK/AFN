@@ -43,10 +43,10 @@ class OutlineRow(QFrame):
     def _show_detail_dialog(self):
         """显示详情对话框"""
         if self.row_type == "chapter":
-            from .chapter_detail_dialog import ChapterOutlineDetailDialog
+            from ..dialogs.chapter_detail_dialog import ChapterOutlineDetailDialog
             dialog = ChapterOutlineDetailDialog(self.data, parent=self)
         else:
-            from .part_detail_dialog import PartOutlineDetailDialog
+            from ..dialogs.part_detail_dialog import PartOutlineDetailDialog
             dialog = PartOutlineDetailDialog(self.data, parent=self)
         dialog.exec()
 
@@ -165,19 +165,19 @@ class OutlineRow(QFrame):
 
         # 标题样式
         self.title_label.setStyleSheet(
-            f"font-family: {self.ui_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY}; background: transparent;"
+            f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(14)}px; font-weight: 600; color: {theme_manager.TEXT_PRIMARY};"
         )
 
         # 范围标签样式
         if hasattr(self, 'range_label'):
             self.range_label.setStyleSheet(
-                f"font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+                f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(11)}px; color: {theme_manager.TEXT_SECONDARY};"
             )
 
         # 摘要样式
         if hasattr(self, 'summary_label'):
             self.summary_label.setStyleSheet(
-                f"font-family: {self.ui_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY}; background: transparent;"
+                f"background: transparent; border: none; font-family: {self.ui_font}; font-size: {sp(12)}px; color: {theme_manager.TEXT_SECONDARY};"
             )
 
         # 编辑按钮样式（仅章节大纲有）

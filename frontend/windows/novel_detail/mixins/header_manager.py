@@ -272,7 +272,7 @@ class HeaderManagerMixin:
         primary_btn_style = f"""
             QPushButton {{
                 background-color: {icon_color};
-                color: #FFFFFF;
+                color: {theme_manager.BUTTON_TEXT};
                 border: 1px solid {icon_color};
                 border-radius: {dp(4)}px;
                 font-family: {ui_font};
@@ -296,7 +296,7 @@ class HeaderManagerMixin:
             self.analyze_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {theme_manager.INFO};
-                    color: #FFFFFF;
+                    color: {theme_manager.BUTTON_TEXT};
                     border: 1px solid {theme_manager.INFO};
                     border-radius: {dp(4)}px;
                     font-family: {ui_font};
@@ -335,7 +335,7 @@ class HeaderManagerMixin:
             self.save_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {accent_color};
-                    color: #FFFFFF;
+                    color: {theme_manager.BUTTON_TEXT};
                     border: 1px solid {accent_color};
                     border-radius: {dp(4)}px;
                     font-family: {ui_font};
