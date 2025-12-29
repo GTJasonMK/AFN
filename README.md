@@ -102,193 +102,223 @@ python main.py
 ### 项目状态机
 
 ```mermaid
-stateDiagram-v2
-    [*] --> DRAFT: 创建项目
+flowchart TB
+    subgraph Phase1["1 构思阶段"]
+        D["DRAFT"]
+    end
 
-    DRAFT --> BLUEPRINT_READY: 生成蓝图
-    BLUEPRINT_READY --> DRAFT: 回退重新对话
+    subgraph Phase2["2 规划阶段"]
+        B["BLUEPRINT_READY"]
+        P["PART_OUTLINES_READY"]
+        C["CHAPTER_OUTLINES_READY"]
+    end
 
-    BLUEPRINT_READY --> PART_OUTLINES_READY: 生成分部大纲<br/>(>=50章)
-    BLUEPRINT_READY --> CHAPTER_OUTLINES_READY: 生成章节大纲<br/>(<50章)
+    subgraph Phase3["3 创作阶段"]
+        W["WRITING"]
+        E["COMPLETED"]
+    end
 
-    PART_OUTLINES_READY --> CHAPTER_OUTLINES_READY: 生成章节大纲
-    PART_OUTLINES_READY --> BLUEPRINT_READY: 回退
+    D -->|生成蓝图| B
+    B -->|长篇| P
+    B -->|短篇| C
+    B -->|空白项目| W
+    P -->|生成章节大纲| C
+    C -->|开始写作| W
+    W -->|全部完成| E
 
-    CHAPTER_OUTLINES_READY --> WRITING: 开始写作
-    CHAPTER_OUTLINES_READY --> PART_OUTLINES_READY: 回退(长篇)
-    CHAPTER_OUTLINES_READY --> BLUEPRINT_READY: 回退(短篇)
+    B -.->|回退| D
+    B -.->|重新生成| B
+    P -.->|回退| B
+    C -.->|回退| P
+    C -.->|回退| B
+    W -.->|修改大纲| C
+    E -.->|继续编辑| W
 
-    WRITING --> COMPLETED: 全部完成
-    WRITING --> CHAPTER_OUTLINES_READY: 回退修改大纲
-
-    COMPLETED --> WRITING: 继续编辑
-
-    state DRAFT {
-        [*] --> 灵感对话
-    }
-
-    state BLUEPRINT_READY {
-        [*] --> 编辑蓝图
-        编辑蓝图 --> 世界观
-        编辑蓝图 --> 角色设定
-        编辑蓝图 --> 人物关系
-    }
-
-    state WRITING {
-        [*] --> 生成章节
-        生成章节 --> 版本选择
-        版本选择 --> 下一章
-    }
+    style D fill:#e3f2fd,stroke:#1976d2
+    style B fill:#fff3e0,stroke:#f57c00
+    style P fill:#f3e5f5,stroke:#7b1fa2
+    style C fill:#e8f5e9,stroke:#388e3c
+    style W fill:#fce4ec,stroke:#c2185b
+    style E fill:#c8e6c9,stroke:#2e7d32
 ```
 
 **状态说明**：
-| 状态 | 说明 |
-|:-----|:-----|
-| `DRAFT` | 灵感对话进行中 |
-| `BLUEPRINT_READY` | 蓝图生成完成，可编辑世界观、角色、关系 |
-| `PART_OUTLINES_READY` | 分部大纲就绪（仅长篇 >=50 章）|
-| `CHAPTER_OUTLINES_READY` | 章节大纲就绪，可进入写作 |
-| `WRITING` | 章节写作中，支持回退到大纲阶段 |
-| `COMPLETED` | 全部章节完成 |
+| 状态 | 阶段 | 说明 | 允许的转换 |
+|:-----|:-----|:-----|:-----|
+| `DRAFT` | 构思 | 与AI多轮对话，逐步明确故事方向 | → BLUEPRINT_READY |
+| `BLUEPRINT_READY` | 规划 | 世界观、角色设定、人物关系、故事梗概 | → PART/CHAPTER_OUTLINES, WRITING, ← DRAFT |
+| `PART_OUTLINES_READY` | 规划 | 分部大纲（仅长篇>=50章） | → CHAPTER_OUTLINES, ← BLUEPRINT |
+| `CHAPTER_OUTLINES_READY` | 规划 | 章节大纲，每章标题+摘要 | → WRITING, ← PART/BLUEPRINT |
+| `WRITING` | 创作 | 多版本并行生成，AI评审，用户选择 | → COMPLETED, ← CHAPTER_OUTLINES |
+| `COMPLETED` | 创作 | 全部章节完成，可导出TXT | ← WRITING（继续编辑）|
 
 ### 章节生成流程
 
 ```mermaid
-flowchart TB
-    subgraph 构建上下文["1. 构建上下文"]
-        A1[蓝图核心信息] --> B1[RAG 多维检索]
-        A2[当前章节大纲] --> B1
-        A3[前章结尾摘录] --> B1
-        B1 --> C1[角色状态追踪]
-        B1 --> C2[活跃伏笔列表]
-        C1 --> D1[三层分级构建]
-        C2 --> D1
-        D1 --> E1[Token 智能压缩]
+flowchart LR
+    subgraph A["1. 输入"]
+        A1["章节大纲"]
+        A2["蓝图信息"]
+        A3["前章内容"]
     end
 
-    subgraph 并行生成["2. 并行生成"]
-        E1 --> F1[版本 1]
-        E1 --> F2[版本 2]
-        E1 --> F3[版本 3]
-        F1 --> G1[LLM 流式生成]
-        F2 --> G1
-        F3 --> G1
+    subgraph B["2. RAG检索"]
+        B1["QueryBuilder"] --> B2["TemporalRetriever"]
+        B2 --> B3["ContextBuilder"]
+        B3 --> B4["ContextCompressor"]
     end
 
-    subgraph 评审选择["3. 评审选择"]
-        G1 --> H1[AI 对比分析]
-        H1 --> H2[用户选择最佳版本]
+    subgraph C["3. 并行生成"]
+        C1["版本A"]
+        C2["版本B"]
+        C3["版本C"]
     end
 
-    subgraph 后处理["4. 后处理"]
-        H2 --> I1[向量化入库]
-        I1 --> I2[章节深度分析]
-        I2 --> I3[更新角色状态索引]
-        I2 --> I4[更新伏笔追踪索引]
+    subgraph D["4. 评审"]
+        D1["AI评分"] --> D2["用户选择"]
     end
 
-    style 构建上下文 fill:#e1f5fe
-    style 并行生成 fill:#fff3e0
-    style 评审选择 fill:#e8f5e9
-    style 后处理 fill:#fce4ec
+    subgraph E["5. 后处理"]
+        E1["向量化"] --> E2["索引更新"]
+    end
+
+    A --> B --> C --> D --> E
+
+    style A fill:#e3f2fd
+    style B fill:#fff3e0
+    style C fill:#e8f5e9
+    style D fill:#fce4ec
+    style E fill:#f3e5f5
 ```
+
+**流程说明**：
+| 阶段 | 组件 | 说明 |
+|:-----|:-----|:-----|
+| RAG检索 | QueryBuilder | 基于大纲、角色、伏笔构建多维查询 |
+| RAG检索 | TemporalRetriever | 时序感知的向量检索，近章权重更高 |
+| RAG检索 | ContextBuilder | 分层构建上下文（必需/重要/参考） |
+| RAG检索 | ContextCompressor | 压缩至Token限制（约8000） |
+| 并行生成 | LLMService | 默认生成3个版本，可配置 |
+| 后处理 | ChapterIngestService | 向量化入库 + 角色状态/伏笔索引更新 |
 
 ### RAG 上下文分层
 
 ```mermaid
-flowchart LR
-    subgraph 必需层["必需层 (Must Have)"]
-        M1[蓝图核心摘要]
-        M2[角色名称列表]
-        M3[当前章节大纲]
-        M4[前章结尾 500 字]
+flowchart TB
+    subgraph R["必需层 Required"]
+        R1["蓝图核心信息"]
+        R2["角色名称列表"]
+        R3["当前章节大纲"]
+        R4["前章结尾片段"]
     end
 
-    subgraph 重要层["重要层 (Important)"]
-        I1[涉及角色详情]
-        I2[高优先级伏笔]
-        I3[近期角色状态]
+    subgraph I["重要层 Important"]
+        I1["角色详情"]
+        I2["高优先伏笔"]
+        I3["角色状态"]
+        I4["近章摘要"]
     end
 
-    subgraph 参考层["参考层 (Reference)"]
-        R1[世界观设定]
-        R2[向量检索片段]
-        R3[历史摘要]
+    subgraph O["参考层 Optional"]
+        O1["世界观设定"]
+        O2["检索片段"]
+        O3["历史摘要"]
+        O4["关系网络"]
     end
 
-    必需层 --> 生成提示词
-    重要层 --> 生成提示词
-    参考层 -.->|Token不足时裁剪| 生成提示词
+    subgraph C["压缩器"]
+        CC["ContextCompressor"]
+    end
 
-    style 必需层 fill:#ffcdd2
-    style 重要层 fill:#fff9c4
-    style 参考层 fill:#c8e6c9
+    R --> CC
+    I --> CC
+    O -.-> CC
+    CC --> OUT["生成提示词"]
+
+    style R fill:#ffcdd2
+    style I fill:#fff9c4
+    style O fill:#c8e6c9
+    style C fill:#e1f5fe
 ```
+
+**分层策略**：
+| 层级 | 优先级 | Token占比 | 内容 |
+|:-----|:-----|:-----|:-----|
+| 必需层 | 最高 | ~40% | 蓝图核心、角色列表、当前大纲、前章结尾(500-1000字) |
+| 重要层 | 高 | ~35% | 本章角色详情、高优先伏笔、角色状态、前3章摘要 |
+| 参考层 | 低 | ~25% | 世界观、向量检索片段(相似度>0.7)、历史摘要 |
+
+> Token限制约8000，超限时按优先级从参考层开始裁剪
 
 ### 漫画分镜生成流程
 
 ```mermaid
-flowchart TB
-    subgraph Input["输入"]
-        I1[章节内容]
-        I2[风格/页数设置]
-        I3[角色立绘]
+flowchart LR
+    subgraph IN["输入"]
+        I1["章节内容"]
+        I2["风格设置"]
+        I3["页数范围"]
+        I4["角色立绘"]
     end
 
-    subgraph Step1["Step 1: 信息提取"]
-        E1[角色信息<br/>外观/性格/关系]
-        E2[对话信息<br/>说话人/内容/情绪]
-        E3[场景信息<br/>地点/时间/氛围]
-        E4[事件信息<br/>动作/冲突/转折]
+    subgraph S1["1.信息提取"]
+        E1["ChapterInfoExtractor"]
     end
 
-    subgraph Step2["Step 2: 页面规划"]
-        P1[全局页数分配]
-        P2[事件到页面映射]
-        P3[节奏控制<br/>快/中/慢]
-        P4[页面角色<br/>开场/发展/高潮/结尾]
+    subgraph S2["2.页面规划"]
+        P1["PagePlanner"]
     end
 
-    subgraph Step3["Step 3: 分镜设计"]
-        S1[画格数量和布局]
-        S2[画格大小/形状]
-        S3[镜头类型<br/>特写/中景/远景]
-        S4[对话气泡/音效位置]
+    subgraph S3["3.分镜设计"]
+        D1["StoryboardDesigner"]
     end
 
-    subgraph Step4["Step 4: 提示词构建"]
-        B1[英文/中文双语提示词]
-        B2[负面提示词]
-        B3[角色外观描述注入]
-        B4[参考图路径]
+    subgraph S4["4.提示词"]
+        B1["PromptBuilder"]
     end
 
-    subgraph Output["输出"]
-        O1[MangaPromptResult]
-        O2[页面列表 + 画格提示词]
+    subgraph OUT["输出"]
+        O1["MangaPromptResult"]
     end
 
-    Input --> Step1
-    Step1 -->|ChapterInfo| Step2
-    Step2 -->|PagePlanResult| Step3
-    Step3 -->|StoryboardResult| Step4
-    Step4 --> Output
+    IN --> S1
+    S1 -->|ChapterInfo| S2
+    S2 -->|PagePlan| S3
+    S3 -->|Storyboard| S4
+    S4 --> OUT
 
-    style Input fill:#e3f2fd
-    style Step1 fill:#fff3e0
-    style Step2 fill:#e8f5e9
-    style Step3 fill:#fce4ec
-    style Step4 fill:#f3e5f5
-    style Output fill:#e0f7fa
+    style IN fill:#e3f2fd
+    style S1 fill:#fff3e0
+    style S2 fill:#e8f5e9
+    style S3 fill:#fce4ec
+    style S4 fill:#f3e5f5
+    style OUT fill:#e0f7fa
 ```
 
-**漫画风格支持**：
-| 风格 | 说明 |
+**4步流水线详解**：
+| 步骤 | 组件 | 输入 | 输出 | 说明 |
+|:-----|:-----|:-----|:-----|:-----|
+| 1 | ChapterInfoExtractor | 章节文本 | ChapterInfo | 提取角色、对话、场景、事件、物品信息 |
+| 2 | PagePlanner | ChapterInfo | PagePlanResult | 页数分配、节奏控制(fast/medium/slow)、页面角色 |
+| 3 | StoryboardDesigner | PagePlan | StoryboardResult | 画格布局、镜头类型、气泡位置、音效标注 |
+| 4 | PromptBuilder | Storyboard | MangaPromptResult | 双语提示词、负面提示词、参考图注入 |
+
+**断点续传**：`pending → extracting → planning → storyboard → completed`，每阶段自动保存
+
+**漫画风格**：
+| 风格 | 说明 | 阅读方向 |
+|:-----|:-----|:-----|
+| `manga` | 日式漫画 | 右到左 |
+| `anime` | 动漫截图 | 左到右 |
+| `comic` | 美式漫画 | 左到右 |
+| `webtoon` | 条漫 | 上到下 |
+
+**画格枚举**：
+| 类型 | 可选值 |
 |:-----|:-----|
-| `manga` | 日式漫画风格（右到左阅读）|
-| `anime` | 动漫截图风格 |
-| `comic` | 美式漫画风格 |
-| `webtoon` | 条漫风格（上到下阅读）|
+| ShotType | extreme_close_up, close_up, medium, long, birds_eye, worms_eye |
+| PanelSize | small, medium, large, full_page, double_page |
+| PanelShape | rectangle, square, vertical, horizontal, diagonal, irregular |
 
 ---
 
@@ -354,63 +384,24 @@ AFN/
 ### 分层架构
 
 ```mermaid
-flowchart TB
-    subgraph Frontend["PyQt6 前端"]
-        direction LR
-        FP1[HomePage]
-        FP2[InspirationMode]
-        FP3[NovelDetail]
-        FP4[WritingDesk]
-        FP5[Settings]
+flowchart LR
+    subgraph F["PyQt6 前端"]
+        F1[页面模块] --> F2[APIClient + Workers]
     end
 
-    subgraph FrontendCore["前端核心"]
-        direction LR
-        FC1[API Client<br/>Mixin 架构]
-        FC2[AsyncWorker]
-        FC3[SSEWorker]
-        FC4[ThemeManager]
+    subgraph B["FastAPI 后端"]
+        B1[路由层] --> B2[服务层] --> B3[Repository]
     end
 
-    subgraph Backend["FastAPI 后端"]
-        direction TB
-        subgraph Routes["路由层"]
-            R1[/api/novels/*]
-            R2[/api/writer/*]
-            R3[/api/*-configs]
-        end
-        subgraph Services["服务层"]
-            S1[NovelService]
-            S2[ChapterGeneration]
-            S3[RAGServices]
-            S4[LLMService]
-            S5[MangaPromptService]
-        end
-        subgraph Repos["Repository 层"]
-            RP1[BaseRepository]
-            RP2[NovelRepo]
-            RP3[ChapterRepo]
-        end
+    subgraph S["存储"]
+        S1[(SQLite)] & S2[(ChromaDB)] & S3[/LLM API/]
     end
 
-    subgraph Storage["存储层"]
-        direction LR
-        DB1[(SQLite<br/>afn.db)]
-        DB2[(ChromaDB<br/>vectors)]
-        DB3[/LLM APIs/]
-    end
+    F -->|HTTP/SSE| B --> S
 
-    Frontend --> FrontendCore
-    FrontendCore -->|HTTP REST / SSE| Backend
-    Routes --> Services
-    Services --> Repos
-    Repos --> Storage
-    Services --> DB3
-
-    style Frontend fill:#e3f2fd
-    style FrontendCore fill:#bbdefb
-    style Backend fill:#fff8e1
-    style Storage fill:#f3e5f5
+    style F fill:#e3f2fd
+    style B fill:#fff8e1
+    style S fill:#f3e5f5
 ```
 
 ### 数据流
@@ -418,34 +409,19 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant U as 用户
-    participant F as 前端 (PyQt6)
-    participant B as 后端 (FastAPI)
-    participant L as LLM API
-    participant D as SQLite
-    participant V as ChromaDB
+    participant F as 前端
+    participant B as 后端
+    participant L as LLM
 
-    U->>F: 点击生成章节
-    F->>B: POST /api/writer/chapters/generate
-
-    B->>D: 获取蓝图/大纲
-    B->>V: RAG 检索相关内容
-    B->>B: 构建三层上下文
-
-    loop 并行生成 N 个版本
-        B->>L: 流式请求 LLM
-        L-->>B: SSE 返回 tokens
-        B-->>F: SSE 转发 tokens
-        F-->>U: 实时显示生成内容
+    U->>F: 生成章节
+    F->>B: POST /generate
+    B->>B: RAG检索 + 构建上下文
+    loop N个版本
+        B->>L: 流式请求
+        L-->>F: SSE tokens
     end
-
-    B-->>F: 返回所有版本
-    U->>F: 选择最佳版本
-    F->>B: POST /api/writer/chapters/select
-
-    B->>D: 保存选定版本
-    B->>V: 向量化入库
-    B->>B: 更新角色/伏笔索引
-    B-->>F: 返回成功
+    U->>F: 选择版本
+    F->>B: 保存 + 向量化 + 更新索引
 ```
 
 ---
