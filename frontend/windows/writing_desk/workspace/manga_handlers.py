@@ -218,26 +218,24 @@ class MangaHandlersMixin:
     def _onGenerateMangaPrompt(
         self,
         style: str = "manga",
-        min_scenes: int = 5,
-        max_scenes: int = 15,
+        min_pages: int = 8,
+        max_pages: int = 15,
         language: str = "chinese",
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
-        use_dynamic_layout: bool = True,
     ):
         """
         生成漫画分镜回调
 
         Args:
             style: 漫画风格 (manga/anime/comic/webtoon)
-            min_scenes: 最少场景数 (3-10)
-            max_scenes: 最多场景数 (5-25)
+            min_pages: 最少页数 (3-20)
+            max_pages: 最多页数 (5-30)
             language: 对话/音效语言 (chinese/japanese/english/korean)
-            use_portraits: 是否使用角色立绘作为参考图（img2img）
+            use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
-            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
         """
-        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_scenes={min_scenes}, max_scenes={max_scenes}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}, use_dynamic_layout={use_dynamic_layout}")
+        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_pages={min_pages}, max_pages={max_pages}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}")
 
         if not self.project_id or not self.current_chapter:
             MessageService.show_warning(self, "请先选择章节")
@@ -296,12 +294,11 @@ class MangaHandlersMixin:
                 self.project_id,
                 self.current_chapter,
                 style=style,
-                min_scenes=min_scenes,
-                max_scenes=max_scenes,
+                min_pages=min_pages,
+                max_pages=max_pages,
                 language=language,
                 use_portraits=use_portraits,
                 auto_generate_portraits=auto_generate_portraits,
-                use_dynamic_layout=use_dynamic_layout,
             )
 
         def on_success(result):

@@ -220,12 +220,12 @@ class MangaPanelBuilder(
             "条漫": "webtoon",
         }
         style_text = self._style_combo.currentText() if self._style_combo else "漫画"
-        min_scenes = self._min_scenes_spin.value() if self._min_scenes_spin else 5
-        max_scenes = self._max_scenes_spin.value() if self._max_scenes_spin else 15
+        min_pages = self._min_pages_spin.value() if self._min_pages_spin else 8
+        max_pages = self._max_pages_spin.value() if self._max_pages_spin else 15
         return {
             "style": style_map.get(style_text, "manga"),
-            "min_scenes": min_scenes,
-            "max_scenes": max_scenes,
+            "min_pages": min_pages,
+            "max_pages": max_pages,
         }
 
     def update_images(self, images: List[Dict[str, Any]]):

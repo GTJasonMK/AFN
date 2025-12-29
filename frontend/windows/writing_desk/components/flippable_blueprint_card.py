@@ -193,6 +193,9 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         # 角色名称
         self.portrait_name_label = QLabel("主角")
         self.portrait_name_label.setObjectName("portrait_name_label")
+        self.portrait_name_label.setMinimumWidth(dp(40))  # 最小宽度保证至少显示一些内容
+        self.portrait_name_label.setMaximumWidth(dp(80))  # 限制最大宽度避免挤压按钮
+        self.portrait_name_label.setToolTip("主角")  # 完整名称通过tooltip显示
         layout.addWidget(self.portrait_name_label)
 
         layout.addStretch()
@@ -225,13 +228,21 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
         serif_font = theme_manager.serif_font()
 
         # 判断渐变背景的明暗
-        # 亮色主题：渐变是深色赭石色，覆盖层使用白色
-        # 深色主题：渐变是亮色琥珀色，覆盖层使用深色
+        # 亮色主题：渐变是深色赭石色，覆盖层使用白色，文字用白色
+        # 深色主题：渐变是亮色琥珀色，覆盖层使用深色，文字用深色
         is_dark = theme_manager.is_dark_mode()
         overlay_rgb = "0, 0, 0" if is_dark else "255, 255, 255"
 
-        # 渐变背景上的文字颜色（与BUTTON_TEXT一致的逻辑）
-        gradient_text_color = theme_manager.BUTTON_TEXT
+        # 渐变背景上的文字颜色 - 根据主题正确选择
+        # 透明模式下使用主文字色保证可读性
+        if self._transparency_enabled:
+            gradient_text_color = theme_manager.TEXT_PRIMARY
+        elif is_dark:
+            # 深色主题：渐变是亮色的，用深色文字
+            gradient_text_color = theme_manager.TEXT_PRIMARY
+        else:
+            # 亮色主题：渐变是深色的，用白色文字
+            gradient_text_color = theme_manager.BUTTON_TEXT
 
         # 计算透明度调整后的alpha值
         # 当透明模式开启时，降低覆盖层的透明度
@@ -412,7 +423,7 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
                     }}
                 """)
 
-        # 角色名称
+        # 角色名称 - 使用根据主题和透明模式正确选择的文字颜色
         if self.portrait_name_label:
             self.portrait_name_label.setStyleSheet(f"""
                 background: transparent;
@@ -420,7 +431,7 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
                 font-family: {ui_font};
                 font-size: {theme_manager.FONT_SIZE_MD};
                 font-weight: {theme_manager.FONT_WEIGHT_BOLD};
-                color: {theme_manager.BUTTON_TEXT};
+                color: {gradient_text_color};
             """)
 
         # 查看档案按钮
@@ -536,7 +547,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
                 """)
 
         if self.portrait_name_label:
-            self.portrait_name_label.setText(name)
+            self.portrait_name_label.setText(self._elide_name(name))
+            self.portrait_name_label.setToolTip(name)  # 完整名称显示在tooltip
 
     def _create_rounded_pixmap(self, pixmap: QPixmap, size: int) -> QPixmap:
         """创建圆形裁剪的图片"""
@@ -570,6 +582,22 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
 
         return rounded
 
+    def _elide_name(self, name: str, max_chars: int = 6) -> str:
+        """省略过长的角色名称
+
+        Args:
+            name: 角色名称
+            max_chars: 最大显示字符数（中文字符）
+
+        Returns:
+            处理后的名称，过长时显示省略号
+        """
+        if not name:
+            return "主角"
+        if len(name) <= max_chars:
+            return name
+        return name[:max_chars] + "..."
+
     def setPortraitPlaceholder(self, name: str = "主角"):
         """设置立绘占位符"""
         self._portrait_pixmap = None
@@ -584,7 +612,8 @@ class FlippableBlueprintCard(TransparencyAwareMixin, ThemeAwareFrame):
             self.portrait_mini.setText("👤")
 
         if self.portrait_name_label:
-            self.portrait_name_label.setText(name)
+            self.portrait_name_label.setText(self._elide_name(name))
+            self.portrait_name_label.setToolTip(name)  # 完整名称显示在tooltip
 
         self._apply_theme()
 

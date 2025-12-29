@@ -2,7 +2,7 @@
 漫画提示词 Mixin
 
 提供漫画提示词生成和管理的API方法。
-基于专业漫画分镜架构，支持页面模板和画格级提示词生成。
+基于页面驱动的漫画分镜架构。
 """
 
 from typing import Any, Dict, List, Optional
@@ -15,44 +15,25 @@ from .constants import TimeoutConfig
 class MangaMixin:
     """漫画提示词方法 Mixin"""
 
-    def get_manga_templates(self) -> List[Dict[str, Any]]:
-        """
-        获取所有可用的页面模板
-
-        Returns:
-            模板列表，每个模板包含：
-            - id: 模板ID
-            - name: 英文名称
-            - name_zh: 中文名称
-            - description: 模板描述
-            - panel_count: 画格数量
-            - suitable_moods: 适用情感类型列表
-            - intensity: 强度等级
-        """
-        return self._request(
-            'GET',
-            '/api/writer/templates',
-        )
-
     def generate_manga_prompts(
         self,
         project_id: str,
         chapter_number: int,
         style: str = "manga",
-        min_scenes: int = 5,
-        max_scenes: int = 15,
+        min_pages: int = 8,
+        max_pages: int = 15,
         language: str = "chinese",
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
-        use_dynamic_layout: bool = True,
     ) -> Dict[str, Any]:
         """
         生成章节的漫画分镜（支持断点续传）
 
-        基于专业漫画分镜理念，将章节内容转化为：
-        1. 多个叙事场景
-        2. 每个场景展开为页面+画格
-        3. 每个画格生成专属提示词
+        基于页面驱动的4步流水线：
+        1. 信息提取 - 提取角色、对话、事件、场景
+        2. 页面规划 - 全局页数分配和节奏控制
+        3. 分镜设计 - 每页画格设计
+        4. 提示词构建 - 生成AI绘图提示词
 
         如果之前的生成任务中断，会自动从断点继续。
 
@@ -60,12 +41,11 @@ class MangaMixin:
             project_id: 项目ID
             chapter_number: 章节号
             style: 漫画风格 (manga/anime/comic/webtoon)
-            min_scenes: 最少场景数 (3-10)
-            max_scenes: 最多场景数 (5-25)
+            min_pages: 最少页数 (3-20)
+            max_pages: 最多页数 (5-30)
             language: 对话/音效语言 (chinese/japanese/english/korean)
-            use_portraits: 是否使用角色立绘作为参考图（img2img）
+            use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
-            use_dynamic_layout: 是否使用LLM动态布局（True=动态布局，False=硬编码模板）
 
         Returns:
             漫画分镜结果，包含：
@@ -74,17 +54,16 @@ class MangaMixin:
             - character_profiles: 角色外观描述字典
             - total_pages: 总页数
             - total_panels: 总画格数
-            - scenes: 场景列表，每个场景包含页面信息
+            - pages: 页面列表
             - panels: 画格提示词列表
         """
         payload = {
             'style': style,
-            'min_scenes': min_scenes,
-            'max_scenes': max_scenes,
+            'min_pages': min_pages,
+            'max_pages': max_pages,
             'language': language,
             'use_portraits': use_portraits,
             'auto_generate_portraits': auto_generate_portraits,
-            'use_dynamic_layout': use_dynamic_layout,
         }
 
         return self._request(

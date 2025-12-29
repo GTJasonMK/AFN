@@ -1,592 +1,541 @@
-# AFN (Agents for Novel) - AI 辅助长篇小说创作工具
+# AFN (Agents for Novel)
 
-AI 辅助长篇小说创作桌面应用，开箱即用，无需登录，本地存储。
+> AI 辅助长篇小说创作桌面应用 | 开箱即用 | 无需登录 | 本地存储
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688.svg)
+![PyQt6](https://img.shields.io/badge/PyQt6-6.6.1-41CD52.svg)
+![SQLite](https://img.shields.io/badge/SQLite-aiosqlite-003B57.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+---
 
 ## 目录
 
 - [功能特性](#功能特性)
 - [快速开始](#快速开始)
-- [核心流程](#核心流程)
-  - [小说创作主流程](#小说创作主流程)
-  - [项目状态机](#项目状态机)
-  - [章节生成流程](#章节生成流程)
-- [功能模块详解](#功能模块详解)
-- [配置说明](#配置说明)
+- [创作流程](#创作流程)
+- [项目结构](#项目结构)
 - [技术架构](#技术架构)
+- [配置指南](#配置指南)
 - [常见问题](#常见问题)
-- [许可证](#许可证)
 
 ---
 
 ## 功能特性
 
-### 核心创作功能
+### 核心创作流程
 
 | 功能 | 说明 |
-|------|------|
-| **灵感对话** | 与AI交互，梳理创意，引导式构建完整小说概念 |
-| **蓝图生成** | 自动生成世界观、角色设定、剧情大纲 |
-| **分层大纲** | 长篇小说支持分部大纲 + 章节大纲双层结构 |
-| **智能写作** | 多版本并行生成，AI评审辅助选择最佳版本 |
-| **RAG增强** | 智能检索上下文，角色状态追踪，伏笔管理 |
-| **正文优化** | Agent逐段分析，检测逻辑/角色/时间线问题 |
+|:-----|:-----|
+| **灵感对话** | 与 AI 交互式构建小说概念，通过多轮对话逐步明确故事方向 |
+| **蓝图生成** | 基于对话内容一键生成完整蓝图：世界观、角色设定、人物关系、故事梗概 |
+| **分层大纲** | 长篇(>=50章)支持「分部大纲 + 章节大纲」双层结构，短篇直接生成章节大纲 |
+| **多版本生成** | 每章并行生成多个版本，AI 对比评审辅助用户选择最佳版本 |
+| **RAG 增强** | 三层上下文（必需/重要/参考）、角色状态追踪、伏笔管理、时序感知检索 |
+| **正文优化** | Agent 逐段分析章节内容，检测逻辑漏洞、角色一致性、时间线问题 |
 
-### 扩展功能
+### 扩展能力
 
 | 功能 | 说明 |
-|------|------|
-| **漫画转化** | 章节自动分割场景，生成AI绘图提示词 |
-| **图片生成** | 集成多厂商API，一键生成场景插图 |
-| **角色立绘** | 基于角色设定生成人物立绘 |
-| **PDF导出** | 图片导出为PDF，支持自定义布局 |
-| **外部导入** | 导入TXT小说，智能分析生成蓝图和大纲 |
+|:-----|:-----|
+| **漫画分镜生成** | 4步流水线架构：信息提取 → 页面规划 → 分镜设计 → 提示词构建 |
+| **图片生成** | 集成 OpenAI DALL-E / Stability AI / ComfyUI 多厂商 |
+| **角色立绘** | 基于角色设定生成人物立绘，支持作为分镜参考图 |
+| **外部导入** | 导入已有 TXT 小说，智能分析反推蓝图和大纲 |
+| **主角档案** | 独立管理主角信息，支持隐式追踪和同步更新 |
 
-### 用户体验
+### 界面特性
 
-- **开箱即用**：无需注册登录，启动即可使用
-- **界面配置**：所有设置在应用内完成，无需修改配置文件
-- **本地存储**：数据完全存储在本地，隐私安全
-- **主题切换**：支持深色/亮色主题，可自定义配色
-- **灵活配置**：支持多个LLM提供商，随时切换
+| 功能 | 说明 |
+|:-----|:-----|
+| **深色/浅色主题** | 一键切换（Ctrl+T），支持自定义主题配置 |
+| **透明模式** | Windows DWM Acrylic 毛玻璃效果，支持背景图片和透明度调节 |
+| **LRU 页面缓存** | 最多缓存 10 个页面，自动淘汰最久未使用的页面 |
+| **高 DPI 支持** | 响应式布局，适配不同分辨率屏幕 |
 
 ---
 
 ## 快速开始
 
-### 方式一：一键启动（推荐）
+### 一键启动（推荐）
 
 ```bash
-# 首次运行会自动创建虚拟环境并安装依赖
 python run_app.py
 ```
 
-脚本会自动完成：
-1. 检查 Python 版本（需要 3.10+）
-2. 检测并安装 uv 加速器（比pip快10-100倍）
-3. 创建前后端虚拟环境
-4. 安装所有依赖
-5. 启动后端服务（端口 8123）
-6. 启动前端 GUI
+首次运行自动完成：
+1. 检测 Python 版本（需要 3.10+）
+2. 安装 [uv](https://github.com/astral-sh/uv) 包管理器（比 pip 快 10-100 倍）
+3. 创建前后端独立虚拟环境
+4. 安装依赖（自动检测已安装的核心包）
+5. 自动处理端口占用（8123）
+6. 启动后端服务和前端 GUI
 
-### 方式二：分别启动
-
-#### 1. 启动后端
+### 手动启动
 
 ```bash
+# 后端（端口 8123）
 cd backend
-python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8123
-```
 
-#### 2. 启动前端
-
-```bash
+# 前端（新终端）
 cd frontend
-python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
 python main.py
 ```
 
-### 3. 配置 LLM
+### 配置 LLM
 
-1. 点击右下角设置按钮进入设置页面
-2. 选择 "LLM 配置"
-3. 点击 "新建配置"
-4. 填写 API Key 等信息
-5. 点击 "激活此配置"
+1. 启动应用后，点击右下角进入 **设置**
+2. 进入 **LLM 配置** → **新建配置**
+3. 填写 Base URL（如 `https://api.openai.com/v1`）和 API Key
+4. 点击 **测试连接** 验证后 **激活此配置**
 
 完成！开始创作您的第一部小说。
 
 ---
 
-## 核心流程
-
-### 小说创作主流程
-
-```mermaid
-flowchart LR
-    subgraph 创意阶段["1. 创意阶段"]
-        A[创建项目] --> B[灵感对话]
-        B --> C[生成蓝图]
-    end
-
-    subgraph 规划阶段["2. 规划阶段"]
-        C --> D{章节数>=50?}
-        D -->|是| E[生成分部大纲]
-        E --> F[生成章节大纲]
-        D -->|否| F
-    end
-
-    subgraph 写作阶段["3. 写作阶段"]
-        F --> G[章节生成]
-        G --> H[多版本选择]
-        H --> I[RAG入库分析]
-        I --> J{还有章节?}
-        J -->|是| G
-        J -->|否| K[完成]
-    end
-
-    subgraph 扩展功能["4. 扩展功能"]
-        K --> L[导出TXT]
-        H --> M[漫画提示词]
-        M --> N[生成图片]
-        N --> O[导出PDF]
-    end
-```
+## 创作流程
 
 ### 项目状态机
-
-项目在创作过程中会经历以下状态流转：
 
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT: 创建项目
 
-    DRAFT --> DRAFT: 灵感对话
     DRAFT --> BLUEPRINT_READY: 生成蓝图
+    BLUEPRINT_READY --> DRAFT: 回退重新对话
 
-    BLUEPRINT_READY --> PART_OUTLINES_READY: 长篇生成分部大纲
-    BLUEPRINT_READY --> CHAPTER_OUTLINES_READY: 短篇直接生成章节大纲
+    BLUEPRINT_READY --> PART_OUTLINES_READY: 生成分部大纲<br/>(>=50章)
+    BLUEPRINT_READY --> CHAPTER_OUTLINES_READY: 生成章节大纲<br/>(<50章)
 
     PART_OUTLINES_READY --> CHAPTER_OUTLINES_READY: 生成章节大纲
+    PART_OUTLINES_READY --> BLUEPRINT_READY: 回退
 
     CHAPTER_OUTLINES_READY --> WRITING: 开始写作
-    CHAPTER_OUTLINES_READY --> BLUEPRINT_READY: 重新生成蓝图
+    CHAPTER_OUTLINES_READY --> PART_OUTLINES_READY: 回退(长篇)
+    CHAPTER_OUTLINES_READY --> BLUEPRINT_READY: 回退(短篇)
 
-    WRITING --> WRITING: 生成/选择章节
-    WRITING --> COMPLETED: 全部章节完成
-    WRITING --> CHAPTER_OUTLINES_READY: 修改大纲
+    WRITING --> COMPLETED: 全部完成
+    WRITING --> CHAPTER_OUTLINES_READY: 回退修改大纲
 
     COMPLETED --> WRITING: 继续编辑
-    COMPLETED --> [*]: 导出作品
+
+    state DRAFT {
+        [*] --> 灵感对话
+    }
+
+    state BLUEPRINT_READY {
+        [*] --> 编辑蓝图
+        编辑蓝图 --> 世界观
+        编辑蓝图 --> 角色设定
+        编辑蓝图 --> 人物关系
+    }
+
+    state WRITING {
+        [*] --> 生成章节
+        生成章节 --> 版本选择
+        版本选择 --> 下一章
+    }
 ```
 
-| 状态 | 说明 | 可执行操作 |
-|------|------|------------|
-| `DRAFT` | 草稿阶段 | 灵感对话、生成蓝图 |
-| `BLUEPRINT_READY` | 蓝图就绪 | 编辑蓝图、生成大纲 |
-| `PART_OUTLINES_READY` | 分部大纲就绪 | 编辑分部、生成章节大纲 |
-| `CHAPTER_OUTLINES_READY` | 章节大纲就绪 | 编辑大纲、开始写作 |
-| `WRITING` | 写作中 | 生成章节、选择版本、漫画转化 |
-| `COMPLETED` | 已完成 | 导出、继续编辑 |
+**状态说明**：
+| 状态 | 说明 |
+|:-----|:-----|
+| `DRAFT` | 灵感对话进行中 |
+| `BLUEPRINT_READY` | 蓝图生成完成，可编辑世界观、角色、关系 |
+| `PART_OUTLINES_READY` | 分部大纲就绪（仅长篇 >=50 章）|
+| `CHAPTER_OUTLINES_READY` | 章节大纲就绪，可进入写作 |
+| `WRITING` | 章节写作中，支持回退到大纲阶段 |
+| `COMPLETED` | 全部章节完成 |
 
 ### 章节生成流程
 
-展示RAG增强的智能章节生成过程：
-
 ```mermaid
-sequenceDiagram
-    participant UI as 前端界面
-    participant API as 后端API
-    participant RAG as RAG系统
-    participant LLM as LLM服务
-    participant DB as 数据库
-
-    UI->>API: 请求生成章节
-
-    rect rgb(240, 248, 255)
-        Note over API,RAG: 1. 构建生成上下文
-        API->>DB: 获取蓝图、大纲、已完成章节
-        API->>RAG: 检索相关上下文
-        RAG->>RAG: QueryBuilder 多维查询
-        RAG->>RAG: TemporalRetriever 时序检索
-        RAG->>RAG: ContextBuilder 分层构建
-        RAG->>RAG: ContextCompressor 压缩
-        RAG-->>API: 返回压缩后的上下文
+flowchart TB
+    subgraph 构建上下文["1. 构建上下文"]
+        A1[蓝图核心信息] --> B1[RAG 多维检索]
+        A2[当前章节大纲] --> B1
+        A3[前章结尾摘录] --> B1
+        B1 --> C1[角色状态追踪]
+        B1 --> C2[活跃伏笔列表]
+        C1 --> D1[三层分级构建]
+        C2 --> D1
+        D1 --> E1[Token 智能压缩]
     end
 
-    rect rgb(255, 248, 240)
-        Note over API,LLM: 2. 并行生成多版本
-        API->>LLM: 版本1生成请求
-        API->>LLM: 版本2生成请求
-        API->>LLM: 版本3生成请求
-        LLM-->>API: 返回3个版本内容
+    subgraph 并行生成["2. 并行生成"]
+        E1 --> F1[版本 1]
+        E1 --> F2[版本 2]
+        E1 --> F3[版本 3]
+        F1 --> G1[LLM 流式生成]
+        F2 --> G1
+        F3 --> G1
     end
 
-    rect rgb(240, 255, 240)
-        Note over API,DB: 3. 保存和评审
-        API->>DB: 保存章节版本
-        API->>LLM: AI评审对比
-        LLM-->>API: 评审结果和推荐
+    subgraph 评审选择["3. 评审选择"]
+        G1 --> H1[AI 对比分析]
+        H1 --> H2[用户选择最佳版本]
     end
 
-    API-->>UI: 返回版本列表和评审
-    UI->>UI: 用户选择最佳版本
-    UI->>API: 确认选择
-
-    rect rgb(248, 240, 255)
-        Note over API,DB: 4. 选择后处理
-        API->>DB: 更新选中版本
-        API->>RAG: 向量化入库
-        API->>LLM: 章节深度分析
-        LLM-->>API: 角色状态、伏笔等
-        API->>DB: 更新索引
+    subgraph 后处理["4. 后处理"]
+        H2 --> I1[向量化入库]
+        I1 --> I2[章节深度分析]
+        I2 --> I3[更新角色状态索引]
+        I2 --> I4[更新伏笔追踪索引]
     end
+
+    style 构建上下文 fill:#e1f5fe
+    style 并行生成 fill:#fff3e0
+    style 评审选择 fill:#e8f5e9
+    style 后处理 fill:#fce4ec
 ```
 
-### RAG上下文分层
-
-章节生成时，RAG系统按优先级构建上下文：
-
-```mermaid
-graph TB
-    subgraph Required["必需层 - 始终包含"]
-        R1[蓝图核心信息]
-        R2[角色名称列表]
-        R3[当前章节大纲]
-        R4[前一章结尾片段]
-    end
-
-    subgraph Important["重要层 - 优先包含"]
-        I1[本章涉及角色详情]
-        I2[高优先级待回收伏笔]
-        I3[前3章压缩摘要]
-        I4[高相关度检索片段]
-    end
-
-    subgraph Reference["参考层 - Token允许时包含"]
-        F1[世界观设定]
-        F2[中等优先级伏笔]
-        F3[角色关系网络]
-        F4[中等相关度片段]
-    end
-
-    Required --> Important --> Reference
-
-    style Required fill:#e8f5e9
-    style Important fill:#fff3e0
-    style Reference fill:#e3f2fd
-```
-
----
-
-## 功能模块详解
-
-### 灵感对话
-
-与AI进行互动式对话，引导构建完整的小说概念：
-
-- **智能引导**：AI根据对话进展动态调整问题
-- **灵感选项**：每轮提供3-5个差异化方向供选择
-- **自由输入**：随时可以输入自己的想法
-- **信息收集**：自动收集类型、风格、主角、冲突等核心要素
-- **章节规划**：确定预期篇幅（5-10000章）
-
-### 蓝图生成
-
-基于灵感对话自动生成完整的小说蓝图：
-
-```
-蓝图结构
-├── 基本信息（标题、类型、风格、基调）
-├── 世界观设定
-│   ├── 核心规则
-│   ├── 关键地点
-│   └── 势力派系
-├── 角色设定
-│   ├── 角色档案（身份、性格、目标、能力）
-│   └── 角色关系网
-└── 故事大纲（一句话概括 + 完整大纲）
-```
-
-### 大纲管理
-
-支持两层大纲结构，适应不同篇幅需求：
-
-| 篇幅 | 大纲结构 |
-|------|----------|
-| 短篇（<50章） | 直接生成章节大纲 |
-| 长篇（>=50章） | 分部大纲 → 章节大纲 |
-
-**分部大纲**：每部分约25章，包含主题、关键事件、角色成长弧线
-
-**章节大纲**：每章标题 + 100-200字摘要，包含冲突、转折、悬念
-
-### 章节写作
-
-智能化的章节生成和版本管理：
-
-1. **多版本生成**：并行生成3个不同版本
-2. **AI评审**：自动对比分析，给出推荐
-3. **版本选择**：用户最终决定使用哪个版本
-4. **RAG增强**：选中版本自动向量化入库
-5. **深度分析**：提取角色状态、伏笔、关键事件
-
-### 正文优化
-
-基于ReAct循环的Agent系统，逐段检查：
-
-- **逻辑连贯性**：因果关系、情节过渡
-- **角色一致性**：性格、能力、状态
-- **伏笔呼应**：铺垫、回收
-- **时间线一致性**：时间流逝、事件顺序
-- **风格一致性**：叙事风格、用词习惯
-- **场景描写**：环境细节、空间关系
-
-### 漫画转化
-
-将章节内容转化为漫画分镜：
+### RAG 上下文分层
 
 ```mermaid
 flowchart LR
-    A[章节内容] --> B[场景分割]
-    B --> C[分格规划]
-    C --> D[提示词生成]
-    D --> E[图片生成]
-    E --> F[PDF导出]
+    subgraph 必需层["必需层 (Must Have)"]
+        M1[蓝图核心摘要]
+        M2[角色名称列表]
+        M3[当前章节大纲]
+        M4[前章结尾 500 字]
+    end
+
+    subgraph 重要层["重要层 (Important)"]
+        I1[涉及角色详情]
+        I2[高优先级伏笔]
+        I3[近期角色状态]
+    end
+
+    subgraph 参考层["参考层 (Reference)"]
+        R1[世界观设定]
+        R2[向量检索片段]
+        R3[历史摘要]
+    end
+
+    必需层 --> 生成提示词
+    重要层 --> 生成提示词
+    参考层 -.->|Token不足时裁剪| 生成提示词
+
+    style 必需层 fill:#ffcdd2
+    style 重要层 fill:#fff9c4
+    style 参考层 fill:#c8e6c9
 ```
 
-- **场景分割**：自动识别场景切换点
-- **分格规划**：根据场景设计漫画分格
-- **提示词生成**：生成适配AI绘图的英文提示词
-- **多语言支持**：提示词支持中英文
-
-### 外部导入
-
-导入已有TXT小说，智能分析生成完整项目：
+### 漫画分镜生成流程
 
 ```mermaid
 flowchart TB
-    A[TXT文件] --> B[章节解析]
-    B --> C[批量摘要生成]
-    C --> D{章节数>=50?}
-    D -->|是| E[分部大纲反推]
-    D -->|否| F[章节大纲标准化]
-    E --> F
-    F --> G[蓝图反推]
-    G --> H[创建项目]
+    subgraph Input["输入"]
+        I1[章节内容]
+        I2[风格/页数设置]
+        I3[角色立绘]
+    end
+
+    subgraph Step1["Step 1: 信息提取"]
+        E1[角色信息<br/>外观/性格/关系]
+        E2[对话信息<br/>说话人/内容/情绪]
+        E3[场景信息<br/>地点/时间/氛围]
+        E4[事件信息<br/>动作/冲突/转折]
+    end
+
+    subgraph Step2["Step 2: 页面规划"]
+        P1[全局页数分配]
+        P2[事件到页面映射]
+        P3[节奏控制<br/>快/中/慢]
+        P4[页面角色<br/>开场/发展/高潮/结尾]
+    end
+
+    subgraph Step3["Step 3: 分镜设计"]
+        S1[画格数量和布局]
+        S2[画格大小/形状]
+        S3[镜头类型<br/>特写/中景/远景]
+        S4[对话气泡/音效位置]
+    end
+
+    subgraph Step4["Step 4: 提示词构建"]
+        B1[英文/中文双语提示词]
+        B2[负面提示词]
+        B3[角色外观描述注入]
+        B4[参考图路径]
+    end
+
+    subgraph Output["输出"]
+        O1[MangaPromptResult]
+        O2[页面列表 + 画格提示词]
+    end
+
+    Input --> Step1
+    Step1 -->|ChapterInfo| Step2
+    Step2 -->|PagePlanResult| Step3
+    Step3 -->|StoryboardResult| Step4
+    Step4 --> Output
+
+    style Input fill:#e3f2fd
+    style Step1 fill:#fff3e0
+    style Step2 fill:#e8f5e9
+    style Step3 fill:#fce4ec
+    style Step4 fill:#f3e5f5
+    style Output fill:#e0f7fa
 ```
+
+**漫画风格支持**：
+| 风格 | 说明 |
+|:-----|:-----|
+| `manga` | 日式漫画风格（右到左阅读）|
+| `anime` | 动漫截图风格 |
+| `comic` | 美式漫画风格 |
+| `webtoon` | 条漫风格（上到下阅读）|
 
 ---
 
-## 配置说明
+## 项目结构
 
-### LLM 配置
-
-支持多个LLM提供商：
-
-| 提供商 | 说明 |
-|--------|------|
-| OpenAI | GPT-3.5, GPT-4, GPT-4o |
-| 通义千问 | 阿里云大模型 |
-| 智谱 ChatGLM | 国产大模型 |
-| 百度文心一言 | 百度大模型 |
-| Moonshot (Kimi) | 月之暗面 |
-| DeepSeek | 深度求索 |
-| Ollama | 本地部署 |
-| OpenAI兼容接口 | 2API、API2D等中转服务 |
-
-**配置步骤**：设置 → LLM配置 → 新建配置 → 填写Base URL和API Key → 激活
-
-### 嵌入配置
-
-RAG功能需要嵌入服务：
-
-| 类型 | 说明 |
-|------|------|
-| OpenAI兼容接口 | 使用远程嵌入API |
-| Ollama本地模型 | 使用本地部署的嵌入模型 |
-
-**配置步骤**：设置 → 嵌入配置 → 新建配置 → 选择类型并填写信息 → 激活
-
-### 图片生成配置
-
-| 服务类型 | 说明 |
-|----------|------|
-| OpenAI兼容接口 | DALL-E 2/3、Gemini、nano-banana-pro等 |
-| Stability AI | Stable Diffusion XL等 |
-| 本地ComfyUI | 支持自定义工作流 |
-
-**配置步骤**：设置 → 生图模型 → 新增配置 → 选择类型并填写信息 → 激活
-
-### 主题配置
-
-支持深色/亮色主题切换，可自定义配色：
-
-- 点击右下角主题切换按钮
-- 悬停查看当前主题配置
-- 在设置中可自定义颜色
+```
+AFN/
+├── run_app.py                 # 统一启动入口
+├── build.bat                  # PyInstaller 打包脚本
+├── CLAUDE.md                  # Claude Code 开发指南
+│
+├── backend/                   # FastAPI 异步后端
+│   ├── app/
+│   │   ├── main.py            # 应用入口
+│   │   ├── exceptions.py      # 统一异常体系
+│   │   ├── api/routers/
+│   │   │   ├── novels/        # 项目管理
+│   │   │   └── writer/        # 写作阶段
+│   │   ├── services/          # 业务逻辑层
+│   │   │   ├── chapter_generation/  # 章节生成
+│   │   │   ├── rag/           # RAG 检索增强
+│   │   │   ├── manga_prompt/  # 漫画分镜生成
+│   │   │   │   ├── extraction/    # 信息提取
+│   │   │   │   ├── planning/      # 页面规划
+│   │   │   │   ├── storyboard/    # 分镜设计
+│   │   │   │   ├── prompt_builder/# 提示词构建
+│   │   │   │   └── core/          # 核心服务
+│   │   │   └── ...
+│   │   ├── models/            # SQLAlchemy ORM
+│   │   ├── schemas/           # Pydantic 模型
+│   │   ├── repositories/      # 数据访问层
+│   │   └── core/              # 状态机/依赖注入
+│   ├── prompts/               # LLM 提示词模板
+│   └── storage/               # 数据存储
+│
+├── frontend/                  # PyQt6 桌面前端
+│   ├── main.py                # 应用入口
+│   ├── api/client/            # API 客户端 (Mixin)
+│   ├── windows/               # 页面模块
+│   ├── components/            # 通用 UI 组件
+│   ├── themes/                # 主题系统
+│   └── utils/                 # 工具类
+│
+└── docs/
+    └── ARCHITECTURE.md        # 详细架构图
+```
 
 ---
 
 ## 技术架构
 
-### 系统架构
+### 技术栈
+
+| 层级 | 技术 | 说明 |
+|:-----|:-----|:-----|
+| 前端框架 | PyQt6 6.6.1 | 桌面 GUI，Fusion 样式 |
+| 后端框架 | FastAPI 0.110.0 | 全异步 API，SSE 流式响应 |
+| ORM | SQLAlchemy 2.0 | 异步操作，aiosqlite 驱动 |
+| 数据库 | SQLite | 本地存储，无需额外服务 |
+| 向量库 | ChromaDB | RAG 检索 |
+| LLM | OpenAI 兼容 API | 多厂商支持 |
+
+### 分层架构
 
 ```mermaid
-graph TB
-    subgraph Frontend["前端 (PyQt6)"]
-        MW[MainWindow] --> Pages
-        subgraph Pages["页面模块"]
-            HP[首页]
-            IM[灵感对话]
-            ND[项目详情]
-            WD[写作台]
-            ST[设置]
-        end
-        Utils[工具层<br/>APIClient/AsyncWorker/SSEWorker]
+flowchart TB
+    subgraph Frontend["PyQt6 前端"]
+        direction LR
+        FP1[HomePage]
+        FP2[InspirationMode]
+        FP3[NovelDetail]
+        FP4[WritingDesk]
+        FP5[Settings]
     end
 
-    subgraph Backend["后端 (FastAPI)"]
-        Routers[API路由层]
-        Services[服务层]
-        Repos[Repository层]
+    subgraph FrontendCore["前端核心"]
+        direction LR
+        FC1[API Client<br/>Mixin 架构]
+        FC2[AsyncWorker]
+        FC3[SSEWorker]
+        FC4[ThemeManager]
+    end
+
+    subgraph Backend["FastAPI 后端"]
+        direction TB
+        subgraph Routes["路由层"]
+            R1[/api/novels/*]
+            R2[/api/writer/*]
+            R3[/api/*-configs]
+        end
+        subgraph Services["服务层"]
+            S1[NovelService]
+            S2[ChapterGeneration]
+            S3[RAGServices]
+            S4[LLMService]
+            S5[MangaPromptService]
+        end
+        subgraph Repos["Repository 层"]
+            RP1[BaseRepository]
+            RP2[NovelRepo]
+            RP3[ChapterRepo]
+        end
     end
 
     subgraph Storage["存储层"]
-        DB[(SQLite)]
-        VS[(向量库)]
-        LLM[("LLM APIs")]
+        direction LR
+        DB1[(SQLite<br/>afn.db)]
+        DB2[(ChromaDB<br/>vectors)]
+        DB3[/LLM APIs/]
     end
 
-    Frontend -->|HTTP/SSE| Backend
-    Backend --> Storage
+    Frontend --> FrontendCore
+    FrontendCore -->|HTTP REST / SSE| Backend
+    Routes --> Services
+    Services --> Repos
+    Repos --> Storage
+    Services --> DB3
+
+    style Frontend fill:#e3f2fd
+    style FrontendCore fill:#bbdefb
+    style Backend fill:#fff8e1
+    style Storage fill:#f3e5f5
 ```
 
-### 目录结构
+### 数据流
 
-```
-AFN/
-├── backend/                  # FastAPI 后端服务
-│   ├── app/
-│   │   ├── api/routers/     # API 路由
-│   │   │   ├── novels/      # 项目管理（灵感、蓝图、大纲）
-│   │   │   └── writer/      # 写作阶段（章节、漫画、优化）
-│   │   ├── services/        # 业务逻辑层
-│   │   │   ├── chapter_generation/  # 章节生成
-│   │   │   ├── rag/                 # RAG检索系统
-│   │   │   ├── manga_prompt/        # 漫画提示词
-│   │   │   ├── image_generation/    # 图片生成
-│   │   │   ├── import_analysis/     # 导入分析
-│   │   │   └── content_optimization/ # 正文优化
-│   │   ├── models/          # SQLAlchemy 模型
-│   │   ├── schemas/         # Pydantic 数据模型
-│   │   └── core/            # 核心模块（依赖注入、状态机）
-│   ├── prompts/             # LLM 提示词模板
-│   └── storage/             # 数据存储
-│       ├── afn.db           # SQLite 数据库
-│       └── generated_images/ # 生成的图片
-│
-├── frontend/                 # PyQt6 桌面前端
-│   ├── windows/             # 页面窗口
-│   │   ├── inspiration_mode/ # 灵感对话
-│   │   ├── novel_detail/    # 项目详情
-│   │   ├── writing_desk/    # 写作台
-│   │   └── settings/        # 设置页面
-│   ├── components/          # UI 组件库
-│   ├── themes/              # 主题系统
-│   │   └── theme_manager/   # 主题管理器（Mixin架构）
-│   ├── api/client/          # API 客户端（Mixin架构）
-│   └── utils/               # 工具类
-│
-├── docs/                    # 项目文档
-│   └── ARCHITECTURE.md      # 详细架构图
-├── run_app.py               # 统一启动入口
-└── build.bat                # 打包脚本
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant F as 前端 (PyQt6)
+    participant B as 后端 (FastAPI)
+    participant L as LLM API
+    participant D as SQLite
+    participant V as ChromaDB
+
+    U->>F: 点击生成章节
+    F->>B: POST /api/writer/chapters/generate
+
+    B->>D: 获取蓝图/大纲
+    B->>V: RAG 检索相关内容
+    B->>B: 构建三层上下文
+
+    loop 并行生成 N 个版本
+        B->>L: 流式请求 LLM
+        L-->>B: SSE 返回 tokens
+        B-->>F: SSE 转发 tokens
+        F-->>U: 实时显示生成内容
+    end
+
+    B-->>F: 返回所有版本
+    U->>F: 选择最佳版本
+    F->>B: POST /api/writer/chapters/select
+
+    B->>D: 保存选定版本
+    B->>V: 向量化入库
+    B->>B: 更新角色/伏笔索引
+    B-->>F: 返回成功
 ```
 
-### 技术栈
+---
 
-| 层级 | 技术 | 版本 |
-|------|------|------|
-| 前端框架 | PyQt6 | 6.6.1 |
-| 后端框架 | FastAPI | 0.110.0 |
-| ORM | SQLAlchemy 2.0 | 异步 |
-| 数据库 | SQLite + aiosqlite | - |
-| 向量库 | ChromaDB | - |
-| PDF生成 | ReportLab | - |
-| LLM集成 | OpenAI兼容API | - |
+## 配置指南
+
+### LLM 配置
+
+支持 OpenAI 兼容 API：
+
+| 提供商 | Base URL |
+|:-------|:---------|
+| OpenAI | `https://api.openai.com/v1` |
+| DeepSeek | `https://api.deepseek.com/v1` |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| Moonshot | `https://api.moonshot.cn/v1` |
+| Ollama | `http://localhost:11434/v1` |
+| 中转服务 | 2API / API2D / OpenRouter 等 |
+
+### 嵌入配置（RAG 功能）
+
+| 类型 | 说明 |
+|:-----|:-----|
+| OpenAI 兼容接口 | 远程嵌入 API |
+| Ollama 本地模型 | 本地部署嵌入模型 |
+
+### 图片生成配置
+
+| 服务类型 | 说明 |
+|:---------|:-----|
+| OpenAI 兼容接口 | DALL-E 3 / Gemini 等 |
+| Stability AI | Stable Diffusion XL |
+| 本地 ComfyUI | 自定义工作流 |
 
 ---
 
 ## 常见问题
 
-### 启动相关
+### 启动问题
 
-**Q: 启动失败怎么办？**
-
+**Q: 启动失败？**
 1. 检查 Python 版本：`python --version`（需要 3.10+）
-2. 查看日志：`storage/app.log` 和 `storage/debug.log`
-3. 确保端口 8123 未被占用：`netstat -ano | findstr 8123`
+2. 查看日志：
+   - `storage\app.log` - 启动入口日志
+   - `storage\debug.log` - 后端详细日志
+3. 端口占用：`netstat -ano -p TCP | findstr 8123`
 
-**Q: 端口被占用？**
+**Q: 端口 8123 被占用？**
+- `run_app.py` 会自动尝试关闭占用进程
+- 手动处理：`taskkill /F /PID <pid>`
 
-```bash
-# 查找占用进程
-netstat -ano -p TCP | findstr 8123
-# 结束进程
-taskkill /F /PID <pid>
-```
+**Q: 依赖安装失败？**
+- 删除 `backend\.venv` 和 `frontend\.venv` 目录
+- 重新运行 `python run_app.py`
 
-### LLM 相关
+### 功能问题
 
-**Q: 如何获取 API Key？**
+**Q: LLM 调用失败？**
+- 设置页点击 **测试连接** 验证配置
+- 检查 API Key 是否正确
+- 确认 Base URL 格式（以 `/v1` 结尾）
 
-- **OpenAI**：https://platform.openai.com/api-keys
-- **国内服务**：2API、API2D 等中转服务
-- **本地部署**：安装 Ollama 使用本地模型
+**Q: RAG/向量检索不工作？**
+- 需要先配置嵌入服务（设置 → 嵌入配置）
 
-**Q: 生成速度慢？**
-
-1. 使用更快的模型（如 gpt-3.5-turbo）
-2. 使用国内中转服务降低延迟
-3. 检查网络连接
-
-### RAG 相关
-
-**Q: RAG功能需要额外配置吗？**
-
-是的，需要配置嵌入服务：
-1. 进入设置 → 嵌入配置
-2. 新建配置（推荐使用OpenAI兼容接口或Ollama本地模型）
-3. 激活配置
-
-### 图片生成相关
-
-**Q: 如何配置图片生成服务？**
-
-1. 进入设置 → 生图模型
-2. 点击"新增配置"
-3. 选择服务类型（OpenAI兼容/Stability/ComfyUI）
-4. 填写API地址和密钥
-5. 点击"激活"
-
-推荐使用 nano-banana-pro 或 DALL-E 3 获得最佳效果。
+**Q: 透明效果不生效？**
+- 仅 Windows 10/11 支持
+- 设置 → 主题设置 → 启用透明模式
 
 ---
 
 ## 系统要求
 
-- **操作系统**：Windows 10/11
-- **Python**：3.10+
-- **内存**：8GB（推荐16GB）
-- **网络**：需要网络连接调用 LLM API
+| 项目 | 要求 |
+|:-----|:-----|
+| 操作系统 | Windows 10/11 |
+| Python | 3.10+ |
+| 内存 | 8GB（推荐 16GB）|
+| 网络 | 需要连接 LLM API |
 
 ---
 
-## 隐私和安全
+## 相关链接
 
-- 所有数据存储在本地
-- 不收集任何用户信息
-- API Key 仅存储在本地数据库
-- 不上传任何创作内容（除了发送给 LLM）
+- [API 文档](http://localhost:8123/docs) - 后端启动后访问 Swagger UI
+- [详细架构图](docs/ARCHITECTURE.md) - 完整技术架构和数据模型
+- [开发指南](CLAUDE.md) - Claude Code 开发规范
 
 ---
 
 ## 许可证
 
-MIT License
-
----
-
-## 相关文档
-
-- [详细架构图](docs/ARCHITECTURE.md) - 完整的技术架构和数据模型
-- [API文档](http://localhost:8123/docs) - 运行后访问
-
----
-
-**立即开始**：运行 `python run_app.py` 一键启动！
+[MIT License](LICENSE)

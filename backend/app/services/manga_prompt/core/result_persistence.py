@@ -13,7 +13,7 @@ from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.manga_prompt_repository import MangaPromptRepository
 from app.services.image_generation.service import ImageGenerationService
 
-from .models import MangaGenerationResult
+from ..prompt_builder import MangaPromptResult
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class ResultPersistence:
         self,
         project_id: str,
         chapter_number: int,
-        result: MangaGenerationResult,
+        result: MangaPromptResult,
     ):
         """
         保存生成结果到数据库
@@ -98,7 +98,7 @@ class ResultPersistence:
         Args:
             project_id: 项目ID
             chapter_number: 章节号
-            result: 漫画生成结果
+            result: 漫画提示词结果
         """
         # 获取章节
         chapter = await self.chapter_repo.get_by_project_and_number(
@@ -114,21 +114,27 @@ class ResultPersistence:
         # 获取当前选中的版本ID
         source_version_id = chapter.selected_version_id
 
+        # 构建pages结构用于存储
+        pages_data = [p.to_dict() for p in result.pages]
+
+        # 构建panels列表（扁平化）
+        panels_data = [panel.to_dict() for panel in result.get_all_prompts()]
+
         # 使用upsert保存
         await self.manga_prompt_repo.upsert(
             chapter_id=chapter.id,
             style=result.style,
-            total_pages=result.get_total_pages(),
-            total_panels=result.get_total_panels(),
+            total_pages=result.total_pages,
+            total_panels=result.total_panels,
             character_profiles=result.character_profiles,
-            scenes=data["scenes"],
-            panels=data["panels"],
+            scenes=pages_data,  # 新架构中scenes字段存储pages数据
+            panels=panels_data,
             source_version_id=source_version_id,
         )
 
         logger.info(
             f"保存漫画分镜结果: project={project_id}, chapter={chapter_number}, "
-            f"pages={result.get_total_pages()}, panels={result.get_total_panels()}"
+            f"pages={result.total_pages}, panels={result.total_panels}"
         )
 
     async def get_result(
@@ -154,7 +160,6 @@ class ResultPersistence:
             return None
 
         # 确保是已完成的结果（有panels数据且状态为completed）
-        # 如果只有断点数据但没有panels，不认为是完成的结果
         if not manga_prompt.panels or manga_prompt.generation_status != "completed":
             return None
 
@@ -165,7 +170,7 @@ class ResultPersistence:
             "character_profiles": manga_prompt.character_profiles or {},
             "total_pages": manga_prompt.total_pages,
             "total_panels": manga_prompt.total_panels,
-            "scenes": manga_prompt.scenes or [],
+            "pages": manga_prompt.scenes or [],  # scenes字段存储pages数据
             "panels": manga_prompt.panels or [],
             "created_at": manga_prompt.created_at.isoformat() if manga_prompt.created_at else None,
         }

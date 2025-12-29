@@ -1,84 +1,103 @@
 """
 漫画提示词服务模块
 
-基于专业漫画分镜理念设计的服务。
+基于页面驱动的漫画分镜生成服务。
 
 核心流程：
-1. 提取场景 - 从章节内容中识别关键叙事场景
-2. 展开场景 - 将每个场景展开为页面+画格（使用专业模板）
-3. 生成提示词 - 为每个画格生成专属提示词
-4. 页面合成 - 将生成的图片合成为漫画页面
+1. 信息提取 - 从章节内容提取结构化信息（角色、对话、事件、场景）
+2. 页面规划 - 全局页面规划，确定页数和事件分配
+3. 分镜设计 - 为每页设计详细分镜
+4. 提示词构建 - 生成AI绘图提示词
 
-专业漫画分镜特点：
-- 页面模板系统：8种专业布局模板适配不同场景
-- 画格用途标注：建立镜头、动作、反应、特写等
-- 情感几何：通过画格形状传达情绪
-- 视觉节奏：正反打、蒙太奇等专业技法
+模块结构：
+- extraction/ - 章节信息提取
+- planning/ - 页面规划
+- storyboard/ - 分镜设计
+- prompt_builder/ - 提示词构建
+- core/ - 主服务
 """
 
-# 主服务（从拆分后的子模块导入）
+# 主服务
 from .core import (
     MangaPromptServiceV2,
-    MangaGenerationResult,
     MangaStyle,
     generate_manga_prompts,
 )
 
-# 页面模板系统
-from .page_templates import (
-    PageTemplate,
-    PanelSlot,
-    PanelContent,
-    PagePlan,
-    SceneExpansion,
-    SceneMood,
+# 信息提取
+from .extraction import (
+    ChapterInfoExtractor,
+    ChapterInfo,
+    CharacterInfo,
+    DialogueInfo,
+    EventInfo,
+    SceneInfo,
+    ItemInfo,
+)
+
+# 页面规划
+from .planning import (
+    PagePlanner,
+    PagePlanResult,
+    PagePlanItem,
+    PacingType,
+    PageRole,
+)
+
+# 分镜设计
+from .storyboard import (
+    StoryboardDesigner,
+    StoryboardResult,
+    PageStoryboard,
+    PanelDesign,
+    DialogueBubble,
+    SoundEffect,
+    ShotType,
+    PanelSize,
     PanelShape,
-    PanelPurpose,
-    ALL_TEMPLATES,
-    get_template,
-    get_templates_for_mood,
-    recommend_template,
 )
 
-# 场景展开服务（从拆分后的子模块导入）
-from .scene_expansion import (
-    SceneExpansionService,
-    expand_scene_to_manga,
-)
-
-# 画格提示词构建器（从拆分后的子模块导入）
-from .panel_prompt import (
-    PanelPromptBuilder,
+# 提示词构建
+from .prompt_builder import (
+    PromptBuilder,
+    MangaPromptResult,
+    PagePromptResult,
     PanelPrompt,
-    build_prompts_for_expansion,
-    build_prompts_for_expansions,
 )
+
 
 __all__ = [
     # 主服务
     "MangaPromptServiceV2",
-    "MangaGenerationResult",
     "MangaStyle",
     "generate_manga_prompts",
-    # 页面模板
-    "PageTemplate",
-    "PanelSlot",
-    "PanelContent",
-    "PagePlan",
-    "SceneExpansion",
-    "SceneMood",
+    # 信息提取
+    "ChapterInfoExtractor",
+    "ChapterInfo",
+    "CharacterInfo",
+    "DialogueInfo",
+    "EventInfo",
+    "SceneInfo",
+    "ItemInfo",
+    # 页面规划
+    "PagePlanner",
+    "PagePlanResult",
+    "PagePlanItem",
+    "PacingType",
+    "PageRole",
+    # 分镜设计
+    "StoryboardDesigner",
+    "StoryboardResult",
+    "PageStoryboard",
+    "PanelDesign",
+    "DialogueBubble",
+    "SoundEffect",
+    "ShotType",
+    "PanelSize",
     "PanelShape",
-    "PanelPurpose",
-    "ALL_TEMPLATES",
-    "get_template",
-    "get_templates_for_mood",
-    "recommend_template",
-    # 场景展开
-    "SceneExpansionService",
-    "expand_scene_to_manga",
-    # 画格提示词
-    "PanelPromptBuilder",
+    # 提示词构建
+    "PromptBuilder",
+    "MangaPromptResult",
+    "PagePromptResult",
     "PanelPrompt",
-    "build_prompts_for_expansion",
-    "build_prompts_for_expansions",
 ]

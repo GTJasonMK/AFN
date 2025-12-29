@@ -542,9 +542,6 @@ class PDFExportService:
                     error_message="PDF生成库未安装，请运行: pip install reportlab pillow",
                 )
 
-            # 导入页面模板
-            from ..manga_prompt.page_templates import get_template
-
             # 获取章节的漫画提示词（包含排版信息）
             from ...repositories.chapter_repository import ChapterRepository
             chapter_repo = ChapterRepository(self.session)
@@ -661,10 +658,8 @@ class PDFExportService:
                 panels = scene_panels[scene_id]
                 template_id = scene_templates.get(scene_id)
 
-                # 获取模板
-                template = get_template(template_id) if template_id else None
-
-                logger.debug(f"绘制场景 {scene_id}: {len(panels)} 个画格, 模板={template_id}")
+                # 新架构不再使用模板系统，使用自动布局
+                logger.debug(f"绘制场景 {scene_id}: {len(panels)} 个画格")
 
                 # 绘制页面背景（白色）
                 c.setFillColorRGB(1, 1, 1)
@@ -690,44 +685,33 @@ class PDFExportService:
                         logger.warning(f"图片不存在: {img_path}")
                         continue
 
-                    # 从模板获取画格坐标
+                    # 根据画格数量自动布局
                     rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
+                    panel_count = len(panels)
+                    panel_index = panels.index(panel)
 
-                    if template:
-                        # 根据 slot_id 在模板中查找画格位置
-                        for slot in template.panel_slots:
-                            if slot.slot_id == slot_id:
-                                rel_x = slot.x
-                                rel_y = slot.y
-                                rel_width = slot.width
-                                rel_height = slot.height
-                                break
+                    if panel_count == 1:
+                        rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
+                    elif panel_count == 2:
+                        rel_x = 0.0
+                        rel_y = 0.5 * panel_index
+                        rel_width = 1.0
+                        rel_height = 0.48
+                    elif panel_count <= 4:
+                        col = panel_index % 2
+                        row = panel_index // 2
+                        rel_x = 0.52 * col
+                        rel_y = 0.52 * row
+                        rel_width = 0.48
+                        rel_height = 0.48
                     else:
-                        # 无模板时，根据画格数量简单排版
-                        panel_count = len(panels)
-                        panel_index = panels.index(panel)
-                        if panel_count == 1:
-                            rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
-                        elif panel_count == 2:
-                            rel_x = 0.0
-                            rel_y = 0.5 * panel_index
-                            rel_width = 1.0
-                            rel_height = 0.48
-                        elif panel_count <= 4:
-                            col = panel_index % 2
-                            row = panel_index // 2
-                            rel_x = 0.52 * col
-                            rel_y = 0.52 * row
-                            rel_width = 0.48
-                            rel_height = 0.48
-                        else:
-                            # 更多画格时使用三行布局
-                            col = panel_index % 2
-                            row = panel_index // 2
-                            rel_x = 0.52 * col
-                            rel_y = 0.34 * row
-                            rel_width = 0.48
-                            rel_height = 0.32
+                        # 更多画格时使用三行布局
+                        col = panel_index % 2
+                        row = panel_index // 2
+                        rel_x = 0.52 * col
+                        rel_y = 0.34 * row
+                        rel_width = 0.48
+                        rel_height = 0.32
 
                     # 转换为绝对坐标（PDF坐标系是左下角为原点）
                     panel_x = content_x + rel_x * content_width

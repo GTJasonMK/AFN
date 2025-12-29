@@ -10,6 +10,7 @@
 - [前端架构](#前端架构)
 - [数据模型](#数据模型)
 - [核心业务流程](#核心业务流程)
+- [漫画分镜生成系统](#漫画分镜生成系统)
 - [RAG系统架构](#rag系统架构)
 - [通信机制](#通信机制)
 
@@ -270,6 +271,27 @@ backend/app/services/
 │   ├── chapter_context_service.py    # 章节上下文
 │   ├── chapter_version_service.py    # 版本管理
 │   └── foreshadowing_service.py      # 伏笔追踪
+│
+├── 漫画分镜服务 (manga_prompt/)
+│   ├── extraction/                   # 信息提取
+│   │   ├── models.py                # 数据模型
+│   │   ├── prompts.py               # 提示词
+│   │   └── chapter_info_extractor.py
+│   ├── planning/                     # 页面规划
+│   │   ├── models.py
+│   │   ├── prompts.py
+│   │   └── page_planner.py
+│   ├── storyboard/                   # 分镜设计
+│   │   ├── models.py
+│   │   ├── prompts.py
+│   │   └── designer.py
+│   ├── prompt_builder/               # 提示词构建
+│   │   ├── models.py
+│   │   └── builder.py
+│   └── core/                         # 核心服务
+│       ├── service.py               # MangaPromptServiceV2
+│       ├── checkpoint_manager.py    # 断点管理
+│       └── result_persistence.py    # 结果持久化
 │
 └── 配置服务
     ├── llm_config_service.py         # LLM配置CRUD
@@ -722,6 +744,348 @@ sequenceDiagram
 
 ---
 
+## 漫画分镜生成系统
+
+### 系统概述
+
+漫画分镜生成系统采用**页面驱动**的4步流水线架构，将小说章节内容转换为专业的漫画分镜和AI绘图提示词。
+
+### 架构总览
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        漫画分镜生成系统架构                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         输入                                         │   │
+│  │  章节内容 + 风格设置 + 页数范围 + 角色立绘                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Step 1: 信息提取 (ChapterInfoExtractor)                              │   │
+│  │  • 角色信息（外观/性格/关系）                                         │   │
+│  │  • 对话信息（说话人/内容/情绪）                                       │   │
+│  │  • 场景信息（地点/时间/氛围）                                         │   │
+│  │  • 事件信息（动作/冲突/转折）                                         │   │
+│  │  • 物品信息（关键道具/环境元素）                                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                          ChapterInfo                                        │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Step 2: 页面规划 (PagePlanner)                                       │   │
+│  │  • 全局页数分配                                                       │   │
+│  │  • 事件到页面的映射                                                   │   │
+│  │  • 节奏控制（快/中/慢）                                               │   │
+│  │  • 页面角色（开场/发展/高潮/过渡/结尾）                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                          PagePlanResult                                     │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Step 3: 分镜设计 (StoryboardDesigner)                                │   │
+│  │  • 每页画格数量和布局                                                 │   │
+│  │  • 画格大小/形状/镜头类型                                             │   │
+│  │  • 对话气泡分配                                                       │   │
+│  │  • 音效位置                                                           │   │
+│  │  • 视觉焦点和构图                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                         StoryboardResult                                    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Step 4: 提示词构建 (PromptBuilder)                                   │   │
+│  │  • 英文/中文双语提示词                                                │   │
+│  │  • 负面提示词                                                         │   │
+│  │  • 角色外观描述注入                                                   │   │
+│  │  • 参考图路径（角色立绘）                                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         输出                                         │   │
+│  │  MangaPromptResult (页面列表 + 画格提示词列表)                        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 流程时序图
+
+```mermaid
+sequenceDiagram
+    participant UI as 前端UI
+    participant API as API路由
+    participant SVC as MangaPromptServiceV2
+    participant EXT as ChapterInfoExtractor
+    participant PLN as PagePlanner
+    participant DSN as StoryboardDesigner
+    participant BLD as PromptBuilder
+    participant LLM as LLMService
+    participant DB as 数据库
+
+    UI->>API: POST /manga-prompts
+    API->>SVC: generate()
+
+    Note over SVC: Step 1: 信息提取
+    SVC->>EXT: extract(chapter_content)
+    EXT->>LLM: 调用LLM提取结构化信息
+    LLM-->>EXT: JSON响应
+    EXT-->>SVC: ChapterInfo
+
+    Note over SVC: 保存断点
+    SVC->>DB: save_checkpoint(extracting)
+
+    Note over SVC: Step 2: 页面规划
+    SVC->>PLN: plan(chapter_info, min_pages, max_pages)
+    PLN->>LLM: 调用LLM规划页面
+    LLM-->>PLN: JSON响应
+    PLN-->>SVC: PagePlanResult
+
+    Note over SVC: 保存断点
+    SVC->>DB: save_checkpoint(planning)
+
+    Note over SVC: Step 3: 分镜设计
+    loop 每个页面
+        SVC->>DSN: design_page(page_plan, chapter_info)
+        DSN->>LLM: 调用LLM设计分镜
+        LLM-->>DSN: JSON响应
+        DSN-->>SVC: PageStoryboard
+        SVC->>DB: save_checkpoint(storyboard)
+    end
+
+    Note over SVC: Step 4: 提示词构建
+    SVC->>BLD: build(storyboard, chapter_info, portraits)
+    BLD-->>SVC: MangaPromptResult
+
+    SVC->>DB: save_result()
+    SVC-->>API: MangaPromptResult
+    API-->>UI: 漫画分镜数据
+```
+
+### 模块目录结构
+
+```
+backend/app/services/manga_prompt/
+├── __init__.py                 # 模块入口，导出所有公共类
+│
+├── extraction/                 # Step 1: 信息提取
+│   ├── __init__.py
+│   ├── models.py              # ChapterInfo, CharacterInfo, DialogueInfo, etc.
+│   ├── prompts.py             # 提取提示词模板
+│   └── chapter_info_extractor.py  # ChapterInfoExtractor
+│
+├── planning/                   # Step 2: 页面规划
+│   ├── __init__.py
+│   ├── models.py              # PagePlanResult, PagePlanItem, PacingType, PageRole
+│   ├── prompts.py             # 规划提示词模板
+│   └── page_planner.py        # PagePlanner
+│
+├── storyboard/                 # Step 3: 分镜设计
+│   ├── __init__.py
+│   ├── models.py              # StoryboardResult, PageStoryboard, PanelDesign
+│   ├── prompts.py             # 分镜提示词模板
+│   └── designer.py            # StoryboardDesigner
+│
+├── prompt_builder/             # Step 4: 提示词构建
+│   ├── __init__.py
+│   ├── models.py              # MangaPromptResult, PagePromptResult, PanelPrompt
+│   └── builder.py             # PromptBuilder
+│
+└── core/                       # 核心服务
+    ├── __init__.py
+    ├── service.py             # MangaPromptServiceV2 主服务
+    ├── models.py              # MangaStyle 枚举
+    ├── checkpoint_manager.py  # 断点管理（支持断点续传）
+    └── result_persistence.py  # 结果持久化
+```
+
+### 核心数据结构
+
+```mermaid
+classDiagram
+    class ChapterInfo {
+        +List~CharacterInfo~ characters
+        +List~DialogueInfo~ dialogues
+        +List~SceneInfo~ scenes
+        +List~EventInfo~ events
+        +List~ItemInfo~ items
+        +to_dict()
+        +from_dict()
+    }
+
+    class PagePlanResult {
+        +int total_pages
+        +str pacing_strategy
+        +List~PagePlanItem~ pages
+        +to_dict()
+        +from_dict()
+    }
+
+    class PagePlanItem {
+        +int page_number
+        +List~int~ event_ids
+        +PacingType pacing
+        +PageRole role
+        +str description
+    }
+
+    class StoryboardResult {
+        +List~PageStoryboard~ pages
+        +int total_panels
+        +to_dict()
+        +from_dict()
+    }
+
+    class PageStoryboard {
+        +int page_number
+        +List~PanelDesign~ panels
+        +str layout_description
+        +str reading_flow
+    }
+
+    class PanelDesign {
+        +int panel_number
+        +PanelSize size
+        +PanelShape shape
+        +ShotType shot_type
+        +str aspect_ratio
+        +str scene_description
+        +List~DialogueBubble~ dialogues
+        +List~SoundEffect~ sound_effects
+        +bool is_key_panel
+    }
+
+    class MangaPromptResult {
+        +int chapter_number
+        +str style
+        +Dict character_profiles
+        +int total_pages
+        +int total_panels
+        +List~PagePromptResult~ pages
+        +get_all_prompts()
+        +to_dict()
+    }
+
+    class PanelPrompt {
+        +str panel_id
+        +int page_number
+        +int panel_number
+        +str prompt_en
+        +str prompt_zh
+        +str negative_prompt
+        +List~str~ reference_image_paths
+    }
+
+    ChapterInfo --> PagePlanResult : 输入
+    PagePlanResult --> StoryboardResult : 输入
+    StoryboardResult --> MangaPromptResult : 输入
+    MangaPromptResult --> PanelPrompt : 包含
+```
+
+### 枚举类型
+
+| 枚举 | 值 | 说明 |
+|------|-----|------|
+| **PacingType** | fast, medium, slow | 节奏类型 |
+| **PageRole** | opening, development, climax, transition, ending | 页面角色 |
+| **ShotType** | extreme_close_up, close_up, medium_close, medium, medium_long, long, extreme_long, birds_eye, worms_eye | 镜头类型 |
+| **PanelSize** | small, medium, large, full_page, double_page | 画格大小 |
+| **PanelShape** | rectangle, square, vertical, horizontal, diagonal, irregular, circular | 画格形状 |
+| **MangaStyle** | manga, anime, comic, webtoon | 漫画风格 |
+
+### 断点续传机制
+
+系统支持长时间生成任务的断点续传：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      断点续传状态流转                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  pending ──▶ extracting ──▶ planning ──▶ storyboard ──▶ completed │
+│                                                                 │
+│  每个阶段完成后保存断点数据到数据库：                               │
+│  • chapter_info (提取结果)                                       │
+│  • page_plan (规划结果)                                          │
+│  • storyboard (分镜结果，按页累积)                                │
+│                                                                 │
+│  断点恢复时：                                                     │
+│  1. 读取断点数据                                                 │
+│  2. 跳过已完成阶段                                               │
+│  3. 从断点位置继续执行                                           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### API接口
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/writer/novels/{id}/chapters/{num}/manga-prompts` | 生成漫画分镜 |
+| GET | `/api/writer/novels/{id}/chapters/{num}/manga-prompts` | 获取已保存的分镜 |
+| DELETE | `/api/writer/novels/{id}/chapters/{num}/manga-prompts` | 删除分镜数据 |
+| GET | `/api/writer/novels/{id}/chapters/{num}/manga-prompts/progress` | 获取生成进度 |
+
+### 请求参数
+
+```json
+{
+    "style": "manga",           // 风格: manga/anime/comic/webtoon
+    "min_pages": 8,             // 最少页数 (3-20)
+    "max_pages": 15,            // 最多页数 (5-30)
+    "language": "chinese",      // 语言: chinese/japanese/english/korean
+    "use_portraits": true,      // 使用角色立绘作为参考图
+    "auto_generate_portraits": true  // 自动生成缺失立绘
+}
+```
+
+### 响应结构
+
+```json
+{
+    "chapter_number": 1,
+    "style": "manga",
+    "character_profiles": {
+        "主角": "黑发少年，身穿校服..."
+    },
+    "total_pages": 12,
+    "total_panels": 48,
+    "pages": [
+        {
+            "page_number": 1,
+            "panel_count": 4,
+            "layout_description": "四格标准布局",
+            "reading_flow": "right_to_left"
+        }
+    ],
+    "panels": [
+        {
+            "panel_id": "p1_panel1",
+            "page_number": 1,
+            "panel_number": 1,
+            "size": "medium",
+            "shape": "rectangle",
+            "shot_type": "medium",
+            "aspect_ratio": "4:3",
+            "prompt_en": "A young man with black hair...",
+            "prompt_zh": "一个黑发少年...",
+            "negative_prompt": "blurry, low quality...",
+            "dialogues": [...],
+            "characters": ["主角"],
+            "reference_image_paths": ["/portraits/protagonist.png"]
+        }
+    ]
+}
+```
+
+---
+
 ## RAG系统架构
 
 ### RAG数据流
@@ -979,5 +1343,5 @@ graph TB
 
 ---
 
-*文档生成时间: 2024年*
+*文档更新时间: 2024年12月*
 *项目版本: 1.0.0-pyqt*
