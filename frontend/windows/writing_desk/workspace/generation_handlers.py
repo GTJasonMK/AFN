@@ -109,8 +109,17 @@ class GenerationHandlersMixin:
         logger.info("章节生成已取消")
 
     def refreshCurrentChapter(self):
-        """刷新当前章节显示"""
+        """刷新当前章节显示
+
+        强制重新加载当前章节，即使章节号相同。
+        这在版本切换后需要刷新内容时特别重要。
+        """
         if self.current_chapter:
+            # 清除缓存标记以强制重新加载
+            # loadChapter会检查_last_loaded_chapter，如果相同会直接返回
+            # 版本切换后章节号不变但内容已变，所以需要强制刷新
+            if hasattr(self, '_last_loaded_chapter'):
+                self._last_loaded_chapter = None
             self.loadChapter(self.current_chapter)
 
     def showEvaluationResult(self, result: dict):

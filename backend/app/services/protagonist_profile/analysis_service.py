@@ -4,7 +4,6 @@
 """
 import json
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,12 +17,10 @@ from ...schemas.protagonist import (
     LLMDeletionCandidate,
 )
 from ...services.llm_service import LLMService
+from ...services.prompt_service import PromptService
 from ...utils.json_utils import parse_llm_json_safe
 
 logger = logging.getLogger(__name__)
-
-# 提示词文件路径
-PROMPTS_DIR = Path(__file__).parent.parent.parent.parent / "prompts"
 
 
 class ProtagonistAnalysisService:
@@ -35,18 +32,37 @@ class ProtagonistAnalysisService:
     3. 隐性属性更新决策 - 决定是否更新隐性属性
     """
 
-    def __init__(self, session: AsyncSession, llm_service: LLMService):
+    def __init__(
+        self,
+        session: AsyncSession,
+        llm_service: LLMService,
+        prompt_service: PromptService
+    ):
         self.session = session
         self.llm_service = llm_service
+        self.prompt_service = prompt_service
 
-    def _load_prompt(self, filename: str) -> str:
-        """加载提示词文件"""
-        prompt_path = PROMPTS_DIR / filename
-        if prompt_path.exists():
-            return prompt_path.read_text(encoding="utf-8")
-        else:
-            logger.warning(f"提示词文件不存在: {prompt_path}")
-            return ""
+    async def _load_prompt(self, name: str) -> str:
+        """加载提示词内容
+
+        Args:
+            name: 提示词名称（不含.md后缀）
+
+        Returns:
+            提示词内容
+        """
+        # 优先从数据库获取（支持用户修改）
+        content = await self.prompt_service.get_prompt(name)
+        if content:
+            return content
+
+        # 回退到默认文件
+        default_content = await self.prompt_service.get_default_content(name)
+        if default_content:
+            return default_content
+
+        logger.warning(f"提示词不存在: {name}")
+        return ""
 
     async def analyze_chapter(
         self,
@@ -66,7 +82,7 @@ class ProtagonistAnalysisService:
         Returns:
             章节分析结果
         """
-        system_prompt = self._load_prompt("protagonist_analysis.md")
+        system_prompt = await self._load_prompt("protagonist_analysis")
 
         # 构建用户提示
         user_prompt = f"""请分析以下章节内容，提取主角属性变化和行为记录。
@@ -143,7 +159,7 @@ class ProtagonistAnalysisService:
         Returns:
             分类结果
         """
-        system_prompt = self._load_prompt("implicit_classification.md")
+        system_prompt = await self._load_prompt("implicit_classification")
 
         user_prompt = f"""请判断以下行为是否符合已有的隐性属性。
 
@@ -211,7 +227,7 @@ class ProtagonistAnalysisService:
         Returns:
             更新决策
         """
-        system_prompt = self._load_prompt("implicit_update.md")
+        system_prompt = await self._load_prompt("implicit_update")
 
         # 构建行为记录摘要
         records_summary = []

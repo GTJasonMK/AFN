@@ -309,6 +309,7 @@ class PromptPreviewRequest(BaseModel):
     chapter_number: int
     writing_notes: Optional[str] = Field(default=None, description="章节额外写作指令")
     is_retry: bool = Field(default=False, description="是否为重新生成模式（使用简化提示词）")
+    use_rag: bool = Field(default=True, description="是否启用RAG检索")
 
 
 class RAGStatistics(BaseModel):

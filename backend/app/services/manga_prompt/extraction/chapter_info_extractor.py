@@ -2,12 +2,20 @@
 章节信息提取器
 
 从章节内容中提取结构化信息，用于漫画分镜设计。
+
+采用分步提取策略避免单次LLM调用输出过大导致JSON被截断：
+1. 步骤1：提取角色 + 基础事件
+2. 步骤2：提取对话信息
+3. 步骤3：提取场景信息
+4. 步骤4：提取物品 + 摘要信息
 """
 
+import json
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
 
-from app.services.llm_wrappers import call_llm, LLMProfile
+from app.exceptions import JSONParseError
+from app.services.llm_wrappers import call_llm_json, LLMProfile
 from app.utils.json_utils import parse_llm_json_safe
 
 from .models import (
@@ -24,8 +32,17 @@ from .models import (
 )
 from .prompts import (
     PROMPT_NAME,
+    PROMPT_NAME_STEP1,
+    PROMPT_NAME_STEP2,
+    PROMPT_NAME_STEP3,
+    PROMPT_NAME_STEP4,
     CHAPTER_INFO_EXTRACTION_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
+    STEP1_CHARACTERS_EVENTS_PROMPT,
+    STEP2_DIALOGUES_PROMPT,
+    STEP3_SCENES_PROMPT,
+    STEP4_ITEMS_SUMMARY_PROMPT,
+    STEP_EXTRACTION_SYSTEM_PROMPT,
 )
 
 if TYPE_CHECKING:
@@ -72,7 +89,13 @@ class ChapterInfoExtractor:
         dialogue_language: str = "chinese",
     ) -> ChapterInfo:
         """
-        从章节内容中提取结构化信息
+        从章节内容中提取结构化信息（使用分步提取策略）
+
+        采用分步提取避免单次LLM调用输出过大导致JSON被截断：
+        1. 步骤1：提取角色 + 基础事件
+        2. 步骤2：提取对话信息
+        3. 步骤3：提取场景信息
+        4. 步骤4：提取物品 + 摘要信息
 
         Args:
             chapter_content: 章节内容文本
@@ -81,38 +104,64 @@ class ChapterInfoExtractor:
 
         Returns:
             ChapterInfo: 包含所有提取信息的结构化数据
+
+        Raises:
+            JSONParseError: 当LLM返回的JSON无法解析时
         """
         # 限制内容长度
         content = chapter_content[:self.MAX_CONTENT_LENGTH]
+        logger.info("开始分步提取章节信息，内容长度: %d 字符", len(content))
 
-        # 构建提示词
-        prompt = await self._build_prompt(content)
+        # 步骤1：提取角色和事件
+        logger.info("步骤1/4: 提取角色和事件...")
+        step1_data = await self._extract_step1_characters_events(content, user_id)
+        characters = step1_data.get("characters", {})
+        events = step1_data.get("events", [])
+        climax_event_indices = step1_data.get("climax_event_indices", [])
+        logger.info("步骤1完成: %d 角色, %d 事件", len(characters), len(events))
 
-        # 获取系统提示词
-        system_prompt = await self._get_system_prompt()
-
-        # 调用LLM
-        logger.info("开始提取章节信息，内容长度: %d 字符", len(content))
-        response = await call_llm(
-            self.llm_service,
-            LLMProfile.ANALYTICAL,
-            system_prompt=system_prompt,
-            user_content=prompt,
-            user_id=user_id,
+        # 步骤2：提取对话
+        logger.info("步骤2/4: 提取对话...")
+        step2_data = await self._extract_step2_dialogues(
+            content, characters, events, user_id
         )
+        dialogues = step2_data.get("dialogues", [])
+        logger.info("步骤2完成: %d 对话", len(dialogues))
 
-        # 解析响应
-        data = parse_llm_json_safe(response)
+        # 步骤3：提取场景
+        logger.info("步骤3/4: 提取场景...")
+        step3_data = await self._extract_step3_scenes(content, events, user_id)
+        scenes = step3_data.get("scenes", [])
+        logger.info("步骤3完成: %d 场景", len(scenes))
 
-        if not data:
-            logger.warning("章节信息提取失败，LLM返回无法解析的内容")
-            return self._create_fallback_chapter_info(content)
+        # 步骤4：提取物品和摘要
+        logger.info("步骤4/4: 提取物品和摘要...")
+        step4_data = await self._extract_step4_items_summary(
+            content, len(events), user_id
+        )
+        items = step4_data.get("items", [])
+        chapter_summary = step4_data.get("chapter_summary", "")
+        chapter_summary_en = step4_data.get("chapter_summary_en", "")
+        mood_progression = step4_data.get("mood_progression", [])
+        total_estimated_pages = step4_data.get("total_estimated_pages", 10)
+        logger.info("步骤4完成: %d 物品", len(items))
 
-        # 转换为ChapterInfo对象
+        # 组合所有数据
         try:
-            chapter_info = self._parse_chapter_info(data)
+            chapter_info = self._combine_step_results(
+                characters=characters,
+                events=events,
+                dialogues=dialogues,
+                scenes=scenes,
+                items=items,
+                chapter_summary=chapter_summary,
+                chapter_summary_en=chapter_summary_en,
+                mood_progression=mood_progression,
+                climax_event_indices=climax_event_indices,
+                total_estimated_pages=total_estimated_pages,
+            )
             logger.info(
-                "章节信息提取成功: %d 角色, %d 对话, %d 场景, %d 事件, %d 物品",
+                "分步提取完成: %d 角色, %d 对话, %d 场景, %d 事件, %d 物品",
                 len(chapter_info.characters),
                 len(chapter_info.dialogues),
                 len(chapter_info.scenes),
@@ -121,8 +170,421 @@ class ChapterInfoExtractor:
             )
             return chapter_info
         except Exception as e:
-            logger.error("解析提取结果失败: %s", e)
-            return self._create_fallback_chapter_info(content)
+            logger.error("组合提取结果失败: %s", e)
+            raise JSONParseError(
+                context="章节信息提取",
+                detail_msg=f"组合提取数据时出错: {str(e)}"
+            ) from e
+
+    async def extract_with_checkpoint(
+        self,
+        chapter_content: str,
+        user_id: Optional[int] = None,
+        dialogue_language: str = "chinese",
+        checkpoint_data: Optional[Dict[str, Any]] = None,
+        on_step_complete: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+    ) -> Tuple[ChapterInfo, Dict[str, Any]]:
+        """
+        支持断点恢复的章节信息提取
+
+        每完成一个步骤后调用 on_step_complete 回调，便于保存中间状态。
+
+        Args:
+            chapter_content: 章节内容文本
+            user_id: 用户ID
+            dialogue_language: 对话语言
+            checkpoint_data: 已有的断点数据，包含已完成步骤的结果
+            on_step_complete: 步骤完成回调 (step_number, updated_checkpoint_data)
+
+        Returns:
+            (ChapterInfo, checkpoint_data) 元组
+        """
+        content = chapter_content[:self.MAX_CONTENT_LENGTH]
+        logger.info("开始分步提取章节信息（支持断点），内容长度: %d 字符", len(content))
+
+        # 初始化或恢复断点数据
+        cp_data = checkpoint_data.copy() if checkpoint_data else {}
+
+        # 从断点恢复已提取的数据
+        step1_data = cp_data.get("extraction_step1")
+        step2_data = cp_data.get("extraction_step2")
+        step3_data = cp_data.get("extraction_step3")
+        step4_data = cp_data.get("extraction_step4")
+
+        # 步骤1：提取角色和事件
+        if not step1_data:
+            logger.info("步骤1/4: 提取角色和事件...")
+            step1_data = await self._extract_step1_characters_events(content, user_id)
+            cp_data["extraction_step1"] = step1_data
+            logger.info(
+                "步骤1完成: %d 角色, %d 事件",
+                len(step1_data.get("characters", {})),
+                len(step1_data.get("events", []))
+            )
+            if on_step_complete:
+                await self._safe_callback(on_step_complete, 1, cp_data)
+        else:
+            logger.info("步骤1已从断点恢复，跳过")
+
+        characters = step1_data.get("characters", {})
+        events = step1_data.get("events", [])
+        climax_event_indices = step1_data.get("climax_event_indices", [])
+
+        # 步骤2：提取对话
+        if not step2_data:
+            logger.info("步骤2/4: 提取对话...")
+            step2_data = await self._extract_step2_dialogues(
+                content, characters, events, user_id
+            )
+            cp_data["extraction_step2"] = step2_data
+            logger.info("步骤2完成: %d 对话", len(step2_data.get("dialogues", [])))
+            if on_step_complete:
+                await self._safe_callback(on_step_complete, 2, cp_data)
+        else:
+            logger.info("步骤2已从断点恢复，跳过")
+
+        dialogues = step2_data.get("dialogues", [])
+
+        # 步骤3：提取场景
+        if not step3_data:
+            logger.info("步骤3/4: 提取场景...")
+            step3_data = await self._extract_step3_scenes(content, events, user_id)
+            cp_data["extraction_step3"] = step3_data
+            logger.info("步骤3完成: %d 场景", len(step3_data.get("scenes", [])))
+            if on_step_complete:
+                await self._safe_callback(on_step_complete, 3, cp_data)
+        else:
+            logger.info("步骤3已从断点恢复，跳过")
+
+        scenes = step3_data.get("scenes", [])
+
+        # 步骤4：提取物品和摘要
+        if not step4_data:
+            logger.info("步骤4/4: 提取物品和摘要...")
+            step4_data = await self._extract_step4_items_summary(
+                content, len(events), user_id
+            )
+            cp_data["extraction_step4"] = step4_data
+            logger.info("步骤4完成: %d 物品", len(step4_data.get("items", [])))
+            if on_step_complete:
+                await self._safe_callback(on_step_complete, 4, cp_data)
+        else:
+            logger.info("步骤4已从断点恢复，跳过")
+
+        items = step4_data.get("items", [])
+        chapter_summary = step4_data.get("chapter_summary", "")
+        chapter_summary_en = step4_data.get("chapter_summary_en", "")
+        mood_progression = step4_data.get("mood_progression", [])
+        total_estimated_pages = step4_data.get("total_estimated_pages", 10)
+
+        # 组合所有数据
+        try:
+            chapter_info = self._combine_step_results(
+                characters=characters,
+                events=events,
+                dialogues=dialogues,
+                scenes=scenes,
+                items=items,
+                chapter_summary=chapter_summary,
+                chapter_summary_en=chapter_summary_en,
+                mood_progression=mood_progression,
+                climax_event_indices=climax_event_indices,
+                total_estimated_pages=total_estimated_pages,
+            )
+
+            # 保存完整的 chapter_info 到断点数据
+            cp_data["chapter_info"] = chapter_info.to_dict()
+
+            logger.info(
+                "分步提取完成: %d 角色, %d 对话, %d 场景, %d 事件, %d 物品",
+                len(chapter_info.characters),
+                len(chapter_info.dialogues),
+                len(chapter_info.scenes),
+                len(chapter_info.events),
+                len(chapter_info.items),
+            )
+            return chapter_info, cp_data
+
+        except Exception as e:
+            logger.error("组合提取结果失败: %s", e)
+            raise JSONParseError(
+                context="章节信息提取",
+                detail_msg=f"组合提取数据时出错: {str(e)}"
+            ) from e
+
+    async def _safe_callback(
+        self,
+        callback: Callable,
+        step: int,
+        data: Dict[str, Any]
+    ) -> None:
+        """安全执行回调，支持同步和异步回调"""
+        import asyncio
+        try:
+            result = callback(step, data)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as e:
+            logger.warning("步骤%d完成回调执行失败: %s", step, e)
+
+    async def _extract_step1_characters_events(
+        self,
+        content: str,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """步骤1：提取角色和事件"""
+        # 尝试从 PromptService 加载，失败则使用内置模板
+        prompt_template = await self._get_step_prompt(
+            PROMPT_NAME_STEP1, STEP1_CHARACTERS_EVENTS_PROMPT
+        )
+        prompt = prompt_template.format(content=content)
+
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.ANALYTICAL,
+            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
+            user_content=prompt,
+            user_id=user_id,
+        )
+
+        data = parse_llm_json_safe(response)
+        if not data:
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "步骤1提取失败: 角色和事件。响应长度: %d, 预览: %s",
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context="章节信息提取-步骤1(角色和事件)",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
+        return data
+
+    async def _extract_step2_dialogues(
+        self,
+        content: str,
+        characters: dict,
+        events: list,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """步骤2：提取对话"""
+        # 准备上下文信息
+        characters_json = json.dumps(
+            list(characters.keys()),
+            ensure_ascii=False
+        )
+        events_json = json.dumps(
+            [{"index": e.get("index", i), "description": e.get("description", "")}
+             for i, e in enumerate(events)],
+            ensure_ascii=False,
+            indent=2
+        )
+
+        # 尝试从 PromptService 加载，失败则使用内置模板
+        prompt_template = await self._get_step_prompt(
+            PROMPT_NAME_STEP2, STEP2_DIALOGUES_PROMPT
+        )
+        prompt = prompt_template.format(
+            content=content,
+            characters_json=characters_json,
+            events_json=events_json,
+        )
+
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.ANALYTICAL,
+            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
+            user_content=prompt,
+            user_id=user_id,
+        )
+
+        data = parse_llm_json_safe(response)
+        if not data:
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "步骤2提取失败: 对话。响应长度: %d, 预览: %s",
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context="章节信息提取-步骤2(对话)",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
+        return data
+
+    async def _extract_step3_scenes(
+        self,
+        content: str,
+        events: list,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """步骤3：提取场景"""
+        events_json = json.dumps(
+            [{"index": e.get("index", i), "description": e.get("description", "")}
+             for i, e in enumerate(events)],
+            ensure_ascii=False,
+            indent=2
+        )
+
+        # 尝试从 PromptService 加载，失败则使用内置模板
+        prompt_template = await self._get_step_prompt(
+            PROMPT_NAME_STEP3, STEP3_SCENES_PROMPT
+        )
+        prompt = prompt_template.format(
+            content=content,
+            events_json=events_json,
+        )
+
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.ANALYTICAL,
+            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
+            user_content=prompt,
+            user_id=user_id,
+        )
+
+        data = parse_llm_json_safe(response)
+        if not data:
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "步骤3提取失败: 场景。响应长度: %d, 预览: %s",
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context="章节信息提取-步骤3(场景)",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
+        return data
+
+    async def _extract_step4_items_summary(
+        self,
+        content: str,
+        event_count: int,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """步骤4：提取物品和摘要"""
+        # 尝试从 PromptService 加载，失败则使用内置模板
+        prompt_template = await self._get_step_prompt(
+            PROMPT_NAME_STEP4, STEP4_ITEMS_SUMMARY_PROMPT
+        )
+        prompt = prompt_template.format(
+            content=content,
+            event_count=event_count,
+        )
+
+        response = await call_llm_json(
+            self.llm_service,
+            LLMProfile.ANALYTICAL,
+            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
+            user_content=prompt,
+            user_id=user_id,
+        )
+
+        data = parse_llm_json_safe(response)
+        if not data:
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "步骤4提取失败: 物品和摘要。响应长度: %d, 预览: %s",
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context="章节信息提取-步骤4(物品和摘要)",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
+        return data
+
+    async def _get_step_prompt(
+        self,
+        prompt_name: str,
+        fallback_template: str,
+    ) -> str:
+        """
+        获取分步提取的提示词模板
+
+        优先从 PromptService 加载用户自定义提示词，
+        加载失败时回退到内置模板。
+
+        Args:
+            prompt_name: 提示词注册名称
+            fallback_template: 内置的回退模板
+
+        Returns:
+            提示词模板字符串
+        """
+        if self.prompt_service:
+            try:
+                prompt_content = await self.prompt_service.get_prompt(prompt_name)
+                if prompt_content:
+                    logger.debug("从 PromptService 加载提示词: %s", prompt_name)
+                    return prompt_content
+            except Exception as e:
+                logger.warning(
+                    "无法从 PromptService 加载 %s 提示词: %s，使用内置模板",
+                    prompt_name, e
+                )
+        return fallback_template
+
+    def _combine_step_results(
+        self,
+        characters: dict,
+        events: list,
+        dialogues: list,
+        scenes: list,
+        items: list,
+        chapter_summary: str,
+        chapter_summary_en: str,
+        mood_progression: list,
+        climax_event_indices: list,
+        total_estimated_pages: int,
+    ) -> ChapterInfo:
+        """组合所有步骤的结果为 ChapterInfo 对象"""
+        # 解析角色信息
+        parsed_characters = {}
+        for name, char_data in characters.items():
+            if isinstance(char_data, dict):
+                parsed_characters[name] = CharacterInfo.from_dict(char_data)
+            elif isinstance(char_data, str):
+                parsed_characters[name] = CharacterInfo(name=name, appearance=char_data)
+
+        # 解析事件信息
+        parsed_events = []
+        for e in events:
+            if isinstance(e, dict):
+                parsed_events.append(EventInfo.from_dict(e))
+
+        # 解析对话信息
+        parsed_dialogues = []
+        for d in dialogues:
+            if isinstance(d, dict):
+                parsed_dialogues.append(DialogueInfo.from_dict(d))
+
+        # 解析场景信息
+        parsed_scenes = []
+        for s in scenes:
+            if isinstance(s, dict):
+                parsed_scenes.append(SceneInfo.from_dict(s))
+
+        # 解析物品信息
+        parsed_items = []
+        for i in items:
+            if isinstance(i, dict):
+                parsed_items.append(ItemInfo.from_dict(i))
+
+        return ChapterInfo(
+            characters=parsed_characters,
+            dialogues=parsed_dialogues,
+            scenes=parsed_scenes,
+            events=parsed_events,
+            items=parsed_items,
+            chapter_summary=chapter_summary,
+            chapter_summary_en=chapter_summary_en,
+            mood_progression=mood_progression,
+            climax_event_indices=climax_event_indices,
+            total_estimated_pages=total_estimated_pages,
+        )
 
     async def _build_prompt(self, content: str) -> str:
         """

@@ -68,6 +68,7 @@ _PROFILE_CONFIGS: Dict[LLMProfile, LLMCallConfig] = {
     LLMProfile.CREATIVE: LLMCallConfig(
         temperature=0.7,
         timeout=LLMConstants.DEFAULT_TIMEOUT,
+        max_tokens=LLMConstants.DEFAULT_MAX_TOKENS,  # 创意任务的默认输出限制
     ),
     LLMProfile.INSPIRATION: LLMCallConfig(
         temperature=settings.llm_temp_inspiration,
@@ -80,12 +81,14 @@ _PROFILE_CONFIGS: Dict[LLMProfile, LLMCallConfig] = {
     LLMProfile.MANGA: LLMCallConfig(
         temperature=0.7,
         timeout=LLMConstants.DEFAULT_TIMEOUT * 2,
+        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,  # 漫画分镜需要较大输出空间
     ),
 
     # 分析类
     LLMProfile.ANALYTICAL: LLMCallConfig(
         temperature=0.3,
         timeout=LLMConstants.DEFAULT_TIMEOUT,
+        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,  # 复杂分析任务需要较大输出空间
     ),
     LLMProfile.SUMMARY: LLMCallConfig(
         temperature=settings.llm_temp_summary,
@@ -211,6 +214,7 @@ async def call_llm(
     # 确定最终参数
     temperature = temperature_override if temperature_override is not None else config.temperature
     timeout = timeout_override if timeout_override is not None else config.timeout
+    max_tokens = config.max_tokens  # 使用配置档案的max_tokens
 
     # 响应格式处理：
     # - 空字符串 "" 表示显式禁用JSON模式（用于降级重试）
@@ -229,6 +233,7 @@ async def call_llm(
         temperature=temperature,
         timeout=timeout,
         response_format=fmt,
+        max_tokens=max_tokens,
         user_id=user_id,
     )
 

@@ -8,6 +8,7 @@
 """
 
 import logging
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup, QPushButton, QTextEdit
 
 from api.manager import APIClientManager
@@ -27,6 +28,68 @@ logger = logging.getLogger(__name__)
 
 class ChapterGenerationMixin:
     """章节生成相关方法的Mixin"""
+
+    # 章节生成初始阶段状态提示消息列表
+    _GENERATION_INIT_MESSAGES = [
+        "正在连接AI服务...",
+        "正在收集前文摘要...",
+        "正在检索相关内容...",
+        "正在构建RAG上下文...",
+        "正在准备写作提示词...",
+        "正在启动创作引擎...",
+        "AI正在构思章节内容...",
+    ]
+
+    def _ensure_gen_timer_initialized(self):
+        """确保生成状态定时器已初始化"""
+        if not hasattr(self, '_gen_status_timer'):
+            self._gen_status_timer = None
+            self._gen_status_step = 0
+            self._gen_first_content_received = False
+
+    def _start_gen_status_timer(self):
+        """启动生成状态更新定时器（初始阶段使用）"""
+        self._ensure_gen_timer_initialized()
+        self._gen_status_step = 0
+        self._gen_first_content_received = False
+
+        if self._gen_status_timer is None:
+            self._gen_status_timer = QTimer(self)
+            self._gen_status_timer.timeout.connect(self._update_gen_status)
+
+        self._gen_status_timer.start(2000)  # 每2秒更新一次状态
+
+    def _stop_gen_status_timer(self):
+        """停止生成状态更新定时器"""
+        self._ensure_gen_timer_initialized()
+        if self._gen_status_timer:
+            self._gen_status_timer.stop()
+        self._gen_status_step = 0
+
+    def _update_gen_status(self):
+        """更新生成状态提示（初始阶段）"""
+        # 如果已经收到内容，不再更新初始状态
+        if self._gen_first_content_received:
+            self._stop_gen_status_timer()
+            return
+
+        messages = self._GENERATION_INIT_MESSAGES
+        if self._gen_status_step < len(messages):
+            message = messages[self._gen_status_step]
+            # 同时更新workspace状态和loading overlay
+            self.workspace.setGenerationStatus(message)
+            if hasattr(self, 'show_loading'):
+                self.show_loading(message)
+            self._gen_status_step += 1
+        else:
+            # 循环显示最后两条消息
+            loop_messages = messages[-2:]
+            idx = (self._gen_status_step - len(messages)) % len(loop_messages)
+            message = loop_messages[idx]
+            self.workspace.setGenerationStatus(message)
+            if hasattr(self, 'show_loading'):
+                self.show_loading(message)
+            self._gen_status_step += 1
 
     def onGenerateChapter(self, chapter_number):
         """生成章节"""
@@ -58,6 +121,10 @@ class ChapterGenerationMixin:
         # 通知workspace准备生成
         self.workspace.prepareForGeneration(chapter_number)
 
+        # 显示初始加载状态并启动状态更新定时器
+        self.show_loading("正在准备生成章节...")
+        self._start_gen_status_timer()
+
         # 创建SSE Worker
         # 后端路径: /api/writer/novels/{project_id}/chapters/generate-stream
         url = f"{self.api_client.base_url}/api/writer/novels/{self.project_id}/chapters/generate-stream"
@@ -83,6 +150,13 @@ class ChapterGenerationMixin:
 
     def _on_chapter_gen_token(self, token: str):
         """处理章节生成的token（流式文本）"""
+        # 第一次收到内容时，停止初始状态定时器并隐藏loading
+        self._ensure_gen_timer_initialized()
+        if not self._gen_first_content_received:
+            self._gen_first_content_received = True
+            self._stop_gen_status_timer()
+            self.hide_loading()
+
         self.workspace.appendGeneratedContent(token)
 
     def _on_chapter_gen_progress(self, data: dict):
@@ -107,6 +181,10 @@ class ChapterGenerationMixin:
         """处理章节生成完成"""
         chapter_number = self.generating_chapter
         self.generating_chapter = None
+
+        # 停止状态定时器并隐藏loading
+        self._stop_gen_status_timer()
+        self.hide_loading()
 
         # 清理SSE
         self._cleanup_chapter_gen_sse()
@@ -133,6 +211,10 @@ class ChapterGenerationMixin:
         chapter_number = self.generating_chapter
         self.generating_chapter = None
 
+        # 停止状态定时器并隐藏loading
+        self._stop_gen_status_timer()
+        self.hide_loading()
+
         self._cleanup_chapter_gen_sse()
 
         if chapter_number:
@@ -147,6 +229,10 @@ class ChapterGenerationMixin:
         """处理生成取消（用户取消或服务器取消）"""
         chapter_number = self.generating_chapter
         self.generating_chapter = None
+
+        # 停止状态定时器并隐藏loading
+        self._stop_gen_status_timer()
+        self.hide_loading()
 
         self._cleanup_chapter_gen_sse()
 
@@ -205,7 +291,7 @@ class ChapterGenerationMixin:
             QTextEdit {{
                 background-color: {theme_manager.BG_SECONDARY};
                 color: {theme_manager.TEXT_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_COLOR};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(6)}px;
                 padding: {dp(8)}px;
                 font-size: {dp(13)}px;

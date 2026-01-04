@@ -16,7 +16,7 @@ import logging
 import os
 from PyQt6.QtWidgets import (
     QMainWindow, QStackedWidget, QPushButton, QWidget, QHBoxLayout,
-    QVBoxLayout, QLabel, QGraphicsOpacityEffect
+    QVBoxLayout, QLabel, QGraphicsOpacityEffect, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QPixmap, QColor
@@ -75,8 +75,8 @@ class MainWindow(QMainWindow):
         min_width, min_height = dpi_helper.min_window_size()
         self.setMinimumSize(min_width, min_height)
 
-        # 初始窗口大小（比最小尺寸略大）
-        self.resize(int(min_width * 1.2), int(min_height * 1.2))
+        # 初始窗口大小：与屏幕比例相同，占屏幕可用区域的85%
+        self._set_initial_window_size()
 
         # 创建中心容器
         self.central_widget = QWidget()
@@ -156,6 +156,50 @@ class MainWindow(QMainWindow):
         if not self._theme_connected:
             theme_manager.theme_changed.connect(self.on_theme_changed)
             self._theme_connected = True
+
+    def _set_initial_window_size(self):
+        """设置初始窗口大小：与屏幕比例相同
+
+        窗口大小设为屏幕可用区域的85%，同时保持与屏幕相同的宽高比。
+        这样可以让应用在不同比例的屏幕上（如16:9、16:10、21:9等）都能良好显示。
+        """
+        app = QApplication.instance()
+        if not app:
+            # 回退到默认大小
+            min_width, min_height = dpi_helper.min_window_size()
+            self.resize(int(min_width * 1.2), int(min_height * 1.2))
+            return
+
+        # 获取主屏幕的可用区域（排除任务栏等）
+        screen = app.primaryScreen()
+        if not screen:
+            min_width, min_height = dpi_helper.min_window_size()
+            self.resize(int(min_width * 1.2), int(min_height * 1.2))
+            return
+
+        available_geometry = screen.availableGeometry()
+        screen_width = available_geometry.width()
+        screen_height = available_geometry.height()
+
+        # 计算窗口大小：占屏幕可用区域的85%，保持屏幕宽高比
+        scale_ratio = 0.85
+        window_width = int(screen_width * scale_ratio)
+        window_height = int(screen_height * scale_ratio)
+
+        # 确保不小于最小尺寸
+        min_width, min_height = dpi_helper.min_window_size()
+        window_width = max(window_width, min_width)
+        window_height = max(window_height, min_height)
+
+        self.resize(window_width, window_height)
+
+        # 居中显示窗口
+        x = available_geometry.x() + (screen_width - window_width) // 2
+        y = available_geometry.y() + (screen_height - window_height) // 2
+        self.move(x, y)
+
+        logger.info(f"窗口初始化 - 屏幕: {screen_width}x{screen_height}, "
+                   f"窗口: {window_width}x{window_height}, 比例: {scale_ratio:.0%}")
 
     def _disconnect_theme_signal(self):
         """断开主题信号"""

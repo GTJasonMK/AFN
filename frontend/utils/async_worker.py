@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _IS_WINDOWS = platform.system() == 'Windows'
 _pythoncom = None
 _ole32 = None
+_com_init_lock = threading.Lock()  # COM 初始化锁，避免竞态条件
 
 if _IS_WINDOWS:
     try:
@@ -44,18 +45,38 @@ def _com_initialize():
 
     使用 COINIT_MULTITHREADED (MTA) 模式，适合后台网络 I/O 线程。
     避免使用 COINIT_APARTMENTTHREADED (STA) 因为它需要消息循环。
+
+    Returns:
+        bool: True 表示初始化成功或已初始化，False 表示失败
     """
-    if _pythoncom:
-        # 使用 MTA 模式
-        _pythoncom.CoInitializeEx(_pythoncom.COINIT_MULTITHREADED)
-        return True
-    elif _ole32:
-        # COINIT_MULTITHREADED = 0x0 (MTA, 适合后台线程)
-        # COINIT_APARTMENTTHREADED = 0x2 (STA, 需要消息循环)
-        hr = _ole32.CoInitializeEx(None, 0x0)
-        # S_OK = 0, S_FALSE = 1 (already initialized)
-        return hr in (0, 1)
-    return False
+    with _com_init_lock:
+        if _pythoncom:
+            try:
+                # 使用 MTA 模式
+                _pythoncom.CoInitializeEx(_pythoncom.COINIT_MULTITHREADED)
+                return True
+            except Exception as e:
+                # 可能已经初始化，忽略错误
+                logger.debug("COM init with pythoncom: %s", e)
+                return True  # 假设已初始化
+        elif _ole32:
+            try:
+                # COINIT_MULTITHREADED = 0x0 (MTA, 适合后台线程)
+                hr = _ole32.CoInitializeEx(None, 0x0)
+                # S_OK = 0, S_FALSE = 1 (already initialized), RPC_E_CHANGED_MODE = 0x80010106
+                if hr in (0, 1):
+                    return True
+                elif hr == -2147417850:  # RPC_E_CHANGED_MODE (0x80010106 as signed)
+                    # 线程已经以不同模式初始化，这是可以接受的
+                    logger.debug("COM already initialized in different mode")
+                    return True
+                else:
+                    logger.warning("COM init failed with hr=%s", hr)
+                    return False
+            except Exception as e:
+                logger.debug("COM init with ole32 failed: %s", e)
+                return False
+        return False
 
 
 def _com_uninitialize():

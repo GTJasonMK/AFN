@@ -221,11 +221,26 @@ class ToolbarMixin:
 
         if has_content:
             # 已有内容：显示重新生成按钮
-            self._toolbar_generate_btn = QPushButton("重新生成分镜")
+            self._toolbar_generate_btn = QPushButton("重新生成漫画分镜")
             self._toolbar_generate_btn.setObjectName("manga_regenerate_btn")
             self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._toolbar_generate_btn.setMinimumWidth(dp(90))
+            self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
+            btn_layout.addWidget(self._toolbar_generate_btn)
         elif can_resume:
-            # 有断点：显示继续生成按钮
+            # 有断点：显示两个按钮 - 从头生成 和 继续生成
+            # 从头生成按钮
+            restart_btn = QPushButton("从头生成")
+            restart_btn.setObjectName("manga_restart_btn")
+            restart_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+            restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            restart_btn.setMinimumWidth(dp(80))
+            restart_btn.setToolTip("忽略断点，重新开始生成漫画分镜")
+            restart_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
+            btn_layout.addWidget(restart_btn)
+
+            # 继续生成按钮
             stage_label = ""
             progress_text = ""
             if resume_progress:
@@ -244,16 +259,20 @@ class ToolbarMixin:
             self._toolbar_generate_btn = QPushButton(btn_text)
             self._toolbar_generate_btn.setObjectName("manga_resume_btn")
             self._toolbar_generate_btn.setStyleSheet(ButtonStyles.warning('SM'))
+            self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._toolbar_generate_btn.setMinimumWidth(dp(90))
+            self._toolbar_generate_btn.setToolTip("从上次中断的位置继续生成")
+            self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=False))
+            btn_layout.addWidget(self._toolbar_generate_btn)
         else:
             # 无内容：显示生成分镜按钮
-            self._toolbar_generate_btn = QPushButton("生成分镜")
+            self._toolbar_generate_btn = QPushButton("生成漫画分镜")
             self._toolbar_generate_btn.setObjectName("manga_generate_btn")
             self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
-
-        self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._toolbar_generate_btn.setMinimumWidth(dp(90))
-        self._toolbar_generate_btn.clicked.connect(self._on_generate_clicked)
-        btn_layout.addWidget(self._toolbar_generate_btn)
+            self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._toolbar_generate_btn.setMinimumWidth(dp(90))
+            self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=False))
+            btn_layout.addWidget(self._toolbar_generate_btn)
 
         # 删除按钮（仅当有内容时显示）
         if has_content:
@@ -393,8 +412,12 @@ class ToolbarMixin:
             }}
         """
 
-    def _on_generate_clicked(self):
-        """生成按钮点击处理"""
+    def _on_generate_clicked(self, force_restart: bool = False):
+        """生成按钮点击处理
+
+        Args:
+            force_restart: 是否强制从头开始，忽略断点
+        """
         if self._on_generate and self._style_combo and self._min_pages_spin and self._max_pages_spin:
             style_map = {
                 "漫画": "manga",
@@ -423,7 +446,7 @@ class ToolbarMixin:
 
             self._on_generate(
                 style, min_pages, max_pages, language,
-                use_portraits, auto_generate_portraits
+                use_portraits, auto_generate_portraits, force_restart
             )
 
     # ==================== 工具栏加载状态控制 ====================

@@ -111,7 +111,7 @@ class ConversationManagerMixin:
 
     def _on_option_received(self: "InspirationMode", data: dict):
         """收到单个选项（结构化流式）"""
-        from .inspired_option_card import InspiredOptionsContainer
+        from ..components.inspired_option_card import InspiredOptionsContainer
 
         # 缓存选项数据
         if not hasattr(self, '_pending_options'):

@@ -113,6 +113,10 @@ class CharacterPortraitListResponse(BaseModel):
 
     portraits: List[CharacterPortraitResponse]
     total: int
+    # 批量生成时的失败信息
+    failed_count: int = Field(default=0, description="生成失败的数量")
+    failed_characters: List[str] = Field(default_factory=list, description="生成失败的角色名列表")
+    error_message: Optional[str] = Field(default=None, description="第一个错误的详细信息")
 
 
 class GeneratePortraitResponse(BaseModel):

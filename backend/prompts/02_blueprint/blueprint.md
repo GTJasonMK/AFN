@@ -75,6 +75,7 @@ tags: blueprint, worldbuilding, character
       "name": "string",
       "identity": "string",
       "personality": "string",
+      "appearance": "string（外貌特征：发色、眼色、身材、服装风格等，用于生成角色立绘）",
       "goals": "string",
       "abilities": "string",
       "relationship_to_protagonist": "string"
@@ -102,7 +103,7 @@ tags: blueprint, worldbuilding, character
 
 3. **章节大纲生成规则（重要变更）**
 
-**⚠️ 关键：在此蓝图生成阶段，绝对不要生成任何章节大纲。章节大纲将在后续步骤中单独生成。**
+**关键：在此蓝图生成阶段，绝对不要生成任何章节大纲。章节大纲将在后续步骤中单独生成。**
 
 你的任务分为三个步骤：
 
@@ -131,7 +132,7 @@ tags: blueprint, worldbuilding, character
 
 ### 步骤2: 判断是否需要分阶段生成
 
-- 短篇小说（≤50章）：设置 `needs_part_outlines: false`
+- 短篇小说（<=50章）：设置 `needs_part_outlines: false`
 - 长篇小说（>50章）：设置 `needs_part_outlines: true`，设置 `chapters_per_part: 25`
 
 ### 步骤3: chapter_outline 必须设为空数组
@@ -150,7 +151,7 @@ tags: blueprint, worldbuilding, character
 - 对于长篇小说（>50章），需要先生成部分大纲（大纲的大纲），再细化每个部分的详细章节
 
 **后续流程**：
-- 短篇（≤50章）：用户将在详情页点击"生成章节大纲"按钮一次性生成所有章节
+- 短篇（<=50章）：用户将在详情页点击"生成章节大纲"按钮一次性生成所有章节
 - 长篇（>50章）：用户将先生成部分大纲（如第1-50章、第51-100章等），然后为每个部分分别生成详细章节大纲
 
 **示例输出**：

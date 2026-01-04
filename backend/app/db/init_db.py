@@ -173,12 +173,16 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
     """
     确保默认提示词存在，并同步文件更新到数据库。
 
+    支持两种目录结构：
+    1. 新结构：使用_registry.yaml注册表，按分类目录组织
+    2. 旧结构：所有.md文件平铺在prompts根目录（向后兼容）
+
     策略：
     - 新提示词：插入数据库（包含元数据）
     - 已存在且未修改的提示词：如果文件内容不同，更新数据库
     - 已存在且已修改的提示词：只更新元数据（title、description、tags），保留用户修改的content
     """
-    from ..services.prompt_service import get_prompt_cache
+    from ..services.prompt_service import get_prompt_cache, get_prompt_registry
 
     # 优先使用环境变量指定的路径（打包环境），否则使用相对路径（开发环境）
     prompts_dir_env = os.environ.get('PROMPTS_DIR')
@@ -196,53 +200,111 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
     existing_prompts = {p.name: p for p in result.scalars().all()}
 
     updated_count = 0
-    for prompt_file in sorted(prompts_dir.glob("*.md")):
-        name = prompt_file.stem
-        file_content = prompt_file.read_text(encoding="utf-8")
 
-        # 解析YAML前置元数据
-        metadata, body_content = _parse_yaml_frontmatter(file_content)
+    # 尝试使用注册表
+    registry = get_prompt_registry(prompts_dir)
+    if registry.is_registry_available():
+        # 新结构：遍历注册表中的所有提示词
+        for name in registry.get_all_names():
+            registry_path = registry.get_path(name)
+            if not registry_path:
+                continue
 
-        if name in existing_prompts:
-            # 已存在：检查是否需要更新
-            existing = existing_prompts[name]
-            needs_update = False
+            prompt_file = prompts_dir / registry_path
+            if not prompt_file.is_file():
+                logger.warning(f"注册表中的提示词文件不存在: {registry_path}")
+                continue
 
-            # 更新元数据（无论用户是否修改过content）
-            if existing.title != metadata["title"]:
-                existing.title = metadata["title"]
-                needs_update = True
-            if existing.description != metadata["description"]:
-                existing.description = metadata["description"]
-                needs_update = True
-            if existing.tags != metadata["tags"]:
-                existing.tags = metadata["tags"]
-                needs_update = True
+            file_content = prompt_file.read_text(encoding="utf-8")
+            metadata, body_content = _parse_yaml_frontmatter(file_content)
 
-            # 只有用户未修改时才更新content
-            if not existing.is_modified and existing.content != body_content:
-                existing.content = body_content
-                needs_update = True
-                logger.info(f"提示词 '{name}' 内容已从文件同步更新")
+            # 从注册表补充元数据
+            reg_meta = registry.get_meta(name)
+            if reg_meta:
+                if not metadata["title"]:
+                    metadata["title"] = reg_meta.get("title")
+                if not metadata["description"]:
+                    metadata["description"] = reg_meta.get("description")
 
-            if needs_update:
-                updated_count += 1
-        else:
-            # 新提示词：插入（包含元数据）
-            session.add(Prompt(
-                name=name,
-                title=metadata["title"],
-                description=metadata["description"],
-                tags=metadata["tags"],
-                content=body_content,
-                is_modified=False,
-            ))
-            logger.info(f"提示词 '{name}' 已从文件加载")
+            updated_count += await _sync_single_prompt(
+                session, name, metadata, body_content, existing_prompts
+            )
+    else:
+        # 旧结构：遍历子目录和根目录
+        # 先遍历子目录
+        for subdir in prompts_dir.iterdir():
+            if subdir.is_dir() and not subdir.name.startswith('_'):
+                for prompt_file in sorted(subdir.glob("*.md")):
+                    name = prompt_file.stem
+                    file_content = prompt_file.read_text(encoding="utf-8")
+                    metadata, body_content = _parse_yaml_frontmatter(file_content)
+                    updated_count += await _sync_single_prompt(
+                        session, name, metadata, body_content, existing_prompts
+                    )
+
+        # 再遍历根目录（兼容旧的平铺结构）
+        for prompt_file in sorted(prompts_dir.glob("*.md")):
+            name = prompt_file.stem
+            file_content = prompt_file.read_text(encoding="utf-8")
+            metadata, body_content = _parse_yaml_frontmatter(file_content)
+            updated_count += await _sync_single_prompt(
+                session, name, metadata, body_content, existing_prompts
+            )
 
     # 如果有更新，使全局缓存失效
     if updated_count > 0:
         await get_prompt_cache().invalidate()
         logger.info(f"已更新 {updated_count} 个提示词，缓存已失效")
+
+
+async def _sync_single_prompt(
+    session: AsyncSession,
+    name: str,
+    metadata: Dict[str, Optional[str]],
+    body_content: str,
+    existing_prompts: Dict[str, Prompt]
+) -> int:
+    """
+    同步单个提示词到数据库
+
+    Returns:
+        1 如果有更新，0 如果无变化
+    """
+    if name in existing_prompts:
+        # 已存在：检查是否需要更新
+        existing = existing_prompts[name]
+        needs_update = False
+
+        # 更新元数据（无论用户是否修改过content）
+        if existing.title != metadata["title"]:
+            existing.title = metadata["title"]
+            needs_update = True
+        if existing.description != metadata["description"]:
+            existing.description = metadata["description"]
+            needs_update = True
+        if existing.tags != metadata["tags"]:
+            existing.tags = metadata["tags"]
+            needs_update = True
+
+        # 只有用户未修改时才更新content
+        if not existing.is_modified and existing.content != body_content:
+            existing.content = body_content
+            needs_update = True
+            logger.info(f"提示词 '{name}' 内容已从文件同步更新")
+
+        return 1 if needs_update else 0
+    else:
+        # 新提示词：插入（包含元数据）
+        session.add(Prompt(
+            name=name,
+            title=metadata["title"],
+            description=metadata["description"],
+            tags=metadata["tags"],
+            content=body_content,
+            is_modified=False,
+        ))
+        logger.info(f"提示词 '{name}' 已从文件加载")
+        return 1
 
 
 async def _run_migrations() -> None:

@@ -60,6 +60,7 @@ class EmbeddingConfigDialog(BookStyleDialog):
         self.provider_combo.setMinimumHeight(dp(40))
         self.provider_combo.addItem("OpenAI / 兼容 API", "openai")
         self.provider_combo.addItem("Ollama 本地模型", "ollama")
+        self.provider_combo.addItem("本地嵌入模型", "local")
         if self.config:
             provider = self.config.get('provider', 'openai')
             index = self.provider_combo.findData(provider)
@@ -124,7 +125,8 @@ class EmbeddingConfigDialog(BookStyleDialog):
         self.hint_label = QLabel(
             "常用嵌入模型：\n"
             "- OpenAI: text-embedding-3-small, text-embedding-3-large\n"
-            "- Ollama: nomic-embed-text, mxbai-embed-large"
+            "- Ollama: nomic-embed-text, mxbai-embed-large\n"
+            "- 本地推荐: BAAI/bge-base-zh-v1.5 (中文最优, 约100MB)"
         )
         self.hint_label.setObjectName("info_card")
         layout.addWidget(self.hint_label)
@@ -199,11 +201,19 @@ class EmbeddingConfigDialog(BookStyleDialog):
             self.url_input.setPlaceholderText("http://localhost:11434")
             self.model_input.setPlaceholderText("nomic-embed-text:latest")
             self.key_input.setEnabled(False)
+            self.url_input.setEnabled(True)
             self.key_hint.setText("Ollama 本地模型无需 API Key")
+        elif provider == "local":
+            self.url_input.setPlaceholderText("无需填写")
+            self.model_input.setPlaceholderText("BAAI/bge-base-zh-v1.5")
+            self.key_input.setEnabled(False)
+            self.url_input.setEnabled(False)
+            self.key_hint.setText("本地模型无需 API Key 和 Base URL，首次使用会自动下载模型")
         else:
             self.url_input.setPlaceholderText("https://api.openai.com/v1")
             self.model_input.setPlaceholderText("text-embedding-3-small")
             self.key_input.setEnabled(True)
+            self.url_input.setEnabled(True)
             if self.is_create:
                 self.key_hint.setText("使用中转站时请填写对应的 API Key")
             else:

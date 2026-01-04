@@ -4,12 +4,13 @@
 负责角色立绘的生成、管理和存储。
 """
 
+import asyncio
 import uuid
 import logging
 import hashlib
 import base64
 from pathlib import Path
-from typing import Optional, List, Dict, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,7 +373,7 @@ class CharacterPortraitService:
         character_profiles: Dict[str, str],
         style: str = "anime",
         exclude_existing: bool = True,
-    ) -> Dict[str, CharacterPortrait]:
+    ) -> Dict[str, Any]:
         """
         自动批量生成缺失的角色立绘
 
@@ -387,18 +388,22 @@ class CharacterPortraitService:
             exclude_existing: 是否排除已有立绘的角色
 
         Returns:
-            Dict[str, CharacterPortrait]: 生成的立绘字典 {角色名: 立绘对象}
+            Dict: {
+                "portraits": Dict[str, CharacterPortrait] 生成的立绘字典,
+                "failed_errors": List[Tuple[str, str]] 失败的角色和错误信息
+            }
         """
         if not character_profiles:
             return {}
 
         generated_portraits = {}
 
-        # 获取已有立绘的角色名
+        # 获取已有立绘的角色名（只有真正有图片的才算"已有"）
         existing_names = set()
         if exclude_existing:
             existing_portraits = await self.repo.get_all_active_by_project(project_id)
-            existing_names = {p.character_name for p in existing_portraits}
+            # 只有 image_path 非空的立绘才算"已有"，避免生成失败的记录阻挡重新生成
+            existing_names = {p.character_name for p in existing_portraits if p.image_path}
 
         # 筛选需要生成立绘的角色
         characters_to_generate = {
@@ -416,28 +421,47 @@ class CharacterPortraitService:
             f"project={project_id}, characters={list(characters_to_generate.keys())}"
         )
 
-        # 逐个生成立绘
-        for character_name, character_description in characters_to_generate.items():
+        # 并行生成所有立绘（由LLM队列控制实际并发）
+        async def generate_one(name: str, desc: str):
+            """生成单个角色立绘的包装函数"""
             try:
                 portrait = await self._generate_secondary_portrait(
                     user_id=user_id,
                     project_id=project_id,
-                    character_name=character_name,
-                    character_description=character_description,
+                    character_name=name,
+                    character_description=desc,
                     style=style,
                 )
-                generated_portraits[character_name] = portrait
-                logger.info(f"自动生成立绘成功: character={character_name}")
+                return (name, portrait, None)
             except Exception as e:
-                # 单个角色生成失败不影响其他角色
-                logger.warning(f"自动生成立绘失败: character={character_name}, error={e}")
-                continue
+                logger.warning(f"自动生成立绘失败: character={name}, error={e}")
+                return (name, None, str(e))
+
+        # 并行提交所有任务
+        tasks = [
+            generate_one(name, desc)
+            for name, desc in characters_to_generate.items()
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # 收集结果
+        failed_errors = []
+        for name, portrait, error in results:
+            if portrait:
+                generated_portraits[name] = portrait
+                logger.info(f"自动生成立绘成功: character={name}")
+            else:
+                failed_errors.append((name, error))
 
         logger.info(
             f"自动生成立绘完成: 成功 {len(generated_portraits)}/{len(characters_to_generate)}"
         )
 
-        return generated_portraits
+        # 返回成功的立绘和失败信息（不抛异常，让前端决定如何显示）
+        return {
+            "portraits": generated_portraits,
+            "failed_errors": failed_errors,
+        }
 
     async def _generate_secondary_portrait(
         self,
@@ -570,6 +594,7 @@ class CharacterPortraitService:
             List[str]: 缺失立绘的角色名列表
         """
         existing_portraits = await self.repo.get_all_active_by_project(project_id)
-        existing_names = {p.character_name for p in existing_portraits}
+        # 只有 image_path 非空的立绘才算"已有"
+        existing_names = {p.character_name for p in existing_portraits if p.image_path}
 
         return [name for name in character_profiles.keys() if name not in existing_names]

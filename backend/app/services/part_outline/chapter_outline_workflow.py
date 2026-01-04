@@ -119,10 +119,10 @@ class ChapterOutlineWorkflow:
             part_number, total_chapters, start_chapter, end_chapter
         )
 
-        # 使用章节大纲生成专用提示词，回退到screenwriting
+        # 使用章节大纲生成专用提示词，回退到blueprint
         system_prompt = await self.prompt_service.get_prompt("part_chapters")
         if not system_prompt:
-            system_prompt = await self.prompt_service.get_prompt("screenwriting")
+            system_prompt = await self.prompt_service.get_prompt("blueprint")
         all_generated_chapters: List[Dict[str, Any]] = []
         current_chapter = start_chapter
 

@@ -218,6 +218,12 @@ class ChapterDisplayMixin:
         if hasattr(self, '_chapter_loading_overlay') and self._chapter_loading_overlay:
             self._chapter_loading_overlay.hide_with_animation()
 
+        # 清除版本切换状态，重新启用保存按钮
+        # 即使加载失败也要清除状态，避免按钮永久禁用
+        if hasattr(self, '_version_switching'):
+            self._version_switching = False
+            self._updateSaveButtonState()
+
         # 显示错误提示
         from utils.message_service import MessageService
         MessageService.show_error(self, f"加载章节失败：{error_msg}")
@@ -229,6 +235,16 @@ class ChapterDisplayMixin:
 
         # 清理旧章节的漫画缓存和状态
         self._clear_manga_cache()
+
+        # 清除版本切换状态，重新启用保存按钮
+        # 这确保了在章节内容完全加载后才允许保存
+        if hasattr(self, '_version_switching'):
+            self._version_switching = False
+            self._updateSaveButtonState()
+
+        # 记录当前版本ID（用于保存时验证）
+        if hasattr(self, '_current_version_id'):
+            self._current_version_id = chapter_data.get('selected_version_id')
 
         # 尝试复用现有组件（如果结构相同）
         if self.content_widget and self.tab_widget:

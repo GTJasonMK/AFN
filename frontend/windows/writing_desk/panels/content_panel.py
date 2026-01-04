@@ -42,6 +42,9 @@ class ContentPanelBuilder(BasePanelBuilder):
         self._on_save_content = on_save_content
         self._on_rag_ingest = on_rag_ingest
         self._content_text: Optional[QTextEdit] = None
+        # 保存按钮引用，用于控制启用状态
+        self._save_btn: Optional[QPushButton] = None
+        self._rag_btn: Optional[QPushButton] = None
 
     @property
     def content_text(self) -> Optional[QTextEdit]:
@@ -138,24 +141,24 @@ class ContentPanelBuilder(BasePanelBuilder):
         toolbar_layout.addStretch()
 
         # 保存按钮（仅保存内容，不触发RAG处理）
-        save_btn = QPushButton("保存内容")
-        save_btn.setObjectName("save_btn")
-        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.setStyleSheet(ButtonStyles.primary('SM'))
-        save_btn.setToolTip("保存章节内容（不执行RAG处理）")
+        self._save_btn = QPushButton("保存内容")
+        self._save_btn.setObjectName("save_btn")
+        self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._save_btn.setStyleSheet(ButtonStyles.primary('SM'))
+        self._save_btn.setToolTip("保存章节内容（不执行RAG处理）")
         if self._on_save_content:
-            save_btn.clicked.connect(self._on_save_content)
-        toolbar_layout.addWidget(save_btn)
+            self._save_btn.clicked.connect(self._on_save_content)
+        toolbar_layout.addWidget(self._save_btn)
 
         # RAG入库按钮（执行完整RAG处理：摘要、分析、索引、向量入库）
-        rag_btn = QPushButton("RAG入库")
-        rag_btn.setObjectName("rag_btn")
-        rag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        rag_btn.setStyleSheet(ButtonStyles.secondary('SM'))
-        rag_btn.setToolTip("保存并执行RAG处理：生成摘要、分析角色状态和伏笔、更新索引、向量入库")
+        self._rag_btn = QPushButton("RAG入库")
+        self._rag_btn.setObjectName("rag_btn")
+        self._rag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rag_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+        self._rag_btn.setToolTip("保存并执行RAG处理：生成摘要、分析角色状态和伏笔、更新索引、向量入库")
         if self._on_rag_ingest:
-            rag_btn.clicked.connect(self._on_rag_ingest)
-        toolbar_layout.addWidget(rag_btn)
+            self._rag_btn.clicked.connect(self._on_rag_ingest)
+        toolbar_layout.addWidget(self._rag_btn)
 
         return toolbar
 
@@ -224,3 +227,26 @@ class ContentPanelBuilder(BasePanelBuilder):
         """
         if self._content_text:
             self._content_text.setPlainText(content)
+
+    def set_save_enabled(self, enabled: bool):
+        """设置保存按钮的启用状态
+
+        在版本切换期间禁用保存按钮，防止内容被错误覆盖。
+
+        Args:
+            enabled: True启用按钮，False禁用按钮
+        """
+        if self._save_btn:
+            self._save_btn.setEnabled(enabled)
+            # 更新样式以反映禁用状态
+            if enabled:
+                self._save_btn.setToolTip("保存章节内容（不执行RAG处理）")
+            else:
+                self._save_btn.setToolTip("正在切换版本，请稍后...")
+
+        if self._rag_btn:
+            self._rag_btn.setEnabled(enabled)
+            if enabled:
+                self._rag_btn.setToolTip("保存并执行RAG处理：生成摘要、分析角色状态和伏笔、更新索引、向量入库")
+            else:
+                self._rag_btn.setToolTip("正在切换版本，请稍后...")

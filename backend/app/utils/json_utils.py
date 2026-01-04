@@ -31,12 +31,23 @@ def unwrap_markdown_json(raw_text: str) -> str:
 
     trimmed = raw_text.strip()
 
-    # 尝试从markdown代码块中提取
+    # 尝试从markdown代码块中提取（完整闭合的代码块）
     fence_match = re.search(r"```(?:json|JSON)?\s*(.*?)\s*```", trimmed, re.DOTALL)
     if fence_match:
         candidate = fence_match.group(1).strip()
         if candidate:
             return normalize_chinese_quotes(candidate)
+
+    # 处理未闭合的 markdown 代码块（如 ```json 开头但没有闭合的 ```）
+    unclosed_fence_match = re.match(r"```(?:json|JSON)?\s*\n?", trimmed)
+    if unclosed_fence_match:
+        # 移除开头的 ```json 标记
+        content_after_fence = trimmed[unclosed_fence_match.end():]
+        # 如果有闭合标记在后面，截取到那里
+        end_fence_pos = content_after_fence.rfind("```")
+        if end_fence_pos != -1:
+            content_after_fence = content_after_fence[:end_fence_pos]
+        trimmed = content_after_fence.strip()
 
     # 尝试找到JSON的起始和结束位置
     json_start_candidates = [idx for idx in (trimmed.find("{"), trimmed.find("[")) if idx != -1]
@@ -211,11 +222,12 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
         return json.loads(normalized)
 
     except json.JSONDecodeError as e:
-        logger.debug(
-            "JSON解析失败: %s, 位置: %d, 内容长度: %d",
+        logger.warning(
+            "JSON解析失败: %s, 位置: %d, 内容长度: %d, 错误位置附近内容: %s",
             str(e)[:100],
             e.pos if hasattr(e, 'pos') else -1,
-            len(raw_text) if raw_text else 0
+            len(raw_text) if raw_text else 0,
+            normalized[max(0, e.pos - 50):e.pos + 50] if hasattr(e, 'pos') and normalized and e.pos else "(无)"
         )
         return None
 

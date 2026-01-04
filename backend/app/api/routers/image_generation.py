@@ -12,10 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import logging
+
 from ...core.config import settings
 from ...core.dependencies import get_default_user, get_image_config_service
 from ...db.session import get_session
 from ...exceptions import ResourceNotFoundError, InvalidParameterError
+from ...repositories.character_portrait_repository import CharacterPortraitRepository
+
+logger = logging.getLogger(__name__)
 from ...schemas.user import UserInDB
 from ...services.image_generation import (
     ImageGenerationService,
@@ -268,9 +273,37 @@ async def generate_scene_image(
     智能合并负面提示词：
     - 如果请求中的negative_prompt已包含关键质量词（说明是LLM智能生成的），则直接使用
     - 否则，与默认漫画负面提示词合并，避免AI常见的渲染问题
+
+    动态获取立绘路径：
+    - 如果请求中包含characters列表，根据角色名动态查询当前激活的立绘路径
+    - 这样可以确保使用最新的立绘，即使用户重新生成了立绘
     """
     # 智能合并负面提示词
     merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
+
+    # 动态获取立绘路径：根据characters列表查询当前激活的立绘
+    # 这解决了"存储的分镜数据引用旧立绘路径"的问题
+    reference_image_paths = request.reference_image_paths or []
+    if request.characters:
+        portrait_repo = CharacterPortraitRepository(session)
+        active_portraits = await portrait_repo.get_all_active_by_project(project_id)
+        # 构建角色名到立绘路径的映射
+        portrait_map = {
+            p.character_name: str(settings.generated_images_dir / p.image_path)
+            for p in active_portraits
+            if p.image_path
+        }
+        # 根据画格中的角色列表获取对应的立绘路径
+        dynamic_paths = []
+        for char_name in request.characters:
+            if char_name in portrait_map:
+                dynamic_paths.append(portrait_map[char_name])
+        if dynamic_paths:
+            reference_image_paths = dynamic_paths
+            logger.info(
+                "动态获取立绘路径: characters=%s, paths=%d",
+                request.characters, len(dynamic_paths)
+            )
 
     # 创建合并后的请求（保留所有漫画元数据）
     merged_request = ImageGenerationRequest(
@@ -284,7 +317,7 @@ async def generate_scene_image(
         seed=request.seed,
         chapter_version_id=request.chapter_version_id,
         panel_id=request.panel_id,
-        reference_image_paths=request.reference_image_paths,
+        reference_image_paths=reference_image_paths if reference_image_paths else None,
         reference_strength=request.reference_strength,
         # 漫画画格元数据 - 对话相关
         dialogue=request.dialogue,

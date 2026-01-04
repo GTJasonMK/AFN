@@ -141,7 +141,7 @@ async def generate_blueprint(
     # 使用ConversationService格式化对话历史
     formatted_history = conversation_service.format_conversation_history(history_records)
 
-    system_prompt = ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
+    system_prompt = ensure_prompt(await prompt_service.get_prompt("blueprint"), "blueprint")
 
     # 随机生成模式：添加特殊指令让LLM补全缺失信息
     if allow_incomplete:
@@ -323,8 +323,8 @@ async def refine_blueprint(
 
     # 构造优化提示词
     system_prompt = ensure_prompt(
-        await prompt_service.get_prompt("screenwriting"),
-        "screenwriting"
+        await prompt_service.get_prompt("blueprint"),
+        "blueprint"
     )
 
     # 添加优化任务说明

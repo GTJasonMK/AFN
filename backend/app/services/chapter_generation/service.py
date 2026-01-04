@@ -518,29 +518,47 @@ class ChapterGenerationService:
                     skip_daily_limit_check=skip_usage_tracking,
                     cached_config=llm_config,
                 )
-                logger.info("[Task %s] 版本 %s LLM 响应获取成功", task_id, idx + 1)
+                logger.info("[Task %s] 版本 %s LLM 响应获取成功，长度: %d", task_id, idx + 1, len(response) if response else 0)
+                logger.info("[Task %s] 版本 %s 响应前500字符: %s", task_id, idx + 1, repr(response[:500]) if response else "None")
+
                 cleaned = remove_think_tags(response)
+                logger.info("[Task %s] 版本 %s 清理后长度: %d，前200字符: %s", task_id, idx + 1, len(cleaned), repr(cleaned[:200]))
 
                 # 尝试解析JSON（安全模式）
                 result = parse_llm_json_safe(cleaned)
+                logger.info("[Task %s] 版本 %s JSON解析结果: %s", task_id, idx + 1, "成功" if result else "失败")
+
                 if result:
+                    logger.info("[Task %s] 版本 %s 解析后的键: %s", task_id, idx + 1, list(result.keys()) if isinstance(result, dict) else type(result))
                     # 如果解析成功但没有content字段，检查是否有其他已知的内容字段
                     # 如果都没有，直接将原始文本作为content（LLM可能返回纯文本被错误解析）
-                    # full_content 优先级最高
-                    content_fields = ["full_content", "chapter_content", "content", "chapter_text", "text", "body", "chapter"]
+                    # 注意：此列表必须与 ChapterVersionProcessor.CONTENT_FIELD_NAMES 保持一致
+                    content_fields = [
+                        "full_content", "chapter_content", "content", "chapter_text", "text",
+                        "body", "story", "chapter", "output", "result", "response",
+                    ]
                     has_content_field = any(
                         field in result and isinstance(result[field], str) and result[field].strip()
                         for field in content_fields
                     )
+                    logger.info("[Task %s] 版本 %s 有内容字段: %s", task_id, idx + 1, has_content_field)
+
                     if has_content_field:
+                        # 找到使用的字段名和内容长度
+                        for field in content_fields:
+                            if field in result and isinstance(result[field], str) and result[field].strip():
+                                logger.info("[Task %s] 版本 %s 使用字段 '%s'，内容长度: %d", task_id, idx + 1, field, len(result[field]))
+                                break
                         return result
                     else:
-                        # 没有明确的内容字段，检查是否是纯文本被误解析为JSON
-                        # 或者返回原始cleaned文本
-                        logger.debug("[Task %s] JSON解析成功但无内容字段，使用原始文本", task_id)
-                        return {"content": unwrap_markdown_json(cleaned)}
+                        # 没有明确的内容字段，说明纯文本被误解析为JSON
+                        # 直接使用cleaned文本，不要调用unwrap_markdown_json（会截取错误内容）
+                        logger.info("[Task %s] JSON解析成功但无内容字段，使用原始文本（长度: %d）", task_id, len(cleaned))
+                        return {"content": cleaned}
                 else:
-                    return {"content": unwrap_markdown_json(cleaned)}
+                    # JSON解析失败，说明是纯文本，直接使用
+                    logger.info("[Task %s] 版本 %s 使用原始文本作为content（长度: %d）", task_id, idx + 1, len(cleaned))
+                    return {"content": cleaned}
             except asyncio.CancelledError:
                 # 取消异常需要向上传播，不能被吞掉
                 logger.info("[Task %s] 版本 %s 生成被取消", task_id, idx + 1)

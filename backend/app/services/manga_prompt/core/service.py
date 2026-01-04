@@ -85,7 +85,12 @@ class MangaPromptServiceV2:
         auto_generate_portraits: bool = False,
     ) -> MangaPromptResult:
         """
-        生成漫画分镜（支持断点续传）
+        生成漫画分镜（支持细粒度断点续传）
+
+        断点保存策略：
+        - 信息提取阶段：每完成一个步骤（角色/对话/场景/物品）保存
+        - 页面规划阶段：完成后保存
+        - 分镜设计阶段：每完成一页保存
 
         Args:
             project_id: 项目ID
@@ -117,14 +122,19 @@ class MangaPromptServiceV2:
 
         # 检查断点
         checkpoint = None
+        cp_data = {}
         if resume and chapter_id:
             checkpoint = await self._checkpoint_manager.get_checkpoint(
                 project_id, chapter_number
             )
             if checkpoint:
+                cp_data = checkpoint.get("checkpoint_data", {}) or {}
                 logger.info(
                     f"发现断点: status={checkpoint['status']}, "
-                    f"progress={checkpoint.get('progress')}"
+                    f"已有数据: extraction_step1={bool(cp_data.get('extraction_step1'))}, "
+                    f"chapter_info={bool(cp_data.get('chapter_info'))}, "
+                    f"page_plan={bool(cp_data.get('page_plan'))}, "
+                    f"designed_pages={len(cp_data.get('designed_pages', []))}"
                 )
 
         # 初始化变量
@@ -133,44 +143,53 @@ class MangaPromptServiceV2:
         storyboard: Optional[StoryboardResult] = None
         final_portraits = dict(character_portraits) if character_portraits else {}
 
-        # 从断点恢复
-        start_stage = "extraction"
-        if checkpoint and checkpoint.get("checkpoint_data"):
-            cp_data = checkpoint["checkpoint_data"]
-            if cp_data.get("chapter_info"):
-                chapter_info = ChapterInfo.from_dict(cp_data["chapter_info"])
-                start_stage = "planning"
-            if cp_data.get("page_plan"):
-                page_plan = PagePlanResult.from_dict(cp_data["page_plan"])
-                start_stage = "storyboard"
-            if cp_data.get("storyboard"):
-                storyboard = StoryboardResult.from_dict(cp_data["storyboard"])
-                start_stage = "prompt_building"
-            logger.info(f"从断点恢复，起始阶段: {start_stage}")
+        # 判断起始阶段
+        start_stage = self._determine_start_stage(cp_data)
+        logger.info(f"起始阶段: {start_stage}")
 
-        # ========== 步骤1：信息提取 ==========
+        # 如果是从头开始，清理旧数据
         if start_stage == "extraction":
-            logger.info("步骤1: 提取章节信息")
-
-            # 清理旧数据
             await self._result_persistence.cleanup_old_data(
                 project_id, chapter_number, chapter_id
             )
 
-            # 保存状态
+        # 定义断点保存回调
+        async def save_checkpoint_callback(status: str, progress: dict, data: dict):
             if chapter_id:
                 await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "extracting",
-                    {"stage": "extracting", "current": 0, "total": 4,
-                     "message": "正在提取章节信息..."},
-                    {}, style, source_version_id
+                    chapter_id, status, progress, data, style, source_version_id
                 )
 
-            # 执行提取
-            chapter_info = await self._extractor.extract(
+        # ========== 步骤1：信息提取（支持分步断点） ==========
+        if start_stage == "extraction" or not cp_data.get("chapter_info"):
+            logger.info("步骤1: 提取章节信息")
+
+            # 定义提取步骤完成回调
+            async def on_extraction_step_complete(step: int, extraction_data: dict):
+                step_labels = {
+                    1: "提取角色和事件",
+                    2: "提取对话",
+                    3: "提取场景",
+                    4: "提取物品和摘要"
+                }
+                await save_checkpoint_callback(
+                    "extracting",
+                    {
+                        "stage": "extracting",
+                        "current": step,
+                        "total": 4,
+                        "message": f"完成: {step_labels.get(step, '未知步骤')}"
+                    },
+                    extraction_data
+                )
+
+            # 使用支持断点的提取方法
+            chapter_info, cp_data = await self._extractor.extract_with_checkpoint(
                 chapter_content=chapter_content,
                 user_id=user_id,
                 dialogue_language=dialogue_language,
+                checkpoint_data=cp_data,
+                on_step_complete=on_extraction_step_complete,
             )
 
             logger.info(
@@ -185,29 +204,20 @@ class MangaPromptServiceV2:
                     user_id, project_id, chapter_id, chapter_info,
                     style, source_version_id, final_portraits
                 )
-
-            # 保存断点
-            if chapter_id:
-                await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "planning",
-                    {"stage": "planning", "current": 1, "total": 4,
-                     "message": "准备进行页面规划..."},
-                    {"chapter_info": chapter_info.to_dict()},
-                    style, source_version_id
-                )
+        else:
+            # 从断点恢复 chapter_info
+            chapter_info = ChapterInfo.from_dict(cp_data["chapter_info"])
+            logger.info("从断点恢复 chapter_info")
 
         # ========== 步骤2：页面规划 ==========
-        if start_stage in ("extraction", "planning"):
+        if not cp_data.get("page_plan"):
             logger.info("步骤2: 全局页面规划")
 
-            if chapter_id:
-                await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "planning",
-                    {"stage": "planning", "current": 1, "total": 4,
-                     "message": "正在进行页面规划..."},
-                    {"chapter_info": chapter_info.to_dict()},
-                    style, source_version_id
-                )
+            await save_checkpoint_callback(
+                "planning",
+                {"stage": "planning", "current": 1, "total": 4, "message": "正在进行页面规划..."},
+                cp_data
+            )
 
             page_plan = await self._planner.plan(
                 chapter_info=chapter_info,
@@ -222,34 +232,48 @@ class MangaPromptServiceV2:
             )
 
             # 保存断点
-            if chapter_id:
-                await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "storyboard",
-                    {"stage": "storyboard", "current": 2, "total": 4,
-                     "message": f"准备设计 {page_plan.total_pages} 页分镜..."},
-                    {"chapter_info": chapter_info.to_dict(),
-                     "page_plan": page_plan.to_dict()},
-                    style, source_version_id
-                )
+            cp_data["page_plan"] = page_plan.to_dict()
+            await save_checkpoint_callback(
+                "storyboard",
+                {"stage": "storyboard", "current": 2, "total": 4,
+                 "message": f"准备设计 {page_plan.total_pages} 页分镜..."},
+                cp_data
+            )
+        else:
+            # 从断点恢复 page_plan
+            page_plan = PagePlanResult.from_dict(cp_data["page_plan"])
+            logger.info(f"从断点恢复 page_plan: {page_plan.total_pages} 页")
 
-        # ========== 步骤3：分镜设计 ==========
-        if start_stage in ("extraction", "planning", "storyboard"):
+        # ========== 步骤3：分镜设计（支持每页断点） ==========
+        if not cp_data.get("storyboard"):
             logger.info("步骤3: 分镜设计")
 
-            if chapter_id:
-                await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "storyboard",
-                    {"stage": "storyboard", "current": 2, "total": 4,
-                     "message": "正在设计分镜..."},
-                    {"chapter_info": chapter_info.to_dict(),
-                     "page_plan": page_plan.to_dict()},
-                    style, source_version_id
+            # 获取已设计的页面数据
+            designed_pages_data = cp_data.get("designed_pages", [])
+
+            # 定义每页完成回调
+            async def on_page_design_complete(page_number: int, all_pages_data: list):
+                cp_data["designed_pages"] = all_pages_data
+                completed = len(all_pages_data)
+                total = page_plan.total_pages
+                await save_checkpoint_callback(
+                    "storyboard",
+                    {
+                        "stage": "storyboard",
+                        "current": completed,
+                        "total": total,
+                        "message": f"已设计 {completed}/{total} 页 (第{page_number}页完成)"
+                    },
+                    cp_data
                 )
 
-            storyboard = await self._designer.design_all_pages(
+            # 使用支持断点的设计方法
+            storyboard, designed_pages_data = await self._designer.design_all_pages_with_checkpoint(
                 page_plans=page_plan.pages,
                 chapter_info=chapter_info,
                 user_id=user_id,
+                designed_pages_data=designed_pages_data,
+                on_page_complete=on_page_design_complete,
             )
 
             logger.info(
@@ -257,31 +281,22 @@ class MangaPromptServiceV2:
                 f"{storyboard.total_panels} 格"
             )
 
-            # 保存断点
-            if chapter_id:
-                await self._checkpoint_manager.save_checkpoint(
-                    chapter_id, "prompt_building",
-                    {"stage": "prompt_building", "current": 3, "total": 4,
-                     "message": f"准备生成 {storyboard.total_panels} 个提示词..."},
-                    {"chapter_info": chapter_info.to_dict(),
-                     "page_plan": page_plan.to_dict(),
-                     "storyboard": storyboard.to_dict()},
-                    style, source_version_id
-                )
+            # 保存完整的分镜数据
+            cp_data["storyboard"] = storyboard.to_dict()
+            cp_data.pop("designed_pages", None)  # 清理中间数据
+        else:
+            # 从断点恢复 storyboard
+            storyboard = StoryboardResult.from_dict(cp_data["storyboard"])
+            logger.info(f"从断点恢复 storyboard: {storyboard.total_pages} 页, {storyboard.total_panels} 格")
 
-        # ========== 步骤4：提示词构建 ==========
+        # ========== 步骤4：提示词构建（无LLM调用，不需要断点） ==========
         logger.info("步骤4: 构建提示词")
 
-        if chapter_id:
-            await self._checkpoint_manager.save_checkpoint(
-                chapter_id, "prompt_building",
-                {"stage": "prompt_building", "current": 3, "total": 4,
-                 "message": "正在生成提示词..."},
-                {"chapter_info": chapter_info.to_dict(),
-                 "page_plan": page_plan.to_dict(),
-                 "storyboard": storyboard.to_dict()},
-                style, source_version_id
-            )
+        await save_checkpoint_callback(
+            "prompt_building",
+            {"stage": "prompt_building", "current": 3, "total": 4, "message": "正在生成提示词..."},
+            cp_data
+        )
 
         # 收集角色外观描述
         character_profiles = {}
@@ -318,6 +333,19 @@ class MangaPromptServiceV2:
         )
 
         return result
+
+    def _determine_start_stage(self, cp_data: dict) -> str:
+        """根据断点数据确定起始阶段"""
+        if cp_data.get("storyboard"):
+            return "prompt_building"
+        if cp_data.get("page_plan"):
+            return "storyboard"
+        if cp_data.get("chapter_info"):
+            return "planning"
+        if cp_data.get("extraction_step1"):
+            # 有部分提取数据，继续提取
+            return "extraction"
+        return "extraction"
 
     async def _auto_generate_portraits(
         self,
@@ -363,14 +391,18 @@ class MangaPromptServiceV2:
         )
 
         # 更新立绘映射
-        if generated:
+        # auto_generate_missing_portraits 返回 {"portraits": {...}, "failed_errors": [...]}
+        if generated and generated.get("portraits"):
             from app.core.config import settings
-            for name, portrait in generated.items():
+            portraits_dict = generated["portraits"]
+            for name, portrait in portraits_dict.items():
                 if portrait.image_path:
                     final_portraits[name] = str(
                         settings.generated_images_dir / portrait.image_path
                     )
-            logger.info(f"自动生成了 {len(generated)} 个角色的立绘")
+            logger.info(f"自动生成了 {len(portraits_dict)} 个角色的立绘")
+            if generated.get("failed_errors"):
+                logger.warning(f"部分立绘生成失败: {generated['failed_errors']}")
             await self.session.commit()
 
     async def _save_result(
@@ -414,6 +446,9 @@ class MangaPromptServiceV2:
         data = await self.manga_prompt_repo.get_result(chapter.id)
         if not data:
             return None
+
+        # 确保 chapter_number 在数据中
+        data["chapter_number"] = chapter_number
 
         return MangaPromptResult.from_dict(data)
 

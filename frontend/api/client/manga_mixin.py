@@ -25,6 +25,7 @@ class MangaMixin:
         language: str = "chinese",
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
+        force_restart: bool = False,
     ) -> Dict[str, Any]:
         """
         生成章节的漫画分镜（支持断点续传）
@@ -35,7 +36,7 @@ class MangaMixin:
         3. 分镜设计 - 每页画格设计
         4. 提示词构建 - 生成AI绘图提示词
 
-        如果之前的生成任务中断，会自动从断点继续。
+        如果之前的生成任务中断，会自动从断点继续（除非 force_restart=True）。
 
         Args:
             project_id: 项目ID
@@ -46,6 +47,7 @@ class MangaMixin:
             language: 对话/音效语言 (chinese/japanese/english/korean)
             use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
+            force_restart: 是否强制从头开始，忽略断点
 
         Returns:
             漫画分镜结果，包含：
@@ -64,13 +66,14 @@ class MangaMixin:
             'language': language,
             'use_portraits': use_portraits,
             'auto_generate_portraits': auto_generate_portraits,
+            'force_restart': force_restart,
         }
 
         return self._request(
             'POST',
             f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts',
             payload,
-            timeout=TimeoutConfig.READ_GENERATION
+            timeout=TimeoutConfig.READ_LONG  # 漫画分镜生成涉及多个LLM调用，需要较长超时
         )
 
     def get_manga_prompts(

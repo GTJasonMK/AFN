@@ -1,0 +1,391 @@
+# Prompt注册表 - 统一管理所有prompt的元数据和依赖关系
+# 版本: 1.0
+# 更新时间: 2024-12-30
+
+version: "1.0"
+last_updated: "2024-12-30"
+
+# ==================== Prompt定义 ====================
+prompts:
+  # ==================== 01 构思阶段 ====================
+  inspiration:
+    path: "01_inspiration/inspiration.md"
+    title: "灵感对话"
+    category: "inspiration"
+    status: "active"
+    used_by:
+      - "InspirationService.converse"
+      - "InspirationService.converse_stream"
+    dependencies: []
+    description: "与AI进行多轮对话，逐步明确故事方向和创作意图"
+
+  # ==================== 02 蓝图阶段 ====================
+  blueprint:
+    path: "02_blueprint/blueprint.md"
+    title: "蓝图生成"
+    category: "blueprint"
+    status: "active"
+    used_by:
+      - "BlueprintRouter.generate_blueprint"
+    dependencies:
+      - "inspiration"
+    description: "根据灵感对话记录生成完整的故事蓝图，包括世界观设定、角色档案、剧情大纲"
+
+  avatar_generation:
+    path: "02_blueprint/avatar_generation.md"
+    title: "项目头像生成"
+    category: "blueprint"
+    status: "active"
+    used_by:
+      - "AvatarService.generate_avatar"
+    dependencies: []
+    description: "基于蓝图信息生成项目封面SVG头像"
+
+  reverse_blueprint:
+    path: "02_blueprint/reverse_blueprint.md"
+    title: "蓝图反推"
+    category: "blueprint"
+    status: "active"
+    used_by:
+      - "ImportAnalysisService.analyze_blueprint"
+    dependencies: []
+    description: "从已有小说内容反推生成蓝图结构"
+
+  # ==================== 03 大纲阶段 ====================
+  outline:
+    path: "03_outline/outline.md"
+    title: "章节大纲生成"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "ChapterOutlineWorkflow.execute"
+      - "OutlineService.generate_outlines"
+    dependencies:
+      - "part_outline"
+    description: "基于分部大纲生成详细的章节大纲"
+
+  part_outline:
+    path: "03_outline/part_outline.md"
+    title: "分部大纲生成(批量)"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "PartOutlineService.generate_batch"
+    dependencies: []
+    description: "批量生成所有分部的大纲内容"
+
+  part_outline_single:
+    path: "03_outline/part_outline_single.md"
+    title: "分部大纲生成(串行)"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "PartOutlineService.generate_single"
+    dependencies:
+      - "part_outline"
+    description: "逐个生成分部大纲，支持上下文传递"
+
+  part_chapters:
+    path: "03_outline/part_chapters.md"
+    title: "分部章节细化"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "PartOutlineService.generate_chapters"
+    dependencies:
+      - "part_outline"
+    description: "将分部大纲细化为具体章节"
+
+  reverse_outline:
+    path: "03_outline/reverse_outline.md"
+    title: "大纲反推"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "ImportAnalysisService.analyze_outline"
+    dependencies: []
+    description: "从已有章节内容反推生成大纲"
+
+  reverse_part_outline:
+    path: "03_outline/reverse_part_outline.md"
+    title: "分部大纲反推"
+    category: "outline"
+    status: "active"
+    used_by:
+      - "ImportAnalysisService.analyze_part_outline"
+    dependencies: []
+    description: "从已有内容反推生成分部大纲结构"
+
+  # ==================== 04 写作阶段 ====================
+  writing:
+    path: "04_writing/writing.md"
+    title: "章节写作"
+    category: "writing"
+    status: "active"
+    used_by:
+      - "ChapterGenerationWorkflow.execute"
+    dependencies:
+      - "outline"
+    description: "基于大纲和上下文生成章节正文"
+
+  extraction:
+    path: "04_writing/extraction.md"
+    title: "摘要提取"
+    category: "writing"
+    status: "active"
+    used_by:
+      - "ExtractionService.extract"
+    dependencies: []
+    description: "从章节内容中提取关键信息摘要"
+
+  chapter_summary_single:
+    path: "04_writing/chapter_summary_single.md"
+    title: "单章摘要"
+    category: "writing"
+    status: "active"
+    used_by:
+      - "ChapterSummaryService.generate_single"
+    dependencies:
+      - "chapter_analysis"
+    description: "为单个章节生成详细摘要"
+
+  chapter_summary_batch:
+    path: "04_writing/chapter_summary_batch.md"
+    title: "批量摘要"
+    category: "writing"
+    status: "unused"
+    used_by: []
+    dependencies: []
+    description: "批量生成多章摘要(暂未使用)"
+
+  # ==================== 05 分析评审 ====================
+  chapter_analysis:
+    path: "05_analysis/chapter_analysis.md"
+    title: "章节分析"
+    category: "analysis"
+    status: "active"
+    used_by:
+      - "ChapterAnalysisService.analyze"
+    dependencies: []
+    description: "对章节内容进行深度分析，提取角色状态、伏笔等信息"
+
+  coherence_check:
+    path: "05_analysis/coherence_check.md"
+    title: "连贯性检查"
+    category: "analysis"
+    status: "active"
+    used_by:
+      - "CoherenceChecker.check"
+    dependencies: []
+    description: "检查章节与前文的连贯性问题"
+
+  evaluation:
+    path: "05_analysis/evaluation.md"
+    title: "版本评估"
+    category: "analysis"
+    status: "active"
+    used_by:
+      - "ChapterEvaluationService.evaluate"
+    dependencies: []
+    description: "对多个章节版本进行对比评估"
+
+  content_optimization_agent:
+    path: "05_analysis/content_optimization_agent.md"
+    title: "正文优化Agent"
+    category: "analysis"
+    status: "active"
+    used_by:
+      - "ContentOptimizationAgent.optimize"
+    dependencies:
+      - "coherence_check"
+    description: "基于ReAct循环的正文优化智能体"
+
+  # ==================== 06 漫画模块 ====================
+  manga_chapter_extraction:
+    path: "06_manga/manga_chapter_extraction.md"
+    title: "漫画信息提取"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "ChapterInfoExtractor.extract"
+    dependencies: []
+    description: "从章节内容中提取角色、对话、场景等漫画所需信息"
+
+  # 分步提取策略（避免单次LLM调用输出过大导致JSON被截断）
+  manga_extraction_step1:
+    path: "06_manga/manga_extraction_step1.md"
+    title: "分步提取-角色和事件"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "ChapterInfoExtractor._extract_step1_characters_events"
+    dependencies: []
+    description: "分步提取策略的第一步，提取角色和事件信息"
+
+  manga_extraction_step2:
+    path: "06_manga/manga_extraction_step2.md"
+    title: "分步提取-对话"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "ChapterInfoExtractor._extract_step2_dialogues"
+    dependencies:
+      - "manga_extraction_step1"
+    description: "分步提取策略的第二步，提取对话信息"
+
+  manga_extraction_step3:
+    path: "06_manga/manga_extraction_step3.md"
+    title: "分步提取-场景"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "ChapterInfoExtractor._extract_step3_scenes"
+    dependencies:
+      - "manga_extraction_step1"
+    description: "分步提取策略的第三步，提取场景信息"
+
+  manga_extraction_step4:
+    path: "06_manga/manga_extraction_step4.md"
+    title: "分步提取-物品和摘要"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "ChapterInfoExtractor._extract_step4_items_summary"
+    dependencies:
+      - "manga_extraction_step1"
+    description: "分步提取策略的第四步，提取物品和章节摘要"
+
+  manga_page_planning:
+    path: "06_manga/manga_page_planning.md"
+    title: "页面规划"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "PagePlanner.plan"
+    dependencies:
+      - "manga_chapter_extraction"
+    description: "规划漫画页数分配和节奏控制"
+
+  manga_storyboard_design:
+    path: "06_manga/manga_storyboard_design.md"
+    title: "分镜设计"
+    category: "manga"
+    status: "active"
+    used_by:
+      - "StoryboardDesigner.design"
+    dependencies:
+      - "manga_page_planning"
+    description: "设计每页的画格布局和镜头安排"
+
+  manga_prompt:
+    path: "06_manga/manga_prompt.md"
+    title: "提示词生成"
+    category: "manga"
+    status: "unused"
+    used_by: []
+    dependencies: []
+    description: "生成AI绘图提示词(旧版，已由PromptBuilder替代)"
+
+  manga_layout:
+    path: "06_manga/manga_layout.md"
+    title: "布局规划"
+    category: "manga"
+    status: "unused"
+    used_by: []
+    dependencies: []
+    description: "漫画页面布局规划(旧版，已整合到分镜设计)"
+
+  screenwriting:
+    path: "06_manga/screenwriting.md"
+    title: "分格剧本(已弃用)"
+    category: "manga"
+    status: "deprecated"
+    used_by: []
+    dependencies: []
+    description: "已迁移至 blueprint，请使用 02_blueprint/blueprint.md"
+
+  # ==================== 07 主角档案 ====================
+  protagonist_analysis:
+    path: "07_protagonist/protagonist_analysis.md"
+    title: "主角分析"
+    category: "protagonist"
+    status: "experimental"
+    used_by:
+      - "ProtagonistProfileService.analyze"
+    dependencies: []
+    description: "分析并生成主角档案信息"
+
+  implicit_classification:
+    path: "07_protagonist/implicit_classification.md"
+    title: "隐性属性分类"
+    category: "protagonist"
+    status: "experimental"
+    used_by:
+      - "ProtagonistProfileService.classify_implicit"
+    dependencies:
+      - "protagonist_analysis"
+    description: "对主角的隐性属性进行分类识别"
+
+  implicit_update:
+    path: "07_protagonist/implicit_update.md"
+    title: "隐性属性更新"
+    category: "protagonist"
+    status: "experimental"
+    used_by:
+      - "ProtagonistProfileService.update_implicit"
+    dependencies:
+      - "implicit_classification"
+    description: "根据章节内容更新主角的隐性属性"
+
+# ==================== 分类定义 ====================
+categories:
+  inspiration:
+    label: "构思"
+    color: "#e3f2fd"
+    order: 1
+    description: "故事构思和灵感对话阶段"
+  blueprint:
+    label: "蓝图"
+    color: "#fff3e0"
+    order: 2
+    description: "世界观、角色、剧情框架设计"
+  outline:
+    label: "大纲"
+    color: "#e8f5e9"
+    order: 3
+    description: "分部大纲和章节大纲生成"
+  writing:
+    label: "写作"
+    color: "#fce4ec"
+    order: 4
+    description: "章节正文生成和摘要提取"
+  analysis:
+    label: "分析"
+    color: "#f3e5f5"
+    order: 5
+    description: "章节分析、评审和优化"
+  manga:
+    label: "漫画"
+    color: "#e0f7fa"
+    order: 6
+    description: "漫画分镜生成流水线"
+  protagonist:
+    label: "主角"
+    color: "#fff9c4"
+    order: 7
+    description: "主角档案管理(实验性功能)"
+
+# ==================== 状态定义 ====================
+statuses:
+  active:
+    label: "启用"
+    description: "正常使用中的prompt"
+  experimental:
+    label: "实验"
+    description: "功能开发中，可能变更"
+  unused:
+    label: "未用"
+    description: "已定义但未集成到系统"
+  deprecated:
+    label: "弃用"
+    description: "即将移除，不建议使用"

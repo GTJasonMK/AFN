@@ -383,7 +383,7 @@ def check_dependencies_installed(python_path: Path, requirements_file: Path, nam
     # 定义关键包（每个环境必须有的核心包）
     # 如果这些包存在，认为依赖已安装
     key_packages = {
-        'backend': ['fastapi', 'uvicorn', 'sqlalchemy'],
+        'backend': ['fastapi', 'uvicorn', 'sqlalchemy', 'sentence-transformers'],
         'frontend': ['PyQt6', 'requests']
     }
 
@@ -733,6 +733,13 @@ def ensure_storage_dir():
     # 同时创建后端的 storage 目录（用于日志等）
     backend_storage = BACKEND_DIR / 'storage'
     backend_storage.mkdir(exist_ok=True)
+
+    # 创建模型下载目录并设置环境变量
+    # HuggingFace 和 sentence-transformers 模型将下载到此目录
+    models_dir = STORAGE_DIR / 'models'
+    models_dir.mkdir(exist_ok=True)
+    os.environ['HF_HOME'] = str(models_dir)
+    os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(models_dir)
 
     # 设置数据库路径
     db_path = STORAGE_DIR / 'afn.db'

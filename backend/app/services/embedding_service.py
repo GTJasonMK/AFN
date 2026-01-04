@@ -1,7 +1,7 @@
 """
 嵌入向量服务
 
-负责文本嵌入向量的生成，支持 OpenAI 兼容 API 和本地 Ollama。
+负责文本嵌入向量的生成，支持 OpenAI 兼容 API、本地 Ollama 和本地 sentence-transformers。
 从 LLMService 拆分出来，遵循单一职责原则。
 """
 
@@ -31,6 +31,51 @@ try:  # pragma: no cover - 运行环境未安装时兼容
     from ollama import AsyncClient as OllamaAsyncClient
 except ImportError:  # pragma: no cover - Ollama 为可选依赖
     OllamaAsyncClient = None
+
+# 本地嵌入模型支持（延迟导入，避免启动时加载 PyTorch）
+# sentence-transformers 依赖 PyTorch，首次导入需要 10-60 秒
+_sentence_transformers_checked = False
+_sentence_transformers_available = False
+_SentenceTransformer = None
+
+# 本地模型缓存（避免每次请求都重新加载模型）
+_local_model_cache: Dict[str, Any] = {}
+
+
+def _check_sentence_transformers():
+    """延迟检查 sentence-transformers 是否可用"""
+    global _sentence_transformers_checked, _sentence_transformers_available, _SentenceTransformer
+    if _sentence_transformers_checked:
+        return _sentence_transformers_available
+
+    try:
+        from sentence_transformers import SentenceTransformer
+        _SentenceTransformer = SentenceTransformer
+        _sentence_transformers_available = True
+        logger.info("sentence-transformers 加载成功")
+    except ImportError:
+        _sentence_transformers_available = False
+        logger.debug("sentence-transformers 未安装")
+
+    _sentence_transformers_checked = True
+    return _sentence_transformers_available
+
+
+def _get_torch_device() -> str:
+    """获取最佳可用设备（GPU优先）"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            logger.info("检测到 CUDA GPU: %s", device_name)
+            return 'cuda'
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            # Apple Silicon GPU
+            logger.info("检测到 Apple MPS GPU")
+            return 'mps'
+    except Exception as e:
+        logger.debug("GPU 检测失败: %s", e)
+    return 'cpu'
 
 
 class EmbeddingService:
@@ -92,6 +137,11 @@ class EmbeddingService:
                         text=text,
                         target_model=target_model,
                         base_url=base_url,
+                    )
+                elif provider == "local":
+                    embedding = await self._get_local_embedding(
+                        text=text,
+                        target_model=target_model,
                     )
                 else:
                     embedding = await self._get_openai_embedding(
@@ -183,6 +233,73 @@ class EmbeddingService:
         if dimension:
             self._dimension_cache[target_model] = dimension
 
+        return embedding
+
+    async def _get_local_embedding(
+        self,
+        text: str,
+        target_model: str,
+    ) -> List[float]:
+        """
+        使用 sentence-transformers 在本地生成嵌入向量
+
+        Args:
+            text: 要嵌入的文本
+            target_model: 模型名称（如 BAAI/bge-small-zh-v1.5）
+
+        Returns:
+            嵌入向量列表
+        """
+        if not _check_sentence_transformers():
+            logger.error("未安装 sentence-transformers 依赖，无法使用本地嵌入模型")
+            raise LLMConfigurationError(
+                "缺少 sentence-transformers 依赖，请先安装: pip install sentence-transformers"
+            )
+
+        # 使用默认模型（如果未指定）
+        if not target_model:
+            target_model = "BAAI/bge-base-zh-v1.5"
+
+        # 从缓存获取或加载模型（在线程池中执行以避免阻塞）
+        loop = asyncio.get_event_loop()
+
+        def _load_and_encode():
+            global _local_model_cache
+
+            if target_model not in _local_model_cache:
+                logger.info("首次加载本地嵌入模型: %s（可能需要下载）", target_model)
+                try:
+                    # 显式指定设备，避免 meta tensor 兼容性问题
+                    device = _get_torch_device()
+                    logger.info("使用设备: %s", device)
+                    model = _SentenceTransformer(target_model, device=device)
+                    _local_model_cache[target_model] = model
+                    logger.info("本地嵌入模型加载成功: %s", target_model)
+                except Exception as exc:
+                    logger.error("加载本地嵌入模型失败: %s, error=%s", target_model, exc)
+                    raise
+
+            model = _local_model_cache[target_model]
+            # 生成嵌入向量
+            embedding = model.encode(text, normalize_embeddings=True)
+            return embedding.tolist()
+
+        try:
+            embedding = await loop.run_in_executor(None, _load_and_encode)
+        except Exception as exc:
+            logger.error("本地嵌入生成失败: model=%s, error=%s", target_model, exc)
+            raise LLMConfigurationError(f"本地嵌入模型调用失败: {str(exc)}") from exc
+
+        if not embedding:
+            logger.warning("本地模型返回空向量: model=%s", target_model)
+            return []
+
+        # 缓存向量维度
+        dimension = len(embedding)
+        if dimension:
+            self._dimension_cache[target_model] = dimension
+
+        logger.debug("本地嵌入生成成功: model=%s, dimension=%d", target_model, dimension)
         return embedding
 
     async def _get_openai_embedding(

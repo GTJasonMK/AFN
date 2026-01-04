@@ -415,6 +415,13 @@ class ChapterInfo:
         """获取指定事件的对话"""
         return [d for d in self.dialogues if d.event_index == event_index]
 
+    def get_event_by_index(self, event_index: int) -> Optional[EventInfo]:
+        """根据事件索引获取事件信息"""
+        for event in self.events:
+            if event.index == event_index:
+                return event
+        return None
+
     def get_events_by_scene(self, scene_index: int) -> List[EventInfo]:
         """获取指定场景的事件"""
         return [e for e in self.events if e.scene_index == scene_index]

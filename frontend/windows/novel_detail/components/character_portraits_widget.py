@@ -357,10 +357,9 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         self.loading_label = None
         self.status_label = None
 
-        # 工作线程
+        # 工作线程（支持多个并行生成）
         self._loading_worker = None
-        self._generate_worker = None
-        self._generating_character = None  # 当前正在生成的角色名
+        self._generate_workers: Dict[str, Any] = {}  # character_name -> worker
 
         super().__init__(parent)
         self.setupUI()
@@ -473,19 +472,23 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
 
         # 分离主要角色和次要角色立绘
         self.portraits = {}
-        self.secondary_portraits = []
+        secondary_portraits_dict = {}  # 用字典去重
 
         for p in portraits:
             name = p.get('character_name', '')
             is_secondary = p.get('is_secondary', False)
 
             if is_secondary:
-                # 次要角色立绘
-                self.secondary_portraits.append(p)
+                # 次要角色立绘：用字典去重，只保留最新的（或激活的）
+                if name not in secondary_portraits_dict or p.get('is_active', False):
+                    secondary_portraits_dict[name] = p
             else:
                 # 主要角色立绘：只保留激活的
                 if p.get('is_active', False) or name not in self.portraits:
                     self.portraits[name] = p
+
+        # 转换为列表
+        self.secondary_portraits = list(secondary_portraits_dict.values())
 
         self._update_display()
 
@@ -503,11 +506,20 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         # 隐藏加载标签
         self.loading_label.hide()
 
-        # 计算总角色数（主要角色 + 次要角色）
-        total_count = len(self.characters) + len(self.secondary_portraits)
+        # 收集主要角色名（用于去重）
+        main_character_names = {char.get('name', '') for char in self.characters}
+
+        # 过滤次要角色：排除已经在主要角色中的
+        filtered_secondary = [
+            p for p in self.secondary_portraits
+            if p.get('character_name', '') not in main_character_names
+        ]
+
+        # 计算总角色数（去重后）
+        total_count = len(self.characters) + len(filtered_secondary)
         self.count_label.setText(f"{total_count} 个角色")
 
-        if not self.characters and not self.secondary_portraits:
+        if not self.characters and not filtered_secondary:
             self.loading_label.setText("暂无角色信息")
             self.loading_label.show()
             return
@@ -520,7 +532,14 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         for char in self.characters:
             name = char.get('name', '')
             description = char.get('identity', '') or char.get('personality', '') or ''
+            # 优先使用主要角色立绘，其次使用次要角色立绘（如果有的话）
             portrait = self.portraits.get(name)
+            if not portrait:
+                # 尝试从次要角色立绘中查找
+                for p in self.secondary_portraits:
+                    if p.get('character_name', '') == name:
+                        portrait = p
+                        break
 
             card = PortraitCard(
                 character_name=name,
@@ -540,8 +559,8 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
                 col = 0
                 row += 1
 
-        # 2. 次要角色（自动生成的立绘）
-        for portrait in self.secondary_portraits:
+        # 2. 次要角色（自动生成的立绘，排除主要角色中已有的）
+        for portrait in filtered_secondary:
             name = portrait.get('character_name', '')
             description = portrait.get('character_description', '')
 
@@ -577,13 +596,13 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         return None
 
     def _on_generate_requested(self, character_name: str):
-        """处理生成请求"""
+        """处理生成请求（支持多个并行生成）"""
         if not self.project_id:
             return
 
-        # 如果已有生成任务在进行中，提示用户
-        if self._generating_character:
-            self.status_label.setText(f"请等待 {self._generating_character} 的立绘生成完成")
+        # 如果该角色已在生成中，忽略重复请求
+        if character_name in self._generate_workers:
+            self.status_label.setText(f"{character_name} 正在生成中...")
             self.status_label.show()
             return
 
@@ -596,18 +615,27 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         style = card.get_selected_style()
 
         # 设置生成状态
-        self._generating_character = character_name
         card.setGenerating(True)
 
-        # 显示全局状态
-        self.status_label.setText(f"正在生成 {character_name} 的立绘...")
+        # 更新状态显示
+        generating_count = len(self._generate_workers) + 1
+        if generating_count == 1:
+            self.status_label.setText(f"正在生成 {character_name} 的立绘...")
+        else:
+            self.status_label.setText(f"正在生成 {generating_count} 个角色的立绘...")
         self.status_label.show()
 
-        # 找到角色描述
+        # 找到角色描述（优先使用外观描述）
         description = ""
         for char in self.characters:
             if char.get('name') == character_name:
-                description = char.get('identity', '') or char.get('personality', '') or ''
+                # 优先使用 appearance（外貌），其次 identity + personality
+                description = char.get('appearance', '')
+                if not description:
+                    # 回退：拼接身份和性格作为描述
+                    identity = char.get('identity', '')
+                    personality = char.get('personality', '')
+                    description = f"{identity}, {personality}".strip(', ')
                 break
 
         def generate():
@@ -619,39 +647,56 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
                     character_description=description,
                 )
 
-        self._generate_worker = AsyncWorker(generate)
-        self._generate_worker.success.connect(self._on_generate_success)
-        self._generate_worker.error.connect(self._on_generate_error)
-        self._generate_worker.start()
+        worker = AsyncWorker(generate)
+        # 使用 lambda 捕获 character_name
+        worker.success.connect(lambda result, name=character_name: self._on_generate_success(result, name))
+        worker.error.connect(lambda error, name=character_name: self._on_generate_error(error, name))
+        worker.start()
 
-    def _on_generate_success(self, result: Dict[str, Any]):
+        # 保存 worker 引用
+        self._generate_workers[character_name] = worker
+
+    def _on_generate_success(self, result: Dict[str, Any], character_name: str):
         """生成成功"""
-        character_name = self._generating_character
-        self._generating_character = None
+        # 移除 worker 引用
+        self._generate_workers.pop(character_name, None)
 
-        card = self._find_card_by_name(character_name) if character_name else None
+        card = self._find_card_by_name(character_name)
 
         if result.get('success'):
-            self.status_label.setText(f"{character_name} 立绘生成成功!")
             if card:
                 card.setGenerateSuccess()
-            # 延迟刷新数据，让用户看到成功状态
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(1000, self._load_data)
+            # 更新状态显示
+            remaining = len(self._generate_workers)
+            if remaining > 0:
+                self.status_label.setText(f"{character_name} 生成成功! 还有 {remaining} 个正在生成...")
+            else:
+                self.status_label.setText(f"{character_name} 立绘生成成功!")
+                # 所有生成完成后刷新数据
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(1000, self._load_data)
         else:
             error_msg = result.get('error_message', '未知错误')
-            self.status_label.setText(f"生成失败: {error_msg}")
+            self.status_label.setText(f"{character_name} 生成失败: {error_msg}")
             if card:
                 card.setGenerateError(f"失败: {error_msg[:20]}...")
 
-    def _on_generate_error(self, error: str):
+    def _on_generate_error(self, error: str, character_name: str):
         """生成失败"""
-        character_name = self._generating_character
-        self._generating_character = None
+        # 移除 worker 引用
+        self._generate_workers.pop(character_name, None)
 
-        card = self._find_card_by_name(character_name) if character_name else None
+        card = self._find_card_by_name(character_name)
 
-        self.status_label.setText(f"生成失败: {error}")
+        remaining = len(self._generate_workers)
+        if remaining > 0:
+            self.status_label.setText(f"{character_name} 生成失败! 还有 {remaining} 个正在生成...")
+        else:
+            self.status_label.setText(f"生成失败: {error}")
+            # 所有任务完成后刷新数据（即使有失败的，也刷新以显示成功的）
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(1000, self._load_data)
+
         if card:
             card.setGenerateError("生成失败")
 
@@ -739,15 +784,31 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
 
         portraits = result.get('portraits', [])
         total = result.get('total', 0)
+        failed_count = result.get('failed_count', 0)
+        failed_characters = result.get('failed_characters', [])
+        error_message = result.get('error_message', '')
 
-        if total > 0:
+        # 构建状态消息
+        if total > 0 and failed_count == 0:
+            # 全部成功
             self.status_label.setText(f"成功生成 {total} 个角色的立绘!")
+        elif total > 0 and failed_count > 0:
+            # 部分成功
+            failed_names = ", ".join(failed_characters[:3])
+            if len(failed_characters) > 3:
+                failed_names += f" 等{len(failed_characters)}个"
+            self.status_label.setText(f"成功 {total} 个，失败 {failed_count} 个 ({failed_names})")
+        elif total == 0 and failed_count > 0:
+            # 全部失败
+            short_error = error_message[:50] + "..." if len(error_message) > 50 else error_message
+            self.status_label.setText(f"生成失败: {short_error}")
         else:
+            # 没有需要生成的（全部已有）
             self.status_label.setText("所有角色已有立绘，无需生成")
 
-        # 刷新数据
+        # 刷新数据（即使部分失败也要刷新，显示成功的）
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(1000, self._load_data)
+        QTimer.singleShot(500, self._load_data)
 
     def _on_auto_generate_error(self, error: str):
         """批量生成失败"""

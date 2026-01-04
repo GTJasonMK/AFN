@@ -54,15 +54,30 @@ class MangaHandlersMixin:
                 )
                 if result:
                     manga_data['has_manga_prompt'] = True
-                    manga_data['scenes'] = result.get('scenes', [])
-                    manga_data['panels'] = result.get('panels', [])
                     manga_data['character_profiles'] = result.get('character_profiles', {})
                     manga_data['total_pages'] = result.get('total_pages', 0)
                     manga_data['total_panels'] = result.get('total_panels', 0)
                     manga_data['style'] = result.get('style', '')
-            except Exception:
-                # 如果获取失败，保持默认空状态
-                pass
+
+                    # 后端返回 pages，前端需要 scenes
+                    # 将 page_number 转换为 scene_id
+                    pages = result.get('pages', [])
+                    scenes = []
+                    for page in pages:
+                        scene = dict(page)
+                        scene['scene_id'] = page.get('page_number', 0)
+                        scenes.append(scene)
+                    manga_data['scenes'] = scenes
+
+                    # 为每个 panel 添加 scene_id（使用 page_number）
+                    panels = result.get('panels', [])
+                    for panel in panels:
+                        if 'scene_id' not in panel:
+                            panel['scene_id'] = panel.get('page_number', 0)
+                    manga_data['panels'] = panels
+            except Exception as e:
+                # 如果获取失败，记录错误并保持默认空状态
+                logger.warning("获取漫画分镜数据失败: %s", e)
 
             # 检查断点状态（仅当没有完成的内容时）
             if not manga_data['has_manga_prompt']:
@@ -223,6 +238,7 @@ class MangaHandlersMixin:
         language: str = "chinese",
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
+        force_restart: bool = False,
     ):
         """
         生成漫画分镜回调
@@ -234,8 +250,9 @@ class MangaHandlersMixin:
             language: 对话/音效语言 (chinese/japanese/english/korean)
             use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
+            force_restart: 是否强制从头开始，忽略断点
         """
-        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_pages={min_pages}, max_pages={max_pages}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}")
+        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_pages={min_pages}, max_pages={max_pages}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}, force_restart={force_restart}")
 
         if not self.project_id or not self.current_chapter:
             MessageService.show_warning(self, "请先选择章节")
@@ -253,38 +270,41 @@ class MangaHandlersMixin:
                 self.project_id, self.current_chapter
             )
             if existing and existing.get('total_panels', 0) > 0:
-                # 已有分镜数据，询问用户
-                if not MessageService.confirm(
-                    self,
-                    "当前章节已有分镜数据，重新生成将覆盖现有数据。",
-                    "确定要重新生成吗？"
-                ):
-                    return
+                # 已有分镜数据，询问用户（只有从头开始时才需要确认）
+                if force_restart:
+                    if not MessageService.confirm(
+                        self,
+                        "当前章节已有分镜数据，重新生成将覆盖现有数据。",
+                        "确定要重新生成吗？"
+                    ):
+                        return
         except Exception:
             # 获取失败，检查是否有未完成的断点
-            try:
-                progress = self.api_client.get_manga_prompt_progress(
-                    self.project_id, self.current_chapter
-                )
-                if progress and progress.get('can_resume', False):
-                    stage_label = progress.get('stage_label', '处理中')
-                    current = progress.get('current', 0)
-                    total = progress.get('total', 0)
-                    progress_text = f"({current}/{total})" if total > 0 else ""
-
-                    # 有未完成的断点，询问用户
-                    MessageService.show_info(
-                        self,
-                        f"检测到上次未完成的生成任务（{stage_label} {progress_text}），将自动继续..."
+            if not force_restart:
+                # 只有继续生成时才显示断点信息
+                try:
+                    progress = self.api_client.get_manga_prompt_progress(
+                        self.project_id, self.current_chapter
                     )
-            except Exception:
-                pass
+                    if progress and progress.get('can_resume', False):
+                        stage_label = progress.get('stage_label', '处理中')
+                        current = progress.get('current', 0)
+                        total = progress.get('total', 0)
+                        progress_text = f"({current}/{total})" if total > 0 else ""
+
+                        # 有未完成的断点，提示用户
+                        MessageService.show_info(
+                            self,
+                            f"从断点继续生成（{stage_label} {progress_text}）..."
+                        )
+                except Exception:
+                    pass
 
         # 设置生成标志，防止异步加载覆盖UI状态
         self._manga_generating = True
 
         # 显示加载动画
-        loading_text = "正在生成漫画分镜..."
+        loading_text = "正在从头生成漫画分镜..." if force_restart else "正在生成漫画分镜..."
         logger.info(f"Setting loading state, _manga_builder exists: {self._manga_builder is not None}")
         if self._manga_builder:
             self._manga_builder.set_toolbar_loading(True, loading_text)
@@ -299,6 +319,7 @@ class MangaHandlersMixin:
                 language=language,
                 use_portraits=use_portraits,
                 auto_generate_portraits=auto_generate_portraits,
+                force_restart=force_restart,
             )
 
         def on_success(result):
@@ -422,8 +443,24 @@ class MangaHandlersMixin:
         narration_position = panel.get('narration_position', '')
 
         # 漫画元数据 - 音效相关
-        sound_effects = panel.get('sound_effects', [])
+        # 注意：sound_effects 可能是字符串列表或字典列表
+        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
+        raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 将 sound_effects 转换为纯文本列表
+        sound_effects = []
+        for sfx in raw_sound_effects:
+            if isinstance(sfx, dict):
+                # 字典格式：提取text字段
+                sfx_text = sfx.get('text', '')
+                if sfx_text:
+                    sound_effects.append(sfx_text)
+                # 如果 sound_effect_details 为空，将完整字典添加到details
+                if not sound_effect_details:
+                    sound_effect_details.append(sfx)
+            elif isinstance(sfx, str) and sfx:
+                sound_effects.append(sfx)
 
         # 漫画元数据 - 视觉相关
         composition = panel.get('composition', '')
@@ -697,8 +734,24 @@ class MangaHandlersMixin:
         narration_position = panel.get('narration_position', '')
 
         # 漫画元数据 - 音效相关
-        sound_effects = panel.get('sound_effects', [])
+        # 注意：sound_effects 可能是字符串列表或字典列表
+        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
+        raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 将 sound_effects 转换为纯文本列表
+        sound_effects = []
+        for sfx in raw_sound_effects:
+            if isinstance(sfx, dict):
+                # 字典格式：提取text字段
+                sfx_text = sfx.get('text', '')
+                if sfx_text:
+                    sound_effects.append(sfx_text)
+                # 如果 sound_effect_details 为空，将完整字典添加到details
+                if not sound_effect_details:
+                    sound_effect_details.append(sfx)
+            elif isinstance(sfx, str) and sfx:
+                sound_effects.append(sfx)
 
         # 漫画元数据 - 视觉相关
         composition = panel.get('composition', '')
@@ -869,8 +922,24 @@ class MangaHandlersMixin:
         narration_position = panel.get('narration_position', '')
 
         # 漫画元数据 - 音效相关
-        sound_effects = panel.get('sound_effects', [])
+        # 注意：sound_effects 可能是字符串列表或字典列表
+        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
+        raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
+
+        # 将 sound_effects 转换为纯文本列表
+        sound_effects = []
+        for sfx in raw_sound_effects:
+            if isinstance(sfx, dict):
+                # 字典格式：提取text字段
+                sfx_text = sfx.get('text', '')
+                if sfx_text:
+                    sound_effects.append(sfx_text)
+                # 如果 sound_effect_details 为空，将完整字典添加到details
+                if not sound_effect_details:
+                    sound_effect_details.append(sfx)
+            elif isinstance(sfx, str) and sfx:
+                sound_effects.append(sfx)
 
         # 漫画元数据 - 视觉相关
         composition = panel.get('composition', '')

@@ -21,3 +21,6 @@ langchain-text-splitters==0.3.11
 reportlab==4.2.0
 Pillow==10.4.0
 
+# 本地嵌入模型支持（可选，首次加载模型需要下载）
+sentence-transformers>=2.2.0
+

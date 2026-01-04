@@ -235,8 +235,8 @@ class PromptBuilder:
         # 添加角色描述
         for char_name in panel.characters[:2]:  # 最多2个角色
             char_info = chapter_info.characters.get(char_name)
-            if char_info and char_info.appearance_en:
-                parts.append(f"{char_name}: {char_info.appearance_en[:100]},")
+            if char_info and char_info.appearance:
+                parts.append(f"{char_name}: {char_info.appearance[:100]},")
             elif char_name in self.character_profiles:
                 parts.append(f"{char_name}: {self.character_profiles[char_name][:100]},")
 
@@ -259,6 +259,10 @@ class PromptBuilder:
         # 添加背景
         if panel.background:
             parts.append(f"background: {panel.background},")
+
+        # 添加视觉焦点
+        if panel.focus_point:
+            parts.append(f"focus on {panel.focus_point},")
 
         # 添加视觉效果
         if panel.motion_lines:

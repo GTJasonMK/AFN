@@ -76,17 +76,21 @@ async def get_analysis_service(
     session: AsyncSession = Depends(get_session),
 ) -> ProtagonistAnalysisService:
     """获取分析服务"""
+    from app.services.prompt_service import PromptService
     llm_service = LLMService(session)
-    return ProtagonistAnalysisService(session, llm_service)
+    prompt_service = PromptService(session)
+    return ProtagonistAnalysisService(session, llm_service, prompt_service)
 
 
 async def get_sync_service(
     session: AsyncSession = Depends(get_session),
 ) -> ProtagonistSyncService:
     """获取同步服务"""
+    from app.services.prompt_service import PromptService
     profile_service = ProtagonistProfileService(session)
     llm_service = LLMService(session)
-    analysis_service = ProtagonistAnalysisService(session, llm_service)
+    prompt_service = PromptService(session)
+    analysis_service = ProtagonistAnalysisService(session, llm_service, prompt_service)
     implicit_tracker = ImplicitAttributeTracker(session)
     deletion_protection = DeletionProtectionService(session)
 

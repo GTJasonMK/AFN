@@ -31,8 +31,9 @@ def get_config_file() -> Path:
         # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
         work_dir = Path(sys.executable).parent
     else:
-        # 开发环境：配置保存到 backend/storage 文件夹
-        work_dir = Path(__file__).resolve().parents[3]
+        # 开发环境：配置保存到项目根目录的 storage 文件夹
+        # 从 backend/app/api/routers/settings.py 向上4级到达项目根目录
+        work_dir = Path(__file__).resolve().parents[4]
 
     storage_dir = work_dir / 'storage'
     storage_dir.mkdir(exist_ok=True)

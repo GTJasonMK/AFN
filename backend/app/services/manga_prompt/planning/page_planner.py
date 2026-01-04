@@ -8,7 +8,8 @@ import json
 import logging
 from typing import Optional, TYPE_CHECKING
 
-from app.services.llm_wrappers import call_llm, LLMProfile
+from app.exceptions import JSONParseError
+from app.services.llm_wrappers import call_llm_json, LLMProfile
 from app.utils.json_utils import parse_llm_json_safe
 
 from ..extraction import ChapterInfo
@@ -66,6 +67,9 @@ class PagePlanner:
 
         Returns:
             PagePlanResult: 页面规划结果
+
+        Raises:
+            JSONParseError: 当LLM返回的JSON无法解析时
         """
         # 如果事件太少，使用简单规划
         if len(chapter_info.events) < 3:
@@ -86,7 +90,7 @@ class PagePlanner:
             max_pages,
         )
 
-        response = await call_llm(
+        response = await call_llm_json(
             self.llm_service,
             LLMProfile.ANALYTICAL,
             system_prompt=system_prompt,
@@ -98,8 +102,17 @@ class PagePlanner:
         data = parse_llm_json_safe(response)
 
         if not data:
-            logger.warning("页面规划失败，使用回退规划")
-            return self._fallback_plan(chapter_info, min_pages, max_pages)
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "页面规划失败，LLM返回无法解析的JSON。"
+                "响应长度: %d, 响应预览: %s",
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context="页面规划",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
 
         try:
             result = self._parse_plan_result(data, chapter_info)
@@ -111,7 +124,10 @@ class PagePlanner:
             return result
         except Exception as e:
             logger.error("解析规划结果失败: %s", e)
-            return self._fallback_plan(chapter_info, min_pages, max_pages)
+            raise JSONParseError(
+                context="页面规划",
+                detail_msg=f"解析AI返回数据时出错: {str(e)}"
+            ) from e
 
     async def _build_prompt(
         self,

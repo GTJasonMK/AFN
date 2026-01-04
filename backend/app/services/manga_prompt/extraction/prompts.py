@@ -6,10 +6,23 @@
 注意：此文件作为内置备用提示词。
 用户可编辑的版本位于 backend/prompts/manga_chapter_extraction.md
 ChapterInfoExtractor 会优先从 PromptService 加载，找不到时使用此处定义。
+
+分步提取策略：
+为避免单次LLM调用输出过大导致JSON被截断，将提取任务分为4个步骤：
+1. 步骤1：提取角色 + 基础事件
+2. 步骤2：提取对话信息
+3. 步骤3：提取场景信息
+4. 步骤4：提取物品 + 摘要信息
 """
 
 # 提示词名称（用于从 PromptService 加载）
 PROMPT_NAME = "manga_chapter_extraction"
+
+# 分步提取提示词名称
+PROMPT_NAME_STEP1 = "manga_extraction_step1"
+PROMPT_NAME_STEP2 = "manga_extraction_step2"
+PROMPT_NAME_STEP3 = "manga_extraction_step3"
+PROMPT_NAME_STEP4 = "manga_extraction_step4"
 
 # 章节信息提取提示词模板
 CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从以下章节内容中提取结构化信息，用于后续的漫画分镜设计。
@@ -186,8 +199,237 @@ EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧和分镜师助�
 请始终确保输出的 JSON 格式正确，可以被程序解析。
 """
 
+# ============================================================
+# 分步提取提示词
+# ============================================================
+
+# 步骤1：提取角色和事件
+STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信息和事件信息。
+
+## 章节内容
+{content}
+
+## 提取要求
+
+### 1. 角色信息 (characters)
+为每个出场角色提取：
+- name: 角色名（中文）
+- appearance: 外观描述（英文，详细描述发型、服装、体型、年龄特征）
+- appearance_zh: 外观描述（中文）
+- personality: 性格特点（简短）
+- role: protagonist/antagonist/supporting/minor/background
+- gender: male/female/unknown
+- age_description: 年龄描述
+
+### 2. 事件信息 (events)
+按时间顺序提取关键事件：
+- index: 事件序号（从0开始）
+- type: dialogue/action/reaction/transition/revelation/conflict/resolution/description/internal
+- description: 事件描述（中文，简洁）
+- description_en: 事件描述（英文）
+- participants: 参与角色列表
+- importance: low/normal/high/critical
+- is_climax: 是否是高潮点（true/false）
+
+## 输出格式
+
+```json
+{{
+  "characters": {{
+    "角色名": {{
+      "name": "角色名",
+      "appearance": "English appearance...",
+      "appearance_zh": "中文外观...",
+      "personality": "性格",
+      "role": "protagonist",
+      "gender": "male",
+      "age_description": "青年"
+    }}
+  }},
+  "events": [
+    {{
+      "index": 0,
+      "type": "dialogue",
+      "description": "事件描述",
+      "description_en": "Event description",
+      "participants": ["角色1", "角色2"],
+      "importance": "normal",
+      "is_climax": false
+    }}
+  ],
+  "climax_event_indices": [5, 6]
+}}
+```
+
+请确保JSON格式正确。只输出JSON，不要其他文字。
+"""
+
+# 步骤2：提取对话
+STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话信息。
+
+## 章节内容
+{content}
+
+## 已识别的角色
+{characters_json}
+
+## 已识别的事件
+{events_json}
+
+## 提取要求
+
+提取所有对话和内心独白：
+- index: 对话序号（从0开始）
+- speaker: 说话人名字（必须是已识别角色之一）
+- content: 对话内容（保留原文）
+- emotion: neutral/happy/sad/angry/surprised/fearful/excited/calm/nervous/determined
+- target: 对话对象
+- event_index: 所属事件索引（对应events中的index）
+- is_internal: 是否是内心独白
+- bubble_type: normal/shout/whisper/thought
+
+## 输出格式
+
+```json
+{{
+  "dialogues": [
+    {{
+      "index": 0,
+      "speaker": "角色名",
+      "content": "对话内容",
+      "emotion": "neutral",
+      "target": "对话对象",
+      "event_index": 0,
+      "is_internal": false,
+      "bubble_type": "normal"
+    }}
+  ]
+}}
+```
+
+请确保JSON格式正确。只输出JSON，不要其他文字。
+"""
+
+# 步骤3：提取场景
+STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
+
+## 章节内容
+{content}
+
+## 已识别的事件
+{events_json}
+
+## 提取要求
+
+识别不同的场景/地点：
+- index: 场景序号（从0开始）
+- location: 地点描述（中文）
+- location_en: 地点描述（英文，用于绘图）
+- time_of_day: morning/afternoon/evening/night/dawn/dusk
+- atmosphere: 氛围描述
+- weather: 天气描述（可选）
+- lighting: natural/dim/bright/dramatic/soft
+- indoor_outdoor: indoor/outdoor
+- description: 场景的详细描述
+- event_indices: 该场景包含的事件索引列表
+
+## 输出格式
+
+```json
+{{
+  "scenes": [
+    {{
+      "index": 0,
+      "location": "地点",
+      "location_en": "Location in English",
+      "time_of_day": "day",
+      "atmosphere": "氛围",
+      "weather": null,
+      "lighting": "natural",
+      "indoor_outdoor": "indoor",
+      "description": "场景描述",
+      "event_indices": [0, 1, 2]
+    }}
+  ]
+}}
+```
+
+请确保所有事件都被分配到场景中。只输出JSON，不要其他文字。
+"""
+
+# 步骤4：提取物品和摘要
+STEP4_ITEMS_SUMMARY_PROMPT = """请从以下章节内容中提取物品信息和章节摘要。
+
+## 章节内容
+{content}
+
+## 已识别的事件数量
+{event_count}
+
+## 提取要求
+
+### 1. 物品信息 (items)
+只提取对剧情有影响的物品：
+- name: 物品名（中文）
+- name_en: 物品名（英文）
+- description: 描述（中文）
+- description_en: 描述（英文，用于绘图）
+- importance: prop/key_item/mcguffin
+- first_appearance_event: 首次出现的事件索引
+- visual_features: 视觉特征（英文）
+
+### 2. 章节摘要
+- chapter_summary: 章节内容摘要（2-3句话，中文）
+- chapter_summary_en: 英文摘要
+- mood_progression: 情绪变化轨迹（如["平静", "紧张", "高潮", "释然"]）
+- total_estimated_pages: 预估漫画页数（5-15页）
+
+## 输出格式
+
+```json
+{{
+  "items": [
+    {{
+      "name": "物品名",
+      "name_en": "Item name",
+      "description": "描述",
+      "description_en": "Description",
+      "importance": "prop",
+      "first_appearance_event": 0,
+      "visual_features": "Visual features"
+    }}
+  ],
+  "chapter_summary": "章节摘要...",
+  "chapter_summary_en": "Chapter summary...",
+  "mood_progression": ["开始情绪", "中间情绪", "结束情绪"],
+  "total_estimated_pages": 10
+}}
+```
+
+请确保JSON格式正确。只输出JSON，不要其他文字。
+"""
+
+# 分步提取的系统提示词
+STEP_EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧助手。你的任务是从小说章节中提取结构化信息，用于漫画分镜设计。
+
+重要要求：
+1. 严格按照指定格式输出JSON
+2. 不要输出任何额外的解释或文字
+3. 确保JSON格式正确，可以被程序解析
+4. 所有字段都需要填写（可以为空字符串或空列表，但不要省略）
+"""
+
 __all__ = [
     "PROMPT_NAME",
+    "PROMPT_NAME_STEP1",
+    "PROMPT_NAME_STEP2",
+    "PROMPT_NAME_STEP3",
+    "PROMPT_NAME_STEP4",
     "CHAPTER_INFO_EXTRACTION_PROMPT",
     "EXTRACTION_SYSTEM_PROMPT",
+    "STEP1_CHARACTERS_EVENTS_PROMPT",
+    "STEP2_DIALOGUES_PROMPT",
+    "STEP3_SCENES_PROMPT",
+    "STEP4_ITEMS_SUMMARY_PROMPT",
+    "STEP_EXTRACTION_SYSTEM_PROMPT",
 ]

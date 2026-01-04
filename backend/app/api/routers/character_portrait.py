@@ -261,7 +261,7 @@ async def auto_generate_portraits(
             - exclude_existing: 是否排除已有立绘的角色
 
     Returns:
-        生成的立绘列表
+        生成的立绘列表，包含成功和失败信息
     """
     # 验证项目权限
     await novel_service.ensure_project_owner(project_id, desktop_user.id)
@@ -275,7 +275,7 @@ async def auto_generate_portraits(
     )
 
     try:
-        generated_portraits = await portrait_service.auto_generate_missing_portraits(
+        result = await portrait_service.auto_generate_missing_portraits(
             user_id=desktop_user.id,
             project_id=project_id,
             character_profiles=request.character_profiles,
@@ -284,13 +284,23 @@ async def auto_generate_portraits(
         )
         await session.commit()
 
+        # 处理返回结果
+        generated_portraits = result.get("portraits", {})
+        failed_errors = result.get("failed_errors", [])
+
         portraits_list = list(generated_portraits.values())
+        failed_characters = [name for name, _ in failed_errors]
+        first_error = failed_errors[0][1] if failed_errors else None
+
         return CharacterPortraitListResponse(
             portraits=[
                 CharacterPortraitResponse.from_orm_with_url(p)
                 for p in portraits_list
             ],
             total=len(portraits_list),
+            failed_count=len(failed_errors),
+            failed_characters=failed_characters,
+            error_message=first_error,
         )
     except Exception as e:
         logger.error("批量生成立绘失败: %s", e)

@@ -190,28 +190,38 @@ class PanelDesign:
     @classmethod
     def from_dict(cls, data: dict) -> "PanelDesign":
         """从字典创建"""
+        # 安全获取列表和字典类型的字段，确保不会是 None
+        dialogues_data = data.get("dialogues") or []
+        sound_effects_data = data.get("sound_effects") or []
+
         return cls(
-            panel_id=data.get("panel_id", 1),
-            size=PanelSize.from_string(data.get("size", "medium")),
-            shape=PanelShape.from_string(data.get("shape", "rectangle")),
-            shot_type=ShotType.from_string(data.get("shot_type", "medium")),
-            visual_description=data.get("visual_description", ""),
-            visual_description_en=data.get("visual_description_en", ""),
-            characters=data.get("characters", []),
-            character_actions=data.get("character_actions", {}),
-            character_expressions=data.get("character_expressions", {}),
-            dialogues=[DialogueBubble.from_dict(d) for d in data.get("dialogues", [])],
-            narration=data.get("narration", ""),
-            sound_effects=[SoundEffect.from_dict(s) for s in data.get("sound_effects", [])],
-            focus_point=data.get("focus_point", ""),
-            lighting=data.get("lighting", ""),
-            atmosphere=data.get("atmosphere", ""),
-            background=data.get("background", ""),
-            motion_lines=data.get("motion_lines", False),
-            impact_effects=data.get("impact_effects", False),
-            event_indices=data.get("event_indices", []),
-            is_key_panel=data.get("is_key_panel", False),
-            transition_hint=data.get("transition_hint", ""),
+            panel_id=data.get("panel_id") or 1,
+            size=PanelSize.from_string(data.get("size") or "medium"),
+            shape=PanelShape.from_string(data.get("shape") or "rectangle"),
+            shot_type=ShotType.from_string(data.get("shot_type") or "medium"),
+            visual_description=data.get("visual_description") or "",
+            visual_description_en=data.get("visual_description_en") or "",
+            characters=data.get("characters") or [],
+            character_actions=data.get("character_actions") or {},
+            character_expressions=data.get("character_expressions") or {},
+            dialogues=[
+                DialogueBubble.from_dict(d) for d in dialogues_data
+                if isinstance(d, dict)
+            ],
+            narration=data.get("narration") or "",
+            sound_effects=[
+                SoundEffect.from_dict(s) for s in sound_effects_data
+                if isinstance(s, dict)
+            ],
+            focus_point=data.get("focus_point") or "",
+            lighting=data.get("lighting") or "",
+            atmosphere=data.get("atmosphere") or "",
+            background=data.get("background") or "",
+            motion_lines=bool(data.get("motion_lines")),
+            impact_effects=bool(data.get("impact_effects")),
+            event_indices=data.get("event_indices") or [],
+            is_key_panel=bool(data.get("is_key_panel")),
+            transition_hint=data.get("transition_hint") or "",
         )
 
 

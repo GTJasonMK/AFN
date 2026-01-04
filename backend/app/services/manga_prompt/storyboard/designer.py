@@ -6,9 +6,10 @@
 
 import json
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
-from app.services.llm_wrappers import call_llm, LLMProfile
+from app.exceptions import JSONParseError
+from app.services.llm_wrappers import call_llm_json, LLMProfile
 from app.utils.json_utils import parse_llm_json_safe
 
 from ..extraction import ChapterInfo
@@ -75,6 +76,9 @@ class StoryboardDesigner:
 
         Returns:
             PageStoryboard: 页面分镜设计
+
+        Raises:
+            JSONParseError: 当LLM返回的JSON无法解析时
         """
         # 构建提示词
         prompt = await self._build_prompt(
@@ -92,9 +96,9 @@ class StoryboardDesigner:
             page_plan.suggested_panel_count,
         )
 
-        response = await call_llm(
+        response = await call_llm_json(
             self.llm_service,
-            LLMProfile.CREATIVE,  # 使用创意型配置
+            LLMProfile.MANGA,  # 使用漫画配置（8192 tokens，避免输出截断）
             system_prompt=system_prompt,
             user_content=prompt,
             user_id=user_id,
@@ -104,8 +108,18 @@ class StoryboardDesigner:
         data = parse_llm_json_safe(response)
 
         if not data:
-            logger.warning("分镜设计失败，使用回退设计: 第 %d 页", page_plan.page_number)
-            return self._fallback_design(page_plan, chapter_info)
+            error_preview = response[:200] if response else "(empty)"
+            logger.error(
+                "分镜设计失败，LLM返回无法解析的JSON: 第 %d 页。"
+                "响应长度: %d, 响应预览: %s",
+                page_plan.page_number,
+                len(response) if response else 0,
+                error_preview
+            )
+            raise JSONParseError(
+                context=f"第 {page_plan.page_number} 页分镜设计",
+                detail_msg="AI返回的数据格式错误，请重试。"
+            )
 
         try:
             result = self._parse_storyboard(data, page_plan.page_number)
@@ -117,7 +131,10 @@ class StoryboardDesigner:
             return result
         except Exception as e:
             logger.error("解析分镜设计失败: %s", e)
-            return self._fallback_design(page_plan, chapter_info)
+            raise JSONParseError(
+                context=f"第 {page_plan.page_number} 页分镜设计",
+                detail_msg=f"解析AI返回数据时出错: {str(e)}"
+            ) from e
 
     async def design_all_pages(
         self,
@@ -163,6 +180,105 @@ class StoryboardDesigner:
             style_notes="",
         )
 
+    async def design_all_pages_with_checkpoint(
+        self,
+        page_plans: List[PagePlanItem],
+        chapter_info: ChapterInfo,
+        user_id: Optional[int] = None,
+        designed_pages_data: Optional[List[Dict[str, Any]]] = None,
+        on_page_complete: Optional[Callable[[int, List[Dict[str, Any]]], None]] = None,
+    ) -> tuple[StoryboardResult, List[Dict[str, Any]]]:
+        """
+        设计所有页面的分镜（支持断点恢复）
+
+        每完成一页后调用 on_page_complete 回调，便于保存中间状态。
+
+        Args:
+            page_plans: 页面规划列表
+            chapter_info: 章节信息
+            user_id: 用户ID
+            designed_pages_data: 已设计的页面数据列表（用于恢复）
+            on_page_complete: 每页完成回调 (page_number, all_designed_pages_data)
+
+        Returns:
+            (StoryboardResult, designed_pages_data) 元组
+        """
+        total_pages = len(page_plans)
+        pages: List[PageStoryboard] = []
+        previous_panel: Optional[PanelDesign] = None
+
+        # 恢复已设计的页面
+        designed_data = list(designed_pages_data) if designed_pages_data else []
+        completed_page_numbers = set()
+
+        if designed_data:
+            logger.info("从断点恢复 %d 个已设计页面", len(designed_data))
+            for page_data in designed_data:
+                page_storyboard = PageStoryboard.from_dict(page_data)
+                pages.append(page_storyboard)
+                completed_page_numbers.add(page_storyboard.page_number)
+                # 更新上一格引用
+                if page_storyboard.panels:
+                    previous_panel = page_storyboard.panels[-1]
+
+        # 继续设计剩余页面
+        for page_plan in page_plans:
+            if page_plan.page_number in completed_page_numbers:
+                logger.debug("页面 %d 已完成，跳过", page_plan.page_number)
+                continue
+
+            page_storyboard = await self.design_page(
+                page_plan=page_plan,
+                chapter_info=chapter_info,
+                total_pages=total_pages,
+                previous_panel=previous_panel,
+                user_id=user_id,
+            )
+            pages.append(page_storyboard)
+
+            # 保存到断点数据
+            designed_data.append(page_storyboard.to_dict())
+
+            # 更新上一格引用
+            if page_storyboard.panels:
+                previous_panel = page_storyboard.panels[-1]
+
+            # 调用回调保存进度
+            if on_page_complete:
+                await self._safe_callback(
+                    on_page_complete,
+                    page_storyboard.page_number,
+                    designed_data
+                )
+
+        # 按页码排序（确保顺序正确）
+        pages.sort(key=lambda p: p.page_number)
+        total_panels = sum(p.get_panel_count() for p in pages)
+
+        result = StoryboardResult(
+            pages=pages,
+            total_pages=total_pages,
+            total_panels=total_panels,
+            style_notes="",
+        )
+
+        return result, designed_data
+
+    async def _safe_callback(
+        self,
+        callback: Callable,
+        page_number: int,
+        data: List[Dict[str, Any]]
+    ) -> None:
+        """安全执行回调，支持同步和异步回调"""
+        import asyncio
+        try:
+            result = callback(page_number, data)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as e:
+            logger.warning("页面%d完成回调执行失败: %s", page_number, e)
+
     async def _build_prompt(
         self,
         page_plan: PagePlanItem,
@@ -195,7 +311,7 @@ class StoryboardDesigner:
                     "participants": event.participants,
                     "importance": event.importance.value,
                     "is_climax": event.is_climax,
-                    "emotional_tone": event.emotional_tone,
+                    "emotional_tone": event.emotion_tone,
                 })
 
         # 收集页面相关的对话
@@ -206,7 +322,7 @@ class StoryboardDesigner:
                     "speaker": dialogue.speaker,
                     "content": dialogue.content,
                     "emotion": dialogue.emotion.value,
-                    "importance": dialogue.importance.value,
+                    "is_internal": dialogue.is_internal,
                 })
 
         # 收集页面出场角色信息
@@ -217,8 +333,8 @@ class StoryboardDesigner:
                 characters_data[char_name] = {
                     "role": char_info.role.value,
                     "appearance": char_info.appearance,
-                    "appearance_en": char_info.appearance_en,
-                    "current_emotion": char_info.current_emotion,
+                    "appearance_zh": char_info.appearance_zh,
+                    "personality": char_info.personality,
                 }
 
         # 上一格信息
@@ -252,15 +368,24 @@ class StoryboardDesigner:
     def _parse_storyboard(self, data: dict, page_number: int) -> PageStoryboard:
         """解析LLM返回的分镜设计"""
         panels = []
-        for p in data.get("panels", []):
-            # 解析对话
+        panels_data = data.get("panels") or []  # 确保不是 None
+
+        for p in panels_data:
+            if not isinstance(p, dict):
+                continue
+
+            # 解析对话（确保不是 None）
+            dialogues_data = p.get("dialogues") or []
             dialogues = [
-                DialogueBubble.from_dict(d) for d in p.get("dialogues", [])
+                DialogueBubble.from_dict(d) for d in dialogues_data
+                if isinstance(d, dict)
             ]
 
-            # 解析音效
+            # 解析音效（确保不是 None）
+            sound_effects_data = p.get("sound_effects") or []
             sound_effects = [
-                SoundEffect.from_dict(s) for s in p.get("sound_effects", [])
+                SoundEffect.from_dict(s) for s in sound_effects_data
+                if isinstance(s, dict)
             ]
 
             panel = PanelDesign.from_dict(p)
@@ -271,10 +396,10 @@ class StoryboardDesigner:
         return PageStoryboard(
             page_number=page_number,
             panels=panels,
-            page_purpose=data.get("page_purpose", ""),
-            reading_flow=data.get("reading_flow", "right_to_left"),
-            visual_rhythm=data.get("visual_rhythm", ""),
-            layout_description=data.get("layout_description", ""),
+            page_purpose=data.get("page_purpose") or "",
+            reading_flow=data.get("reading_flow") or "right_to_left",
+            visual_rhythm=data.get("visual_rhythm") or "",
+            layout_description=data.get("layout_description") or "",
         )
 
     def _fallback_design(

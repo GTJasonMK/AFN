@@ -16,8 +16,9 @@ from ....core.dependencies import (
     get_llm_service,
     get_prompt_service,
 )
+from ....core.config import settings
 from ....db.session import get_session
-from ....exceptions import ResourceNotFoundError
+from ....exceptions import ResourceNotFoundError, AFNException
 from ....schemas.user import UserInDB
 from ....services.manga_prompt import (
     MangaPromptServiceV2,
@@ -45,6 +46,7 @@ class GenerateRequest(BaseModel):
     language: str = Field(default="chinese", description="对话/音效语言: chinese/japanese/english/korean")
     use_portraits: bool = Field(default=True, description="是否使用角色立绘作为参考图")
     auto_generate_portraits: bool = Field(default=True, description="是否自动为缺失立绘的角色生成立绘")
+    force_restart: bool = Field(default=False, description="是否强制从头开始，忽略断点")
 
 
 class PanelResponse(BaseModel):
@@ -164,14 +166,14 @@ async def generate_manga_prompts(
             detail=f"章节 {chapter_number} 没有内容，请先生成章节"
         )
 
-    # 获取角色立绘
+    # 获取角色立绘（需要转换为完整路径）
     character_portraits = {}
     if request.use_portraits:
         portrait_repo = CharacterPortraitRepository(session)
         portraits = await portrait_repo.get_all_active_by_project(project_id)
         if portraits:
             character_portraits = {
-                p.character_name: p.image_path
+                p.character_name: str(settings.generated_images_dir / p.image_path)
                 for p in portraits
                 if p.image_path
             }
@@ -189,14 +191,20 @@ async def generate_manga_prompts(
             dialogue_language=request.language,
             character_portraits=character_portraits,
             auto_generate_portraits=request.auto_generate_portraits,
+            resume=not request.force_restart,  # 如果 force_restart=True，则不从断点恢复
         )
 
         await session.commit()
         return _convert_to_response(result)
 
+    except AFNException as e:
+        # 业务异常，使用 detail 返回用户友好的错误消息
+        logger.error(f"漫画分镜生成失败: {e.detail}")
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
     except Exception as e:
         logger.exception(f"漫画分镜生成失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
 
 
 @router.get("/novels/{project_id}/chapters/{chapter_number}/manga-prompts")
@@ -230,7 +238,8 @@ async def get_manga_prompts(
             detail=f"章节 {chapter_number} 尚未生成漫画分镜"
         )
 
-    return _convert_dict_to_response(result)
+    # 将 MangaPromptResult 对象转换为字典
+    return _convert_dict_to_response(result.to_dict())
 
 
 @router.delete("/novels/{project_id}/chapters/{chapter_number}/manga-prompts")
@@ -299,8 +308,8 @@ async def get_manga_prompt_progress(
             "status": "completed",
             "stage": "completed",
             "stage_label": "已完成",
-            "current": result.get("total_panels", 0),
-            "total": result.get("total_panels", 0),
+            "current": result.total_panels,
+            "total": result.total_panels,
             "message": "生成完成",
             "can_resume": False,
         }
@@ -402,41 +411,50 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
 def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
     """将存储的字典数据转换为API响应格式"""
     pages = []
+    all_panels = []  # 收集所有页面中的画格
+
     for page_data in data.get("pages", []):
+        page_panels = page_data.get("panels", [])
         pages.append(PageResponse(
             page_number=page_data.get("page_number", 0),
-            panel_count=len(page_data.get("panels", [])),
+            panel_count=len(page_panels),
             layout_description=page_data.get("layout_description", ""),
             reading_flow=page_data.get("reading_flow", "right_to_left"),
         ))
+        # 收集画格到扁平列表
+        all_panels.extend(page_panels)
+
+    # 如果没有从 pages 中提取到画格，尝试从顶层 panels 获取（兼容旧格式）
+    if not all_panels:
+        all_panels = data.get("panels", [])
 
     panels = []
-    for p in data.get("panels", []):
+    for p in all_panels:
         panels.append(PanelResponse(
-            panel_id=p.get("panel_id", ""),
-            page_number=p.get("page_number", 0),
-            panel_number=p.get("panel_number", 0),
-            size=p.get("size", "medium"),
-            shape=p.get("shape", "rectangle"),
-            shot_type=p.get("shot_type", "medium"),
-            aspect_ratio=p.get("aspect_ratio", "4:3"),
-            prompt_en=p.get("prompt_en", ""),
-            prompt_zh=p.get("prompt_zh", ""),
-            negative_prompt=p.get("negative_prompt", ""),
-            dialogues=p.get("dialogues", []),
-            narration=p.get("narration", ""),
-            sound_effects=p.get("sound_effects", []),
-            characters=p.get("characters", []),
-            character_actions=p.get("character_actions", {}),
-            character_expressions=p.get("character_expressions", {}),
-            focus_point=p.get("focus_point", ""),
-            lighting=p.get("lighting", ""),
-            atmosphere=p.get("atmosphere", ""),
-            background=p.get("background", ""),
-            motion_lines=p.get("motion_lines", False),
-            impact_effects=p.get("impact_effects", False),
-            is_key_panel=p.get("is_key_panel", False),
-            reference_image_paths=p.get("reference_image_paths", []),
+            panel_id=p.get("panel_id") or "",
+            page_number=p.get("page_number") or 0,
+            panel_number=p.get("panel_number") or 0,
+            size=p.get("size") or "medium",
+            shape=p.get("shape") or "rectangle",
+            shot_type=p.get("shot_type") or "medium",
+            aspect_ratio=p.get("aspect_ratio") or "4:3",
+            prompt_en=p.get("prompt_en") or "",
+            prompt_zh=p.get("prompt_zh") or "",
+            negative_prompt=p.get("negative_prompt") or "",
+            dialogues=p.get("dialogues") or [],
+            narration=p.get("narration") or "",
+            sound_effects=p.get("sound_effects") or [],
+            characters=p.get("characters") or [],
+            character_actions=p.get("character_actions") or {},
+            character_expressions=p.get("character_expressions") or {},
+            focus_point=p.get("focus_point") or "",
+            lighting=p.get("lighting") or "",
+            atmosphere=p.get("atmosphere") or "",
+            background=p.get("background") or "",
+            motion_lines=p.get("motion_lines") or False,
+            impact_effects=p.get("impact_effects") or False,
+            is_key_panel=p.get("is_key_panel") or False,
+            reference_image_paths=p.get("reference_image_paths") or [],
         ))
 
     return GenerateResponse(

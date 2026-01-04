@@ -246,3 +246,112 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
 
         await self.session.flush()
         return True
+
+    async def save_result(
+        self,
+        chapter_id: int,
+        result_data: dict,
+    ) -> ChapterMangaPrompt:
+        """
+        保存漫画提示词生成结果
+
+        将 MangaPromptResult.to_dict() 的数据保存到数据库。
+
+        Args:
+            chapter_id: 章节ID
+            result_data: MangaPromptResult.to_dict() 返回的字典
+
+        Returns:
+            漫画提示词实例
+        """
+        # 从 result_data 中提取字段
+        style = result_data.get("style", "manga")
+        total_pages = result_data.get("total_pages", 0)
+        total_panels = result_data.get("total_panels", 0)
+        character_profiles = result_data.get("character_profiles", {})
+
+        # 将 pages 转换为 scenes 和 panels 格式
+        pages = result_data.get("pages", [])
+        scenes = []  # 页面信息作为场景存储
+        panels = []  # 扁平化的画格列表
+
+        for page_data in pages:
+            page_number = page_data.get("page_number", 0)
+
+            # 构建场景（页面）信息
+            scene_info = {
+                "page_number": page_number,
+                "layout_description": page_data.get("layout_description", ""),
+                "reading_flow": page_data.get("reading_flow", "right_to_left"),
+                "panel_count": len(page_data.get("panels", [])),
+            }
+            scenes.append(scene_info)
+
+            # 收集画格信息
+            for panel_data in page_data.get("panels", []):
+                panel_data["page_number"] = page_number  # 确保页码正确
+                panels.append(panel_data)
+
+        # 使用 upsert 保存
+        return await self.upsert(
+            chapter_id=chapter_id,
+            style=style,
+            total_pages=total_pages,
+            total_panels=total_panels,
+            character_profiles=character_profiles,
+            scenes=scenes,
+            panels=panels,
+            generation_status="completed",
+        )
+
+    async def get_result(self, chapter_id: int) -> Optional[dict]:
+        """
+        获取漫画提示词生成结果
+
+        返回可以用于 MangaPromptResult.from_dict() 的字典格式。
+
+        Args:
+            chapter_id: 章节ID
+
+        Returns:
+            结果字典，不存在或未完成返回None
+        """
+        manga_prompt = await self.get_by_chapter_id(chapter_id)
+
+        if not manga_prompt:
+            return None
+
+        # 只返回已完成的结果
+        if manga_prompt.generation_status != "completed":
+            return None
+
+        # 将 scenes 和 panels 转换回 pages 格式
+        panels_by_page = {}
+        for panel in manga_prompt.panels or []:
+            page_num = panel.get("page_number", 1)
+            if page_num not in panels_by_page:
+                panels_by_page[page_num] = []
+            panels_by_page[page_num].append(panel)
+
+        # 构建 pages 列表
+        pages = []
+        for scene in manga_prompt.scenes or []:
+            page_number = scene.get("page_number", 0)
+            page_data = {
+                "page_number": page_number,
+                "panels": panels_by_page.get(page_number, []),
+                "layout_description": scene.get("layout_description", ""),
+                "reading_flow": scene.get("reading_flow", "right_to_left"),
+            }
+            pages.append(page_data)
+
+        # 按页码排序
+        pages.sort(key=lambda p: p.get("page_number", 0))
+
+        return {
+            "style": manga_prompt.style,
+            "pages": pages,
+            "total_pages": manga_prompt.total_pages,
+            "total_panels": manga_prompt.total_panels,
+            "character_profiles": manga_prompt.character_profiles or {},
+        }

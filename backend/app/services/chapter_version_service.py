@@ -210,7 +210,7 @@ class ChapterVersionService:
 
             # 清理旧版本的索引数据（角色状态、伏笔）
             from .incremental_indexer import IncrementalIndexer
-            indexer = IncrementalIndexer(self.session, llm_service)
+            indexer = IncrementalIndexer(self.session)
             await indexer.cleanup_chapter_indexes(chapter.project_id, chapter.chapter_number)
 
             # 如果提供了LLM服务，重新为新版本建立索引

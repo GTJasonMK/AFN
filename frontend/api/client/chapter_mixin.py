@@ -50,7 +50,8 @@ class ChapterMixin:
         project_id: str,
         chapter_number: int,
         writing_notes: Optional[str] = None,
-        is_retry: bool = False
+        is_retry: bool = False,
+        use_rag: bool = True
     ) -> Dict[str, Any]:
         """
         预览章节生成的提示词（用于测试RAG效果）
@@ -62,6 +63,7 @@ class ChapterMixin:
             chapter_number: 章节号
             writing_notes: 写作备注/优化方向（可选）
             is_retry: 是否为重新生成模式（使用简化提示词，不含完整前情摘要）
+            use_rag: 是否启用RAG检索
 
         Returns:
             提示词预览数据，包含：
@@ -75,6 +77,7 @@ class ChapterMixin:
         data = {
             'chapter_number': chapter_number,
             'is_retry': is_retry,
+            'use_rag': use_rag,
         }
         if writing_notes:
             data['writing_notes'] = writing_notes

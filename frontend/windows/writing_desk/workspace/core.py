@@ -57,6 +57,11 @@ class WDWorkspace(
         self.project_id = None
         self.current_chapter_data = None  # 保存当前章节数据用于主题切换时重建
 
+        # 版本切换保护：防止在版本切换期间保存导致内容覆盖错误版本
+        self._version_switching = False
+        # 记录当前编辑器对应的版本ID，用于保存时验证
+        self._current_version_id = None
+
         # 样式器 - 缓存主题值，避免重复调用theme_manager
         self._styler = BookThemeStyler()
 
@@ -148,8 +153,33 @@ class WDWorkspace(
         """发射评审章节信号"""
         self.evaluateChapter.emit()
 
+    def setVersionSwitching(self, switching: bool):
+        """设置版本切换状态
+
+        在版本切换期间禁用保存操作，防止内容覆盖错误版本。
+
+        Args:
+            switching: True表示正在切换版本，False表示切换完成
+        """
+        self._version_switching = switching
+        # 更新保存按钮状态
+        self._updateSaveButtonState()
+
+    def _updateSaveButtonState(self):
+        """更新保存按钮的启用状态"""
+        if hasattr(self, '_content_builder') and self._content_builder:
+            # 版本切换期间禁用保存按钮
+            enabled = not self._version_switching
+            self._content_builder.set_save_enabled(enabled)
+
     def saveContent(self):
         """保存章节内容（仅保存，不触发RAG处理）"""
+        # 版本切换保护：防止在版本切换期间保存
+        if self._version_switching:
+            from utils.message_service import MessageService
+            MessageService.show_warning(self, "正在切换版本，请稍后再保存")
+            return
+
         if self.current_chapter and self.content_text:
             content = self.content_text.toPlainText()
             self.saveContentRequested.emit(self.current_chapter, content)
@@ -157,6 +187,12 @@ class WDWorkspace(
 
     def ragIngest(self):
         """保存章节内容并执行RAG处理（摘要、分析、索引、向量入库）"""
+        # 版本切换保护：防止在版本切换期间保存
+        if self._version_switching:
+            from utils.message_service import MessageService
+            MessageService.show_warning(self, "正在切换版本，请稍后再操作")
+            return
+
         if self.current_chapter and self.content_text:
             content = self.content_text.toPlainText()
             self.ragIngestRequested.emit(self.current_chapter, content)

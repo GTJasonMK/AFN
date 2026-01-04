@@ -172,6 +172,8 @@ class EmbeddingConfigService:
         if not model_name:
             if provider == "ollama":
                 model_name = "nomic-embed-text:latest"
+            elif provider == "local":
+                model_name = "BAAI/bge-base-zh-v1.5"
             else:
                 model_name = "text-embedding-3-small"
 
@@ -181,6 +183,9 @@ class EmbeddingConfigService:
             if provider == "ollama":
                 # 测试 Ollama 嵌入
                 vector_dimension = await self._test_ollama_embedding(config, model_name)
+            elif provider == "local":
+                # 测试本地 sentence-transformers 嵌入
+                vector_dimension = await self._test_local_embedding(config, model_name)
             else:
                 # 测试 OpenAI 兼容 API
                 vector_dimension = await self._test_openai_embedding(config, model_name)
@@ -312,6 +317,68 @@ class EmbeddingConfigService:
         if vector_dimension == 0:
             raise ValueError("嵌入向量维度为0")
 
+        return vector_dimension
+
+    async def _test_local_embedding(self, config: EmbeddingConfig, model_name: str) -> int:
+        """
+        测试本地 sentence-transformers 嵌入模型。
+
+        Args:
+            config: 嵌入配置对象
+            model_name: 模型名称（如 BAAI/bge-small-zh-v1.5）
+
+        Returns:
+            向量维度
+        """
+        import asyncio
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise ValueError(
+                "未安装 sentence-transformers 依赖，请先安装: pip install sentence-transformers"
+            )
+
+        logger.info(
+            "测试本地嵌入配置: config_name=%s, model=%s",
+            config.config_name, model_name
+        )
+
+        # 在线程池中执行模型加载和推理（避免阻塞事件循环）
+        loop = asyncio.get_event_loop()
+
+        def _load_and_test():
+            # 加载模型（首次可能需要下载）
+            logger.info("加载本地嵌入模型: %s（首次加载可能需要下载模型文件）", model_name)
+            # 显式指定设备，避免 meta tensor 兼容性问题
+            import torch
+            if torch.cuda.is_available():
+                device = 'cuda'
+                logger.info("使用 CUDA GPU: %s", torch.cuda.get_device_name(0))
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+                logger.info("使用 Apple MPS GPU")
+            else:
+                device = 'cpu'
+                logger.info("使用 CPU")
+            model = SentenceTransformer(model_name, device=device)
+
+            # 生成测试嵌入
+            embedding = model.encode("测试嵌入向量", normalize_embeddings=True)
+            return len(embedding)
+
+        try:
+            vector_dimension = await loop.run_in_executor(None, _load_and_test)
+        except Exception as exc:
+            error_msg = str(exc)
+            if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
+                raise ValueError(f"模型 '{model_name}' 不存在或无法下载，请检查模型名称")
+            raise ValueError(f"本地嵌入模型测试失败: {error_msg}")
+
+        if vector_dimension == 0:
+            raise ValueError("嵌入向量维度为0")
+
+        logger.info("本地嵌入模型测试成功: model=%s, dimension=%d", model_name, vector_dimension)
         return vector_dimension
 
     # ------------------------------------------------------------------

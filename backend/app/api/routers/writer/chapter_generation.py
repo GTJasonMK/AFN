@@ -266,6 +266,9 @@ async def preview_chapter_prompt(
     # 4. 获取写作提示词并执行增强型RAG检索
     writer_prompt = ensure_prompt(await prompt_service.get_prompt("writing"), "writing")
 
+    # 根据 use_rag 参数决定是否启用 RAG 检索
+    effective_vector_store = vector_store if request.use_rag else None
+
     gen_context = await chapter_gen_service.prepare_generation_context(
         project=project,
         outline=outline,
@@ -273,7 +276,7 @@ async def preview_chapter_prompt(
         chapter_number=request.chapter_number,
         user_id=desktop_user.id,
         writing_notes=request.writing_notes,
-        vector_store=vector_store,
+        vector_store=effective_vector_store,
     )
 
     # 5. 根据模式构建提示词

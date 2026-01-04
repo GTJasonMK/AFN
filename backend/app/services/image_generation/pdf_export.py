@@ -617,64 +617,212 @@ class PDFExportService:
             c.setTitle(f"第{chapter_number}章 漫画")
             c.setAuthor("AFN Novel Writing Assistant")
 
-            # 从 scenes 数据中提取页面和模板信息
-            # 注意：每个场景的 page_number 都是从1开始的相对页码
-            # 所以我们需要按场景组织，每个场景作为独立的页面
+            # 从 panels 数据中按页码分组
+            # 注意：panels 使用 page_number 字段来标识页码
 
-            # 按场景组织画格
-            scene_panels: Dict[int, List[Dict]] = {}  # scene_id -> panels
-            scene_templates: Dict[int, str] = {}  # scene_id -> template_id
+            # 按页码组织画格
+            page_panels: Dict[int, List[Dict]] = {}  # page_number -> panels
 
-            # 从 scenes 中提取模板信息
-            for scene in scenes_data:
-                scene_id = scene.get("scene_id")
-                if scene_id is None:
-                    continue
-                for page_info in scene.get("pages", []):
-                    template_id = page_info.get("template_id")
-                    if template_id:
-                        scene_templates[scene_id] = template_id
-                        break  # 每个场景取第一个模板
-
-            # 从 panels 中提取每个场景的画格
+            # 从 panels 中提取每页的画格
             for panel in panels_data:
-                scene_id = panel.get("scene_id")
-                if scene_id is not None:
-                    if scene_id not in scene_panels:
-                        scene_panels[scene_id] = []
-                    scene_panels[scene_id].append(panel)
+                page_number = panel.get("page_number")
+                if page_number is not None:
+                    if page_number not in page_panels:
+                        page_panels[page_number] = []
+                    page_panels[page_number].append(panel)
 
-            logger.info(f"场景数据: {len(scene_panels)} 个场景, 模板: {scene_templates}")
+            logger.info(f"页面数据: {len(page_panels)} 页, 总画格: {len(panels_data)}")
 
-            # 如果没有有效的场景数据，回退到简单模式
-            if not scene_panels:
-                logger.info("无有效场景数据，使用简单模式")
+            # 如果没有有效的页面数据，回退到简单模式
+            if not page_panels:
+                logger.info("无有效页面数据，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
             page_count = 0
 
-            # 按场景顺序绘制（每个场景一页）
-            for scene_id in sorted(scene_panels.keys()):
-                panels = scene_panels[scene_id]
-                template_id = scene_templates.get(scene_id)
+            # 按页码顺序绘制（每个page_number对应一页PDF）
+            for page_number in sorted(page_panels.keys()):
+                panels = page_panels[page_number]
 
-                # 新架构不再使用模板系统，使用自动布局
-                logger.debug(f"绘制场景 {scene_id}: {len(panels)} 个画格")
+                logger.debug(f"绘制第 {page_number} 页: {len(panels)} 个画格")
 
                 # 绘制页面背景（白色）
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
 
-                # 绘制每个画格
-                for panel in panels:
-                    panel_id = panel.get("panel_id", "")
-                    scene_id = panel.get("scene_id")
-                    slot_id = panel.get("slot_id", 1)
+                # ========== 智能漫画排版算法 ==========
+                # 充分利用画格的所有元数据：size, shape, aspect_ratio, is_key_panel, shot_type
 
-                    # 获取图片：优先按 panel_id 匹配，后备按 scene_id
+                # size 对应的基础高度比例
+                SIZE_HEIGHT_RATIO = {
+                    "full": 1.0,      # 整页
+                    "spread": 1.0,    # 跨页
+                    "half": 0.45,     # 半页
+                    "large": 0.32,    # 大格
+                    "medium": 0.22,   # 中格
+                    "small": 0.15,    # 小格
+                }
+
+                # shape 对应的宽高比调整
+                SHAPE_ASPECT = {
+                    "rectangle": 1.5,    # 标准横向
+                    "square": 1.0,       # 正方形
+                    "vertical": 0.7,     # 竖长
+                    "horizontal": 2.0,   # 横长
+                    "irregular": 1.3,    # 不规则（默认偏横）
+                    "borderless": 1.5,   # 无边框
+                }
+
+                # shot_type 对应的尺寸加成
+                SHOT_TYPE_MODIFIER = {
+                    "establishing": 1.2,     # 全景建立镜头，加大
+                    "long": 1.1,             # 远景，稍大
+                    "bird_eye": 1.15,        # 鸟瞰，加大
+                    "worm_eye": 1.1,         # 仰视
+                    "medium": 1.0,           # 中景，标准
+                    "over_shoulder": 0.95,   # 过肩
+                    "close_up": 0.9,         # 近景，可以小一些
+                    "extreme_close_up": 0.85, # 特写，更小但突出
+                    "pov": 0.95,             # 主观视角
+                }
+
+                # 预处理：为每个画格计算理想尺寸
+                panel_specs = []
+                for panel in panels:
+                    size = panel.get("size", "medium")
+                    shape = panel.get("shape", "rectangle")
+                    aspect_ratio = panel.get("aspect_ratio", "4:3")
+                    is_key = panel.get("is_key_panel", False)
+                    shot_type = panel.get("shot_type", "medium")
+
+                    # 基础高度
+                    base_height = SIZE_HEIGHT_RATIO.get(size, 0.22)
+
+                    # shot_type 修正
+                    shot_modifier = SHOT_TYPE_MODIFIER.get(shot_type, 1.0)
+                    height = base_height * shot_modifier
+
+                    # 关键画格加成 15%
+                    if is_key:
+                        height *= 1.15
+
+                    # 根据 shape 和 aspect_ratio 计算宽度
+                    shape_aspect = SHAPE_ASPECT.get(shape, 1.5)
+
+                    # 解析 aspect_ratio (如 "16:9" -> 1.78)
+                    try:
+                        w, h = aspect_ratio.split(":")
+                        ar = float(w) / float(h)
+                    except:
+                        ar = 1.33  # 默认 4:3
+
+                    # 综合 shape 和 aspect_ratio 决定宽度倾向
+                    # ar > 1 表示横向，ar < 1 表示纵向
+                    if ar >= 1.7:  # 16:9 或更宽
+                        width_tendency = 1.0  # 倾向占满宽度
+                    elif ar >= 1.2:  # 4:3 左右
+                        width_tendency = 0.48  # 可以并排
+                    else:  # 纵向画格
+                        width_tendency = 0.35  # 更窄
+
+                    # half/full/spread/large 通常占满宽度
+                    if size in ["full", "spread", "half", "large"]:
+                        width_tendency = max(width_tendency, 0.65)
+
+                    panel_specs.append({
+                        "panel": panel,
+                        "height": height,
+                        "width_tendency": width_tendency,
+                        "is_key": is_key,
+                        "aspect_ratio": ar,
+                    })
+
+                # 行填充布局算法
+                panel_layouts = []
+                current_y = 0.0
+                row_panels = []
+                row_width_used = 0.0
+                row_height = 0.0
+
+                for spec in panel_specs:
+                    width = spec["width_tendency"]
+                    height = spec["height"]
+
+                    # 检查当前行是否能容纳
+                    if row_width_used + width > 1.02:
+                        # 完成当前行
+                        if row_panels:
+                            # 计算实际分配：按比例分配剩余空间
+                            total_width = sum(rp["width"] for rp in row_panels)
+                            scale = 0.98 / total_width if total_width > 0 else 1.0
+                            x_offset = 0.01  # 1% 左边距
+
+                            for rp in row_panels:
+                                actual_width = rp["width"] * scale
+                                rp["final_x"] = x_offset
+                                rp["final_y"] = current_y
+                                rp["final_width"] = actual_width - 0.01  # 留间距
+                                rp["final_height"] = row_height
+                                x_offset += actual_width
+
+                            panel_layouts.extend(row_panels)
+
+                        # 新行
+                        current_y += row_height + 0.015
+                        row_panels = []
+                        row_width_used = 0.0
+                        row_height = 0.0
+
+                    # 添加到当前行
+                    row_panels.append({
+                        "spec": spec,
+                        "width": width,
+                    })
+                    row_width_used += width + 0.02
+                    row_height = max(row_height, height)
+
+                # 处理最后一行
+                if row_panels:
+                    total_width = sum(rp["width"] for rp in row_panels)
+                    scale = 0.98 / total_width if total_width > 0 else 1.0
+                    x_offset = 0.01
+
+                    for rp in row_panels:
+                        actual_width = rp["width"] * scale
+                        rp["final_x"] = x_offset
+                        rp["final_y"] = current_y
+                        rp["final_width"] = actual_width - 0.01
+                        rp["final_height"] = row_height
+                        x_offset += actual_width
+
+                    panel_layouts.extend(row_panels)
+
+                # 计算总高度并缩放
+                total_height = current_y + row_height
+                if total_height > 0.98:
+                    scale_factor = 0.96 / total_height
+                    for pl in panel_layouts:
+                        pl["final_y"] *= scale_factor
+                        pl["final_height"] *= scale_factor
+
+                logger.debug(f"页面 {page_number}: {len(panel_layouts)} 个画格布局完成，总高度={total_height:.2f}")
+
+                # ========== 绘制画格 ==========
+                for pl in panel_layouts:
+                    spec = pl["spec"]
+                    panel = spec["panel"]
+                    panel_id = panel.get("panel_id", "")
+                    panel_number = panel.get("panel_number", 1)
+                    is_key = spec["is_key"]
+
+                    # 获取布局坐标
+                    rel_x = pl["final_x"]
+                    rel_y = pl["final_y"]
+                    rel_width = pl["final_width"]
+                    rel_height = pl["final_height"]
+
+                    # 获取图片
                     img_record = panel_image_map.get(panel_id)
-                    if not img_record and scene_id:
-                        img_record = scene_image_map.get(scene_id)
 
                     if not img_record:
                         logger.debug(f"画格 {panel_id} 无图片")
@@ -685,39 +833,10 @@ class PDFExportService:
                         logger.warning(f"图片不存在: {img_path}")
                         continue
 
-                    # 根据画格数量自动布局
-                    rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
-                    panel_count = len(panels)
-                    panel_index = panels.index(panel)
-
-                    if panel_count == 1:
-                        rel_x, rel_y, rel_width, rel_height = 0.0, 0.0, 1.0, 1.0
-                    elif panel_count == 2:
-                        rel_x = 0.0
-                        rel_y = 0.5 * panel_index
-                        rel_width = 1.0
-                        rel_height = 0.48
-                    elif panel_count <= 4:
-                        col = panel_index % 2
-                        row = panel_index // 2
-                        rel_x = 0.52 * col
-                        rel_y = 0.52 * row
-                        rel_width = 0.48
-                        rel_height = 0.48
-                    else:
-                        # 更多画格时使用三行布局
-                        col = panel_index % 2
-                        row = panel_index // 2
-                        rel_x = 0.52 * col
-                        rel_y = 0.34 * row
-                        rel_width = 0.48
-                        rel_height = 0.32
-
-                    # 转换为绝对坐标（PDF坐标系是左下角为原点）
+                    # 转换为绝对坐标
                     panel_x = content_x + rel_x * content_width
                     panel_width = rel_width * content_width - gutter
                     panel_height = rel_height * content_height - gutter
-                    # PDF的y坐标是从下往上的，需要转换
                     panel_y = page_height - content_y - rel_y * content_height - panel_height
 
                     try:
@@ -757,9 +876,14 @@ class PDFExportService:
 
                         c.restoreState()
 
-                        # 绘制格子边框（深色）
-                        c.setStrokeColorRGB(0.2, 0.2, 0.2)
-                        c.setLineWidth(1)
+                        # 绘制格子边框
+                        # 关键画格使用更粗的边框
+                        if is_key:
+                            c.setStrokeColorRGB(0.1, 0.1, 0.1)  # 更深的颜色
+                            c.setLineWidth(2.5)  # 更粗的边框
+                        else:
+                            c.setStrokeColorRGB(0.2, 0.2, 0.2)
+                            c.setLineWidth(1)
                         c.rect(panel_x, panel_y, panel_width, panel_height, fill=False, stroke=True)
 
                     except Exception as e:
@@ -773,7 +897,7 @@ class PDFExportService:
                         c.drawCentredString(
                             panel_x + panel_width / 2,
                             panel_y + panel_height / 2,
-                            f"Panel {slot_id}"
+                            f"Panel {panel_number}"
                         )
 
                 # 绘制页码

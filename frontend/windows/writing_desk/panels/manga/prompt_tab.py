@@ -245,8 +245,8 @@ class PromptTabMixin:
         top_row = QHBoxLayout()
         top_row.setSpacing(dp(8))
 
-        # 场景号
-        scene_label = QLabel(f"场景 {scene_id}")
+        # 页码
+        scene_label = QLabel(f"第 {scene_id} 页")
         scene_label.setStyleSheet(f"""
             font-family: {s.ui_font};
             font-size: {sp(12)}px;
@@ -570,7 +570,8 @@ class PromptTabMixin:
                 text_layout.addWidget(narr_content)
 
             # 音效显示（优先显示详细信息）
-            sfx_to_show = sound_effect_details if sound_effect_details else [{"text": sfx} for sfx in sound_effects]
+            # sound_effect_details 和 sound_effects 都可能是字典列表
+            sfx_to_show = sound_effect_details if sound_effect_details else sound_effects
             if sfx_to_show:
                 sfx_row = QHBoxLayout()
                 sfx_row.setSpacing(dp(6))
@@ -588,9 +589,24 @@ class PromptTabMixin:
 
                 # 显示音效内容
                 for sfx_item in sfx_to_show[:3]:  # 最多显示3个
-                    sfx_text = sfx_item.get('text', sfx_item) if isinstance(sfx_item, dict) else sfx_item
-                    sfx_type = sfx_item.get('type', '') if isinstance(sfx_item, dict) else ''
-                    sfx_intensity = sfx_item.get('intensity', '') if isinstance(sfx_item, dict) else ''
+                    # 确保 sfx_text 始终是字符串
+                    if isinstance(sfx_item, dict):
+                        sfx_text = sfx_item.get('text', '')
+                        if not isinstance(sfx_text, str):
+                            sfx_text = str(sfx_text) if sfx_text else ''
+                        sfx_type = sfx_item.get('type', '')
+                        sfx_intensity = sfx_item.get('intensity', '')
+                    elif isinstance(sfx_item, str):
+                        sfx_text = sfx_item
+                        sfx_type = ''
+                        sfx_intensity = ''
+                    else:
+                        sfx_text = str(sfx_item) if sfx_item else ''
+                        sfx_type = ''
+                        sfx_intensity = ''
+
+                    if not sfx_text:
+                        continue
 
                     # 根据强度设置样式
                     intensity_style = {

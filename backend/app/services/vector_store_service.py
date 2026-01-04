@@ -80,7 +80,13 @@ class VectorStoreService:
         url = settings.vector_db_url
         if url and url.startswith("file:"):
             path_part = url.split("file:", 1)[1]
-            resolved = Path(path_part).expanduser().resolve()
+            path_obj = Path(path_part).expanduser()
+            if not path_obj.is_absolute():
+                # 相对路径：基于 storage_dir 解析，避免因工作目录不同导致路径错误
+                # 例如 "storage/vectors.db" 会解析为 "{project_root}/storage/vectors.db"
+                resolved = (settings.storage_dir.parent / path_part).resolve()
+            else:
+                resolved = path_obj.resolve()
             resolved.parent.mkdir(parents=True, exist_ok=True)
             url = f"file:{resolved}"
             logger.info("向量库使用本地文件: %s", resolved)

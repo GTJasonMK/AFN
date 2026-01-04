@@ -21,7 +21,7 @@ class EmbeddingConfigBase(BaseModel):
     """嵌入模型配置基础模型。"""
 
     config_name: str = Field(default="默认嵌入配置", description="配置名称", max_length=100)
-    provider: Literal["openai", "ollama"] = Field(default="openai", description="提供方类型")
+    provider: Literal["openai", "ollama", "local"] = Field(default="openai", description="提供方类型")
     api_base_url: Optional[str] = Field(default=None, description="API Base URL")
     api_key: Optional[str] = Field(default=None, description="API Key（仅 openai 需要）")
     model_name: Optional[str] = Field(default=None, description="模型名称")
@@ -38,7 +38,7 @@ class EmbeddingConfigUpdate(BaseModel):
     """更新嵌入模型配置的请求模型（所有字段可选）。"""
 
     config_name: Optional[str] = Field(default=None, description="配置名称", max_length=100)
-    provider: Optional[Literal["openai", "ollama"]] = Field(default=None, description="提供方类型")
+    provider: Optional[Literal["openai", "ollama", "local"]] = Field(default=None, description="提供方类型")
     api_base_url: Optional[str] = Field(default=None, description="API Base URL")
     api_key: Optional[str] = Field(default=None, description="API Key")
     model_name: Optional[str] = Field(default=None, description="模型名称")
@@ -127,6 +127,14 @@ EMBEDDING_PROVIDERS = [
         default_model="nomic-embed-text:latest",
         requires_api_key=False,
         default_base_url="http://localhost:11434",
+    ),
+    EmbeddingProviderInfo(
+        provider="local",
+        name="本地嵌入模型",
+        description="使用 sentence-transformers 在本地运行嵌入模型，无需网络连接",
+        default_model="BAAI/bge-base-zh-v1.5",
+        requires_api_key=False,
+        default_base_url=None,
     ),
 ]
 

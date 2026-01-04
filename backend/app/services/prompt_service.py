@@ -2,6 +2,7 @@
 提示词服务
 
 提供提示词的缓存加速与CRUD能力，采用并发安全的缓存机制。
+支持基于_registry.yaml的目录结构管理。
 """
 
 import asyncio
@@ -9,8 +10,9 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Prompt
@@ -109,6 +111,139 @@ def get_prompt_cache() -> PromptCache:
     return _prompt_cache
 
 
+class PromptRegistry:
+    """
+    提示词注册表管理器
+
+    负责加载和管理_registry.yaml中的提示词元数据，
+    提供名称到路径的映射、分类查询等功能。
+    """
+
+    def __init__(self, prompts_dir: Path):
+        self._prompts_dir = prompts_dir
+        self._registry: Dict[str, Dict[str, Any]] = {}
+        self._categories: Dict[str, Dict[str, Any]] = {}
+        self._statuses: Dict[str, Dict[str, Any]] = {}
+        self._loaded = False
+
+    def _load(self) -> None:
+        """加载注册表文件"""
+        if self._loaded:
+            return
+
+        registry_file = self._prompts_dir / "_registry.yaml"
+        if not registry_file.is_file():
+            logger.debug("注册表文件不存在: %s，使用兼容模式", registry_file)
+            self._loaded = True
+            return
+
+        try:
+            with open(registry_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+
+            self._registry = data.get('prompts', {})
+            self._categories = data.get('categories', {})
+            self._statuses = data.get('statuses', {})
+            self._loaded = True
+            logger.info("已加载提示词注册表，共 %d 个提示词", len(self._registry))
+
+        except Exception as e:
+            logger.error("加载注册表失败: %s", e)
+            self._loaded = True  # 标记为已加载，避免重复尝试
+
+    def get_path(self, name: str) -> Optional[str]:
+        """
+        获取提示词的相对路径
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            相对路径（如 "01_inspiration/inspiration.md"），不存在返回None
+        """
+        self._load()
+        if name in self._registry:
+            return self._registry[name].get('path')
+        return None
+
+    def get_meta(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        获取提示词的完整元数据
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            元数据字典，不存在返回None
+        """
+        self._load()
+        return self._registry.get(name)
+
+    def get_all_names(self) -> List[str]:
+        """获取所有已注册的提示词名称"""
+        self._load()
+        return list(self._registry.keys())
+
+    def get_by_category(self, category: str) -> List[str]:
+        """按分类获取提示词名称列表"""
+        self._load()
+        return [
+            name for name, meta in self._registry.items()
+            if meta.get('category') == category
+        ]
+
+    def get_by_status(self, status: str) -> List[str]:
+        """按状态获取提示词名称列表"""
+        self._load()
+        return [
+            name for name, meta in self._registry.items()
+            if meta.get('status') == status
+        ]
+
+    def get_dependencies(self, name: str) -> List[str]:
+        """获取提示词的依赖列表"""
+        self._load()
+        meta = self._registry.get(name)
+        if meta:
+            return meta.get('dependencies', [])
+        return []
+
+    def get_used_by(self, name: str) -> List[str]:
+        """获取使用此提示词的服务列表"""
+        self._load()
+        meta = self._registry.get(name)
+        if meta:
+            return meta.get('used_by', [])
+        return []
+
+    def get_category_info(self, category: str) -> Optional[Dict[str, Any]]:
+        """获取分类信息"""
+        self._load()
+        return self._categories.get(category)
+
+    def get_all_categories(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有分类定义"""
+        self._load()
+        return self._categories.copy()
+
+    def is_registry_available(self) -> bool:
+        """检查注册表是否可用"""
+        self._load()
+        return len(self._registry) > 0
+
+
+# 全局注册表缓存
+_prompt_registry: Optional[PromptRegistry] = None
+
+
+def get_prompt_registry(prompts_dir: Path) -> PromptRegistry:
+    """获取或创建全局提示词注册表"""
+    global _prompt_registry
+    if _prompt_registry is None:
+        _prompt_registry = PromptRegistry(prompts_dir)
+    return _prompt_registry
+
+
 class PromptService:
     """
     提示词服务，提供缓存加速与CRUD能力。
@@ -124,6 +259,8 @@ class PromptService:
         self.session = session
         self.repo = PromptRepository(session)
         self._cache = get_prompt_cache()
+        self._prompts_dir = self._get_prompts_dir()
+        self._registry = get_prompt_registry(self._prompts_dir)
 
     async def preload(self) -> None:
         """预加载所有提示词到缓存"""
@@ -268,14 +405,32 @@ class PromptService:
         """
         获取提示词的默认内容（从文件读取）
 
+        优先使用注册表中的路径，如果注册表不可用则回退到平铺结构。
+
         Args:
             name: 提示词名称
 
         Returns:
             默认内容（不含YAML元数据），不存在返回None
         """
-        prompts_dir = self._get_prompts_dir()
-        prompt_file = prompts_dir / f"{name}.md"
+        prompts_dir = self._prompts_dir
+
+        # 优先从注册表获取路径
+        registry_path = self._registry.get_path(name)
+        if registry_path:
+            prompt_file = prompts_dir / registry_path
+        else:
+            # 回退到旧的平铺结构
+            prompt_file = prompts_dir / f"{name}.md"
+
+        if not prompt_file.is_file():
+            # 尝试在子目录中搜索（兼容迁移过程）
+            for subdir in prompts_dir.iterdir():
+                if subdir.is_dir() and not subdir.name.startswith('_'):
+                    candidate = subdir / f"{name}.md"
+                    if candidate.is_file():
+                        prompt_file = candidate
+                        break
 
         if not prompt_file.is_file():
             return None
@@ -322,20 +477,41 @@ class PromptService:
         """
         恢复所有提示词到默认值
 
+        优先使用注册表中的提示词列表，回退到遍历子目录。
+
         Returns:
             恢复的提示词数量
         """
-        prompts_dir = self._get_prompts_dir()
+        prompts_dir = self._prompts_dir
         if not prompts_dir.is_dir():
             logger.warning(f"提示词目录不存在: {prompts_dir}")
             return 0
 
         reset_count = 0
-        for prompt_file in prompts_dir.glob("*.md"):
-            name = prompt_file.stem
-            result = await self.reset_prompt(name)
-            if result:
-                reset_count += 1
+
+        # 优先使用注册表
+        if self._registry.is_registry_available():
+            for name in self._registry.get_all_names():
+                result = await self.reset_prompt(name)
+                if result:
+                    reset_count += 1
+        else:
+            # 回退到遍历目录结构
+            # 先遍历子目录
+            for subdir in prompts_dir.iterdir():
+                if subdir.is_dir() and not subdir.name.startswith('_'):
+                    for prompt_file in subdir.glob("*.md"):
+                        name = prompt_file.stem
+                        result = await self.reset_prompt(name)
+                        if result:
+                            reset_count += 1
+
+            # 再遍历根目录（兼容旧结构）
+            for prompt_file in prompts_dir.glob("*.md"):
+                name = prompt_file.stem
+                result = await self.reset_prompt(name)
+                if result:
+                    reset_count += 1
 
         logger.info(f"已恢复 {reset_count} 个提示词到默认值")
         return reset_count
@@ -480,3 +656,170 @@ class PromptService:
             "skipped": skipped,
             "details": details,
         }
+
+    # ==================== 注册表查询方法 ====================
+
+    def get_prompt_meta(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        获取提示词的注册表元数据
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            元数据字典，包含 path, title, category, status, used_by, dependencies 等
+        """
+        return self._registry.get_meta(name)
+
+    def get_prompts_by_category(self, category: str) -> List[str]:
+        """
+        按分类获取提示词名称列表
+
+        Args:
+            category: 分类名（inspiration, blueprint, outline, writing, analysis, manga, protagonist）
+
+        Returns:
+            提示词名称列表
+        """
+        return self._registry.get_by_category(category)
+
+    def get_prompts_by_status(self, status: str) -> List[str]:
+        """
+        按状态获取提示词名称列表
+
+        Args:
+            status: 状态（active, experimental, unused, deprecated）
+
+        Returns:
+            提示词名称列表
+        """
+        return self._registry.get_by_status(status)
+
+    def get_prompt_dependencies(self, name: str) -> List[str]:
+        """获取提示词的依赖列表"""
+        return self._registry.get_dependencies(name)
+
+    def get_prompt_used_by(self, name: str) -> List[str]:
+        """获取使用此提示词的服务列表"""
+        return self._registry.get_used_by(name)
+
+    def get_all_categories(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有分类定义"""
+        return self._registry.get_all_categories()
+
+    def get_registry_summary(self) -> Dict[str, Any]:
+        """
+        获取注册表摘要信息
+
+        Returns:
+            摘要信息，包含各分类和状态的提示词数量
+        """
+        if not self._registry.is_registry_available():
+            return {"available": False}
+
+        all_names = self._registry.get_all_names()
+        categories = self._registry.get_all_categories()
+
+        # 按分类统计
+        category_counts = {}
+        for cat in categories:
+            category_counts[cat] = len(self._registry.get_by_category(cat))
+
+        # 按状态统计
+        status_counts = {
+            "active": len(self._registry.get_by_status("active")),
+            "experimental": len(self._registry.get_by_status("experimental")),
+            "unused": len(self._registry.get_by_status("unused")),
+            "deprecated": len(self._registry.get_by_status("deprecated")),
+        }
+
+        return {
+            "available": True,
+            "total": len(all_names),
+            "by_category": category_counts,
+            "by_status": status_counts,
+            "categories": categories,
+        }
+
+    def get_dependency_graph(self) -> Dict[str, List[str]]:
+        """
+        获取依赖关系图
+
+        Returns:
+            字典，key为提示词名称，value为其依赖的提示词列表
+        """
+        if not self._registry.is_registry_available():
+            return {}
+
+        return {
+            name: self._registry.get_dependencies(name)
+            for name in self._registry.get_all_names()
+        }
+
+    def get_usage_map(self) -> Dict[str, List[str]]:
+        """
+        获取使用关系图（prompt -> services）
+
+        Returns:
+            字典，key为提示词名称，value为使用该提示词的服务列表
+        """
+        if not self._registry.is_registry_available():
+            return {}
+
+        return {
+            name: self._registry.get_used_by(name)
+            for name in self._registry.get_all_names()
+        }
+
+    def validate_registry(self) -> List[str]:
+        """
+        验证注册表完整性
+
+        检查：
+        1. 注册表中的文件是否都存在
+        2. 依赖的提示词是否都存在
+
+        Returns:
+            错误消息列表，空列表表示验证通过
+        """
+        if not self._registry.is_registry_available():
+            return ["注册表不可用"]
+
+        errors = []
+        prompts_dir = self._prompts_dir
+
+        for name in self._registry.get_all_names():
+            # 检查文件是否存在
+            path = self._registry.get_path(name)
+            if path:
+                full_path = prompts_dir / path
+                if not full_path.is_file():
+                    errors.append(f"文件不存在: {path}")
+
+            # 检查依赖是否存在
+            for dep in self._registry.get_dependencies(name):
+                if dep not in self._registry.get_all_names():
+                    errors.append(f"依赖不存在: {name} -> {dep}")
+
+        return errors
+
+    def get_reverse_dependencies(self, name: str) -> List[str]:
+        """
+        获取反向依赖（哪些提示词依赖此提示词）
+
+        Args:
+            name: 提示词名称
+
+        Returns:
+            依赖此提示词的提示词名称列表
+        """
+        if not self._registry.is_registry_available():
+            return []
+
+        reverse_deps = []
+        for prompt_name in self._registry.get_all_names():
+            if name in self._registry.get_dependencies(prompt_name):
+                reverse_deps.append(prompt_name)
+        return reverse_deps
+
+

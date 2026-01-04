@@ -254,26 +254,41 @@ class ImageGenerationService:
             async with queue.request_slot():
                 # 检查是否需要使用 img2img
                 if request.reference_image_paths and len(request.reference_image_paths) > 0:
+                    logger.info(
+                        "准备参考图: 路径数量=%d, IMAGES_ROOT=%s",
+                        len(request.reference_image_paths), IMAGES_ROOT
+                    )
+                    for i, p in enumerate(request.reference_image_paths[:3]):  # 只打印前3个
+                        logger.info("  参考图路径[%d]: %s", i, p)
+
                     # 准备参考图信息
                     reference_images = await self._prepare_reference_images(
                         request.reference_image_paths,
                         request.reference_strength,
                     )
 
-                    if reference_images and provider.supports_img2img():
-                        # 使用 img2img 模式
-                        logger.info(
-                            "使用 img2img 模式生成图片: provider=%s, reference_count=%d",
-                            config.provider_type, len(reference_images)
-                        )
-                        gen_result = await provider.generate_with_reference(
-                            config, request, reference_images
-                        )
+                    if reference_images:
+                        if provider.supports_img2img():
+                            # 使用 img2img 模式
+                            logger.info(
+                                "使用 img2img 模式生成图片: provider=%s, reference_count=%d",
+                                config.provider_type, len(reference_images)
+                            )
+                            gen_result = await provider.generate_with_reference(
+                                config, request, reference_images
+                            )
+                        else:
+                            # 供应商不支持 img2img，降级为普通生成
+                            logger.warning(
+                                "供应商 %s 不支持 img2img，降级为普通生成",
+                                config.provider_type
+                            )
+                            gen_result = await provider.generate(config, request)
                     else:
-                        # 供应商不支持 img2img，降级为普通生成
+                        # 参考图加载失败，降级为普通生成
                         logger.warning(
-                            "供应商 %s 不支持 img2img，降级为普通生成",
-                            config.provider_type
+                            "参考图加载失败（共 %d 个路径），降级为普通生成",
+                            len(request.reference_image_paths)
                         )
                         gen_result = await provider.generate(config, request)
                 else:
@@ -344,20 +359,36 @@ class ImageGenerationService:
 
         for path in image_paths:
             try:
-                # 处理相对路径和绝对路径
-                if path.startswith("/"):
-                    # 相对于 IMAGES_ROOT
-                    full_path = IMAGES_ROOT / path.lstrip("/")
-                else:
-                    full_path = Path(path)
+                full_path = None
 
-                # 异步检查文件存在性
-                if not await async_exists(full_path):
-                    # 尝试 IMAGES_ROOT 下查找
-                    full_path = IMAGES_ROOT / path
-                    if not await async_exists(full_path):
-                        logger.warning("参考图片不存在: %s", path)
-                        continue
+                # 1. 如果是绝对路径，直接使用
+                if Path(path).is_absolute():
+                    full_path = Path(path)
+                    if await async_exists(full_path):
+                        logger.debug("使用绝对路径: %s", full_path)
+                    else:
+                        full_path = None
+
+                # 2. 尝试作为相对于 IMAGES_ROOT 的路径
+                if full_path is None:
+                    candidate = IMAGES_ROOT / path
+                    if await async_exists(candidate):
+                        full_path = candidate
+                        logger.debug("使用 IMAGES_ROOT 相对路径: %s", full_path)
+
+                # 3. 如果路径以 / 开头，去掉后再尝试
+                if full_path is None and path.startswith("/"):
+                    candidate = IMAGES_ROOT / path.lstrip("/")
+                    if await async_exists(candidate):
+                        full_path = candidate
+                        logger.debug("使用去除前缀的路径: %s", full_path)
+
+                if full_path is None:
+                    logger.warning(
+                        "参考图片不存在: %s (尝试的完整路径: %s)",
+                        path, IMAGES_ROOT / path
+                    )
+                    continue
 
                 # 异步读取并转换为 Base64
                 image_content = await async_read_bytes(full_path)
