@@ -14,23 +14,6 @@ from .models import PanelPrompt, PagePromptResult, MangaPromptResult
 logger = logging.getLogger(__name__)
 
 
-# 画格大小到宽高比的映射
-SIZE_TO_ASPECT_RATIO = {
-    "small": "4:3",
-    "medium": "4:3",
-    "large": "16:9",
-    "half": "2:1",
-    "full": "2:3",
-    "spread": "4:3",
-}
-
-# 画格形状到宽高比的修正
-SHAPE_ASPECT_RATIO_OVERRIDE = {
-    "square": "1:1",
-    "vertical": "3:4",
-    "horizontal": "16:9",
-}
-
 # 风格前缀映射
 STYLE_PREFIXES = {
     "manga": "manga style, black and white, screentone, Japanese comic,",
@@ -39,9 +22,17 @@ STYLE_PREFIXES = {
     "webtoon": "webtoon style, vertical scroll, Korean comic,",
 }
 
-# 默认负面提示词
+LANGUAGE_LABELS = {
+    "chinese": "Chinese",
+    "japanese": "Japanese",
+    "english": "English",
+    "korean": "Korean",
+    "spanish": "Spanish",
+}
+
+# 默认负面提示词（允许文字，移除 text 惩罚）
 DEFAULT_NEGATIVE_PROMPT = (
-    "text, watermark, signature, blurry, low quality, "
+    "watermark, signature, blurry, low quality, "
     "deformed, ugly, bad anatomy, extra limbs, "
     "realistic photo, 3d render"
 )
@@ -75,6 +66,10 @@ class PromptBuilder:
         self.dialogue_language = dialogue_language
         self.character_portraits = character_portraits or {}
         self.style_prefix = STYLE_PREFIXES.get(style, STYLE_PREFIXES["manga"])
+        self.language_label = LANGUAGE_LABELS.get(
+            (dialogue_language or "").lower(),
+            dialogue_language.capitalize() if dialogue_language else "Chinese"
+        )
 
     def build(
         self,
@@ -138,6 +133,9 @@ class PromptBuilder:
             panels=panels,
             layout_description=page.layout_description,
             reading_flow=page.reading_flow,
+            # Bug 35 修复: 传递 page_purpose 和 visual_rhythm
+            page_purpose=page.page_purpose,
+            visual_rhythm=page.visual_rhythm,
         )
 
     def _build_panel_prompt(
@@ -147,10 +145,7 @@ class PromptBuilder:
         chapter_info: ChapterInfo,
     ) -> PanelPrompt:
         """构建单个画格的提示词"""
-        # 确定宽高比
-        aspect_ratio = self._get_aspect_ratio(panel)
-
-        # 构建英文提示词
+        # 构建英文提示词（包含对话、音效）
         prompt_en = self._build_english_prompt(panel, chapter_info)
 
         # 构建中文描述
@@ -170,10 +165,15 @@ class PromptBuilder:
             size=panel.size.value,
             shape=panel.shape.value,
             shot_type=panel.shot_type.value,
-            aspect_ratio=aspect_ratio,
+            aspect_ratio=panel.aspect_ratio,  # 直接使用分镜设计的宽高比
+            # 提示词（无默认值字段）
             prompt_en=prompt_en,
             prompt_zh=prompt_zh,
             negative_prompt=DEFAULT_NEGATIVE_PROMPT,
+            # 布局属性（简化版）
+            importance=panel.importance,
+            layout_slot=panel.layout_slot,
+            # 其他字段（保留原始数据用于参考）
             dialogues=dialogues,
             narration=panel.narration,
             sound_effects=sound_effects,
@@ -190,31 +190,20 @@ class PromptBuilder:
             reference_image_paths=reference_paths,
         )
 
-    def _get_aspect_ratio(self, panel: PanelDesign) -> str:
-        """获取画格的宽高比"""
-        # 形状优先
-        shape_value = panel.shape.value
-        if shape_value in SHAPE_ASPECT_RATIO_OVERRIDE:
-            return SHAPE_ASPECT_RATIO_OVERRIDE[shape_value]
-
-        # 否则基于大小
-        size_value = panel.size.value
-        return SIZE_TO_ASPECT_RATIO.get(size_value, "4:3")
-
     def _build_english_prompt(
         self,
         panel: PanelDesign,
         chapter_info: ChapterInfo,
     ) -> str:
-        """构建英文提示词"""
+        """构建英文提示词（重新包含对白/旁白/音效以增强剧情感）"""
         parts = [self.style_prefix]
 
-        # 优先使用LLM生成的英文描述
+        # 优先使用LLM生成的英文描述（这是最重要的部分，通常已包含完整信息）
         if panel.visual_description_en:
             parts.append(panel.visual_description_en)
         else:
             # 回退：基于中文描述构建
-            parts.append(f"scene depicting: {panel.visual_description[:100]}")
+            parts.append(f"scene depicting: {panel.visual_description[:150]}")
 
         # 添加镜头类型
         shot_descriptions = {
@@ -232,13 +221,13 @@ class PromptBuilder:
         if shot_desc:
             parts.append(shot_desc)
 
-        # 添加角色描述
-        for char_name in panel.characters[:2]:  # 最多2个角色
+        # 添加角色描述（最多3个角色，每个200字符）
+        for char_name in panel.characters[:3]:
             char_info = chapter_info.characters.get(char_name)
             if char_info and char_info.appearance:
-                parts.append(f"{char_name}: {char_info.appearance[:100]},")
+                parts.append(f"{char_name}: {char_info.appearance[:200]},")
             elif char_name in self.character_profiles:
-                parts.append(f"{char_name}: {self.character_profiles[char_name][:100]},")
+                parts.append(f"{char_name}: {self.character_profiles[char_name][:200]},")
 
         # 添加角色表情
         for char_name, expression in panel.character_expressions.items():
@@ -249,6 +238,41 @@ class PromptBuilder:
         for char_name, action in panel.character_actions.items():
             if action:
                 parts.append(f"{char_name} {action},")
+
+        # 添加对白（保留原文，提示生成文字气泡）
+        dialogue_entries = []
+        for bubble in panel.dialogues:
+            content = bubble.content.strip()
+            if not content:
+                continue
+            speaker = bubble.speaker.strip() if bubble.speaker else ""
+            label = f"{speaker}: {content}" if speaker else content
+            dialogue_entries.append(label)
+        if dialogue_entries:
+            dialogue_text = " | ".join(dialogue_entries[:3])
+            parts.append(
+                f'speech bubbles with clear readable text: "{dialogue_text}"'
+            )
+
+        # 添加旁白
+        if panel.narration:
+            parts.append(f'narration text box: "{panel.narration.strip()[:120]}"')
+
+        # 添加音效
+        if panel.sound_effects:
+            sfx_texts = []
+            for sfx in panel.sound_effects[:3]:
+                text = sfx.get("text") if isinstance(sfx, dict) else ""
+                if text:
+                    sfx_texts.append(text)
+            if sfx_texts:
+                parts.append(
+                    f'sound effect lettering: {", ".join(sfx_texts)}'
+                )
+        # 强制指定文字语言
+        parts.append(
+            f"all text (dialogue, narration, sound effects) must be in {self.language_label}"
+        )
 
         # 添加氛围和光线
         if panel.atmosphere:
@@ -270,8 +294,17 @@ class PromptBuilder:
         if panel.impact_effects:
             parts.append("impact effect, action lines,")
 
-        # 添加质量标签
-        parts.append("high quality, detailed, masterpiece")
+        # 根据重要性添加强调
+        if panel.importance == "hero":
+            parts.append("dramatic composition, epic scene,")
+        elif panel.importance == "major":
+            parts.append("important scene, detailed,")
+
+        # 添加质量标签（明确要求不生成文字）
+        parts.append(
+            "manga panel with speech bubbles and captions, "
+            "text should be crisp, legible, high quality, detailed, masterpiece"
+        )
 
         return " ".join(parts)
 

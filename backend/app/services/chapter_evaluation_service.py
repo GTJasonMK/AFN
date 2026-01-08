@@ -294,6 +294,12 @@ class ChapterEvaluationService:
         # 2. 获取蓝图数据
         novel_service = NovelService(self.session)
         project_schema = await novel_service.get_project_schema(project.id, user_id)
+        # Bug 13 修复: 检查蓝图是否存在
+        if not project_schema.blueprint:
+            return json.dumps(
+                {"error": "项目缺少蓝图数据，无法进行评估", "details": "请先完成灵感对话生成蓝图"},
+                ensure_ascii=False,
+            )
         blueprint_dict = project_schema.blueprint.model_dump()
 
         # 3. 检索评估上下文
@@ -367,7 +373,7 @@ class ChapterEvaluationService:
             feedback: 评价内容
             decision: 决策（可选）
         """
-        from ..core.state_machine import ChapterGenerationStatus
+        from ..schemas.novel import ChapterGenerationStatus
 
         evaluation = ChapterEvaluation(
             chapter_id=chapter.id,

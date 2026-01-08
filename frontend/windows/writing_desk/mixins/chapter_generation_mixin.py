@@ -201,6 +201,13 @@ class ChapterGenerationMixin:
         # 通知workspace完成
         self.workspace.onGenerationComplete(data)
 
+        # 刷新当前章节显示（包括版本面板）
+        self.workspace.refreshCurrentChapter()
+
+        # 刷新漫画数据（新版本可能需要重新生成漫画分镜）
+        if hasattr(self.workspace, '_loadMangaDataAsync'):
+            self.workspace._loadMangaDataAsync()
+
         # 刷新侧边栏以显示新版本
         self._refresh_sidebar()
 

@@ -344,6 +344,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                 font-weight: 600;
                 color: {s.text_secondary};
                 margin-top: {dp(8)}px;
+                background-color: transparent;
             """)
             layout.addWidget(compressed_label)
 
@@ -355,6 +356,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                 font-size: {sp(13)}px;
                 color: {s.text_primary};
                 line-height: 1.6;
+                background-color: transparent;
             """)
             layout.addWidget(compressed_text)
 
@@ -369,6 +371,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                 font-weight: 600;
                 color: {s.text_secondary};
                 margin-top: {dp(8)}px;
+                background-color: transparent;
             """)
             layout.addWidget(keywords_label)
 
@@ -437,6 +440,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
             font-family: {s.ui_font};
             font-size: {sp(11)}px;
             color: {label_color};
+            background-color: transparent;
         """)
         layout.addWidget(label_widget)
 
@@ -446,6 +450,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
             font-size: {sp(13)}px;
             font-weight: 600;
             color: {value_color};
+            background-color: transparent;
         """)
         layout.addWidget(value_widget)
 
@@ -463,6 +468,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
             font-size: {sp(12)}px;
             font-weight: 600;
             color: {s.text_secondary};
+            background-color: transparent;
         """
         if margin_top:
             style += f"margin-top: {dp(8)}px;"
@@ -503,6 +509,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                 font-size: {sp(13)}px;
                 font-weight: 700;
                 color: {s.accent_color};
+                background-color: transparent;
             """)
             char_layout.addWidget(name_label)
 
@@ -520,6 +527,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                     font-family: {s.serif_font};
                     font-size: {sp(12)}px;
                     color: {s.text_secondary};
+                    background-color: transparent;
                 """)
                 char_layout.addWidget(details_label)
 
@@ -532,6 +540,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                     font-size: {sp(11)}px;
                     color: {s.text_tertiary};
                     margin-top: {dp(4)}px;
+                    background-color: transparent;
                 """)
                 char_layout.addWidget(changes_label)
 
@@ -542,6 +551,7 @@ class AnalysisPanelBuilder(BasePanelBuilder):
                         font-family: {s.serif_font};
                         font-size: {sp(12)}px;
                         color: {s.text_success};
+                        background-color: transparent;
                     """)
                     char_layout.addWidget(change_item)
 

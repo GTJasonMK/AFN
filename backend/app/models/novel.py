@@ -134,6 +134,7 @@ class BlueprintCharacter(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     identity: Mapped[Optional[str]] = mapped_column(String(255))
     personality: Mapped[Optional[str]] = mapped_column(Text)
+    appearance: Mapped[Optional[str]] = mapped_column(Text)  # 外貌特征：发色、眼色、身材、服装风格等
     goals: Mapped[Optional[str]] = mapped_column(Text)
     abilities: Mapped[Optional[str]] = mapped_column(Text)
     relationship_to_protagonist: Mapped[Optional[str]] = mapped_column(Text)
@@ -231,6 +232,9 @@ class Chapter(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # 审查Prompt - 用于验证功能实现是否正确
+    review_prompt: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE, nullable=True)
 
     project: Mapped[NovelProject] = relationship(back_populates="chapters")
     versions: Mapped[list["ChapterVersion"]] = relationship(
@@ -417,6 +421,9 @@ class ChapterMangaPrompt(Base):
     total_pages: Mapped[int] = mapped_column(Integer, default=0)
     total_panels: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Bug 30 修复: 对话语言设置（chinese/japanese/english/korean）
+    dialogue_language: Mapped[str] = mapped_column(String(32), default="chinese")
+
     # 角色外观配置（JSON字典，确保角色在所有画面中外观一致）
     # 格式: {"角色名": "详细的英文外观描述"}
     character_profiles: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -431,6 +438,12 @@ class ChapterMangaPrompt(Base):
     # composition, camera_angle, prompt_en, prompt_zh, negative_prompt,
     # dialogue, dialogue_speaker, narration, sound_effects, characters, is_key_panel
     panels: Mapped[list] = mapped_column(JSON, default=list)
+
+    # 分析数据（JSON字典）- 保存漫画分镜生成过程中的详细分析结果
+    # 包含: chapter_info（角色、事件、对话、场景、物品、情绪曲线等）
+    #       page_plan（页面规划、节奏分配、高潮页码等）
+    # 这些数据在漫画详细信息Tab中展示
+    analysis_data: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

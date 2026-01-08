@@ -325,7 +325,11 @@ class MangaPromptServiceV2:
 
         # ========== 步骤5：保存结果 ==========
         logger.info("步骤5: 保存结果")
-        await self._save_result(project_id, chapter_number, result)
+        await self._save_result(
+            project_id, chapter_number, result,
+            chapter_info=chapter_info,
+            page_plan=page_plan,
+        )
 
         logger.info(
             f"漫画分镜生成完成: {result.total_pages} 页, "
@@ -410,8 +414,18 @@ class MangaPromptServiceV2:
         project_id: str,
         chapter_number: int,
         result: MangaPromptResult,
+        chapter_info: Optional[ChapterInfo] = None,
+        page_plan: Optional[PagePlanResult] = None,
     ):
-        """保存生成结果"""
+        """保存生成结果
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            result: 漫画提示词结果
+            chapter_info: 章节信息提取结果（用于详细信息Tab显示）
+            page_plan: 页面规划结果（用于详细信息Tab显示）
+        """
         # 转换为数据库存储格式
         result_data = result.to_dict()
 
@@ -423,10 +437,20 @@ class MangaPromptServiceV2:
             logger.warning(f"未找到章节: {project_id}/{chapter_number}")
             return
 
+        # 构建分析数据（用于详细信息Tab展示）
+        analysis_data = None
+        if chapter_info or page_plan:
+            analysis_data = {}
+            if chapter_info:
+                analysis_data["chapter_info"] = chapter_info.to_dict()
+            if page_plan:
+                analysis_data["page_plan"] = page_plan.to_dict()
+
         # 保存到数据库
         await self.manga_prompt_repo.save_result(
             chapter_id=chapter.id,
             result_data=result_data,
+            analysis_data=analysis_data,
         )
 
         await self.session.commit()
@@ -463,6 +487,15 @@ class MangaPromptServiceV2:
         )
         if not chapter:
             return False
+
+        # Bug 27 修复: 同时删除已生成的图片
+        image_service = ImageGenerationService(self.session)
+        deleted_images = await image_service.delete_chapter_images(project_id, chapter_number)
+        if deleted_images > 0:
+            logger.info(
+                "删除漫画分镜时同时清理了 %d 张图片: project=%s chapter=%d",
+                deleted_images, project_id, chapter_number
+            )
 
         await self.manga_prompt_repo.delete_result(chapter.id)
         await self.session.commit()

@@ -76,13 +76,13 @@ class AvatarHandlerMixin:
 
     def _onIconClicked(self: "NovelDetail", event):
         """点击头像图标时触发生成"""
-        # 检查是否有蓝图
-        if not self.project_data or not self.project_data.get('blueprint'):
+        # 检查是否有蓝图 - 使用 _safe_get_blueprint 支持两种项目类型
+        blueprint = self._safe_get_blueprint()
+        if not self.project_data or not blueprint:
             MessageService.show_warning(self, "请先生成蓝图后再生成头像", "提示")
             return
 
         # 确认生成
-        blueprint = self.project_data.get('blueprint', {})
         has_avatar = blueprint.get('avatar_svg') is not None
 
         if has_avatar:
@@ -136,10 +136,12 @@ class AvatarHandlerMixin:
         # 更新显示
         self._loadAvatar(avatar_svg)
 
-        # 更新本地缓存的项目数据
-        if self.project_data and self.project_data.get('blueprint'):
-            self.project_data['blueprint']['avatar_svg'] = avatar_svg
-            self.project_data['blueprint']['avatar_animal'] = result.get('animal')
+        # 更新本地缓存的项目数据（小说项目专用）
+        blueprint = self._safe_get_blueprint()
+        if self.project_data and blueprint:
+            if 'blueprint' in self.project_data and self.project_data['blueprint']:
+                self.project_data['blueprint']['avatar_svg'] = avatar_svg
+                self.project_data['blueprint']['avatar_animal'] = result.get('animal')
 
         MessageService.show_success(self, f"已生成{animal_cn}头像")
 

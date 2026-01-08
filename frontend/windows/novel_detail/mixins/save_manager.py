@@ -176,25 +176,29 @@ class SaveManagerMixin:
                 if layout and layout.count() > 0:
                     section = layout.itemAt(0).widget()
 
+                    # 使用 _safe_get_blueprint 支持两种项目类型
                     if self.active_section == 'overview' and hasattr(section, 'updateData'):
-                        blueprint = self.project_data.get('blueprint', {})
+                        blueprint = self._safe_get_blueprint()
                         section.updateData(blueprint)
                         return
                     elif self.active_section == 'world_setting' and hasattr(section, 'updateData'):
-                        world_setting = self.project_data.get('blueprint', {}).get('world_setting', {})
+                        blueprint = self._safe_get_blueprint()
+                        world_setting = blueprint.get('world_setting', {}) if blueprint else {}
                         section.updateData(world_setting)
                         return
                     elif self.active_section == 'characters' and hasattr(section, 'updateData'):
-                        characters = self.project_data.get('blueprint', {}).get('characters', [])
+                        blueprint = self._safe_get_blueprint()
+                        characters = blueprint.get('characters', []) if blueprint else []
                         section.updateData(characters)
                         return
                     elif self.active_section == 'relationships' and hasattr(section, 'updateData'):
-                        relationships = self.project_data.get('blueprint', {}).get('relationships', [])
+                        blueprint = self._safe_get_blueprint()
+                        relationships = blueprint.get('relationships', []) if blueprint else []
                         section.updateData(relationships)
                         return
                     elif self.active_section == 'chapter_outline' and hasattr(section, 'updateData'):
-                        blueprint = self.project_data.get('blueprint', {})
-                        outline = blueprint.get('chapter_outline', [])
+                        blueprint = self._safe_get_blueprint()
+                        outline = blueprint.get('chapter_outline', []) if blueprint else []
                         section.updateData(outline, blueprint)
                         return
                     elif self.active_section == 'chapters' and hasattr(section, 'updateData'):

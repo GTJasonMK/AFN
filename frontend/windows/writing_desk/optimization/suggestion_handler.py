@@ -2,6 +2,11 @@
 建议处理Mixin
 
 处理正文优化建议的应用、忽略等操作。
+
+新模式（v2）：
+- 建议产生时立即发送预览信号，在正文中显示预览
+- 用户点击"应用"时确认预览
+- 用户点击"忽略"时撤销预览
 """
 
 import logging
@@ -23,6 +28,7 @@ class SuggestionHandlerMixin:
     - 应用/忽略建议
     - 批量应用建议
     - 计划模式建议收集
+    - 预览信号发送（新模式）
     """
 
     def _handle_suggestion(self: "OptimizationContent", suggestion: dict):
@@ -31,6 +37,9 @@ class SuggestionHandlerMixin:
         from ..components.suggestion_card import SuggestionCard
 
         self.suggestions.append(suggestion)
+
+        # 更新统计信息
+        self._update_suggestion_stats()
 
         # 创建建议卡片
         card = SuggestionCard(suggestion, parent=self.suggestions_container)
@@ -46,16 +55,22 @@ class SuggestionHandlerMixin:
 
         # 在思考流中添加建议提示
         reason = suggestion.get("reason", "发现问题")
+        priority = suggestion.get("priority", "medium")
         if self.thinking_stream:
-            self.thinking_stream.add_suggestion_hint(reason)
+            self.thinking_stream.add_suggestion_hint(reason, priority=priority)
+
+        # 新模式：建议产生时立即发送预览信号
+        # 预览信号会触发正文编辑器显示修改预览
+        logger.info("SuggestionHandlerMixin: 发送预览信号, 段落=%s", suggestion.get("paragraph_index", -1))
+        self.suggestion_preview_requested.emit(suggestion)
 
         # 根据模式处理
         if self.optimization_mode == OptimizationMode.AUTO:
-            # 自动模式：自动应用建议
+            # 自动模式：自动应用建议（预览已显示，直接确认）
             card._on_apply()
 
         elif self.optimization_mode == OptimizationMode.REVIEW:
-            # 审核模式：记录当前建议卡片
+            # 审核模式：记录当前建议卡片，等待用户确认
             # 后端会发送 workflow_paused 事件来更新UI状态
             self.current_suggestion_card = card
 
@@ -67,7 +82,7 @@ class SuggestionHandlerMixin:
             })
 
     def _on_suggestion_applied(self: "OptimizationContent", suggestion: dict):
-        """建议被应用"""
+        """建议被应用 - 确认预览"""
         from .models import OptimizationMode
 
         self.suggestion_applied.emit(suggestion)
@@ -78,9 +93,11 @@ class SuggestionHandlerMixin:
             self._resume_backend_analysis()
 
     def _on_suggestion_ignored(self: "OptimizationContent", suggestion: dict):
-        """建议被忽略"""
+        """建议被忽略 - 撤销预览"""
         from .models import OptimizationMode
 
+        # 发送忽略信号，触发撤销预览
+        self.suggestion_ignored.emit(suggestion)
         logger.info("忽略建议: 段落%d", suggestion.get("paragraph_index", -1))
 
         # 审核模式下，调用后端继续分析
@@ -111,7 +128,7 @@ class SuggestionHandlerMixin:
                         card._on_apply()
 
     def _apply_plan_suggestions(self: "OptimizationContent"):
-        """计划模式：应用选中的建议"""
+        """计划模式：应用选中的建议并通知后端完成工作流"""
         applied_count = 0
         for item in self.plan_mode_suggestions:
             card = item.get("card")
@@ -124,6 +141,9 @@ class SuggestionHandlerMixin:
         # 隐藏应用按钮
         if self.apply_plan_btn:
             self.apply_plan_btn.setVisible(False)
+
+        # 通知后端完成工作流
+        self._resume_backend_analysis()
 
 
 __all__ = [

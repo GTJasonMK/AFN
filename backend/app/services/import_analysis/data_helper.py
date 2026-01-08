@@ -214,6 +214,7 @@ class DataHelper:
                 name=char_data.get("name", ""),
                 identity=char_data.get("identity", ""),
                 personality=char_data.get("personality", ""),
+                appearance=char_data.get("appearance", ""),  # 外貌特征
                 goals=char_data.get("goals", ""),
                 abilities=char_data.get("abilities", ""),
                 relationship_to_protagonist=char_data.get("relationship_to_protagonist", ""),

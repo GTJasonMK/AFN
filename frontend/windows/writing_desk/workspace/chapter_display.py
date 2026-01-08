@@ -56,6 +56,9 @@ class ChapterDisplayMixin:
         if hasattr(self, '_last_loaded_chapter') and self._last_loaded_chapter == chapter_number:
             return
 
+        # 章节切换：重置漫画加载标志，防止旧的加载任务阻止新的加载
+        self._manga_loading = False
+
         # 记录待加载的章节
         self._pending_load_chapter = chapter_number
         self.current_chapter = chapter_number

@@ -282,8 +282,13 @@ class SSEWorker(QThread):
             elif event_type == 'error':
                 error_msg = data.get('message', '未知错误')
                 logger.error("SSE错误事件: %s", error_msg)
-                self.error.emit(error_msg)  # 向后兼容
-                self.error_data.emit(data)  # 完整错误数据
+                # 使用安全的方式发射信号，避免线程冲突
+                try:
+                    self.error.emit(error_msg)  # 向后兼容
+                    self.error_data.emit(data)  # 完整错误数据
+                except RuntimeError:
+                    # 接收者对象可能已被删除
+                    logger.debug("SSEWorker: receiver deleted, error signal not emitted")
 
             elif event_type == 'streaming_start':
                 logger.debug("SSE流式开始")

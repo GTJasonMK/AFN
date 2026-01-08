@@ -118,14 +118,17 @@ class ContentOptimizationWorkflow:
             # 阶段3: 初始化Agent和工具执行器
             # 传入索引标志以启用角色状态和伏笔查询功能
             # 传入llm_service以支持深度检查工具(DEEP_CHECK)
+            # 传入prompt_service以支持外部提示词加载
             tool_executor = ToolExecutor(
                 session=self.session,
                 vector_store=self.vector_store,
                 paragraph_analyzer=paragraph_analyzer,
                 embedding_service=self.embedding_service,
-                character_index=True,  # 启用角色状态索引查询
-                foreshadowing_index=True,  # 启用伏笔索引查询
+                enable_character_index=True,  # 启用角色状态索引查询
+                enable_foreshadowing_index=True,  # 启用伏笔索引查询
                 llm_service=self.llm_service,  # 用于深度LLM检查
+                prompt_service=self.prompt_service,  # 用于加载提示词
+                user_id=user_id,  # 用户ID，用于LLM调用
             )
 
             agent = ContentOptimizationAgent(
@@ -134,6 +137,7 @@ class ContentOptimizationWorkflow:
                 user_id=user_id,
                 optimization_session=self.optimization_session,
                 optimization_mode=request.mode,
+                prompt_service=self.prompt_service,  # 用于加载提示词
             )
 
             # 创建Agent状态

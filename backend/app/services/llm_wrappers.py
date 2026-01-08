@@ -62,79 +62,97 @@ class LLMCallConfig:
     max_tokens: Optional[int] = None
 
 
-# 预定义的调用配置映射
-_PROFILE_CONFIGS: Dict[LLMProfile, LLMCallConfig] = {
+# 预定义的调用配置基础映射（不含动态配置）
+# 注意：max_tokens和temperature等配置在get_profile_config()中动态获取，支持热更新
+_PROFILE_BASE_CONFIGS: Dict[LLMProfile, Dict[str, Any]] = {
     # 创意类
-    LLMProfile.CREATIVE: LLMCallConfig(
-        temperature=0.7,
-        timeout=LLMConstants.DEFAULT_TIMEOUT,
-        max_tokens=LLMConstants.DEFAULT_MAX_TOKENS,  # 创意任务的默认输出限制
-    ),
-    LLMProfile.INSPIRATION: LLMCallConfig(
-        temperature=settings.llm_temp_inspiration,
-        timeout=LLMConstants.INSPIRATION_TIMEOUT,
-    ),
-    LLMProfile.WRITING: LLMCallConfig(
-        temperature=settings.llm_temp_writing,
-        timeout=LLMConstants.CHAPTER_GENERATION_TIMEOUT,
-    ),
-    LLMProfile.MANGA: LLMCallConfig(
-        temperature=0.7,
-        timeout=LLMConstants.DEFAULT_TIMEOUT * 2,
-        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,  # 漫画分镜需要较大输出空间
-    ),
+    LLMProfile.CREATIVE: {
+        "temperature_key": None,  # 使用固定值0.7
+        "temperature_default": 0.7,
+        "timeout": LLMConstants.DEFAULT_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_default",
+    },
+    LLMProfile.INSPIRATION: {
+        "temperature_key": "llm_temp_inspiration",
+        "timeout": LLMConstants.INSPIRATION_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_default",
+    },
+    LLMProfile.WRITING: {
+        "temperature_key": "llm_temp_writing",
+        "timeout": LLMConstants.CHAPTER_GENERATION_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_chapter",
+    },
+    LLMProfile.MANGA: {
+        "temperature_key": None,
+        "temperature_default": 0.7,
+        "timeout": LLMConstants.DEFAULT_TIMEOUT * 2,
+        "max_tokens_key": "llm_max_tokens_manga",
+    },
 
     # 分析类
-    LLMProfile.ANALYTICAL: LLMCallConfig(
-        temperature=0.3,
-        timeout=LLMConstants.DEFAULT_TIMEOUT,
-        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,  # 复杂分析任务需要较大输出空间
-    ),
-    LLMProfile.SUMMARY: LLMCallConfig(
-        temperature=settings.llm_temp_summary,
-        timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
-    ),
-    LLMProfile.EVALUATION: LLMCallConfig(
-        temperature=settings.llm_temp_evaluation,
-        timeout=LLMConstants.EVALUATION_TIMEOUT,
-    ),
-    LLMProfile.COHERENCE: LLMCallConfig(
-        temperature=0.3,
-        timeout=LLMConstants.COHERENCE_CHECK_TIMEOUT,
-    ),
-    LLMProfile.AGENT: LLMCallConfig(
-        temperature=0.5,
-        timeout=LLMConstants.DEFAULT_TIMEOUT * 2,
-    ),
+    LLMProfile.ANALYTICAL: {
+        "temperature_key": None,
+        "temperature_default": 0.3,
+        "timeout": LLMConstants.DEFAULT_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_analysis",
+    },
+    LLMProfile.SUMMARY: {
+        "temperature_key": "llm_temp_summary",
+        "timeout": LLMConstants.SUMMARY_GENERATION_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_analysis",
+    },
+    LLMProfile.EVALUATION: {
+        "temperature_key": "llm_temp_evaluation",
+        "timeout": LLMConstants.EVALUATION_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_analysis",
+    },
+    LLMProfile.COHERENCE: {
+        "temperature_key": None,
+        "temperature_default": 0.3,
+        "timeout": LLMConstants.COHERENCE_CHECK_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_analysis",
+    },
+    LLMProfile.AGENT: {
+        "temperature_key": None,
+        "temperature_default": 0.5,
+        "timeout": LLMConstants.DEFAULT_TIMEOUT * 2,
+        "max_tokens_key": "llm_max_tokens_default",
+    },
 
     # 结构化任务
-    LLMProfile.BLUEPRINT: LLMCallConfig(
-        temperature=LLMConstants.BLUEPRINT_TEMPERATURE,
-        timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
-        max_tokens=LLMConstants.BLUEPRINT_MAX_TOKENS,
-    ),
-    LLMProfile.OUTLINE: LLMCallConfig(
-        temperature=settings.llm_temp_outline,
-        timeout=LLMConstants.CHAPTER_OUTLINE_TIMEOUT,
-    ),
-    LLMProfile.LAYOUT: LLMCallConfig(
-        temperature=0.7,
-        timeout=LLMConstants.DEFAULT_TIMEOUT,
-        response_format="json_object",
-    ),
+    LLMProfile.BLUEPRINT: {
+        "temperature_key": None,
+        "temperature_default": LLMConstants.BLUEPRINT_TEMPERATURE,
+        "timeout": LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_blueprint",
+    },
+    LLMProfile.OUTLINE: {
+        "temperature_key": "llm_temp_outline",
+        "timeout": LLMConstants.CHAPTER_OUTLINE_TIMEOUT,
+        "max_tokens_key": "llm_max_tokens_outline",
+    },
+    LLMProfile.LAYOUT: {
+        "temperature_key": None,
+        "temperature_default": 0.7,
+        "timeout": LLMConstants.DEFAULT_TIMEOUT,
+        "response_format": "json_object",
+        "max_tokens_key": "llm_max_tokens_manga",
+    },
 
     # 快速响应
-    LLMProfile.QUICK: LLMCallConfig(
-        temperature=0.5,
-        timeout=60.0,
-        response_format="json_object",
-    ),
+    LLMProfile.QUICK: {
+        "temperature_key": None,
+        "temperature_default": 0.5,
+        "timeout": 60.0,
+        "response_format": "json_object",
+        "max_tokens_key": "llm_max_tokens_default",
+    },
 }
 
 
 def get_profile_config(profile: Union[LLMProfile, str]) -> LLMCallConfig:
     """
-    获取配置档案
+    获取配置档案（动态读取settings，支持热更新）
 
     Args:
         profile: 配置档案名称或枚举值
@@ -150,8 +168,34 @@ def get_profile_config(profile: Union[LLMProfile, str]) -> LLMCallConfig:
             return LLMCallConfig(
                 temperature=LLMConstants.DEFAULT_TEMPERATURE,
                 timeout=LLMConstants.DEFAULT_TIMEOUT,
+                max_tokens=getattr(settings, "llm_max_tokens_default", 4096),
             )
-    return _PROFILE_CONFIGS.get(profile, _PROFILE_CONFIGS[LLMProfile.CREATIVE])
+
+    base_config = _PROFILE_BASE_CONFIGS.get(profile)
+    if not base_config:
+        # 未找到配置，使用CREATIVE作为默认
+        base_config = _PROFILE_BASE_CONFIGS[LLMProfile.CREATIVE]
+
+    # 动态获取temperature
+    temp_key = base_config.get("temperature_key")
+    if temp_key:
+        temperature = getattr(settings, temp_key, base_config.get("temperature_default", 0.7))
+    else:
+        temperature = base_config.get("temperature_default", 0.7)
+
+    # 动态获取max_tokens
+    max_tokens_key = base_config.get("max_tokens_key")
+    if max_tokens_key:
+        max_tokens = getattr(settings, max_tokens_key, 4096)
+    else:
+        max_tokens = 4096
+
+    return LLMCallConfig(
+        temperature=temperature,
+        timeout=base_config.get("timeout", LLMConstants.DEFAULT_TIMEOUT),
+        response_format=base_config.get("response_format"),
+        max_tokens=max_tokens,
+    )
 
 
 async def call_llm(

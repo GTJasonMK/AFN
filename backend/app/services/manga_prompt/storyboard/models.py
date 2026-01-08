@@ -130,20 +130,30 @@ class SoundEffect:
 
 @dataclass
 class PanelDesign:
-    """分镜设计"""
+    """
+    分镜设计
+
+    简化版：移除复杂坐标系统，使用布局槽位代替。
+    对话、音效等文字元素会直接写入图片提示词，由AI生成器绘制。
+    """
     panel_id: int                       # 分镜ID（页内从1开始）
     size: PanelSize = PanelSize.MEDIUM
     shape: PanelShape = PanelShape.RECTANGLE
     shot_type: ShotType = ShotType.MEDIUM
 
+    # 布局属性（简化版）
+    importance: str = "standard"        # hero/major/standard/minor/micro（决定布局槽位）
+    layout_slot: str = "third_row"      # full_row/half_row/third_row/quarter_row
+    aspect_ratio: str = "4:3"           # 宽高比（用于图片生成）
+
     # 内容描述
     visual_description: str = ""        # 画面描述（中文）
-    visual_description_en: str = ""     # 画面描述（英文，用于绘图）
+    visual_description_en: str = ""     # 画面描述（英文，用于绘图）- 核心！需超详细
     characters: List[str] = field(default_factory=list)  # 出场角色
     character_actions: Dict[str, str] = field(default_factory=dict)  # 角色动作
     character_expressions: Dict[str, str] = field(default_factory=dict)  # 角色表情
 
-    # 文字元素
+    # 文字元素（会写入图片提示词，由AI直接生成）
     dialogues: List[DialogueBubble] = field(default_factory=list)
     narration: str = ""                 # 旁白
     sound_effects: List[SoundEffect] = field(default_factory=list)
@@ -159,7 +169,6 @@ class PanelDesign:
     # 关联信息
     event_indices: List[int] = field(default_factory=list)  # 关联的事件索引
     is_key_panel: bool = False          # 是否关键画格
-    transition_hint: str = ""           # 到下一格的过渡方式
 
     def to_dict(self) -> dict:
         """转换为字典"""
@@ -168,6 +177,11 @@ class PanelDesign:
             "size": self.size.value,
             "shape": self.shape.value,
             "shot_type": self.shot_type.value,
+            # 布局属性（简化版）
+            "importance": self.importance,
+            "layout_slot": self.layout_slot,
+            "aspect_ratio": self.aspect_ratio,
+            # 内容描述
             "visual_description": self.visual_description,
             "visual_description_en": self.visual_description_en,
             "characters": self.characters,
@@ -184,21 +198,54 @@ class PanelDesign:
             "impact_effects": self.impact_effects,
             "event_indices": self.event_indices,
             "is_key_panel": self.is_key_panel,
-            "transition_hint": self.transition_hint,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "PanelDesign":
-        """从字典创建"""
+        """
+        从字典创建
+
+        兼容旧数据：如果没有 layout_slot/aspect_ratio，根据 importance 自动计算
+        """
         # 安全获取列表和字典类型的字段，确保不会是 None
         dialogues_data = data.get("dialogues") or []
         sound_effects_data = data.get("sound_effects") or []
+
+        # 获取重要性，用于计算布局槽位和宽高比
+        importance = data.get("importance") or "standard"
+
+        # 重要性到布局槽位的映射
+        importance_to_slot = {
+            "hero": "full_row",
+            "major": "half_row",
+            "standard": "third_row",
+            "minor": "quarter_row",
+            "micro": "quarter_row",
+        }
+
+        # 重要性到宽高比的映射
+        importance_to_aspect = {
+            "hero": "16:9",
+            "major": "4:3",
+            "standard": "1:1",
+            "minor": "1:1",
+            "micro": "1:1",
+        }
+
+        # 优先使用数据中的值，否则根据 importance 计算
+        layout_slot = data.get("layout_slot") or importance_to_slot.get(importance, "third_row")
+        aspect_ratio = data.get("aspect_ratio") or importance_to_aspect.get(importance, "4:3")
 
         return cls(
             panel_id=data.get("panel_id") or 1,
             size=PanelSize.from_string(data.get("size") or "medium"),
             shape=PanelShape.from_string(data.get("shape") or "rectangle"),
             shot_type=ShotType.from_string(data.get("shot_type") or "medium"),
+            # 布局属性（简化版）
+            importance=importance,
+            layout_slot=layout_slot,
+            aspect_ratio=aspect_ratio,
+            # 内容描述
             visual_description=data.get("visual_description") or "",
             visual_description_en=data.get("visual_description_en") or "",
             characters=data.get("characters") or [],
@@ -221,17 +268,20 @@ class PanelDesign:
             impact_effects=bool(data.get("impact_effects")),
             event_indices=data.get("event_indices") or [],
             is_key_panel=bool(data.get("is_key_panel")),
-            transition_hint=data.get("transition_hint") or "",
         )
 
 
 @dataclass
 class PageStoryboard:
-    """单页分镜结果"""
+    """
+    单页分镜结果
+
+    简化版：移除复杂的节奏和间白样式控制
+    """
     page_number: int                    # 页码
     panels: List[PanelDesign] = field(default_factory=list)
     page_purpose: str = ""              # 页面目的
-    reading_flow: str = "right_to_left" # 阅读流向
+    reading_flow: str = "left_to_right" # 阅读流向（默认从左到右）
     visual_rhythm: str = ""             # 视觉节奏描述
     layout_description: str = ""        # 布局描述
 
@@ -248,12 +298,12 @@ class PageStoryboard:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PageStoryboard":
-        """从字典创建"""
+        """从字典创建（兼容旧数据，忽略已移除的字段）"""
         return cls(
             page_number=data.get("page_number", 1),
             panels=[PanelDesign.from_dict(p) for p in data.get("panels", [])],
             page_purpose=data.get("page_purpose", ""),
-            reading_flow=data.get("reading_flow", "right_to_left"),
+            reading_flow=data.get("reading_flow", "left_to_right"),
             visual_rhythm=data.get("visual_rhythm", ""),
             layout_description=data.get("layout_description", ""),
         )

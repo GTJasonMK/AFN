@@ -240,6 +240,7 @@ class EnhancedChapterContextService:
         blueprint_info: Optional[BlueprintInfo] = None,
         prev_chapter_analysis: Optional[ChapterAnalysisData] = None,
         pending_foreshadowing: Optional[List[Dict[str, Any]]] = None,
+        protagonist_profiles: Optional[List[Dict[str, Any]]] = None,
         writing_notes: Optional[str] = None,
         top_k_chunks: int = 10,
         top_k_summaries: int = 5,
@@ -255,6 +256,7 @@ class EnhancedChapterContextService:
             blueprint_info: 蓝图信息
             prev_chapter_analysis: 前一章分析数据
             pending_foreshadowing: 待回收的伏笔列表
+            protagonist_profiles: 主角档案列表（用于生成时约束角色行为）
             writing_notes: 用户写作指令
             top_k_chunks: 检索chunk数量
             top_k_summaries: 检索摘要数量
@@ -337,6 +339,7 @@ class EnhancedChapterContextService:
                 rag_context=rag_context,
                 prev_chapter_analysis=prev_chapter_analysis,
                 pending_foreshadowing=pending_foreshadowing,
+                protagonist_profiles=protagonist_profiles,
             )
 
         # 4. 压缩上下文

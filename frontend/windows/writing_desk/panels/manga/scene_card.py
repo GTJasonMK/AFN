@@ -100,9 +100,9 @@ class SceneCardMixin:
             generate_img_btn = QPushButton("生成图片")
             generate_img_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             generate_img_btn.setStyleSheet(ButtonStyles.primary('XS'))
+            # Bug 37 修复: 将参数打包为字典，与 _onGenerateImage 期望的参数格式一致
             generate_img_btn.clicked.connect(
-                lambda checked, sid=scene_id, p=prompt_en, np=negative_prompt:
-                    self._on_generate_image(sid, p, np)
+                lambda checked, s=scene: self._on_generate_image(s)
             )
             btn_stack.addWidget(generate_img_btn)
         else:

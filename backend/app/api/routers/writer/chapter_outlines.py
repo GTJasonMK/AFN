@@ -174,6 +174,12 @@ async def generate_chapter_outlines_by_count(
 
     # 获取项目蓝图
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # Bug 14 修复: 检查蓝图是否存在（增量生成大纲）
+    if not project_schema.blueprint:
+        raise InvalidParameterError(
+            "项目缺少蓝图数据，无法生成章节大纲。请先完成灵感对话生成蓝图。",
+            "blueprint"
+        )
     blueprint_dict = project_schema.blueprint.model_dump()
 
     # 使用统一的RAG检索器获取相关摘要
@@ -290,6 +296,7 @@ async def generate_chapter_outlines_by_count(
                     temperature=settings.llm_temp_outline,
                     user_id=desktop_user.id,
                     timeout=LLMConstants.CHAPTER_OUTLINE_TIMEOUT,
+                    max_tokens=settings.llm_max_tokens_outline,
                 )
 
                 # 解析LLM响应（parse_llm_json_or_fail 内部已处理 think 标签）
@@ -472,6 +479,10 @@ async def delete_latest_chapter_outlines(
     await novel_service.delete_chapters(project_id, deleted_chapters)
     await session.commit()
 
+    # Bug 19 修复: 删除章节后检查并更新项目完成状态（可能需要从 COMPLETED 降级到 WRITING）
+    await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
+    await session.commit()
+
     logger.info("项目 %s 成功级联删除 %d 章（包括大纲、章节内容和向量数据）", project_id, len(deleted_chapters))
 
     # 使用Repository获取剩余章节数
@@ -604,6 +615,12 @@ async def regenerate_chapter_outline(
 
     # 获取项目蓝图
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # Bug 14 修复: 检查蓝图是否存在（重生成大纲）
+    if not project_schema.blueprint:
+        raise InvalidParameterError(
+            "项目缺少蓝图数据，无法重新生成章节大纲。请先完成灵感对话生成蓝图。",
+            "blueprint"
+        )
     blueprint_dict = project_schema.blueprint.model_dump()
 
     # 使用统一的RAG检索器获取相关摘要
@@ -656,6 +673,7 @@ async def regenerate_chapter_outline(
         temperature=settings.llm_temp_outline,
         user_id=desktop_user.id,
         timeout=LLMConstants.SUMMARY_GENERATION_TIMEOUT,
+        max_tokens=settings.llm_max_tokens_outline,
     )
 
     # 解析LLM响应（parse_llm_json_or_fail 内部已处理 think 标签）

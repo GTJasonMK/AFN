@@ -11,8 +11,9 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog, QSizePolicy,
+    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog, QSizePolicy, QSplitter,
 )
+from PyQt6.QtCore import Qt
 from pages.base_page import BasePage
 from api.manager import APIClientManager
 from utils.async_worker import AsyncAPIWorker
@@ -106,17 +107,29 @@ class WritingDesk(
         self.sidebar = WDSidebar()
         content_layout.addWidget(self.sidebar)
 
-        # Workspace（占据剩余空间）
+        # 使用分割器管理 Workspace 和 AssistantPanel
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)  # 防止完全折叠
+
+        # Workspace（占据主要空间）
         self.workspace = WDWorkspace()
         self.workspace.setProjectId(self.project_id)
         self.workspace.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        content_layout.addWidget(self.workspace, stretch=1)
+        self.workspace.setMinimumWidth(dp(400))  # 设置最小宽度
+        self.main_splitter.addWidget(self.workspace)
 
-        # RAG Assistant Panel（固定宽度，初始隐藏）
+        # RAG Assistant Panel（初始隐藏，可调节宽度）
         self.assistant_panel = AssistantPanel(self.project_id)
-        self.assistant_panel.setFixedWidth(dp(320))
+        self.assistant_panel.setMinimumWidth(dp(280))  # 设置最小宽度
         self.assistant_panel.setVisible(False)
-        content_layout.addWidget(self.assistant_panel, stretch=0)
+        self.main_splitter.addWidget(self.assistant_panel)
+
+        # 设置分割器手柄宽度
+        self.main_splitter.setHandleWidth(dp(6))
+        # 设置初始比例（工作区:助手面板 = 7:3）
+        self.main_splitter.setSizes([dp(700), dp(320)])
+
+        content_layout.addWidget(self.main_splitter, stretch=1)
 
         main_layout.addWidget(self.content_widget, stretch=1)
 
@@ -154,6 +167,8 @@ class WritingDesk(
 
         # Assistant Panel 信号
         self.assistant_panel.suggestion_applied.connect(self.onSuggestionApplied)
+        self.assistant_panel.suggestion_ignored.connect(self.onSuggestionIgnored)
+        self.assistant_panel.suggestion_preview_requested.connect(self.onSuggestionPreviewRequested)
 
     def toggleAssistant(self, show: bool):
         """切换RAG助手显示状态"""
@@ -183,7 +198,7 @@ class WritingDesk(
             self.setAutoFillBackground(False)
 
             # 指定容器设置透明（不使用findChildren避免影响其他页面）
-            transparent_containers = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel']
+            transparent_containers = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel', 'main_splitter']
             for container_name in transparent_containers:
                 container = getattr(self, container_name, None)
                 if container:
@@ -199,7 +214,7 @@ class WritingDesk(
             self.setAutoFillBackground(True)
 
             # 恢复容器的背景填充
-            containers_to_restore = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel']
+            containers_to_restore = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel', 'main_splitter']
             for container_name in containers_to_restore:
                 container = getattr(self, container_name, None)
                 if container:
@@ -208,6 +223,20 @@ class WritingDesk(
             # content_widget 恢复透明样式（因为它是内容容器）
             if hasattr(self, 'content_widget') and self.content_widget:
                 self.content_widget.setStyleSheet("background-color: transparent;")
+
+        # 分割器样式 - 添加可见的拖动手柄
+        if hasattr(self, 'main_splitter') and self.main_splitter:
+            self.main_splitter.setStyleSheet(f"""
+                QSplitter::handle:horizontal {{
+                    background-color: {theme_manager.BORDER_LIGHT};
+                    width: {dp(4)}px;
+                    margin: {dp(20)}px {dp(2)}px;
+                    border-radius: {dp(2)}px;
+                }}
+                QSplitter::handle:horizontal:hover {{
+                    background-color: {theme_manager.PRIMARY};
+                }}
+            """)
 
     # ==================== 项目加载 ====================
 
@@ -254,10 +283,31 @@ class WritingDesk(
         if self.assistant_panel:
             self.assistant_panel.set_chapter_for_optimization(chapter_number, content)
 
-    def onSuggestionApplied(self, suggestion: dict):
-        """处理修改建议被应用"""
+    def onSuggestionPreviewRequested(self, suggestion: dict):
+        """处理预览请求 - 建议产生时在正文中显示预览"""
+        logger.info("onSuggestionPreviewRequested 被调用, 段落=%s", suggestion.get("paragraph_index", -1))
         if self.workspace:
-            self.workspace.applySuggestion(suggestion)
+            result = self.workspace.previewSuggestion(suggestion)
+            logger.info("previewSuggestion 返回: %s", result)
+        else:
+            logger.warning("onSuggestionPreviewRequested: workspace 为 None")
+
+    def onSuggestionApplied(self, suggestion: dict):
+        """处理修改建议被应用 - 确认预览"""
+        if self.workspace:
+            preview_id = suggestion.get("_preview_id")
+            if preview_id:
+                self.workspace.confirmSuggestionPreview(preview_id)
+            else:
+                # 兼容旧模式：如果没有preview_id，使用旧的applySuggestion
+                self.workspace.applySuggestion(suggestion)
+
+    def onSuggestionIgnored(self, suggestion: dict):
+        """处理修改建议被忽略 - 撤销预览"""
+        if self.workspace:
+            preview_id = suggestion.get("_preview_id")
+            if preview_id:
+                self.workspace.revertSuggestionPreview(preview_id)
 
     def onGenerateOutline(self):
         """跳转到大纲生成"""
@@ -272,7 +322,8 @@ class WritingDesk(
 
         # 计算下一个章节编号（必须连续）
         chapters = self.project.get('chapters', []) if self.project else []
-        blueprint = self.project.get('blueprint', {}) if self.project else {}
+        # 获取蓝图（小说项目专用）
+        blueprint = self.project.get('blueprint') or {} if self.project else {}
         outlines = blueprint.get('chapter_outline', [])
 
         # 获取已有的最大章节号

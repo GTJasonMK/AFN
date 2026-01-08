@@ -2,15 +2,17 @@
 修改建议卡片组件
 
 显示单个修改建议，支持应用、忽略操作。
+增强功能：差异对比显示、折叠/展开、状态动画。
 """
 
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QTextEdit, QFrame,
+    QPushButton, QTextEdit, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QTextCharFormat, QColor, QTextCursor
 
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
@@ -19,7 +21,11 @@ from utils.dpi_utils import dp, sp
 
 
 class SuggestionCard(ThemeAwareFrame):
-    """修改建议卡片"""
+    """修改建议卡片 - 增强版
+
+    显示单个修改建议，包含原文和建议修改后的文本对比。
+    支持应用、忽略操作，以及差异对比显示。
+    """
 
     applied = pyqtSignal(dict)   # 应用建议信号，传递建议数据
     ignored = pyqtSignal(dict)   # 忽略建议信号，传递建议数据
@@ -42,15 +48,20 @@ class SuggestionCard(ThemeAwareFrame):
         self.suggestion = suggestion
         self.is_applied = False
         self.is_ignored = False
+        self.is_expanded = True  # 默认展开
 
         # UI组件
         self.priority_label = None
         self.category_label = None
         self.paragraph_label = None
+        self.toggle_btn = None
+        self.content_widget = None
         self.original_label = None
         self.original_text = None
         self.suggested_label = None
         self.suggested_text = None
+        self.diff_label = None
+        self.diff_view = None
         self.reason_label = None
         self.apply_btn = None
         self.ignore_btn = None
@@ -65,7 +76,7 @@ class SuggestionCard(ThemeAwareFrame):
         layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
         layout.setSpacing(dp(8))
 
-        # 头部：优先级、类别、段落号
+        # 头部：优先级、类别、段落号、折叠按钮
         header = QHBoxLayout()
 
         self.priority_label = QLabel()
@@ -79,34 +90,62 @@ class SuggestionCard(ThemeAwareFrame):
         self.paragraph_label = QLabel()
         header.addWidget(self.paragraph_label)
 
+        self.toggle_btn = QPushButton()
+        self.toggle_btn.setFixedSize(dp(24), dp(24))
+        self.toggle_btn.clicked.connect(self._toggle_expand)
+        header.addWidget(self.toggle_btn)
+
         layout.addLayout(header)
 
-        # 原文
+        # 内容区域（可折叠）
+        self.content_widget = QWidget()
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(dp(8))
+
+        # 差异对比视图（默认显示）
+        self.diff_label = QLabel("变更对比:")
+        content_layout.addWidget(self.diff_label)
+
+        self.diff_view = QTextEdit()
+        self.diff_view.setReadOnly(True)
+        self.diff_view.setMaximumHeight(dp(100))
+        content_layout.addWidget(self.diff_view)
+
+        # 原文（可选查看）
+        orig_header = QHBoxLayout()
         self.original_label = QLabel("原文:")
-        layout.addWidget(self.original_label)
+        orig_header.addWidget(self.original_label)
+        orig_header.addStretch()
+        content_layout.addLayout(orig_header)
 
         self.original_text = QTextEdit()
         self.original_text.setPlainText(self.suggestion.get("original_text", ""))
         self.original_text.setReadOnly(True)
-        self.original_text.setMaximumHeight(dp(60))
-        layout.addWidget(self.original_text)
+        self.original_text.setMaximumHeight(dp(50))
+        self.original_text.setVisible(False)  # 默认隐藏
+        content_layout.addWidget(self.original_text)
 
-        # 建议
+        # 建议（可选查看）
+        sugg_header = QHBoxLayout()
         self.suggested_label = QLabel("建议修改为:")
-        layout.addWidget(self.suggested_label)
+        sugg_header.addWidget(self.suggested_label)
+        sugg_header.addStretch()
+        content_layout.addLayout(sugg_header)
 
         self.suggested_text = QTextEdit()
         self.suggested_text.setPlainText(self.suggestion.get("suggested_text", ""))
         self.suggested_text.setReadOnly(True)
-        self.suggested_text.setMaximumHeight(dp(80))
-        layout.addWidget(self.suggested_text)
+        self.suggested_text.setMaximumHeight(dp(50))
+        self.suggested_text.setVisible(False)  # 默认隐藏
+        content_layout.addWidget(self.suggested_text)
 
         # 理由
         self.reason_label = QLabel()
         reason = self.suggestion.get("reason", "")
         self.reason_label.setText(f"理由: {reason}")
         self.reason_label.setWordWrap(True)
-        layout.addWidget(self.reason_label)
+        content_layout.addWidget(self.reason_label)
 
         # 按钮区域
         btn_layout = QHBoxLayout()
@@ -122,13 +161,88 @@ class SuggestionCard(ThemeAwareFrame):
         self.apply_btn.clicked.connect(self._on_apply)
         btn_layout.addWidget(self.apply_btn)
 
-        layout.addLayout(btn_layout)
+        content_layout.addLayout(btn_layout)
+
+        layout.addWidget(self.content_widget)
 
         # 状态标签（初始隐藏）
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setVisible(False)
         layout.addWidget(self.status_label)
+
+        # 填充差异视图
+        self._populate_diff_view()
+
+    def _populate_diff_view(self):
+        """填充差异对比视图"""
+        original = self.suggestion.get("original_text", "")
+        suggested = self.suggestion.get("suggested_text", "")
+
+        if not self.diff_view:
+            return
+
+        self.diff_view.clear()
+        cursor = self.diff_view.textCursor()
+
+        # 简化的差异显示
+        # 删除的内容用删除线红色显示，新增的内容用绿色显示
+        del_format = QTextCharFormat()
+        del_format.setForeground(QColor(theme_manager.ERROR))
+        del_format.setFontStrikeOut(True)
+
+        add_format = QTextCharFormat()
+        add_format.setForeground(QColor(theme_manager.SUCCESS))
+        add_format.setFontWeight(600)
+
+        normal_format = QTextCharFormat()
+        normal_format.setForeground(QColor(theme_manager.TEXT_PRIMARY))
+
+        # 使用简单的单词级别差异
+        original_words = original.split()
+        suggested_words = suggested.split()
+
+        # 找出差异（简化版本）
+        i = 0
+        j = 0
+        while i < len(original_words) or j < len(suggested_words):
+            if i < len(original_words) and j < len(suggested_words):
+                if original_words[i] == suggested_words[j]:
+                    cursor.insertText(original_words[i] + " ", normal_format)
+                    i += 1
+                    j += 1
+                else:
+                    # 寻找匹配
+                    found_in_suggested = False
+                    for k in range(j, min(j + 5, len(suggested_words))):
+                        if original_words[i] == suggested_words[k]:
+                            # 在建议中找到了，说明中间有插入
+                            for m in range(j, k):
+                                cursor.insertText(suggested_words[m] + " ", add_format)
+                            j = k
+                            found_in_suggested = True
+                            break
+
+                    if not found_in_suggested:
+                        # 原文中的词被删除或替换
+                        cursor.insertText(original_words[i] + " ", del_format)
+                        i += 1
+            elif i < len(original_words):
+                # 剩余原文被删除
+                cursor.insertText(original_words[i] + " ", del_format)
+                i += 1
+            else:
+                # 新增内容
+                cursor.insertText(suggested_words[j] + " ", add_format)
+                j += 1
+
+    def _toggle_expand(self):
+        """切换展开/折叠状态"""
+        self.is_expanded = not self.is_expanded
+        if self.content_widget:
+            self.content_widget.setVisible(self.is_expanded)
+        if self.toggle_btn:
+            self.toggle_btn.setText("-" if self.is_expanded else "+")
 
     def _apply_theme(self):
         """应用主题"""
@@ -162,6 +276,14 @@ class SuggestionCard(ThemeAwareFrame):
         }
         category_name = category_names.get(category, category)
 
+        # 优先级背景色映射 - 使用主题色彩系统
+        priority_bg_map = {
+            "high": theme_manager.ERROR_BG if hasattr(theme_manager, 'ERROR_BG') else theme_manager.BG_TERTIARY,
+            "medium": theme_manager.WARNING_BG if hasattr(theme_manager, 'WARNING_BG') else theme_manager.BG_TERTIARY,
+            "low": theme_manager.INFO_BG if hasattr(theme_manager, 'INFO_BG') else theme_manager.BG_TERTIARY,
+        }
+        priority_bg = priority_bg_map.get(priority, theme_manager.BG_TERTIARY)
+
         # 设置优先级标签
         if self.priority_label:
             self.priority_label.setText(f"[{priority_name}]")
@@ -171,7 +293,7 @@ class SuggestionCard(ThemeAwareFrame):
                 font-weight: bold;
                 color: {priority_color};
                 padding: {dp(2)}px {dp(6)}px;
-                background-color: {priority_color}20;
+                background-color: {priority_bg};
                 border-radius: {dp(4)}px;
             """)
 
@@ -194,6 +316,46 @@ class SuggestionCard(ThemeAwareFrame):
                 font-family: {ui_font};
                 font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_SECONDARY};
+            """)
+
+        # 设置折叠按钮样式
+        if self.toggle_btn:
+            self.toggle_btn.setText("-" if self.is_expanded else "+")
+            self.toggle_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: {ui_font};
+                    font-size: {sp(14)}px;
+                    font-weight: bold;
+                    color: {theme_manager.TEXT_SECONDARY};
+                    background-color: transparent;
+                    border: 1px solid {theme_manager.BORDER_LIGHT};
+                    border-radius: {dp(4)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme_manager.BG_CARD_HOVER};
+                }}
+            """)
+
+        # 设置差异视图标签和内容样式
+        if self.diff_label:
+            self.diff_label.setStyleSheet(f"""
+                font-family: {ui_font};
+                font-size: {sp(12)}px;
+                font-weight: 600;
+                color: {theme_manager.TEXT_SECONDARY};
+            """)
+
+        if self.diff_view:
+            self.diff_view.setStyleSheet(f"""
+                QTextEdit {{
+                    font-family: {ui_font};
+                    font-size: {sp(13)}px;
+                    color: {theme_manager.TEXT_PRIMARY};
+                    background-color: {theme_manager.BG_SECONDARY};
+                    border: 1px solid {theme_manager.BORDER_LIGHT};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px;
+                }}
             """)
 
         # 设置标签样式

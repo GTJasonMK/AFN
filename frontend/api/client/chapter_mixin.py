@@ -93,7 +93,8 @@ class ChapterMixin:
         self,
         project_id: str,
         chapter_number: int,
-        version_index: int
+        version_index: int,
+        trigger_rag_processing: bool = False
     ) -> Dict[str, Any]:
         """
         选择章节版本
@@ -102,6 +103,7 @@ class ChapterMixin:
             project_id: 项目ID
             chapter_number: 章节号
             version_index: 版本索引
+            trigger_rag_processing: 是否触发RAG处理，默认False（仅选择版本）
 
         Returns:
             选择结果
@@ -111,8 +113,10 @@ class ChapterMixin:
             f'/api/writer/novels/{project_id}/chapters/select',
             {
                 'chapter_number': chapter_number,
-                'version_index': version_index
-            }
+                'version_index': version_index,
+                'trigger_rag_processing': trigger_rag_processing
+            },
+            timeout=300 if trigger_rag_processing else 30
         )
 
     def evaluate_chapter(
@@ -254,4 +258,34 @@ class ChapterMixin:
             params=params,
             timeout=60,
             return_type='content'
+        )
+
+    def reset_chapter(
+        self,
+        project_id: str,
+        chapter_number: int
+    ) -> Dict[str, Any]:
+        """
+        重置章节数据（清空内容、版本等，还原为未生成状态）
+
+        此操作会：
+        - 删除章节的所有版本和评价
+        - 重置章节状态为未生成
+        - 清空字数、摘要、分析数据
+        - 清理漫画分镜数据和已生成图片
+        - 清理向量库中的章节数据
+
+        注意：章节大纲保留不变
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            更新后的项目数据
+        """
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/reset',
+            timeout=60
         )

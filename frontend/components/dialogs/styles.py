@@ -112,6 +112,7 @@ class DialogStyles:
                 font-size: {sp(17)}px;
                 font-weight: 600;
                 color: {theme_manager.TEXT_PRIMARY};
+                background-color: transparent;
             }}
         """
 
@@ -124,6 +125,7 @@ class DialogStyles:
                 font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
+                background-color: transparent;
             }}
         """
 
@@ -137,6 +139,7 @@ class DialogStyles:
                 font-family: {ui_font};
                 font-size: {sp(14)}px;
                 color: {theme_manager.TEXT_SECONDARY};
+                background-color: transparent;
                 {padding}
                 line-height: 1.5;
             }}
@@ -397,6 +400,7 @@ class DialogStyles:
                 font-size: {sp(12)}px;
                 color: {theme_manager.TEXT_TERTIARY};
                 padding-left: {dp(4)}px;
+                background-color: transparent;
             }}
         """
 
@@ -450,6 +454,7 @@ class DialogStyles:
                 font-size: {sp(14)}px;
                 color: {theme_manager.PRIMARY};
                 font-weight: 500;
+                background-color: transparent;
             }}
         """
 
@@ -519,6 +524,7 @@ class DialogStyles:
                 color: {palette.text_primary};
                 padding-bottom: {dp(12)}px;
                 border-bottom: 1px solid {palette.border_color};
+                background-color: transparent;
             }}
         """
 
@@ -532,6 +538,7 @@ class DialogStyles:
                 font-size: {sp(14)}px;
                 color: {palette.text_secondary};
                 font-weight: 500;
+                background-color: transparent;
             }}
         """
 
@@ -546,6 +553,7 @@ class DialogStyles:
                 color: {palette.text_tertiary};
                 font-style: italic;
                 margin-top: {dp(4)}px;
+                background-color: transparent;
             }}
         """
 

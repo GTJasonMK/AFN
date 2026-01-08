@@ -22,6 +22,7 @@ from ....core.dependencies import (
     get_novel_service,
     get_llm_service,
     get_prompt_service,
+    get_vector_store,
 )
 from ....core.config import settings
 from ....db.session import get_session
@@ -59,13 +60,14 @@ from ....utils.json_utils import (
     parse_llm_json_safe,
 )
 from ....utils.prompt_helpers import ensure_prompt
+from ....services.project_factory import ProjectTypeConfig, ProjectStage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/{project_id}/blueprint/generate", response_model=BlueprintGenerationResponse)
+@router.post("/{project_id}/blueprint/generate")
 async def generate_blueprint(
     project_id: str,
     force_regenerate: bool = False,
@@ -75,6 +77,7 @@ async def generate_blueprint(
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ) -> BlueprintGenerationResponse:
     """
     根据完整对话生成可执行的小说蓝图。
@@ -141,7 +144,9 @@ async def generate_blueprint(
     # 使用ConversationService格式化对话历史
     formatted_history = conversation_service.format_conversation_history(history_records)
 
-    system_prompt = ensure_prompt(await prompt_service.get_prompt("blueprint"), "blueprint")
+    # 获取小说蓝图生成提示词
+    prompt_name = ProjectTypeConfig.get_prompt_name("novel", ProjectStage.BLUEPRINT)
+    system_prompt = ensure_prompt(await prompt_service.get_prompt(prompt_name), prompt_name)
 
     # 随机生成模式：添加特殊指令让LLM补全缺失信息
     if allow_incomplete:
@@ -171,24 +176,30 @@ async def generate_blueprint(
             "role": "user",
             "content": "【系统指令】用户选择了随机生成模式。请立即根据以上对话内容生成完整的小说蓝图JSON。对于缺失的信息，请发挥创意随机补全。不要再提问，直接输出JSON。"
         })
+    else:
+        # 正常模式：也需要添加明确的生成指令，防止LLM被对话历史中的"点击按钮"等内容混淆
+        formatted_history.append({
+            "role": "user",
+            "content": "【系统指令】用户已点击「生成蓝图」按钮。请根据以上灵感对话，立即生成完整的小说蓝图JSON。不要输出任何解释文字，只输出纯JSON对象。"
+        })
 
     # 记录LLM调用准备信息
     logger.info(
         "项目 %s 准备调用LLM生成蓝图：对话轮次=%d, max_tokens=%d, timeout=%.1fs",
-        project_id, len(formatted_history), 8192, 480.0
+        project_id, len(formatted_history), settings.llm_max_tokens_blueprint, 480.0
     )
 
     llm_start_time = time.time()
 
     # 对于大型小说，蓝图JSON可能很大，需要足够的输出长度
-    # Gemini 2.5 Flash支持最多8192 output tokens
+    # max_tokens 现在从配置读取，可由用户自定义
     blueprint_raw = await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=formatted_history,
         temperature=settings.llm_temp_blueprint,
         user_id=desktop_user.id,
         timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
-        max_tokens=8192,  # Gemini 2.5 Flash的最大输出限制
+        max_tokens=settings.llm_max_tokens_blueprint,
     )
 
     llm_elapsed = time.time() - llm_start_time
@@ -204,6 +215,7 @@ async def generate_blueprint(
 
     logger.info("项目 %s 蓝图JSON解析成功，total_chapters=%s", project_id, blueprint_data.get('total_chapters'))
 
+    # 使用Blueprint Schema验证
     try:
         blueprint = Blueprint(**blueprint_data)
     except Exception as exc:
@@ -249,6 +261,18 @@ async def generate_blueprint(
     logger.info(
         "项目 %s 蓝图生成流程全部完成，总耗时 %.2f 秒 (LLM: %.2f秒, 数据处理: %.2f秒)",
         project_id, total_elapsed, llm_elapsed, total_elapsed - llm_elapsed
+    )
+
+    # 自动入库：灵感对话 + 蓝图相关数据（故事概述、世界观、角色、关系）
+    from ....services.novel_rag import (
+        trigger_blueprint_ingestion,
+        trigger_inspiration_ingestion,
+    )
+    await trigger_inspiration_ingestion(
+        project_id, desktop_user.id, vector_store, llm_service
+    )
+    await trigger_blueprint_ingestion(
+        project_id, desktop_user.id, vector_store, llm_service
     )
 
     return BlueprintGenerationResponse(blueprint=blueprint, ai_message=ai_message)
@@ -321,10 +345,13 @@ async def refine_blueprint(
         exclude={'part_outlines'}
     )
 
+    # 获取蓝图优化提示词
+    prompt_name = ProjectTypeConfig.get_prompt_name("novel", ProjectStage.BLUEPRINT)
+
     # 构造优化提示词
     system_prompt = ensure_prompt(
-        await prompt_service.get_prompt("blueprint"),
-        "blueprint"
+        await prompt_service.get_prompt(prompt_name),
+        prompt_name
     )
 
     # 添加优化任务说明
@@ -356,14 +383,13 @@ async def refine_blueprint(
 请生成优化后的完整蓝图JSON。"""
 
     # 调用LLM生成优化后的蓝图
-    # 对于大型小说（如150章），蓝图JSON可能很大，不应限制输出长度
     blueprint_raw = await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=[{"role": "user", "content": user_message}],
         temperature=settings.llm_temp_blueprint,
         user_id=desktop_user.id,
         timeout=LLMConstants.BLUEPRINT_GENERATION_TIMEOUT,
-        max_tokens=None,  # 移除限制，让模型输出完整蓝图
+        max_tokens=settings.llm_max_tokens_blueprint,
     )
     # 解析优化后的蓝图JSON（parse_llm_json_or_fail 内部已处理 think 标签）
     blueprint_data = parse_llm_json_or_fail(
@@ -399,6 +425,12 @@ async def refine_blueprint(
 
     await session.commit()
     logger.info("项目 %s 优化完成，状态已重置为 blueprint_ready", project_id)
+
+    # 自动入库：蓝图相关数据（蓝图优化后重新入库）
+    from ....services.novel_rag import trigger_blueprint_ingestion
+    await trigger_blueprint_ingestion(
+        project_id, desktop_user.id, vector_store=None, llm_service=llm_service
+    )
 
     ai_message = (
         f"已根据您的要求优化蓝图：「{request.refinement_instruction}」。"

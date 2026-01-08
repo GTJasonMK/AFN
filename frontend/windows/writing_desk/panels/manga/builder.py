@@ -17,6 +17,7 @@ from .toolbar import ToolbarMixin
 from .prompt_tab import PromptTabMixin
 from .pdf_tab import PdfTabMixin
 from .scene_card import SceneCardMixin
+from .details_tab import DetailsTabMixin
 
 
 class MangaPanelBuilder(
@@ -25,6 +26,7 @@ class MangaPanelBuilder(
     PromptTabMixin,
     PdfTabMixin,
     SceneCardMixin,
+    DetailsTabMixin,
 ):
     """漫画面板构建器
 
@@ -163,6 +165,12 @@ class MangaPanelBuilder(
         pdf_label = "漫画" if pdf_info and pdf_info.get('success') else f"漫画 ({len(images)}图)"
         self._sub_tab_widget.addTab(images_tab, pdf_label)
 
+        # Tab 3: 详细信息（分析数据）
+        details_tab = self._create_details_tab(manga_data)
+        has_analysis = manga_data.get('analysis_data') is not None
+        details_label = "详细信息" if has_analysis else "详细信息"
+        self._sub_tab_widget.addTab(details_tab, details_label)
+
         main_layout.addWidget(self._sub_tab_widget)
 
         return container
@@ -228,17 +236,18 @@ class MangaPanelBuilder(
             "max_pages": max_pages,
         }
 
-    def update_images(self, images: List[Dict[str, Any]]):
+    def update_images(self, images: List[Dict[str, Any]], pdf_info: Dict[str, Any] = None):
         """更新图片标签页
 
         Args:
             images: 新的图片列表
+            pdf_info: Bug 33 修复 - PDF信息，刷新时保留
         """
         if self._sub_tab_widget and self._sub_tab_widget.count() >= 2:
             # 移除旧的图片标签页
             self._sub_tab_widget.removeTab(1)
-            # 创建新的图片标签页
-            images_tab = self._create_images_tab(images)
+            # 创建新的图片标签页（Bug 33 修复: 传递pdf_info）
+            images_tab = self._create_images_tab(images, pdf_info)
             self._sub_tab_widget.insertTab(1, images_tab, f"图片 ({len(images)})")
 
     # ==================== 画格加载状态控制 ====================

@@ -9,7 +9,6 @@ from typing import List, Optional
 
 from ..llm_wrappers import call_llm, LLMProfile
 from .schemas import (
-    CheckDimension,
     CoherenceIssue,
     ParagraphAnalysis,
     RAGContext,
@@ -36,13 +35,14 @@ COHERENCE_CHECK_USER_TEMPLATE = """## 当前段落（第{paragraph_index}段）
 请根据以上信息进行检查。"""
 
 # 维度简称映射（详细说明在 prompts/coherence_check.md 中）
+# 使用字符串键以匹配传入的维度参数
 DIMENSION_LABELS = {
-    CheckDimension.COHERENCE: "逻辑连贯性（coherence）",
-    CheckDimension.CHARACTER: "角色一致性（character）",
-    CheckDimension.FORESHADOW: "伏笔呼应（foreshadow）",
-    CheckDimension.TIMELINE: "时间线一致性（timeline）",
-    CheckDimension.STYLE: "风格一致性（style）",
-    CheckDimension.SCENE: "场景描写（scene）",
+    "coherence": "逻辑连贯性（coherence）",
+    "character": "角色一致性（character）",
+    "foreshadow": "伏笔呼应（foreshadow）",
+    "timeline": "时间线一致性（timeline）",
+    "style": "风格一致性（style）",
+    "scene": "场景描写（scene）",
 }
 
 
@@ -272,7 +272,7 @@ class CoherenceChecker:
                     # 检查是否是首次提及
                     if char not in (prev_paragraph or ""):
                         issues.append(CoherenceIssue(
-                            dimension=CheckDimension.CHARACTER,
+                            dimension="character",  # 使用字符串而非 Enum
                             description=f"角色'{char}'突然出现，可能需要过渡",
                             severity="low",
                             location=f"段落{analysis.index + 1}",
@@ -286,7 +286,7 @@ class CoherenceChecker:
                 has_transition = any(w in paragraph[:50] for w in transition_words)
                 if not has_transition:
                     issues.append(CoherenceIssue(
-                        dimension=CheckDimension.SCENE,
+                        dimension="scene",  # 使用字符串而非 Enum
                         description=f"场景从'{prev_analysis.scene}'变为'{analysis.scene}'，但缺少过渡",
                         severity="medium",
                         location=f"段落{analysis.index + 1}开头",
@@ -296,7 +296,7 @@ class CoherenceChecker:
         if analysis.time_marker and prev_analysis.time_marker:
             if analysis.time_marker != prev_analysis.time_marker:
                 issues.append(CoherenceIssue(
-                    dimension=CheckDimension.TIMELINE,
+                    dimension="timeline",  # 使用字符串而非 Enum
                     description=f"时间从'{prev_analysis.time_marker}'变为'{analysis.time_marker}'",
                     severity="low",
                     location=f"段落{analysis.index + 1}",
@@ -312,7 +312,7 @@ class CoherenceChecker:
             }
             if analysis.emotion_tone in opposite_emotions.get(prev_analysis.emotion_tone, []):
                 issues.append(CoherenceIssue(
-                    dimension=CheckDimension.COHERENCE,
+                    dimension="coherence",  # 使用字符串而非 Enum
                     description=f"情感基调从'{prev_analysis.emotion_tone}'突变为'{analysis.emotion_tone}'",
                     severity="medium",
                     location=f"段落{analysis.index + 1}",

@@ -17,10 +17,13 @@ class NovelRepository(BaseRepository[NovelProject]):
         return result.scalar_one()
 
     async def count_by_user(self, user_id: int) -> int:
-        """统计指定用户的项目数量"""
-        result = await self.session.execute(
-            select(func.count(NovelProject.id)).where(NovelProject.user_id == user_id)
-        )
+        """统计指定用户的项目数量
+
+        Args:
+            user_id: 用户ID
+        """
+        stmt = select(func.count(NovelProject.id)).where(NovelProject.user_id == user_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one()
 
     async def get_by_id(self, project_id: str) -> Optional[NovelProject]:
@@ -67,9 +70,13 @@ class NovelRepository(BaseRepository[NovelProject]):
 
         # 分页查询
         # 性能优化：只加载必要的列，避免加载完整的关联对象
-        result = await self.session.execute(
+        stmt = (
             select(NovelProject)
             .where(NovelProject.user_id == user_id)
+        )
+
+        result = await self.session.execute(
+            stmt
             .order_by(NovelProject.updated_at.desc())
             .offset(offset)
             .limit(page_size)

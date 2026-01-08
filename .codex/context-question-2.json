@@ -1,0 +1,28 @@
+{
+  "question": "如何在缺乏自动化测试的情况下要求贡献者完成验证？",
+  "priority": "high",
+  "reason_for_investigation": "贡献指南必须明确验证流程，但仓库没有 tests/ 目录，需要依据现有文档提炼手动测试准则。",
+  "evidence": [
+    {
+      "file": "CLAUDE.md",
+      "line": 323,
+      "detail": "明确说明“当前无自动化测试框架，需手动验证”，并提供运行与排障命令（日志路径 storage/app.log、storage/debug.log）。"
+    },
+    {
+      "file": "README.md",
+      "line": 38,
+      "detail": "提供 `python run_app.py` 一键启动流程，以及分别启动前/后端的命令，可作为验证步骤。"
+    },
+    {
+      "file": "backend/README.md",
+      "line": 46,
+      "detail": "列出后端 `uvicorn app.main:app --reload --port 8123` 命令，强调 API 文档在 `/docs`，可用于冒烟测试。"
+    },
+    {
+      "file": "frontend/README.md",
+      "line": 24,
+      "detail": "描述前端 `python main.py` 启动流程与核心用户路径，可据此编写手动测试步骤。"
+    }
+  ],
+  "conclusion": "测试章节应强调：1) 优先使用 `python run_app.py` 一键验证；2) 如需拆分，分别启动 backend/frontend 虚拟环境；3) 通过访问 http://localhost:8123/docs 与 PyQt UI 完成冒烟；4) 检查 storage 日志并记录验证到 `.codex/testing.md`/`verification.md`。"
+}

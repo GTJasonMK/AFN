@@ -295,9 +295,33 @@ class PromptService:
         return prompt_read.content
 
     async def list_prompts(self) -> list[PromptRead]:
-        """列出所有提示词"""
+        """
+        列出所有提示词
+
+        从数据库获取提示词，并从registry补充category、status和project_type元数据
+        """
         prompts = await self.repo.list_all()
-        return [PromptRead.model_validate(item) for item in prompts]
+        result = []
+        for item in prompts:
+            prompt_read = PromptRead.model_validate(item)
+            # 从registry补充元数据
+            meta = self._registry.get_meta(item.name)
+            if meta:
+                prompt_read.category = meta.get('category')
+                prompt_read.status = meta.get('status')
+                # 如果数据库中没有title/description，也从registry补充
+                if not prompt_read.title:
+                    prompt_read.title = meta.get('title')
+                if not prompt_read.description:
+                    prompt_read.description = meta.get('description')
+                # 从分类定义获取project_type
+                category = meta.get('category')
+                if category:
+                    cat_info = self._registry.get_category_info(category)
+                    if cat_info:
+                        prompt_read.project_type = cat_info.get('project_type')
+            result.append(prompt_read)
+        return result
 
     async def get_prompt_by_id(self, prompt_id: int) -> Optional[PromptRead]:
         """根据ID获取提示词"""
@@ -560,7 +584,23 @@ class PromptService:
         # 从缓存获取
         cached = self._cache.get(name)
         if cached:
-            return cached
+            # 从registry补充元数据（缓存可能没有这些信息）
+            prompt_read = cached.model_copy()
+            meta = self._registry.get_meta(name)
+            if meta:
+                prompt_read.category = meta.get('category')
+                prompt_read.status = meta.get('status')
+                if not prompt_read.title:
+                    prompt_read.title = meta.get('title')
+                if not prompt_read.description:
+                    prompt_read.description = meta.get('description')
+                # 从分类定义获取project_type
+                category = meta.get('category')
+                if category:
+                    cat_info = self._registry.get_category_info(category)
+                    if cat_info:
+                        prompt_read.project_type = cat_info.get('project_type')
+            return prompt_read
 
         # 缓存未命中，从数据库加载
         prompt = await self.repo.get_by_name(name)
@@ -568,6 +608,21 @@ class PromptService:
             return None
 
         prompt_read = PromptRead.model_validate(prompt)
+        # 从registry补充元数据
+        meta = self._registry.get_meta(name)
+        if meta:
+            prompt_read.category = meta.get('category')
+            prompt_read.status = meta.get('status')
+            if not prompt_read.title:
+                prompt_read.title = meta.get('title')
+            if not prompt_read.description:
+                prompt_read.description = meta.get('description')
+            # 从分类定义获取project_type
+            category = meta.get('category')
+            if category:
+                cat_info = self._registry.get_category_info(category)
+                if cat_info:
+                    prompt_read.project_type = cat_info.get('project_type')
         await self._cache.set(name, prompt_read)
         return prompt_read
 

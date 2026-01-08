@@ -155,3 +155,4 @@ backend/alembic/versions/__pycache__/
 # AI助手配置文件（放在 !*.md 之后才能生效）
 CLAUDE.md
 GEMINI.md
+AGENTS.md

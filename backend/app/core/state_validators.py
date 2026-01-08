@@ -24,9 +24,11 @@ OUTLINE_GENERATION_STATES: Set[ProjectStatus] = {
 }
 
 # 允许生成章节内容的状态
+# Bug 15, 16 修复: 添加 COMPLETED 状态，允许完结项目继续编辑章节
 CHAPTER_GENERATION_STATES: Set[ProjectStatus] = {
     ProjectStatus.CHAPTER_OUTLINES_READY,
     ProjectStatus.WRITING,
+    ProjectStatus.COMPLETED,  # 允许在完成状态下继续编辑
 }
 
 # 允许生成分部大纲的状态

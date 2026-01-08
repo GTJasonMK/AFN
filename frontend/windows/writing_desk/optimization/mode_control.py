@@ -70,29 +70,49 @@ class ModeControlMixin:
         """停止优化"""
         from api.client import AFNAPIClient
 
-        # 取消后端会话
+        logger.info("停止优化: is_optimizing=%s, session_id=%s, sse_worker=%s",
+                    self.is_optimizing, self.session_id, self.sse_worker is not None)
+
+        # 先停止SSE连接（这是最重要的，会中断数据流）
+        if self.sse_worker:
+            try:
+                logger.info("正在停止SSE Worker...")
+                self.sse_worker.stop()
+                logger.info("SSE Worker已停止")
+            except RuntimeError as e:
+                # C++对象已被删除
+                logger.warning("停止SSE Worker时对象已被删除: %s", e)
+            except Exception as e:
+                logger.error("停止SSE Worker时发生错误: %s", e)
+            finally:
+                self.sse_worker = None
+
+        # 取消后端会话（如果有的话）
         if self.session_id:
             try:
                 client = AFNAPIClient()
-                client.cancel_optimization_session(self.session_id)
-                logger.info("已取消后端会话: %s", self.session_id)
+                result = client.cancel_optimization_session(self.session_id)
+                logger.info("已取消后端会话: %s, 结果: %s", self.session_id, result)
             except Exception as e:
                 logger.warning("取消后端会话失败: %s", e)
 
-        # 停止SSE连接
-        if self.sse_worker:
-            try:
-                self.sse_worker.stop()
-            except RuntimeError:
-                # C++对象已被删除
-                pass
-            self.sse_worker = None
-
+        # 更新状态
         self.is_optimizing = False
         self.session_id = None
+
+        # 更新UI
         if self.continue_btn:
             self.continue_btn.setVisible(False)
+        if self.apply_plan_btn:
+            self.apply_plan_btn.setVisible(False)
+
+        # 更新思考流状态
+        if hasattr(self, 'thinking_stream') and self.thinking_stream:
+            self.thinking_stream.set_status("error")
+            self.thinking_stream.add_progress("已停止分析")
+
         self._update_status("已停止")
+        logger.info("优化已停止")
 
 
 __all__ = [

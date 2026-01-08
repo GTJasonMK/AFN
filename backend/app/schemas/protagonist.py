@@ -280,3 +280,75 @@ class ImplicitUpdateDecision(BaseModel):
     reasoning: str = Field(..., description="推理过程")
     new_value: Optional[Any] = Field(default=None, description="新值（modify时）")
     evidence_summary: str = Field(..., description="证据汇总")
+
+
+# ============== 状态快照相关 Schemas （类Git节点） ==============
+
+class SnapshotResponse(BaseModel):
+    """状态快照响应"""
+    id: int
+    profile_id: int
+    chapter_number: int
+    explicit_attributes: Dict[str, Any]
+    implicit_attributes: Dict[str, Any]
+    social_attributes: Dict[str, Any]
+    changes_in_chapter: int = Field(..., description="本章变更数量")
+    behaviors_in_chapter: int = Field(..., description="本章行为数量")
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SnapshotSummary(BaseModel):
+    """快照摘要（用于列表展示）"""
+    chapter_number: int
+    changes_in_chapter: int
+    behaviors_in_chapter: int
+    attribute_counts: Dict[str, int] = Field(
+        description="各类属性数量 {explicit: n, implicit: n, social: n}"
+    )
+    created_at: datetime
+
+
+class SnapshotListResponse(BaseModel):
+    """快照列表响应"""
+    profile_id: int
+    character_name: str
+    total_snapshots: int
+    snapshots: List[SnapshotSummary]
+
+
+class AttributeDiff(BaseModel):
+    """单类属性的差异"""
+    added: Dict[str, Any] = Field(default_factory=dict, description="新增的属性")
+    modified: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="修改的属性 {key: {from: old, to: new}}"
+    )
+    deleted: Dict[str, Any] = Field(default_factory=dict, description="删除的属性")
+
+
+class DiffResponse(BaseModel):
+    """状态差异响应（类Git diff）"""
+    profile_id: int
+    character_name: str
+    from_chapter: int
+    to_chapter: int
+    categories: Dict[str, AttributeDiff] = Field(
+        default_factory=dict,
+        description="各类属性的差异 {explicit: {...}, implicit: {...}, social: {...}}"
+    )
+    has_changes: bool = Field(..., description="是否有任何变化")
+
+
+class RollbackRequest(BaseModel):
+    """回滚请求"""
+    target_chapter: int = Field(..., description="目标章节号", ge=1)
+
+
+class RollbackResponse(BaseModel):
+    """回滚响应"""
+    success: bool
+    target_chapter: int
+    message: str

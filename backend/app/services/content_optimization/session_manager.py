@@ -7,6 +7,7 @@
 
 import asyncio
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -237,11 +238,19 @@ class OptimizationSessionManager:
 
 # 全局会话管理器实例
 _session_manager: Optional[OptimizationSessionManager] = None
+_session_manager_lock = threading.Lock()
 
 
 def get_session_manager() -> OptimizationSessionManager:
-    """获取全局会话管理器实例"""
+    """
+    获取全局会话管理器实例（线程安全）
+
+    使用双重检查锁定模式确保线程安全的单例初始化。
+    """
     global _session_manager
     if _session_manager is None:
-        _session_manager = OptimizationSessionManager()
+        with _session_manager_lock:
+            # 双重检查：在获取锁之后再次检查
+            if _session_manager is None:
+                _session_manager = OptimizationSessionManager()
     return _session_manager

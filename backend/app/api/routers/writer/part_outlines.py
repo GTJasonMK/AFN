@@ -16,6 +16,7 @@ from ....core.dependencies import (
     get_default_user,
     get_novel_service,
     get_vector_store,
+    get_llm_service,
 )
 from ....core.state_machine import ProjectStatus
 from ....db.session import get_session
@@ -37,6 +38,7 @@ from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
 from ....services.part_outline import PartOutlineService, PartOutlineWorkflow
 from ....services.vector_store_service import VectorStoreService
+from ....services.llm_service import LLMService
 from ....repositories.chapter_repository import ChapterOutlineRepository
 from ....utils.sse_helpers import sse_event, create_sse_response
 
@@ -326,6 +328,8 @@ async def generate_part_outlines(
     request: GeneratePartOutlinesRequest,
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
+    llm_service: LLMService = Depends(get_llm_service),
 ) -> PartOutlineGenerationProgress:
     """
     生成部分大纲（大纲的大纲）
@@ -344,6 +348,13 @@ async def generate_part_outlines(
         chapters_per_part=request.chapters_per_part,
     )
     await session.commit()
+
+    # 自动入库：分部大纲数据
+    from ....services.novel_rag import trigger_part_outline_ingestion
+    await trigger_part_outline_ingestion(
+        project_id, desktop_user.id, vector_store, llm_service
+    )
+
     return result
 
 
@@ -441,6 +452,7 @@ async def generate_part_chapters(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
+    llm_service: LLMService = Depends(get_llm_service),
 ) -> NovelProjectSchema:
     """
     为指定部分生成详细的章节大纲
@@ -459,6 +471,12 @@ async def generate_part_chapters(
         user_id=desktop_user.id,
         part_number=part_number,
         regenerate=request.regenerate,
+    )
+
+    # 自动入库：章节大纲数据
+    from ....services.novel_rag import trigger_chapter_outline_ingestion
+    await trigger_chapter_outline_ingestion(
+        project_id, desktop_user.id, vector_store, llm_service
     )
 
     return await novel_service.get_project_schema(project_id, desktop_user.id)

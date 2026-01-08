@@ -69,6 +69,9 @@ class ChapterGenerationWorkflow:
         self._chapter = None
         self._outline = None
         self._version_count = 0
+        # Bug 7 修复: 保存重生成前的状态，用于失败时恢复
+        self._previous_selected_version_id = None
+        self._previous_real_summary = None
 
     async def _initialize(self) -> None:
         """阶段1: 初始化和验证"""
@@ -154,6 +157,17 @@ class ChapterGenerationWorkflow:
         self._chapter = await self.novel_service.get_or_create_chapter(
             self.project_id, self.chapter_number
         )
+
+        # Bug 10 修复: 互斥保护 - 如果章节正在生成中，拒绝重复请求
+        if self._chapter.status == "generating":
+            raise InvalidStateTransitionError(
+                f"第 {self.chapter_number} 章正在生成中，请等待当前生成完成后再试。"
+            )
+
+        # Bug 7 修复: 在清除前保存当前状态，用于失败时恢复
+        self._previous_selected_version_id = self._chapter.selected_version_id
+        self._previous_real_summary = self._chapter.real_summary
+
         self._chapter.real_summary = None
         self._chapter.selected_version_id = None
         self._chapter.status = "generating"
@@ -174,11 +188,18 @@ class ChapterGenerationWorkflow:
         """阶段3: 准备提示词"""
         from ...utils.prompt_helpers import ensure_prompt
         from ..rag.scene_extractor import SceneStateExtractor
+        from ...exceptions import InvalidParameterError
 
         # 准备蓝图
         project_schema = await self.novel_service.get_project_schema(
             self.project_id, self.user_id
         )
+        # Bug 1 修复: 检查蓝图是否存在
+        if not project_schema.blueprint:
+            raise InvalidParameterError(
+                "项目缺少蓝图数据，无法生成章节。请先完成灵感对话生成蓝图。",
+                "blueprint"
+            )
         blueprint_dict = project_schema.blueprint.model_dump()
         blueprint_dict = self._chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
 
@@ -268,8 +289,19 @@ class ChapterGenerationWorkflow:
         if self._chapter is not None:
             try:
                 self._chapter.status = ChapterGenerationStatus.NOT_GENERATED.value
+                # Bug 7 修复: 恢复之前保存的版本选择和摘要
+                if self._previous_selected_version_id is not None:
+                    self._chapter.selected_version_id = self._previous_selected_version_id
+                    self._chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
+                    logger.info(
+                        "已恢复第 %s 章之前选中的版本 %s",
+                        self.chapter_number, self._previous_selected_version_id
+                    )
+                if self._previous_real_summary is not None:
+                    self._chapter.real_summary = self._previous_real_summary
+
                 await self.session.commit()
-                logger.info("已重置第 %s 章状态为 not_generated", self.chapter_number)
+                logger.info("已重置第 %s 章状态", self.chapter_number)
             except Exception as reset_error:
                 logger.error("重置章节状态失败: %s", reset_error)
 
@@ -399,8 +431,15 @@ class ChapterGenerationWorkflow:
             # 使用新的session来避免被取消的session的问题
             # 由于当前session可能处于不一致状态，直接尝试操作
             self._chapter.status = ChapterGenerationStatus.NOT_GENERATED.value
+            # Bug 7 修复: 恢复之前保存的版本选择和摘要
+            if self._previous_selected_version_id is not None:
+                self._chapter.selected_version_id = self._previous_selected_version_id
+                self._chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
+            if self._previous_real_summary is not None:
+                self._chapter.real_summary = self._previous_real_summary
+
             await self.session.commit()
-            logger.info("已重置第 %s 章状态为 not_generated（取消后清理）", self.chapter_number)
+            logger.info("已重置第 %s 章状态（取消后清理）", self.chapter_number)
         except asyncio.CancelledError:
             # commit时也可能被取消，忽略
             logger.debug("重置章节状态时被取消，跳过")

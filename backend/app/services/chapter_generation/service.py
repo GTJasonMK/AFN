@@ -215,7 +215,32 @@ class ChapterGenerationService:
             len(pending_foreshadowing),
         )
 
-        # 3. 执行增强型RAG检索
+        # 3. 获取主角档案（可选功能，错误不影响主流程）
+        protagonist_profiles = None
+        try:
+            from ..protagonist_profile.service import ProtagonistProfileService
+            profile_service = ProtagonistProfileService(self.session)
+            profiles = await profile_service.get_all_profiles(project.id)
+            if profiles:
+                protagonist_profiles = [
+                    {
+                        "name": p.character_name,
+                        "explicit": p.explicit_attributes or {},
+                        "implicit": p.implicit_attributes or {},
+                        "social": p.social_attributes or {},
+                        "last_synced_chapter": p.last_synced_chapter,
+                    }
+                    for p in profiles
+                ]
+                logger.info(
+                    "项目 %s 获取到 %d 个主角档案",
+                    project.id,
+                    len(protagonist_profiles),
+                )
+        except Exception as e:
+            logger.debug(f"获取主角档案失败（可选功能）: {e}")
+
+        # 4. 执行增强型RAG检索
         enhanced_rag_context = None
         if vector_store is not None:
             enhanced_context_service = EnhancedChapterContextService(
@@ -232,6 +257,7 @@ class ChapterGenerationService:
                 blueprint_info=blueprint_info,
                 prev_chapter_analysis=prev_chapter_analysis,
                 pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
+                protagonist_profiles=protagonist_profiles,
                 writing_notes=writing_notes,
             )
 
@@ -255,6 +281,7 @@ class ChapterGenerationService:
             pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
             total_chapters=total_chapters,
             enhanced_rag_context=enhanced_rag_context,
+            protagonist_profiles=protagonist_profiles,
         )
 
     def resolve_version_count(self) -> int:
@@ -512,7 +539,7 @@ class ChapterGenerationService:
                     temperature=settings.llm_temp_writing,
                     user_id=user_id,
                     timeout=LLMConstants.CHAPTER_GENERATION_TIMEOUT,
-                    max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
+                    max_tokens=settings.llm_max_tokens_chapter,
                     response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
                     skip_usage_tracking=skip_usage_tracking,
                     skip_daily_limit_check=skip_usage_tracking,
@@ -597,6 +624,12 @@ class ChapterGenerationService:
             settings.writer_parallel_generation
             and llm_config is not None  # 必须预先缓存LLM配置
         )
+
+        # Bug 2 修复: 只有在实际并行执行时才跳过用量追踪
+        # 如果配置了并行但条件不满足（降级到串行），应该正常追踪用量
+        actual_skip_usage = skip_usage_tracking and can_parallel
+        # 覆盖原始值，使得 _generate_single_version 使用正确的值
+        skip_usage_tracking = actual_skip_usage
 
         if not can_parallel and settings.writer_parallel_generation:
             logger.warning(

@@ -12,7 +12,7 @@ from ...repositories.protagonist_repository import ProtagonistBehaviorRecordRepo
 
 logger = logging.getLogger(__name__)
 
-# 隐性属性更新阈值：连续不符合次数
+# 隐性属性更新阈值：窗口内累计不符合次数
 IMPLICIT_UPDATE_THRESHOLD = 5
 
 
@@ -133,7 +133,7 @@ class ImplicitAttributeTracker:
     ) -> bool:
         """检查是否达到更新阈值
 
-        当某属性连续多次"不符合"时，返回True表示需要考虑更新。
+        当某属性在窗口内累计多次"不符合"时，返回True表示需要考虑更新。
 
         Args:
             profile_id: 档案ID

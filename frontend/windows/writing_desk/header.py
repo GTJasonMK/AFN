@@ -294,9 +294,10 @@ class WDHeader(TransparencyAwareMixin, ThemeAwareFrame):
         title = project.get('title', '未命名项目')
         self.title_label.setText(title)
 
-        # 计算统计数据
-        blueprint = project.get('blueprint', {})
+        # 获取蓝图数据（小说项目专用）
+        blueprint = project.get('blueprint') or {}
         genre = blueprint.get('genre', '')
+
         chapters = project.get('chapters', [])
         completed_chapters = [ch for ch in chapters if ch.get('content')]
 

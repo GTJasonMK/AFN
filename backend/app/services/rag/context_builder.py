@@ -38,6 +38,9 @@ class GenerationContext:
     # 参考层：可选的丰富信息
     reference: Dict[str, Any] = field(default_factory=dict)
 
+    # 主角档案层：用于约束角色行为一致性
+    protagonist_profiles: List[Dict[str, Any]] = field(default_factory=list)
+
     def get_all_data(self) -> Dict[str, Any]:
         """获取所有层次的数据"""
         return {
@@ -114,6 +117,7 @@ class SmartContextBuilder:
         rag_context: RAGContext,
         prev_chapter_analysis: Optional[ChapterAnalysisData] = None,
         pending_foreshadowing: Optional[List[Dict[str, Any]]] = None,
+        protagonist_profiles: Optional[List[Dict[str, Any]]] = None,
     ) -> GenerationContext:
         """构建生成上下文
 
@@ -123,6 +127,7 @@ class SmartContextBuilder:
             rag_context: RAG检索结果
             prev_chapter_analysis: 前一章的分析数据
             pending_foreshadowing: 待回收的伏笔列表
+            protagonist_profiles: 主角档案列表（用于约束角色行为）
 
         Returns:
             GenerationContext: 分层组织的上下文
@@ -151,6 +156,10 @@ class SmartContextBuilder:
             rag_context=rag_context,
             pending_foreshadowing=pending_foreshadowing,
         )
+
+        # === 存储主角档案 ===
+        if protagonist_profiles:
+            context.protagonist_profiles = protagonist_profiles
 
         return context
 

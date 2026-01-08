@@ -142,6 +142,7 @@ class NovelSerializer:
                         "name": character.name,
                         "identity": character.identity,
                         "personality": character.personality,
+                        "appearance": character.appearance,  # 外貌特征
                         "goals": character.goals,
                         "abilities": character.abilities,
                         "relationship_to_protagonist": character.relationship_to_protagonist,
@@ -154,7 +155,6 @@ class NovelSerializer:
                         "character_from": relation.character_from,
                         "character_to": relation.character_to,
                         "description": relation.description or "",
-                        "relationship_type": getattr(relation, "relationship_type", None),
                     }
                     for relation in sorted(project.relationships_, key=lambda r: r.position)
                 ],
@@ -371,8 +371,14 @@ class NovelSerializer:
                     evaluation_text = latest.feedback or latest.decision
 
         # 安全地转换状态值为枚举，处理未知状态
+        # 兼容旧数据：'generated' 映射到 'successful'
+        status_mapping = {
+            'generated': 'successful',
+        }
+        mapped_status = status_mapping.get(status_value, status_value)
+
         try:
-            generation_status = ChapterGenerationStatus(status_value)
+            generation_status = ChapterGenerationStatus(mapped_status)
         except ValueError:
             # 未知状态，使用默认值
             logger.warning("未知的章节状态 '%s'，使用默认值 NOT_GENERATED", status_value)

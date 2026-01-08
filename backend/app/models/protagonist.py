@@ -82,6 +82,11 @@ class ProtagonistProfile(Base):
         cascade="all, delete-orphan",
         order_by="ProtagonistDeletionMark.chapter_number"
     )
+    snapshots: Mapped[list["ProtagonistSnapshot"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="ProtagonistSnapshot.chapter_number"
+    )
 
 
 class ProtagonistAttributeChange(Base):
@@ -225,3 +230,49 @@ class ProtagonistDeletionMark(Base):
 
     # 关系
     profile: Mapped["ProtagonistProfile"] = relationship(back_populates="deletion_marks")
+
+
+class ProtagonistSnapshot(Base):
+    """状态快照表（类似Git的节点）
+
+    每个章节同步后创建一个快照，保存该章节结束时的完整状态。
+    支持：
+    1. 时间旅行：查看任意章节的角色状态
+    2. 差异比较：对比两个章节之间的状态变化
+    3. 状态回滚：恢复到某个章节的状态
+    """
+
+    __tablename__ = "protagonist_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "profile_id", "chapter_number",
+            name="uq_snapshot_profile_chapter"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("protagonist_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # 章节号（快照节点）
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+    # 完整状态快照（三类属性的完整副本）
+    explicit_attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    implicit_attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    social_attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    # 快照元数据
+    changes_in_chapter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 本章发生的变更数量
+    behaviors_in_chapter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 本章记录的行为数量
+
+    # 时间戳
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # 关系
+    profile: Mapped["ProtagonistProfile"] = relationship(back_populates="snapshots")

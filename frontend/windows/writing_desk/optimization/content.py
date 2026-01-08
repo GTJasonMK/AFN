@@ -54,6 +54,8 @@ class OptimizationContent(
 
     # 信号
     suggestion_applied = pyqtSignal(dict)  # 应用建议信号
+    suggestion_ignored = pyqtSignal(dict)  # 忽略建议信号（新增）
+    suggestion_preview_requested = pyqtSignal(dict)  # 请求预览建议（新增）
     optimization_complete = pyqtSignal(int)  # 优化完成信号（建议数）
 
     def __init__(self, project_id: str, parent=None):
@@ -80,6 +82,7 @@ class OptimizationContent(
         self.content_stack = None
         self.setup_page = None
         self.progress_page = None
+        self.progress_splitter = None  # 进度页分割器
         self.paragraph_selector = None
         self.thinking_stream = None
         self.suggestions_scroll = None
@@ -93,6 +96,7 @@ class OptimizationContent(
         self.plan_radio = None
         self.continue_btn = None  # 继续分析按钮
         self.apply_plan_btn = None  # 计划模式应用按钮
+        self.clear_thinking_btn = None  # 清空思考流按钮
 
         # 空状态UI组件
         self.empty_hint = None
@@ -253,23 +257,58 @@ class OptimizationContent(
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(dp(8))
 
-        # 使用分割器
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        # 使用分割器 - 保存引用以便样式化
+        self.progress_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.progress_splitter.setChildrenCollapsible(False)  # 防止完全折叠
 
         # 思考流
         self.thinking_stream = ThinkingStreamView(parent=page)
-        splitter.addWidget(self.thinking_stream)
+        self.thinking_stream.setMinimumHeight(dp(100))  # 设置最小高度
+        # 隐藏ThinkingStream自带的清空按钮（已移到底部按钮区域）
+        if hasattr(self.thinking_stream, 'clear_btn') and self.thinking_stream.clear_btn:
+            self.thinking_stream.clear_btn.setVisible(False)
+        self.progress_splitter.addWidget(self.thinking_stream)
 
         # 建议列表区域
         suggestions_widget = QWidget()
+        suggestions_widget.setMinimumHeight(dp(120))  # 设置最小高度
         suggestions_layout = QVBoxLayout(suggestions_widget)
         suggestions_layout.setContentsMargins(0, 0, 0, 0)
         suggestions_layout.setSpacing(dp(8))
 
-        # 建议列表头部
+        # 建议列表头部（带统计信息）
         suggestions_header = QHBoxLayout()
+        suggestions_header.setSpacing(dp(12))
+
         suggestions_title = QLabel("修改建议")
+        suggestions_title.setObjectName("suggestions_title")
         suggestions_header.addWidget(suggestions_title)
+
+        # 统计标签容器
+        self.stats_container = QWidget()
+        stats_layout = QHBoxLayout(self.stats_container)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(dp(8))
+
+        # 高优先级计数
+        self.high_count_label = QLabel("[!] 0")
+        self.high_count_label.setObjectName("high_count_label")
+        self.high_count_label.setToolTip("高优先级建议")
+        stats_layout.addWidget(self.high_count_label)
+
+        # 中优先级计数
+        self.medium_count_label = QLabel("[~] 0")
+        self.medium_count_label.setObjectName("medium_count_label")
+        self.medium_count_label.setToolTip("中优先级建议")
+        stats_layout.addWidget(self.medium_count_label)
+
+        # 低优先级计数
+        self.low_count_label = QLabel("[.] 0")
+        self.low_count_label.setObjectName("low_count_label")
+        self.low_count_label.setToolTip("低优先级建议")
+        stats_layout.addWidget(self.low_count_label)
+
+        suggestions_header.addWidget(self.stats_container)
         suggestions_header.addStretch()
 
         self.apply_high_btn = QPushButton("应用高优先级")
@@ -300,41 +339,50 @@ class OptimizationContent(
         self.suggestions_scroll.setWidget(self.suggestions_container)
         suggestions_layout.addWidget(self.suggestions_scroll, stretch=1)
 
-        splitter.addWidget(suggestions_widget)
+        self.progress_splitter.addWidget(suggestions_widget)
 
-        # 设置分割比例
-        splitter.setSizes([200, 300])
+        # 设置分割比例（思考流:建议列表 = 2:3）
+        self.progress_splitter.setSizes([dp(200), dp(300)])
+        # 设置拖动手柄宽度
+        self.progress_splitter.setHandleWidth(dp(6))
 
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self.progress_splitter, stretch=1)
 
         # 底部按钮
         btn_layout = QHBoxLayout()
 
+        # 返回设置按钮（移到左边，避免被右下角浮动按钮遮挡）
+        back_btn = QPushButton("返回")
+        back_btn.setFixedWidth(dp(60))
+        back_btn.clicked.connect(self._back_to_setup)
+        btn_layout.addWidget(back_btn)
+
         self.stop_btn = QPushButton("停止")
-        self.stop_btn.setFixedWidth(dp(80))
+        self.stop_btn.setFixedWidth(dp(60))
         self.stop_btn.clicked.connect(self._stop_optimization)
         btn_layout.addWidget(self.stop_btn)
 
+        # 清空思考流按钮
+        self.clear_thinking_btn = QPushButton("清空")
+        self.clear_thinking_btn.setFixedWidth(dp(60))
+        self.clear_thinking_btn.clicked.connect(self._clear_thinking_stream)
+        btn_layout.addWidget(self.clear_thinking_btn)
+
         # 继续分析按钮（审核模式下使用）
         self.continue_btn = QPushButton("继续分析")
-        self.continue_btn.setFixedWidth(dp(100))
+        self.continue_btn.setFixedWidth(dp(80))
         self.continue_btn.clicked.connect(self._continue_analysis)
         self.continue_btn.setVisible(False)  # 初始隐藏
         btn_layout.addWidget(self.continue_btn)
 
         # 计划模式应用按钮
-        self.apply_plan_btn = QPushButton("确认应用选中建议")
-        self.apply_plan_btn.setFixedWidth(dp(140))
+        self.apply_plan_btn = QPushButton("确认应用")
+        self.apply_plan_btn.setFixedWidth(dp(80))
         self.apply_plan_btn.clicked.connect(self._apply_plan_suggestions)
         self.apply_plan_btn.setVisible(False)  # 初始隐藏
         btn_layout.addWidget(self.apply_plan_btn)
 
         btn_layout.addStretch()
-
-        back_btn = QPushButton("返回设置")
-        back_btn.setFixedWidth(dp(80))
-        back_btn.clicked.connect(self._back_to_setup)
-        btn_layout.addWidget(back_btn)
 
         layout.addLayout(btn_layout)
 
@@ -431,6 +479,23 @@ class OptimizationContent(
                 }}
                 QPushButton:hover {{
                     background-color: {theme_manager.ERROR}20;
+                }}
+            """)
+
+        # 清空按钮样式
+        if self.clear_thinking_btn:
+            self.clear_thinking_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: {ui_font};
+                    font-size: {sp(13)}px;
+                    color: {theme_manager.TEXT_SECONDARY};
+                    background-color: transparent;
+                    border: 1px solid {theme_manager.BORDER_DEFAULT};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme_manager.BG_CARD_HOVER};
                 }}
             """)
 
@@ -543,6 +608,43 @@ class OptimizationContent(
         if self.apply_plan_btn:
             self.apply_plan_btn.setStyleSheet(ButtonStyles.primary())
 
+        # 统计标签样式 - 使用主题色彩系统和等宽字体
+        error_bg = theme_manager.ERROR_BG if hasattr(theme_manager, 'ERROR_BG') else theme_manager.BG_TERTIARY
+        warning_bg = theme_manager.WARNING_BG if hasattr(theme_manager, 'WARNING_BG') else theme_manager.BG_TERTIARY
+
+        if self.high_count_label:
+            self.high_count_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.ERROR};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {error_bg};
+                border-radius: {dp(4)}px;
+            """)
+
+        if self.medium_count_label:
+            self.medium_count_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.WARNING};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {warning_bg};
+                border-radius: {dp(4)}px;
+            """)
+
+        if self.low_count_label:
+            self.low_count_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.TEXT_TERTIARY};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {theme_manager.BG_TERTIARY};
+                border-radius: {dp(4)}px;
+            """)
+
         if self.suggestions_scroll:
             self.suggestions_scroll.setStyleSheet(f"""
                 QScrollArea {{
@@ -550,6 +652,20 @@ class OptimizationContent(
                     background-color: transparent;
                 }}
                 {theme_manager.scrollbar()}
+            """)
+
+        # 分割器样式 - 添加可见的拖动手柄
+        if self.progress_splitter:
+            self.progress_splitter.setStyleSheet(f"""
+                QSplitter::handle:vertical {{
+                    background-color: {theme_manager.BORDER_LIGHT};
+                    height: {dp(4)}px;
+                    margin: {dp(2)}px {dp(20)}px;
+                    border-radius: {dp(2)}px;
+                }}
+                QSplitter::handle:vertical:hover {{
+                    background-color: {theme_manager.PRIMARY};
+                }}
             """)
 
     def set_chapter(self, chapter_number: int, content: str):
@@ -608,10 +724,10 @@ class OptimizationContent(
             self.content_stack.setCurrentIndex(0)
 
     def _reset_state(self):
-        """重置状态"""
+        """重置状态（不包括 is_optimizing，由调用方控制）"""
         self.suggestions.clear()
         self.plan_mode_suggestions.clear()
-        self.is_optimizing = False
+        # 注意：is_optimizing 由 _start_optimization 和 _on_sse_complete 控制，不在此重置
         self.session_id = None
         self.current_suggestion_card = None
 
@@ -637,6 +753,25 @@ class OptimizationContent(
             self.apply_plan_btn.setVisible(False)
 
         self._update_status("")
+        self._update_suggestion_stats()
+
+    def _update_suggestion_stats(self):
+        """更新建议统计信息"""
+        high_count = sum(1 for s in self.suggestions if s.get("priority") == "high")
+        medium_count = sum(1 for s in self.suggestions if s.get("priority") == "medium")
+        low_count = sum(1 for s in self.suggestions if s.get("priority") == "low")
+
+        if self.high_count_label:
+            self.high_count_label.setText(f"[!] {high_count}")
+            self.high_count_label.setVisible(high_count > 0 or len(self.suggestions) > 0)
+
+        if self.medium_count_label:
+            self.medium_count_label.setText(f"[~] {medium_count}")
+            self.medium_count_label.setVisible(medium_count > 0 or len(self.suggestions) > 0)
+
+        if self.low_count_label:
+            self.low_count_label.setText(f"[.] {low_count}")
+            self.low_count_label.setVisible(low_count > 0 or len(self.suggestions) > 0)
 
     def _start_optimization(self):
         """开始优化分析"""
@@ -697,6 +832,11 @@ class OptimizationContent(
         self._stop_optimization()
         if self.content_stack:
             self.content_stack.setCurrentIndex(0)
+
+    def _clear_thinking_stream(self):
+        """清空思考流"""
+        if self.thinking_stream:
+            self.thinking_stream.clear()
 
     def _update_status(self, text: str):
         """更新状态文本"""

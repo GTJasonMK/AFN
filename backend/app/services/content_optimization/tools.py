@@ -173,12 +173,19 @@ TOOL_DEFINITIONS: Dict[ToolName, ToolDefinition] = {
 
     ToolName.GENERATE_SUGGESTION: ToolDefinition(
         name=ToolName.GENERATE_SUGGESTION,
-        description="基于发现的问题生成修改建议。只有在确认存在问题时才调用此工具。",
+        description="""基于发现的问题生成具体的修改建议。
+
+重要规则：
+1. 必须提供具体的 original_text（原文）和 suggested_text（修改后文本）
+2. original_text 必须是当前段落中实际存在的文本片段
+3. suggested_text 必须是可以直接替换原文的具体文本
+4. 禁止在 suggested_text 中写指导性描述（如"建议补充..."、"可以添加..."）
+5. 如果无法给出具体的修改文本，则不要调用此工具""",
         parameters={
             "issue_type": "问题类型: coherence / character / timeline / foreshadow / style / scene",
             "issue_description": "问题描述",
-            "original_text": "原文（需要修改的部分）",
-            "suggested_text": "建议修改后的文本",
+            "original_text": "原文（必需，必须是当前段落中实际存在的文本片段）",
+            "suggested_text": "修改后的具体文本（必需，必须是可以直接替换原文的文本，禁止写指导性描述）",
             "reason": "修改理由",
             "priority": "优先级: high / medium / low",
         },

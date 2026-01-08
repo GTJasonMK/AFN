@@ -34,6 +34,7 @@ class ChapterCard(TransparencyAwareMixin, ThemeAwareWidget):
     clicked = pyqtSignal(int)  # chapter_number
     editOutlineRequested = pyqtSignal(int)  # chapter_number
     regenerateOutlineRequested = pyqtSignal(int)  # chapter_number
+    clearChapterDataRequested = pyqtSignal(int)  # chapter_number - 清空章节数据
     hoverPrefetchRequested = pyqtSignal(int)  # 悬停预取请求，参数为chapter_number
 
     def __init__(self, chapter_data, is_selected=False, parent=None):
@@ -367,6 +368,17 @@ class ChapterCard(TransparencyAwareMixin, ThemeAwareWidget):
             lambda: self.regenerateOutlineRequested.emit(self.chapter_data.get('chapter_number', 0))
         )
         menu.addAction(regenerate_action)
+
+        # 只有已生成内容的章节才显示"清空章节数据"选项
+        # 且只有最新的已创作章节才能清空（保证小说连贯性）
+        can_clear = self.chapter_data.get('can_clear_data', False)
+        if can_clear:
+            menu.addSeparator()
+            clear_action = QAction("清空章节数据", self)
+            clear_action.triggered.connect(
+                lambda: self.clearChapterDataRequested.emit(self.chapter_data.get('chapter_number', 0))
+            )
+            menu.addAction(clear_action)
 
         menu.exec(event.globalPos())
 

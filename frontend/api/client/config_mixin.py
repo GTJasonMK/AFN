@@ -278,6 +278,94 @@ class ConfigMixin:
         """
         return self._request('POST', '/api/settings/advanced-config/import', import_data)
 
+    # ==================== Max Tokens 配置管理 ====================
+
+    def get_max_tokens_config(self) -> Dict[str, Any]:
+        """
+        获取Max Tokens配置
+
+        Returns:
+            当前配置值
+        """
+        return self._request('GET', '/api/settings/max-tokens-config')
+
+    def update_max_tokens_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        更新Max Tokens配置
+
+        Args:
+            config: 配置更新数据
+
+        Returns:
+            更新结果
+        """
+        return self._request('PUT', '/api/settings/max-tokens-config', data=config)
+
+    def export_max_tokens_config(self) -> Dict[str, Any]:
+        """
+        导出Max Tokens配置
+
+        Returns:
+            导出数据
+        """
+        return self._request('GET', '/api/settings/max-tokens-config/export')
+
+    def import_max_tokens_config(self, import_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        导入Max Tokens配置
+
+        Args:
+            import_data: 导入数据
+
+        Returns:
+            导入结果
+        """
+        return self._request('POST', '/api/settings/max-tokens-config/import', import_data)
+
+    # ==================== Temperature 配置管理 ====================
+
+    def get_temperature_config(self) -> Dict[str, Any]:
+        """
+        获取Temperature配置
+
+        Returns:
+            当前配置值
+        """
+        return self._request('GET', '/api/settings/temperature-config')
+
+    def update_temperature_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        更新Temperature配置
+
+        Args:
+            config: 配置更新数据
+
+        Returns:
+            更新结果
+        """
+        return self._request('PUT', '/api/settings/temperature-config', data=config)
+
+    def export_temperature_config(self) -> Dict[str, Any]:
+        """
+        导出Temperature配置
+
+        Returns:
+            导出数据
+        """
+        return self._request('GET', '/api/settings/temperature-config/export')
+
+    def import_temperature_config(self, import_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        导入Temperature配置
+
+        Args:
+            import_data: 导入数据
+
+        Returns:
+            导入结果
+        """
+        return self._request('POST', '/api/settings/temperature-config/import', import_data)
+
     # ==================== 队列配置导入导出 ====================
 
     def export_queue_config(self) -> Dict[str, Any]:

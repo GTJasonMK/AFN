@@ -64,7 +64,7 @@ if not exist ".env" (
     pause
 )
 
-if not exist "storage" mkdir storage
+if not exist "..\storage" mkdir "..\storage"
 
 echo.
 echo ========================================
@@ -75,8 +75,8 @@ echo API: http://127.0.0.1:8123
 echo Docs: http://127.0.0.1:8123/docs
 echo Health: http://127.0.0.1:8123/health
 echo.
-echo Log: storage\debug.log
-echo Database: storage\afn.db
+echo Log: ..\storage\debug.log
+echo Database: ..\storage\afn.db
 echo.
 echo Press Ctrl+C to stop
 echo.

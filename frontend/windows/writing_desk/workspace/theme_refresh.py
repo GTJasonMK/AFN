@@ -911,7 +911,7 @@ class ThemeRefreshMixin:
             return
 
         # 如果正在生成漫画提示词，跳过刷新避免破坏UI状态
-        if getattr(self, '_manga_generating', False):
+        if getattr(self, '_manga_generating_chapter', None) is not None:
             return
 
         try:

@@ -198,6 +198,88 @@ class Settings(BaseSettings):
         description="摘要生成的temperature值（精确性）",
     )
 
+    # -------------------- LLM Max Tokens 配置 --------------------
+    # 小说系统
+    llm_max_tokens_blueprint: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_BLUEPRINT",
+        description="蓝图生成的最大输出tokens",
+    )
+    llm_max_tokens_chapter: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_CHAPTER",
+        description="章节写作的最大输出tokens",
+    )
+    llm_max_tokens_outline: int = Field(
+        default=4096,
+        ge=1024,
+        le=16384,
+        env="LLM_MAX_TOKENS_OUTLINE",
+        description="大纲生成的最大输出tokens",
+    )
+    llm_max_tokens_manga: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_MANGA",
+        description="漫画分镜的最大输出tokens",
+    )
+    llm_max_tokens_analysis: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_ANALYSIS",
+        description="分析任务的最大输出tokens",
+    )
+    llm_max_tokens_default: int = Field(
+        default=4096,
+        ge=512,
+        le=16384,
+        env="LLM_MAX_TOKENS_DEFAULT",
+        description="默认最大输出tokens",
+    )
+
+    # 编程系统
+    llm_max_tokens_coding_blueprint: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_CODING_BLUEPRINT",
+        description="编程架构设计的最大输出tokens",
+    )
+    llm_max_tokens_coding_system: int = Field(
+        default=8000,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_CODING_SYSTEM",
+        description="编程系统生成的最大输出tokens",
+    )
+    llm_max_tokens_coding_module: int = Field(
+        default=6000,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_CODING_MODULE",
+        description="编程模块生成的最大输出tokens",
+    )
+    llm_max_tokens_coding_feature: int = Field(
+        default=4000,
+        ge=1024,
+        le=16384,
+        env="LLM_MAX_TOKENS_CODING_FEATURE",
+        description="编程功能大纲的最大输出tokens",
+    )
+    llm_max_tokens_coding_prompt: int = Field(
+        default=8192,
+        ge=1024,
+        le=32768,
+        env="LLM_MAX_TOKENS_CODING_PROMPT",
+        description="编程功能Prompt的最大输出tokens",
+    )
+
     # -------------------- 请求队列配置 --------------------
     llm_max_concurrent: int = Field(
         default=8,
@@ -369,6 +451,32 @@ def get_settings() -> Settings:
             instance.llm_max_concurrent = json_config['llm_max_concurrent']
         if 'image_max_concurrent' in json_config:
             instance.image_max_concurrent = json_config['image_max_concurrent']
+
+        # LLM Max Tokens 配置 - 小说系统
+        if 'llm_max_tokens_blueprint' in json_config:
+            instance.llm_max_tokens_blueprint = json_config['llm_max_tokens_blueprint']
+        if 'llm_max_tokens_chapter' in json_config:
+            instance.llm_max_tokens_chapter = json_config['llm_max_tokens_chapter']
+        if 'llm_max_tokens_outline' in json_config:
+            instance.llm_max_tokens_outline = json_config['llm_max_tokens_outline']
+        if 'llm_max_tokens_manga' in json_config:
+            instance.llm_max_tokens_manga = json_config['llm_max_tokens_manga']
+        if 'llm_max_tokens_analysis' in json_config:
+            instance.llm_max_tokens_analysis = json_config['llm_max_tokens_analysis']
+        if 'llm_max_tokens_default' in json_config:
+            instance.llm_max_tokens_default = json_config['llm_max_tokens_default']
+
+        # LLM Max Tokens 配置 - 编程系统
+        if 'llm_max_tokens_coding_blueprint' in json_config:
+            instance.llm_max_tokens_coding_blueprint = json_config['llm_max_tokens_coding_blueprint']
+        if 'llm_max_tokens_coding_system' in json_config:
+            instance.llm_max_tokens_coding_system = json_config['llm_max_tokens_coding_system']
+        if 'llm_max_tokens_coding_module' in json_config:
+            instance.llm_max_tokens_coding_module = json_config['llm_max_tokens_coding_module']
+        if 'llm_max_tokens_coding_feature' in json_config:
+            instance.llm_max_tokens_coding_feature = json_config['llm_max_tokens_coding_feature']
+        if 'llm_max_tokens_coding_prompt' in json_config:
+            instance.llm_max_tokens_coding_prompt = json_config['llm_max_tokens_coding_prompt']
 
     return instance
 

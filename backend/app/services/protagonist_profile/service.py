@@ -12,10 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models.protagonist import (
     ProtagonistProfile,
     ProtagonistAttributeChange,
+    ProtagonistSnapshot,
 )
 from ...repositories.protagonist_repository import (
     ProtagonistProfileRepository,
     ProtagonistAttributeChangeRepository,
+    ProtagonistSnapshotRepository,
 )
 from ...schemas.protagonist import (
     ProtagonistProfileCreate,
@@ -36,6 +38,7 @@ class ProtagonistProfileService:
         self.session = session
         self.profile_repo = ProtagonistProfileRepository(session)
         self.change_repo = ProtagonistAttributeChangeRepository(session)
+        self.snapshot_repo = ProtagonistSnapshotRepository(session)
 
     # ============== CRUD 操作 ==============
 
@@ -354,3 +357,268 @@ class ProtagonistProfileService:
             profile.social_attributes = attr_dict
         else:
             raise ValueError(f"无效的属性类别: {category}")
+
+    # ============== 快照操作（类Git节点） ==============
+
+    async def create_snapshot(
+        self,
+        profile_id: int,
+        chapter_number: int,
+        changes_in_chapter: int = 0,
+        behaviors_in_chapter: int = 0
+    ) -> ProtagonistSnapshot:
+        """创建章节状态快照
+
+        在章节同步后调用，保存该章节结束时的完整状态。
+        类似Git的commit节点。
+
+        Args:
+            profile_id: 档案ID
+            chapter_number: 章节号
+            changes_in_chapter: 本章变更数量
+            behaviors_in_chapter: 本章行为记录数
+
+        Returns:
+            创建的快照实例
+        """
+        profile = await self.profile_repo.get_by_id(profile_id)
+        if not profile:
+            raise ValueError(f"档案 {profile_id} 不存在")
+
+        snapshot = await self.snapshot_repo.create_snapshot(
+            profile_id=profile_id,
+            chapter_number=chapter_number,
+            explicit_attributes=dict(profile.explicit_attributes or {}),
+            implicit_attributes=dict(profile.implicit_attributes or {}),
+            social_attributes=dict(profile.social_attributes or {}),
+            changes_in_chapter=changes_in_chapter,
+            behaviors_in_chapter=behaviors_in_chapter,
+        )
+
+        logger.info(
+            f"创建状态快照: profile={profile_id}, chapter={chapter_number}, "
+            f"changes={changes_in_chapter}, behaviors={behaviors_in_chapter}"
+        )
+        return snapshot
+
+    async def get_snapshot_at_chapter(
+        self,
+        profile_id: int,
+        chapter_number: int
+    ) -> Optional[ProtagonistSnapshot]:
+        """获取指定章节的快照
+
+        用于时间旅行：查看某章节结束时角色的状态。
+
+        Args:
+            profile_id: 档案ID
+            chapter_number: 章节号
+
+        Returns:
+            快照实例，不存在返回None
+        """
+        return await self.snapshot_repo.get_snapshot_at_chapter(profile_id, chapter_number)
+
+    async def get_all_snapshots(
+        self,
+        profile_id: int,
+        start_chapter: Optional[int] = None,
+        end_chapter: Optional[int] = None
+    ) -> List[ProtagonistSnapshot]:
+        """获取档案的所有快照
+
+        Args:
+            profile_id: 档案ID
+            start_chapter: 起始章节（可选）
+            end_chapter: 结束章节（可选）
+
+        Returns:
+            快照列表（按章节号升序）
+        """
+        return await self.snapshot_repo.list_by_profile(
+            profile_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter
+        )
+
+    async def diff_between_chapters(
+        self,
+        profile_id: int,
+        from_chapter: int,
+        to_chapter: int
+    ) -> Dict[str, Any]:
+        """比较两个章节之间的状态差异
+
+        类似Git的diff功能。返回从from_chapter到to_chapter的状态变化。
+
+        Args:
+            profile_id: 档案ID
+            from_chapter: 起始章节号
+            to_chapter: 目标章节号
+
+        Returns:
+            差异字典，包含added/modified/deleted三类变化
+        """
+        from_snapshot = await self.snapshot_repo.get_snapshot_at_chapter(profile_id, from_chapter)
+        to_snapshot = await self.snapshot_repo.get_snapshot_at_chapter(profile_id, to_chapter)
+
+        # 如果没有from_snapshot，使用空状态
+        from_state = {
+            "explicit": from_snapshot.explicit_attributes if from_snapshot else {},
+            "implicit": from_snapshot.implicit_attributes if from_snapshot else {},
+            "social": from_snapshot.social_attributes if from_snapshot else {},
+        }
+
+        # 如果没有to_snapshot，使用当前状态
+        if to_snapshot:
+            to_state = {
+                "explicit": to_snapshot.explicit_attributes,
+                "implicit": to_snapshot.implicit_attributes,
+                "social": to_snapshot.social_attributes,
+            }
+        else:
+            profile = await self.profile_repo.get_by_id(profile_id)
+            if not profile:
+                raise ValueError(f"档案 {profile_id} 不存在")
+            to_state = {
+                "explicit": profile.explicit_attributes or {},
+                "implicit": profile.implicit_attributes or {},
+                "social": profile.social_attributes or {},
+            }
+
+        # 计算差异
+        diff = {
+            "from_chapter": from_chapter,
+            "to_chapter": to_chapter,
+            "categories": {}
+        }
+
+        for category in ["explicit", "implicit", "social"]:
+            from_attrs = from_state.get(category, {})
+            to_attrs = to_state.get(category, {})
+
+            category_diff = self._diff_attributes(from_attrs, to_attrs)
+            if category_diff["added"] or category_diff["modified"] or category_diff["deleted"]:
+                diff["categories"][category] = category_diff
+
+        return diff
+
+    def _diff_attributes(
+        self,
+        from_attrs: Dict[str, Any],
+        to_attrs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """计算两个属性字典之间的差异
+
+        Args:
+            from_attrs: 原属性字典
+            to_attrs: 目标属性字典
+
+        Returns:
+            差异字典: {added: {}, modified: {}, deleted: {}}
+        """
+        added = {}
+        modified = {}
+        deleted = {}
+
+        # 查找新增和修改
+        for key, value in to_attrs.items():
+            if key not in from_attrs:
+                added[key] = value
+            elif from_attrs[key] != value:
+                modified[key] = {
+                    "from": from_attrs[key],
+                    "to": value
+                }
+
+        # 查找删除
+        for key in from_attrs:
+            if key not in to_attrs:
+                deleted[key] = from_attrs[key]
+
+        return {
+            "added": added,
+            "modified": modified,
+            "deleted": deleted,
+        }
+
+    async def rollback_to_chapter(
+        self,
+        profile_id: int,
+        target_chapter: int
+    ) -> bool:
+        """回滚到指定章节的状态
+
+        类似Git的reset功能。将档案状态恢复到某章节的快照状态。
+
+        Args:
+            profile_id: 档案ID
+            target_chapter: 目标章节号
+
+        Returns:
+            是否成功回滚
+        """
+        snapshot = await self.snapshot_repo.get_snapshot_at_chapter(profile_id, target_chapter)
+        if not snapshot:
+            logger.warning(f"无法回滚: 未找到章节 {target_chapter} 的快照")
+            return False
+
+        profile = await self.profile_repo.get_by_id(profile_id)
+        if not profile:
+            raise ValueError(f"档案 {profile_id} 不存在")
+
+        # 恢复状态
+        profile.explicit_attributes = dict(snapshot.explicit_attributes)
+        profile.implicit_attributes = dict(snapshot.implicit_attributes)
+        profile.social_attributes = dict(snapshot.social_attributes)
+        profile.last_synced_chapter = target_chapter
+
+        # 删除目标章节之后的快照
+        deleted_count = await self.snapshot_repo.delete_after_chapter(profile_id, target_chapter)
+
+        await self.session.flush()
+
+        logger.info(
+            f"状态回滚: profile={profile_id}, target_chapter={target_chapter}, "
+            f"deleted_snapshots={deleted_count}"
+        )
+        return True
+
+    async def get_state_at_chapter(
+        self,
+        profile_id: int,
+        chapter_number: int
+    ) -> Dict[str, Any]:
+        """获取指定章节的状态（时间旅行）
+
+        如果有快照则返回快照状态，否则返回空状态。
+
+        Args:
+            profile_id: 档案ID
+            chapter_number: 章节号
+
+        Returns:
+            状态字典
+        """
+        snapshot = await self.snapshot_repo.get_snapshot_at_chapter(profile_id, chapter_number)
+
+        if snapshot:
+            return {
+                "chapter_number": chapter_number,
+                "explicit": snapshot.explicit_attributes,
+                "implicit": snapshot.implicit_attributes,
+                "social": snapshot.social_attributes,
+                "changes_in_chapter": snapshot.changes_in_chapter,
+                "behaviors_in_chapter": snapshot.behaviors_in_chapter,
+                "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+            }
+        else:
+            return {
+                "chapter_number": chapter_number,
+                "explicit": {},
+                "implicit": {},
+                "social": {},
+                "changes_in_chapter": 0,
+                "behaviors_in_chapter": 0,
+                "created_at": None,
+            }

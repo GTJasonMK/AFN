@@ -51,11 +51,12 @@ async def converse_with_inspiration(
     # 验证项目权限
     await novel_service.ensure_project_owner(project_id, desktop_user.id)
 
-    # 委托业务逻辑给InspirationService
+    # 委托业务逻辑给InspirationService（小说项目始终使用"novel"类型）
     result = await inspiration_service.process_conversation(
         project_id=project_id,
         user_input=request.user_input,
         user_id=desktop_user.id,
+        project_type="novel",
     )
 
     # 提交事务
@@ -91,17 +92,17 @@ async def converse_with_inspiration_stream(
     Returns:
         StreamingResponse with text/event-stream
     """
+    # 验证项目权限
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
 
     async def event_generator():
         try:
-            # 验证项目权限
-            await novel_service.ensure_project_owner(project_id, desktop_user.id)
-
-            # 使用InspirationService处理流式对话
+            # 使用InspirationService处理流式对话（小说项目始终使用"novel"类型）
             async for event in inspiration_service.process_conversation_stream(
                 project_id=project_id,
                 user_input=request.user_input,
                 user_id=desktop_user.id,
+                project_type="novel",
             ):
                 event_type = event["event"]
                 data = event["data"]

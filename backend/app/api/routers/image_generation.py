@@ -5,10 +5,10 @@
 配置管理使用 ImageConfigService，图片生成使用 ImageGenerationService。
 """
 
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,8 +44,10 @@ from ...services.image_generation.pdf_export import PDFExportService
 
 router = APIRouter(prefix="/image-generation", tags=["image-generation"])
 
-# 使用统一的路径配置
-IMAGES_ROOT = settings.generated_images_dir
+
+def get_images_root() -> Path:
+    """获取图片根目录（支持热更新）"""
+    return settings.generated_images_dir
 
 
 # ==================== 配置管理 ====================
@@ -378,7 +380,8 @@ async def get_scene_images(
             id=img.id,
             file_name=img.file_name,
             file_path=img.file_path,
-            url=f"/api/images/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{img.file_name}",
+            # Bug 41 修复: 使用正确的路由路径
+            url=f"/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{img.file_name}",
             width=img.width,
             height=img.height,
             prompt=img.prompt,
@@ -403,19 +406,28 @@ async def get_scene_images(
 async def get_chapter_images(
     project_id: str,
     chapter_number: int,
+    # Bug 40 修复: 添加章节版本过滤参数
+    chapter_version_id: Optional[int] = Query(None, description="章节版本ID，用于过滤特定版本的图片"),
+    include_legacy: bool = Query(False, description="是否包含历史版本的图片（无版本ID的旧数据）"),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取章节的所有图片"""
     service = ImageGenerationService(session)
-    images = await service.get_chapter_images(project_id, chapter_number)
+    # Bug 40 修复: 传递版本过滤参数
+    images = await service.get_chapter_images(
+        project_id, chapter_number,
+        version_id=chapter_version_id,
+        include_legacy=include_legacy,
+    )
 
     return [
         GeneratedImageInfo(
             id=img.id,
             file_name=img.file_name,
             file_path=img.file_path,
-            url=f"/api/images/{project_id}/chapter_{chapter_number}/scene_{img.scene_id}/{img.file_name}",
+            # Bug 41 修复: 使用正确的路由路径
+            url=f"/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{img.scene_id}/{img.file_name}",
             scene_id=img.scene_id,
             panel_id=img.panel_id,
             width=img.width,
@@ -487,14 +499,20 @@ async def generate_chapter_manga_pdf(
     生成章节漫画PDF
 
     支持两种模式：
-    1. 专业排版模式：如果章节有AI生成的排版信息，按分镜布局排列图片
-    2. 简单模式：一页一图的漫画阅读体验（无排版信息时自动使用）
+    1. 专业排版模式(layout="manga")：如果章节有AI生成的排版信息，按分镜布局排列图片
+    2. 简单模式(layout="full")：一页一图的漫画阅读体验（默认，或无排版信息时自动使用）
     """
     if request is None:
         request = ChapterMangaPDFRequest()
     service = PDFExportService(session)
-    # 优先使用专业排版模式，无排版信息时自动回退到简单模式
-    result = await service.generate_professional_manga_pdf(project_id, chapter_number, request)
+
+    # Bug 21 修复: 根据layout参数选择导出模式
+    if request.layout == "manga":
+        # 漫画分格模式：使用专业排版，无排版信息时自动回退到简单模式
+        result = await service.generate_professional_manga_pdf(project_id, chapter_number, request)
+    else:
+        # 全页模式（默认）：一页一图
+        result = await service.generate_chapter_manga_pdf(project_id, chapter_number, request)
     return result
 
 
@@ -661,7 +679,7 @@ async def get_image_file(
     file_name: str,
 ):
     """获取图片文件"""
-    file_path = IMAGES_ROOT / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}" / file_name
+    file_path = get_images_root() / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}" / file_name
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="图片不存在")
@@ -685,14 +703,14 @@ async def get_image_by_path(
     if ".." in image_path:
         raise HTTPException(status_code=400, detail="非法路径")
 
-    file_path = IMAGES_ROOT / image_path
+    file_path = get_images_root() / image_path
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="图片不存在")
 
-    # 确保文件在IMAGES_ROOT目录下（安全检查）
+    # 确保文件在get_images_root()目录下（安全检查）
     try:
-        file_path.resolve().relative_to(IMAGES_ROOT.resolve())
+        file_path.resolve().relative_to(get_images_root().resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="禁止访问")
 

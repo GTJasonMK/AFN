@@ -423,7 +423,11 @@ class PdfTabMixin:
         """刷新图片列表"""
         if self._on_load_images:
             images = self._on_load_images()
-            self.update_images(images)
+            # Bug 33 修复: 同时刷新PDF信息，避免重建Tab时丢失
+            pdf_info = None
+            if hasattr(self, '_on_load_pdf') and self._on_load_pdf:
+                pdf_info = self._on_load_pdf()
+            self.update_images(images, pdf_info)
 
     def _on_image_clicked(self, image_data: Dict[str, Any]):
         """图片点击事件处理

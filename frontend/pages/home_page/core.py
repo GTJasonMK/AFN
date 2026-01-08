@@ -18,7 +18,7 @@ from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from api.manager import APIClientManager
 from utils.dpi_utils import dp
-from components.dialogs import CreateModeDialog, InputDialog, ImportProgressDialog
+from components.dialogs import CreateModeDialog, CodingModeDialog, InputDialog, ImportProgressDialog
 from components.loading_spinner import ListLoadingState
 
 from .constants import CREATIVE_QUOTES, get_title_sort_key
@@ -134,6 +134,13 @@ class HomePage(BasePage):
         self.create_btn.setMinimumHeight(dp(48))
         self.create_btn.clicked.connect(self._on_create_novel)
         buttons_layout.addWidget(self.create_btn)
+
+        # 创建Prompt工程按钮（主要）
+        self.create_coding_btn = QPushButton("创建Prompt工程")
+        self.create_coding_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.create_coding_btn.setMinimumHeight(dp(48))
+        self.create_coding_btn.clicked.connect(self._on_create_coding_project)
+        buttons_layout.addWidget(self.create_coding_btn)
 
         # 打开现有项目按钮（次要）- 切换到全部项目Tab
         self.open_btn = QPushButton("查看全部项目")
@@ -443,6 +450,28 @@ class HomePage(BasePage):
             }}
         """)
 
+        # 创建Prompt工程按钮样式（次要主要按钮）
+        self.create_coding_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg_secondary};
+                color: {accent_color};
+                border: 2px solid {accent_color};
+                border-radius: {dp(8)}px;
+                padding: {dp(12)}px {dp(24)}px;
+                font-family: {ui_font};
+                font-size: {dp(16)}px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {accent_color};
+                color: {bg_color};
+            }}
+            QPushButton:pressed {{
+                background-color: {text_primary};
+                color: {bg_color};
+            }}
+        """)
+
         # 打开按钮样式（次要按钮）- 透明模式下使用半透明背景
         if transparency_enabled:
             open_btn_bg = ModernEffects.hex_to_rgba(bg_secondary, 0.7)
@@ -578,6 +607,19 @@ class HomePage(BasePage):
             # 导入分析：选择TXT文件，导入并分析
             self._create_import_project()
 
+    def _on_create_coding_project(self):
+        """创建Prompt工程项目 - 显示模式选择对话框"""
+        dialog = CodingModeDialog(self)
+        result = dialog.exec()
+
+        if result == CodingModeDialog.MODE_AI:
+            # AI辅助需求分析：暂时导航到CODING_DETAIL（后续可添加独立的Coding灵感模式）
+            # TODO: 实现独立的Coding灵感对话模式
+            self._create_empty_coding_project()
+        elif result == CodingModeDialog.MODE_EMPTY:
+            # 空项目：先输入标题，然后创建空项目
+            self._create_empty_coding_project()
+
     def _create_free_project(self):
         """创建自由创作项目（跳过灵感对话）"""
         # 弹出标题输入对话框
@@ -595,6 +637,54 @@ class HomePage(BasePage):
 
             # 异步创建项目
             self._do_create_free_project(title)
+
+    def _create_empty_coding_project(self):
+        """创建空编程项目（跳过需求分析对话）"""
+        # 弹出标题输入对话框
+        title_dialog = InputDialog(
+            parent=self,
+            title="新建Prompt工程",
+            label="请输入项目名称：",
+            placeholder="我的项目"
+        )
+
+        if title_dialog.exec():
+            title = title_dialog.getText().strip()
+            if not title:
+                title = "未命名项目"
+
+            # 异步创建项目
+            self._do_create_empty_coding_project(title)
+
+    def _do_create_empty_coding_project(self, title: str):
+        """执行空编程项目创建"""
+        from utils.async_worker import AsyncWorker
+        from utils.message_service import MessageService
+
+        def do_create():
+            # 使用独立的Coding API创建项目
+            return self.api_client.create_coding_project(
+                title=title,
+                initial_prompt=""
+            )
+
+        def on_success(project):
+            project_id = project.get('id')
+            logger.info("空编程项目创建成功: %s", project_id)
+            # 进入编程项目详情页进行手动编辑
+            self.navigateTo('CODING_DETAIL', project_id=project_id)
+
+        def on_error(error_msg):
+            MessageService.show_error(self, f"创建项目失败：{error_msg}", "错误")
+
+        worker = AsyncWorker(do_create)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+
+        if not hasattr(self, '_workers'):
+            self._workers = []
+        self._workers.append(worker)
+        worker.start()
 
     def _do_create_free_project(self, title: str):
         """执行自由创作项目创建"""
@@ -726,14 +816,25 @@ class HomePage(BasePage):
         """点击项目卡片"""
         project_id = project_data.get('id')
         status = project_data.get('status', 'draft')
+        project_type = project_data.get('project_type', 'novel')
 
-        # 根据状态决定导航目标
-        if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:
-            # 已有蓝图，直接进入写作台
-            self.navigateTo('WRITING_DESK', project_id=project_id)
+        # 根据项目类型和状态决定导航目标
+        if project_type == 'coding':
+            # 编程项目导航
+            if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:
+                # 已有蓝图，进入Prompt生成工作台
+                self.navigateTo('CODING_DESK', project_id=project_id)
+            else:
+                # 未完成蓝图，进入编程项目详情页
+                self.navigateTo('CODING_DETAIL', project_id=project_id)
         else:
-            # 未完成蓝图（draft状态），导航回灵感对话继续
-            self.navigateTo('INSPIRATION', project_id=project_id)
+            # 小说项目导航（保持不变）
+            if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:
+                # 已有蓝图，直接进入写作台
+                self.navigateTo('WRITING_DESK', project_id=project_id)
+            else:
+                # 未完成蓝图（draft状态），导航回灵感对话继续
+                self.navigateTo('INSPIRATION', project_id=project_id)
 
     def _switch_tab(self, index: int):
         """切换Tab页面"""
@@ -743,6 +844,7 @@ class HomePage(BasePage):
     def _load_recent_projects(self):
         """加载项目数据（最近项目 + 全部项目）
 
+        同时加载小说项目和编程项目，合并后显示。
         使用AsyncWorker在后台线程执行API调用，避免UI线程阻塞。
         加载期间显示骨架屏，提升用户感知体验。
         """
@@ -752,8 +854,25 @@ class HomePage(BasePage):
         self._show_loading_state()
 
         def fetch_projects():
-            """后台线程执行的API调用"""
-            return self.api_client.get_novels()
+            """后台线程执行的API调用 - 同时获取小说和编程项目"""
+            # 获取小说项目
+            novels = self.api_client.get_novels()
+            # 为小说项目添加类型标识
+            for novel in novels:
+                novel['project_type'] = 'novel'
+
+            # 获取编程项目
+            try:
+                coding_projects = self.api_client.list_coding_projects()
+                # 为编程项目添加类型标识
+                for coding in coding_projects:
+                    coding['project_type'] = 'coding'
+            except Exception as e:
+                logger.warning("获取编程项目失败: %s", e)
+                coding_projects = []
+
+            # 合并两类项目
+            return novels + coding_projects
 
         def on_success(projects):
             """API调用成功回调（在主线程执行）"""
@@ -916,8 +1035,14 @@ class HomePage(BasePage):
         if hasattr(self, 'particle_bg'):
             self.particle_bg.stop()
 
-    def _on_delete_project(self, project_id: str, title: str):
-        """删除项目处理"""
+    def _on_delete_project(self, project_id: str, title: str, project_type: str = 'novel'):
+        """删除项目处理
+
+        Args:
+            project_id: 项目ID
+            title: 项目标题
+            project_type: 项目类型 (novel/coding)
+        """
         from utils.message_service import confirm, MessageService
         from utils.async_worker import AsyncWorker
 
@@ -930,7 +1055,11 @@ class HomePage(BasePage):
             return
 
         def do_delete():
-            return self.api_client.delete_novels([project_id])
+            # 根据项目类型调用不同的删除API
+            if project_type == 'coding':
+                return self.api_client.delete_coding_projects([project_id])
+            else:
+                return self.api_client.delete_novels([project_id])
 
         def on_success(result):
             MessageService.show_success(self, f"项目「{title}」已删除")

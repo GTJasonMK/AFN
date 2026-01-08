@@ -44,6 +44,8 @@ class MangaHandlersMixin:
             # 断点续传信息
             'can_resume': False,
             'resume_progress': None,
+            # 分析数据（详细信息Tab使用）
+            'analysis_data': None,
         }
 
         # 尝试从API获取已保存的漫画分镜
@@ -58,6 +60,8 @@ class MangaHandlersMixin:
                     manga_data['total_pages'] = result.get('total_pages', 0)
                     manga_data['total_panels'] = result.get('total_panels', 0)
                     manga_data['style'] = result.get('style', '')
+                    # 获取分析数据（详细信息Tab显示）
+                    manga_data['analysis_data'] = result.get('analysis_data')
 
                     # 后端返回 pages，前端需要 scenes
                     # 将 page_number 转换为 scene_id
@@ -115,7 +119,9 @@ class MangaHandlersMixin:
 
                     if panel_id in panel_image_map:
                         panel['has_image'] = True
-                        panel['image_path'] = panel_image_map[panel_id][-1].get('local_path', '')
+                        # Bug 39 修复: 后端按 created_at.desc() 排序（最新在前）
+                        # 使用 [0] 获取最新图片，而非 [-1] 获取最旧图片
+                        panel['image_path'] = panel_image_map[panel_id][0].get('local_path', '')
                         panel['image_count'] = len(panel_image_map[panel_id])
             except Exception:
                 pass
@@ -139,13 +145,22 @@ class MangaHandlersMixin:
         if not self.project_id or not self.current_chapter:
             return
 
-        # 如果正在生成漫画提示词，跳过加载避免破坏加载状态显示
-        if getattr(self, '_manga_generating', False):
-            logger.info("Skipping manga data load - generation in progress")
-            return
-
         # 保存当前章节号，用于验证回调时章节未切换
         loading_chapter = self.current_chapter
+
+        # 如果当前章节正在生成漫画提示词，跳过加载避免破坏加载状态显示
+        # 注意：只跳过正在生成的章节，其他章节应该正常加载
+        if getattr(self, '_manga_generating_chapter', None) == loading_chapter:
+            logger.info("Skipping manga data load - generation in progress for chapter %d", loading_chapter)
+            return
+
+        # 防止重复加载：如果已有加载任务正在进行，跳过
+        if getattr(self, '_manga_loading', False):
+            logger.info("Skipping manga data load - already loading")
+            return
+
+        # 设置加载标志
+        self._manga_loading = True
 
         def do_load():
             """在后台线程执行的加载函数"""
@@ -153,13 +168,16 @@ class MangaHandlersMixin:
 
         def on_success(manga_data):
             """加载成功回调"""
+            # 清除加载标志
+            self._manga_loading = False
+
             # 检查章节是否已切换，避免更新错误的Tab
             if self.current_chapter != loading_chapter:
                 return
 
-            # 如果正在生成，跳过更新
-            if getattr(self, '_manga_generating', False):
-                logger.info("Skipping manga tab update - generation in progress")
+            # 如果当前章节正在生成，跳过更新
+            if getattr(self, '_manga_generating_chapter', None) == loading_chapter:
+                logger.info("Skipping manga tab update - generation in progress for chapter %d", loading_chapter)
                 return
 
             # 缓存漫画数据，用于主题切换时重建Tab
@@ -180,6 +198,11 @@ class MangaHandlersMixin:
                 new_manga_tab = self._manga_builder.create_manga_tab(manga_data, self)
                 self.tab_widget.insertTab(5, new_manga_tab, "漫画")
 
+                # 更新LazyTabWidget的已加载标记，防止再次触发懒加载
+                # 这是必要的，因为我们绕过了LazyTabWidget的加载机制直接替换了Tab
+                if hasattr(self.tab_widget, '_tab_loaded'):
+                    self.tab_widget._tab_loaded.add(5)
+
                 # 恢复之前选中的Tab索引
                 # 注意：移除和插入Tab后，QTabWidget可能自动切换了Tab
                 # 需要确保恢复到用户之前查看的Tab
@@ -187,7 +210,8 @@ class MangaHandlersMixin:
 
         def on_error(error):
             """加载失败回调 - 静默处理，保持空状态"""
-            pass
+            # 清除加载标志
+            self._manga_loading = False
 
         worker = AsyncWorker(do_load)
         worker.success.connect(on_success)
@@ -220,9 +244,11 @@ class MangaHandlersMixin:
             for img in images:
                 file_path = img.get('file_path', '')
                 if file_path:
-                    # 构建完整的本地路径
+                    # Bug 18 修复: 构建完整的本地路径
+                    # 文件路径: frontend/windows/writing_desk/workspace/manga_handlers.py
+                    # 需要5层dirname才能回到项目根目录: workspace -> writing_desk -> windows -> frontend -> 根目录
                     # 图片存储在 backend/storage/generated_images/{project_id}/chapter_{n}/
-                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
                     local_path = os.path.join(base_dir, 'backend', 'storage', 'generated_images', file_path)
                     img['local_path'] = local_path
 
@@ -258,8 +284,8 @@ class MangaHandlersMixin:
             MessageService.show_warning(self, "请先选择章节")
             return
 
-        # 防止重复点击：如果正在生成中，忽略请求
-        if getattr(self, '_manga_generating', False):
+        # 防止重复点击：如果当前章节正在生成中，忽略请求
+        if getattr(self, '_manga_generating_chapter', None) == self.current_chapter:
             logger.warning("漫画分镜正在生成中，忽略重复请求")
             MessageService.show_info(self, "正在生成中，请稍候...")
             return
@@ -300,8 +326,8 @@ class MangaHandlersMixin:
                 except Exception:
                     pass
 
-        # 设置生成标志，防止异步加载覆盖UI状态
-        self._manga_generating = True
+        # 设置生成标志，记录正在生成的章节号，防止异步加载覆盖UI状态
+        self._manga_generating_chapter = self.current_chapter
 
         # 显示加载动画
         loading_text = "正在从头生成漫画分镜..." if force_restart else "正在生成漫画分镜..."
@@ -324,7 +350,7 @@ class MangaHandlersMixin:
 
         def on_success(result):
             # 清除生成标志
-            self._manga_generating = False
+            self._manga_generating_chapter = None
             # 显示成功状态
             total_pages = result.get('total_pages', 0)
             total_panels = result.get('total_panels', 0)
@@ -336,7 +362,7 @@ class MangaHandlersMixin:
 
         def on_error(error):
             # 清除生成标志
-            self._manga_generating = False
+            self._manga_generating_chapter = None
             # 显示错误状态
             if self._manga_builder:
                 self._manga_builder.set_toolbar_error("生成失败")
@@ -432,11 +458,30 @@ class MangaHandlersMixin:
         reference_image_paths = panel.get('reference_image_paths', [])
 
         # 漫画元数据 - 对话相关
-        dialogue = panel.get('dialogue', '')
-        dialogue_speaker = panel.get('dialogue_speaker', '')
-        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
-        dialogue_emotion = panel.get('dialogue_emotion', '')
-        dialogue_position = panel.get('dialogue_position', '')
+        # Bug 22 修复: 后端返回 dialogues 列表，需要正确处理
+        dialogues = panel.get('dialogues', [])
+        # 为兼容旧格式，也支持单数形式
+        dialogue = ''
+        dialogue_speaker = ''
+        dialogue_bubble_type = ''
+        dialogue_emotion = ''
+        dialogue_position = ''
+        if dialogues and len(dialogues) > 0:
+            # 取第一条对话作为主对话（用于传统单对话接口）
+            first_dialogue = dialogues[0]
+            if isinstance(first_dialogue, dict):
+                dialogue = first_dialogue.get('content', '')
+                dialogue_speaker = first_dialogue.get('speaker', '')
+                dialogue_bubble_type = first_dialogue.get('bubble_type', '')
+                dialogue_emotion = first_dialogue.get('emotion', '')
+                dialogue_position = first_dialogue.get('position', '')
+        else:
+            # 兼容旧的单对话格式
+            dialogue = panel.get('dialogue', '')
+            dialogue_speaker = panel.get('dialogue_speaker', '')
+            dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
+            dialogue_emotion = panel.get('dialogue_emotion', '')
+            dialogue_position = panel.get('dialogue_position', '')
 
         # 漫画元数据 - 旁白相关
         narration = panel.get('narration', '')
@@ -448,6 +493,10 @@ class MangaHandlersMixin:
         raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
 
+        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
+        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
+        should_build_details = not sound_effect_details
+
         # 将 sound_effects 转换为纯文本列表
         sound_effects = []
         for sfx in raw_sound_effects:
@@ -456,8 +505,8 @@ class MangaHandlersMixin:
                 sfx_text = sfx.get('text', '')
                 if sfx_text:
                     sound_effects.append(sfx_text)
-                # 如果 sound_effect_details 为空，将完整字典添加到details
-                if not sound_effect_details:
+                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
+                if should_build_details:
                     sound_effect_details.append(sfx)
             elif isinstance(sfx, str) and sfx:
                 sound_effects.append(sfx)
@@ -474,13 +523,16 @@ class MangaHandlersMixin:
         # 语言设置
         dialogue_language = panel.get('dialogue_language', '')
 
-        # 从panel_id解析scene_id
-        # 格式: scene{scene_id}_page{page}_panel{slot_id}
-        try:
-            parts = panel_id.split('_')
-            scene_id = int(parts[0].replace('scene', ''))
-        except (ValueError, IndexError):
-            scene_id = 0
+        # 优先使用画格数据中的 scene_id，缺失时再解析 panel_id
+        scene_id = panel.get('scene_id')
+        if isinstance(scene_id, str) and scene_id.isdigit():
+            scene_id = int(scene_id)
+        if not isinstance(scene_id, int) or scene_id <= 0:
+            try:
+                parts = panel_id.split('_')
+                scene_id = int(parts[0].replace('scene', ''))
+            except (ValueError, IndexError):
+                scene_id = 0
 
         # 显示加载动画
         self._manga_builder.set_panel_loading(panel_id, True, "正在生成图片...")
@@ -739,6 +791,10 @@ class MangaHandlersMixin:
         raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
 
+        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
+        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
+        should_build_details = not sound_effect_details
+
         # 将 sound_effects 转换为纯文本列表
         sound_effects = []
         for sfx in raw_sound_effects:
@@ -747,8 +803,8 @@ class MangaHandlersMixin:
                 sfx_text = sfx.get('text', '')
                 if sfx_text:
                     sound_effects.append(sfx_text)
-                # 如果 sound_effect_details 为空，将完整字典添加到details
-                if not sound_effect_details:
+                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
+                if should_build_details:
                     sound_effect_details.append(sfx)
             elif isinstance(sfx, str) and sfx:
                 sound_effects.append(sfx)
@@ -765,12 +821,15 @@ class MangaHandlersMixin:
         # 语言设置
         dialogue_language = panel.get('dialogue_language', '')
 
-        # 从panel_id解析scene_id
-        try:
-            parts = panel_id.split('_')
-            scene_id = int(parts[0].replace('scene', ''))
-        except (ValueError, IndexError):
-            scene_id = 0
+        scene_id = panel.get('scene_id')
+        if isinstance(scene_id, str) and scene_id.isdigit():
+            scene_id = int(scene_id)
+        if not isinstance(scene_id, int) or scene_id <= 0:
+            try:
+                parts = panel_id.split('_')
+                scene_id = int(parts[0].replace('scene', ''))
+            except (ValueError, IndexError):
+                scene_id = 0
 
         # 更新进度（显示已启动的任务数）
         if self._manga_builder:
@@ -927,6 +986,10 @@ class MangaHandlersMixin:
         raw_sound_effects = panel.get('sound_effects', [])
         sound_effect_details = panel.get('sound_effect_details', [])
 
+        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
+        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
+        should_build_details = not sound_effect_details
+
         # 将 sound_effects 转换为纯文本列表
         sound_effects = []
         for sfx in raw_sound_effects:
@@ -935,8 +998,8 @@ class MangaHandlersMixin:
                 sfx_text = sfx.get('text', '')
                 if sfx_text:
                     sound_effects.append(sfx_text)
-                # 如果 sound_effect_details 为空，将完整字典添加到details
-                if not sound_effect_details:
+                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
+                if should_build_details:
                     sound_effect_details.append(sfx)
             elif isinstance(sfx, str) and sfx:
                 sound_effects.append(sfx)

@@ -293,6 +293,35 @@ backend/app/services/
 │       ├── checkpoint_manager.py    # 断点管理
 │       └── result_persistence.py    # 结果持久化
 │
+├── 主角档案服务 (protagonist_profile/)
+│   ├── service.py                    # 主服务入口（CRUD、属性管理）
+│   ├── analysis_service.py           # 主角信息分析（从蓝图/章节提取）
+│   ├── implicit_tracker.py           # 隐式追踪（自动检测主角相关内容）
+│   ├── sync_service.py               # 同步服务（主角信息与蓝图角色同步）
+│   └── deletion_protection.py        # 删除保护（防止误删关联数据）
+│
+├── 正文优化Agent (content_optimization/)
+│   ├── agent.py                      # Agent主循环（思考-决策-行动-观察）
+│   ├── tools.py                      # 可用工具定义
+│   ├── tool_executor.py              # 工具执行器
+│   ├── workflow.py                   # 工作流管理
+│   ├── session_manager.py            # 会话管理（暂停/恢复）
+│   ├── paragraph_analyzer.py         # 段落分析器
+│   ├── coherence_checker.py          # 逻辑连贯性检查
+│   └── schemas.py                    # 事件类型和数据模型
+│
+├── 请求队列服务 (queue/)
+│   ├── base.py                       # RequestQueue基类（Semaphore并发控制）
+│   ├── llm_queue.py                  # LLM请求队列
+│   └── image_queue.py                # 图片生成请求队列
+│
+├── 主题配置服务
+│   ├── theme_config_service.py       # 主题配置CRUD
+│   └── theme_defaults/               # 主题默认值
+│       ├── v1_defaults.py           # V1格式（面向常量）
+│       ├── v2_defaults.py           # V2格式（面向组件）
+│       └── utils.py                 # 工具函数
+│
 └── 配置服务
     ├── llm_config_service.py         # LLM配置CRUD
     └── embedding_config_service.py   # 嵌入配置CRUD
@@ -367,7 +396,23 @@ graph TB
 frontend/
 ├── main.py                       # 应用入口
 ├── api/
-│   ├── client.py                 # AFNAPIClient HTTP封装
+│   ├── client/                   # API客户端（Mixin架构）
+│   │   ├── core.py              # AFNAPIClient主类
+│   │   ├── constants.py         # 超时配置常量
+│   │   ├── novel_mixin.py       # 小说项目CRUD
+│   │   ├── inspiration_mixin.py # 灵感对话
+│   │   ├── blueprint_mixin.py   # 蓝图生成
+│   │   ├── outline_mixin.py     # 大纲管理
+│   │   ├── chapter_mixin.py     # 章节生成
+│   │   ├── optimization_mixin.py# RAG和正文优化
+│   │   ├── manga_mixin.py       # 漫画提示词
+│   │   ├── config_mixin.py      # LLM/嵌入配置
+│   │   ├── image_mixin.py       # 图片生成
+│   │   ├── queue_mixin.py       # 任务队列
+│   │   ├── portrait_mixin.py    # 角色立绘
+│   │   ├── import_mixin.py      # 外部小说导入
+│   │   ├── theme_config_mixin.py# 主题配置
+│   │   └── protagonist_mixin.py # 主角档案
 │   ├── manager.py                # API客户端单例管理
 │   └── exceptions.py             # API异常定义
 │
@@ -616,6 +661,69 @@ erDiagram
         text content
         string category
     }
+
+    CharacterPortrait {
+        string id PK
+        string project_id FK
+        string character_name
+        text character_description
+        string style
+        text image_path
+        bool is_active
+        bool is_secondary
+        bool auto_generated
+        datetime created_at
+    }
+
+    ProtagonistProfile {
+        int id PK
+        string project_id FK
+        string character_name
+        json explicit_attributes
+        json implicit_attributes
+        json social_attributes
+        int last_synced_chapter
+        datetime created_at
+    }
+
+    ProtagonistAttributeChange {
+        int id PK
+        int profile_id FK
+        int chapter_number
+        string attribute_category
+        string attribute_key
+        string operation
+        text old_value
+        text new_value
+        text evidence
+    }
+
+    ProtagonistSnapshot {
+        int id PK
+        int profile_id FK
+        int chapter_number
+        json explicit_attributes
+        json implicit_attributes
+        json social_attributes
+        int changes_in_chapter
+    }
+
+    ThemeConfig {
+        int id PK
+        int user_id FK
+        string config_name
+        string parent_mode
+        bool is_active
+        int config_version
+        json token_colors
+        json comp_button
+        json effects
+    }
+
+    NovelProject ||--o{ CharacterPortrait : has
+    ProtagonistProfile ||--o{ ProtagonistAttributeChange : tracks
+    ProtagonistProfile ||--o{ ProtagonistSnapshot : snapshots
+    User ||--o{ ThemeConfig : configures
 ```
 
 ### 模型层级关系
@@ -632,12 +740,20 @@ NovelProject (项目主表)
 │   ├── ChapterVersion (版本) [1:N]
 │   │   └── ChapterEvaluation (评审) [1:N]
 │   └── selected_version -> ChapterVersion [N:1]
+├── CharacterPortrait (角色立绘) [1:N]
 ├── CharacterStateIndex (角色状态索引) [1:N]
 └── ForeshadowingIndex (伏笔索引) [1:N]
+
+ProtagonistProfile (主角档案主表)
+├── ProtagonistAttributeChange (属性变更历史) [1:N]
+├── ProtagonistBehaviorRecord (行为记录) [1:N]
+├── ProtagonistDeletionMark (删除标记) [1:N]
+└── ProtagonistSnapshot (状态快照) [1:N]
 
 配置相关
 ├── LLMConfig (LLM配置)
 ├── EmbeddingConfig (嵌入配置)
+├── ThemeConfig (主题配置)
 ├── User (用户)
 └── Prompt (提示词模板)
 ```
@@ -1201,6 +1317,236 @@ flowchart TB
 
 ---
 
+## 主角档案系统
+
+### 系统概述
+
+主角档案系统用于追踪主角的属性变化和行为模式，支持类Git的状态快照和回滚功能。
+
+### 核心功能
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       主角档案系统架构                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  三类属性追踪:                                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 显性属性 (explicit)                                      │   │
+│  │  • 外貌特征、装备、技能等可直接观测的属性                   │   │
+│  │  • 结构由LLM自主决定                                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 隐性属性 (implicit)                                      │   │
+│  │  • 性格特点、行为习惯、价值观等内在特质                    │   │
+│  │  • 通过行为记录分析得出                                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 社会属性 (social)                                        │   │
+│  │  • 人际关系、社会地位、组织归属等                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  证据溯源: 所有属性变更必须附带原文引用作为证据                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 数据模型
+
+| 模型 | 说明 |
+|------|------|
+| `ProtagonistProfile` | 主角档案主表，存储三类属性JSON |
+| `ProtagonistAttributeChange` | 属性变更历史，包含证据溯源 |
+| `ProtagonistBehaviorRecord` | 行为记录，用于隐性属性分析 |
+| `ProtagonistDeletionMark` | 删除标记，实现5次连续标记保护机制 |
+| `ProtagonistSnapshot` | 状态快照，类Git节点，支持时间旅行和回滚 |
+
+### 类Git状态管理
+
+```
+章节同步后创建快照节点:
+
+  Ch.1 ──► Ch.2 ──► Ch.3 ──► Ch.5 ──► Ch.8 (当前)
+   │        │        │        │        │
+   ▼        ▼        ▼        ▼        ▼
+ Snap1   Snap2    Snap3    Snap5    Snap8
+
+功能:
+• 时间旅行: get_state_at_chapter(chapter_number)
+• 差异比较: diff_between_chapters(from, to)
+• 状态回滚: rollback_to_chapter(target_chapter)
+```
+
+### 删除保护机制
+
+```
+属性删除需连续5次标记:
+
+  Mark1 ──► Mark2 ──► Mark3 ──► Mark4 ──► Mark5 ──► 实际删除
+    │                    │
+    └── 属性被引用 ───────┘ (计数重置为0)
+
+防止误删:
+• 连续5章标记同一属性才执行删除
+• 期间属性被使用则重置计数
+```
+
+---
+
+## 正文优化Agent系统
+
+### 系统概述
+
+正文优化Agent采用ReAct (思考-行动-观察) 循环，逐段分析章节内容，检测问题并生成修改建议。
+
+### 架构图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     正文优化Agent架构                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   用户请求                                                       │
+│      │                                                          │
+│      ▼                                                          │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                   Agent主循环                            │   │
+│  │  ┌─────────┐    ┌─────────┐    ┌─────────┐             │   │
+│  │  │ 思考    │ ──►│ 决策    │ ──►│ 执行    │             │   │
+│  │  │Thinking │    │ Action  │    │Execute  │             │   │
+│  │  └─────────┘    └─────────┘    └────┬────┘             │   │
+│  │       ▲                             │                   │   │
+│  │       │         ┌─────────┐         │                   │   │
+│  │       └─────────│ 观察    │ ◄───────┘                   │   │
+│  │                 │Observe  │                             │   │
+│  │                 └─────────┘                             │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                          │                                      │
+│                          ▼                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                    工具集                                │   │
+│  │  analyze_paragraph  │  rag_retrieve  │  check_coherence │   │
+│  │  get_character_state│  check_timeline│  generate_suggest│   │
+│  │  next_paragraph     │  finish_analysis│ complete_workflow│   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 检查维度
+
+| 维度 | 说明 | 工具 |
+|------|------|------|
+| `coherence` | 逻辑连贯性 | `check_coherence` |
+| `character` | 角色一致性 | `get_character_state` |
+| `foreshadow` | 伏笔呼应 | `rag_retrieve` |
+| `timeline` | 时间线一致性 | `check_timeline` |
+| `style` | 风格一致性 | `analyze_paragraph` |
+| `scene` | 场景描写 | `analyze_paragraph` |
+
+### 工作流程
+
+```mermaid
+sequenceDiagram
+    participant UI as 前端UI
+    participant API as API路由
+    participant Agent as ContentOptimizationAgent
+    participant Tools as 工具执行器
+    participant LLM as LLMService
+    participant DB as 数据库
+
+    UI->>API: POST /optimize (SSE)
+    API->>Agent: run(state, dimensions)
+
+    loop 每个段落
+        Agent->>LLM: 获取下一步行动
+        LLM-->>Agent: <thinking>...</thinking><tool_call>...</tool_call>
+
+        Agent->>UI: SSE: thinking事件
+        Agent->>Tools: 执行工具
+        Tools-->>Agent: 工具结果
+        Agent->>UI: SSE: action/observation事件
+
+        opt 发现问题
+            Agent->>UI: SSE: suggestion事件
+        end
+
+        Agent->>Agent: next_paragraph
+    end
+
+    Agent->>UI: SSE: workflow_complete
+```
+
+### 运行模式
+
+| 模式 | 说明 |
+|------|------|
+| `AUTO` | 自动模式，Agent自主决定是否采纳建议 |
+| `REVIEW` | 审核模式，每个建议暂停等待用户确认 |
+
+### SSE事件类型
+
+| 事件 | 说明 |
+|------|------|
+| `workflow_start` | 工作流开始 |
+| `paragraph_start` | 开始分析新段落 |
+| `thinking` | Agent思考过程 |
+| `action` | Agent选择的动作 |
+| `observation` | 工具执行结果 |
+| `suggestion` | 生成的修改建议 |
+| `paragraph_complete` | 段落分析完成 |
+| `workflow_paused` | 工作流暂停(REVIEW模式) |
+| `workflow_resumed` | 工作流恢复 |
+| `workflow_complete` | 工作流完成 |
+| `error` | 错误信息 |
+
+---
+
+## 请求队列系统
+
+### 概述
+
+基于asyncio.Semaphore实现的并发控制系统，用于限制LLM和图片生成请求的并发数。
+
+### 架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      请求队列系统                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌────────────────────────┐   ┌────────────────────────┐       │
+│  │     LLM请求队列         │   │    图片生成请求队列     │       │
+│  │                        │   │                        │       │
+│  │  Semaphore(3)          │   │  Semaphore(2)          │       │
+│  │  • 活跃数: 2           │   │  • 活跃数: 1           │       │
+│  │  • 等待数: 5           │   │  • 等待数: 3           │       │
+│  │  • 已处理: 128         │   │  • 已处理: 42          │       │
+│  └────────────────────────┘   └────────────────────────┘       │
+│                                                                 │
+│  功能:                                                          │
+│  • 最大并发数限制                                                │
+│  • 状态跟踪 (active/waiting/processed)                          │
+│  • 动态调整并发数                                                │
+│  • 上下文管理器自动获取/释放槽位                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 使用示例
+
+```python
+# 获取队列槽位
+async with queue.request_slot():
+    response = await llm_service.generate(...)
+
+# 获取队列状态
+status = queue.get_status()
+# {"active": 2, "waiting": 5, "max_concurrent": 3, "total_processed": 128}
+```
+
+---
+
 ## 通信机制
 
 ### HTTP REST API
@@ -1273,6 +1619,12 @@ graph TB
         GPOS[get_part_outline_service]
         GCGS[get_chapter_generation_service]
         GVIS[get_vector_ingestion_service]
+        GAVS[get_avatar_service]
+        GIAS[get_import_analysis_service]
+        GLCS[get_llm_config_service]
+        GECS[get_embedding_config_service]
+        GICS[get_image_config_service]
+        GTCS[get_theme_config_service]
     end
 
     GS --> GDU
@@ -1295,6 +1647,19 @@ graph TB
 
     GLS --> GVIS
     GVS --> GVIS
+
+    GS --> GAVS
+    GLS --> GAVS
+    GPS --> GAVS
+
+    GS --> GIAS
+    GLS --> GIAS
+    GPS --> GIAS
+
+    GS --> GLCS
+    GS --> GECS
+    GS --> GICS
+    GS --> GTCS
 ```
 
 ---
@@ -1326,9 +1691,13 @@ graph TB
 | `backend/app/core/state_machine.py` | 项目状态机 |
 | `backend/app/exceptions.py` | 统一异常体系 |
 | `backend/app/models/novel.py` | 核心数据模型 |
+| `backend/app/models/protagonist.py` | 主角档案数据模型 |
 | `backend/app/services/llm_service.py` | LLM调用封装 |
 | `backend/app/services/chapter_generation/service.py` | 章节生成服务 |
 | `backend/app/services/rag/context_builder.py` | RAG上下文构建 |
+| `backend/app/services/protagonist_profile/service.py` | 主角档案服务 |
+| `backend/app/services/content_optimization/agent.py` | 正文优化Agent |
+| `backend/app/services/queue/base.py` | 请求队列基类 |
 
 ### 前端关键文件
 
@@ -1336,12 +1705,14 @@ graph TB
 |------|------|
 | `frontend/main.py` | PyQt6应用入口 |
 | `frontend/windows/main_window.py` | 主窗口导航 |
-| `frontend/api/client.py` | API客户端 |
+| `frontend/api/client/core.py` | API客户端核心 |
+| `frontend/api/client/*_mixin.py` | API客户端Mixin模块 |
 | `frontend/utils/async_worker.py` | 异步任务处理 |
 | `frontend/utils/sse_worker.py` | SSE流式响应 |
-| `frontend/themes/theme_manager.py` | 主题管理 |
+| `frontend/themes/theme_manager/` | 主题管理模块 |
+| `frontend/components/base/theme_aware_widget.py` | 主题感知组件基类 |
 
 ---
 
-*文档更新时间: 2024年12月*
+*文档更新时间: 2025年1月*
 *项目版本: 1.0.0-pyqt*

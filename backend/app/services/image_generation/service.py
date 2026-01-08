@@ -86,8 +86,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 使用统一的路径配置
-IMAGES_ROOT = settings.generated_images_dir
+
+def get_images_root() -> Path:
+    """获取图片根目录（支持热更新）"""
+    return settings.generated_images_dir
 
 
 # ============================================================================
@@ -255,8 +257,8 @@ class ImageGenerationService:
                 # 检查是否需要使用 img2img
                 if request.reference_image_paths and len(request.reference_image_paths) > 0:
                     logger.info(
-                        "准备参考图: 路径数量=%d, IMAGES_ROOT=%s",
-                        len(request.reference_image_paths), IMAGES_ROOT
+                        "准备参考图: 路径数量=%d, get_images_root()=%s",
+                        len(request.reference_image_paths), get_images_root()
                     )
                     for i, p in enumerate(request.reference_image_paths[:3]):  # 只打印前3个
                         logger.info("  参考图路径[%d]: %s", i, p)
@@ -307,7 +309,7 @@ class ImageGenerationService:
                     error_message="未能获取到生成的图片",
                 )
 
-            # 下载并保存图片
+            # 下载并保存图片（传递宽高比用于后处理裁切）
             saved_images = await self._download_and_save_images(
                 image_urls=gen_result.image_urls,
                 project_id=project_id,
@@ -319,6 +321,7 @@ class ImageGenerationService:
                 style=request.style,
                 chapter_version_id=request.chapter_version_id,
                 panel_id=request.panel_id,
+                target_aspect_ratio=request.ratio,  # 用于后处理裁切
             )
 
             generation_time = time.time() - start_time
@@ -369,16 +372,16 @@ class ImageGenerationService:
                     else:
                         full_path = None
 
-                # 2. 尝试作为相对于 IMAGES_ROOT 的路径
+                # 2. 尝试作为相对于 get_images_root() 的路径
                 if full_path is None:
-                    candidate = IMAGES_ROOT / path
+                    candidate = get_images_root() / path
                     if await async_exists(candidate):
                         full_path = candidate
-                        logger.debug("使用 IMAGES_ROOT 相对路径: %s", full_path)
+                        logger.debug("使用 get_images_root() 相对路径: %s", full_path)
 
                 # 3. 如果路径以 / 开头，去掉后再尝试
                 if full_path is None and path.startswith("/"):
-                    candidate = IMAGES_ROOT / path.lstrip("/")
+                    candidate = get_images_root() / path.lstrip("/")
                     if await async_exists(candidate):
                         full_path = candidate
                         logger.debug("使用去除前缀的路径: %s", full_path)
@@ -386,7 +389,7 @@ class ImageGenerationService:
                 if full_path is None:
                     logger.warning(
                         "参考图片不存在: %s (尝试的完整路径: %s)",
-                        path, IMAGES_ROOT / path
+                        path, get_images_root() / path
                     )
                     continue
 
@@ -408,6 +411,93 @@ class ImageGenerationService:
 
         return reference_images
 
+    async def _crop_to_aspect_ratio(
+        self,
+        image_content: bytes,
+        target_ratio: str,
+    ) -> bytes:
+        """
+        将图片裁切到目标宽高比（中心裁切）
+
+        核心优化：解决AI生图模型不严格遵循宽高比的问题。
+        通过后处理强制裁切，确保图片比例与画格匹配，消除留白。
+
+        Args:
+            image_content: 原始图片bytes
+            target_ratio: 目标宽高比，如 "16:9", "4:3", "1:1"
+
+        Returns:
+            裁切后的图片bytes
+        """
+        try:
+            from PIL import Image
+            import io
+
+            # 解析目标比例
+            if ":" not in target_ratio:
+                logger.debug("无效的宽高比格式: %s，跳过裁切", target_ratio)
+                return image_content
+
+            parts = target_ratio.split(":")
+            if len(parts) != 2:
+                return image_content
+
+            try:
+                w_ratio, h_ratio = float(parts[0]), float(parts[1])
+                if h_ratio == 0:
+                    return image_content
+                target_aspect = w_ratio / h_ratio
+            except ValueError:
+                return image_content
+
+            # 打开图片
+            img = Image.open(io.BytesIO(image_content))
+            if img.width == 0 or img.height == 0:
+                return image_content
+
+            current_aspect = img.width / img.height
+
+            # 如果比例相近（误差<5%），不裁切
+            if abs(current_aspect - target_aspect) / max(target_aspect, 0.01) < 0.05:
+                logger.debug(
+                    "图片比例 %.2f 接近目标 %.2f，无需裁切",
+                    current_aspect, target_aspect
+                )
+                return image_content
+
+            # 中心裁切
+            if current_aspect > target_aspect:
+                # 图片太宽，裁左右
+                new_width = int(img.height * target_aspect)
+                left = (img.width - new_width) // 2
+                crop_box = (left, 0, left + new_width, img.height)
+                logger.debug(
+                    "图片太宽，中心裁切: %dx%d -> %dx%d",
+                    img.width, img.height, new_width, img.height
+                )
+            else:
+                # 图片太高，裁上下
+                new_height = int(img.width / target_aspect)
+                top = (img.height - new_height) // 2
+                crop_box = (0, top, img.width, top + new_height)
+                logger.debug(
+                    "图片太高，中心裁切: %dx%d -> %dx%d",
+                    img.width, img.height, img.width, new_height
+                )
+
+            cropped = img.crop(crop_box)
+
+            # 转回bytes
+            output = io.BytesIO()
+            # 保持原始格式，如果是PNG则保持PNG
+            img_format = img.format or "PNG"
+            cropped.save(output, format=img_format)
+            return output.getvalue()
+
+        except Exception as e:
+            logger.warning("图片裁切失败，使用原图: %s", e)
+            return image_content
+
     async def _download_and_save_images(
         self,
         image_urls: List[str],
@@ -420,6 +510,7 @@ class ImageGenerationService:
         style: Optional[str],
         chapter_version_id: Optional[int] = None,
         panel_id: Optional[str] = None,
+        target_aspect_ratio: Optional[str] = None,
     ) -> List[GeneratedImageInfo]:
         """下载并保存图片
 
@@ -432,12 +523,13 @@ class ImageGenerationService:
         Args:
             chapter_version_id: 章节版本ID，用于版本追溯
             panel_id: 画格ID，用于精确匹配
+            target_aspect_ratio: 目标宽高比，如 "16:9"，用于后处理裁切
         """
 
         saved_images = []
 
         # 异步确保目录存在
-        save_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}"
+        save_dir = get_images_root() / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}"
         await async_mkdir(save_dir, parents=True, exist_ok=True)
 
         # 使用共享的HTTP客户端（连接池复用）
@@ -473,6 +565,12 @@ class ImageGenerationService:
                         continue
                     image_content = response.content
 
+                # 后处理：裁切到目标宽高比（解决AI生图不遵循比例的问题）
+                if target_aspect_ratio:
+                    image_content = await self._crop_to_aspect_ratio(
+                        image_content, target_aspect_ratio
+                    )
+
                 # 生成唯一文件名（使用UUID保证唯一性，避免并发冲突）
                 unique_id = uuid.uuid4().hex[:12]  # 12位足够避免冲突
                 content_hash = hashlib.sha256(image_content).hexdigest()[:8]
@@ -500,7 +598,7 @@ class ImageGenerationService:
                     panel_id=panel_id,  # 画格ID
                     chapter_version_id=chapter_version_id,  # 版本追溯
                     file_name=file_name,
-                    file_path=str(file_path.relative_to(IMAGES_ROOT)),
+                    file_path=str(file_path.relative_to(get_images_root())),
                     file_size=len(image_content),
                     mime_type="image/png",
                     prompt=prompt,
@@ -612,7 +710,7 @@ class ImageGenerationService:
             return False
 
         # 异步删除文件
-        file_path = IMAGES_ROOT / image.file_path
+        file_path = get_images_root() / image.file_path
         if await async_exists(file_path):
             await async_unlink(file_path)
 
@@ -656,7 +754,7 @@ class ImageGenerationService:
         deleted_count = 0
         for image in images:
             # 异步删除文件
-            file_path = IMAGES_ROOT / image.file_path
+            file_path = get_images_root() / image.file_path
             if await async_exists(file_path):
                 try:
                     await async_unlink(file_path)
@@ -708,7 +806,7 @@ class ImageGenerationService:
         deleted_count = 0
         for image in images:
             # 异步删除文件
-            file_path = IMAGES_ROOT / image.file_path
+            file_path = get_images_root() / image.file_path
             if await async_exists(file_path):
                 try:
                     await async_unlink(file_path)
@@ -723,7 +821,7 @@ class ImageGenerationService:
 
         # 尝试异步清理空目录
         try:
-            chapter_dir = IMAGES_ROOT / project_id / f"chapter_{chapter_number}"
+            chapter_dir = get_images_root() / project_id / f"chapter_{chapter_number}"
             if await async_exists(chapter_dir):
                 # 删除空的场景子目录
                 scene_dirs = await async_iterdir(chapter_dir)

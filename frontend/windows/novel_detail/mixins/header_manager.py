@@ -143,6 +143,14 @@ class HeaderManagerMixin:
         self.export_btn.clicked.connect(lambda: self.exportNovel('txt'))
         btn_layout.addWidget(self.export_btn)
 
+        # RAG同步按钮
+        self.rag_sync_btn = QPushButton("RAG同步")
+        self.rag_sync_btn.setObjectName("rag_sync_btn")
+        self.rag_sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rag_sync_btn.setToolTip("检查并同步RAG向量数据库，确保章节生成时能检索到最新内容")
+        self.rag_sync_btn.clicked.connect(self.onSyncRAG)
+        btn_layout.addWidget(self.rag_sync_btn)
+
         # 优化蓝图按钮
         self.refine_btn = QPushButton("优化蓝图")
         self.refine_btn.setObjectName("refine_btn")
@@ -291,6 +299,8 @@ class HeaderManagerMixin:
             self.export_btn.setStyleSheet(btn_style)
         if hasattr(self, 'refine_btn') and self.refine_btn:
             self.refine_btn.setStyleSheet(btn_style)
+        if hasattr(self, 'rag_sync_btn') and self.rag_sync_btn:
+            self.rag_sync_btn.setStyleSheet(btn_style)
         if hasattr(self, 'analyze_btn') and self.analyze_btn:
             # 分析按钮使用高亮样式
             self.analyze_btn.setStyleSheet(f"""

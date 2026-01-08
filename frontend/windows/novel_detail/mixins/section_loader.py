@@ -138,7 +138,7 @@ class SectionLoaderMixin:
                 _ = layout.count()  # 检查布局是否有效
                 error_label = QLabel(f"加载 {section_id} 失败: {str(e)}")
                 error_label.setWordWrap(True)
-                error_label.setStyleSheet(f"color: {theme_manager.ERROR}; padding: {dp(20)}px;")
+                error_label.setStyleSheet(f"color: {theme_manager.ERROR}; padding: {dp(20)}px; background-color: transparent;")
                 layout.addWidget(error_label)
             except RuntimeError:
                 # 布局已删除，无法添加错误提示
@@ -239,7 +239,7 @@ class SectionLoaderMixin:
         return section
 
     def _safe_get_blueprint(self: "NovelDetail"):
-        """安全获取蓝图数据"""
+        """安全获取蓝图数据（小说项目专用）"""
         if not self.project_data:
             return {}
         blueprint = self.project_data.get('blueprint')

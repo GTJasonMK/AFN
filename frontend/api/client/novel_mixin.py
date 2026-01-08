@@ -28,7 +28,7 @@ class NovelMixin:
         创建小说项目
 
         Args:
-            title: 小说标题
+            title: 项目标题
             initial_prompt: 初始提示词（自由创作模式时可为空）
             skip_inspiration: 是否跳过灵感对话（自由创作模式）
 
@@ -127,3 +127,117 @@ class NovelMixin:
         """
         # 后端使用 Body(...) 不带 embed=True,期望裸JSON数组
         return self._request('DELETE', '/api/novels', project_ids)
+
+    # ==================== RAG入库管理 ====================
+
+    def check_rag_completeness(self, project_id: str) -> Dict[str, Any]:
+        """
+        检查项目RAG入库完整性
+
+        返回各数据类型的入库状态。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            完整性检查结果：
+            {
+                "project_id": "xxx",
+                "complete": true/false,
+                "total_db_count": 100,
+                "total_vector_count": 95,
+                "total_new": 5,
+                "total_modified": 0,
+                "total_deleted": 0,
+                "types": {
+                    "inspiration": {
+                        "display_name": "灵感对话",
+                        "db_count": 10,
+                        "vector_count": 10,
+                        "complete": true,
+                        ...
+                    },
+                    ...
+                }
+            }
+        """
+        return self._request('GET', f'/api/novels/{project_id}/rag/completeness', timeout=120)
+
+    def ingest_all_rag(self, project_id: str, force: bool = False) -> Dict[str, Any]:
+        """
+        完整入库项目RAG数据
+
+        Args:
+            project_id: 项目ID
+            force: 是否强制全量重建（默认False）
+
+        Returns:
+            入库结果：
+            {
+                "project_id": "xxx",
+                "success": true,
+                "is_complete_before": true,
+                "total_added": 50,
+                "total_updated": 0,
+                "total_skipped": 5,
+                "results": {
+                    "inspiration": {...},
+                    ...
+                }
+            }
+        """
+        params = {'force': force} if force else None
+        return self._request(
+            'POST',
+            f'/api/novels/{project_id}/rag/ingest-all',
+            params=params,
+            timeout=300  # 完整入库可能需要较长时间
+        )
+
+    def ingest_rag_by_type(self, project_id: str, data_type: str) -> Dict[str, Any]:
+        """
+        按类型入库RAG数据
+
+        Args:
+            project_id: 项目ID
+            data_type: 数据类型（如inspiration, synopsis, character等）
+
+        Returns:
+            入库结果：
+            {
+                "data_type": "inspiration",
+                "display_name": "灵感对话",
+                "success": true,
+                "added_count": 10,
+                "updated_count": 0,
+                "skipped": false,
+                "error_message": null
+            }
+        """
+        return self._request(
+            'POST',
+            f'/api/novels/{project_id}/rag/ingest',
+            params={'data_type': data_type},
+            timeout=120
+        )
+
+    def diagnose_rag(self, project_id: str) -> Dict[str, Any]:
+        """
+        RAG诊断
+
+        返回详细的RAG系统状态。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            诊断结果：
+            {
+                "project_id": "xxx",
+                "vector_store_enabled": true,
+                "embedding_service_enabled": true,
+                "completeness": {...},
+                "data_type_list": [...]
+            }
+        """
+        return self._request('GET', f'/api/novels/{project_id}/rag/diagnose', timeout=120)

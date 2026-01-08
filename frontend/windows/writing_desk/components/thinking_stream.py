@@ -110,22 +110,21 @@ class ThinkingBlock(ThemeAwareFrame):
     def _create_ui_structure(self):
         """创建UI结构"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(
-            dp(8 + self.indent_level * 16), dp(6), dp(8), dp(6)
-        )
+        # 固定左边距，缩进通过内容区域的左边距实现
+        main_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
         main_layout.setSpacing(dp(4))
 
         # 主行布局（始终显示）
         header_layout = QHBoxLayout()
         header_layout.setSpacing(dp(8))
 
-        # 图标
+        # 图标 - 固定宽度，始终对齐
         self.icon_label = QLabel()
-        self.icon_label.setFixedWidth(dp(24))
+        self.icon_label.setFixedWidth(dp(28))
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(self.icon_label)
 
-        # 内容预览/完整内容
+        # 内容预览/完整内容 - 不使用缩进，通过背景色区分层级
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -172,7 +171,8 @@ class ThinkingBlock(ThemeAwareFrame):
             self.details_container = QWidget()
             self.details_container.setVisible(False)  # 初始隐藏
             details_layout = QVBoxLayout(self.details_container)
-            details_layout.setContentsMargins(dp(32), dp(4), 0, 0)
+            # 详细信息缩进：与内容对齐（图标宽度28 + 间距8 = 36）
+            details_layout.setContentsMargins(dp(36), dp(4), 0, 0)
             details_layout.setSpacing(dp(2))
 
             for detail in self.details:
@@ -218,26 +218,38 @@ class ThinkingBlock(ThemeAwareFrame):
             self.TYPE_SUCCESS: "[+]",       # 成功
         }
 
-        # 颜色映射
+        # 颜色映射 - 使用主题色彩系统
         color_map = {
-            self.TYPE_THINKING: theme_manager.INFO,
-            self.TYPE_ACTION: theme_manager.WARNING,
-            self.TYPE_OBSERVATION: theme_manager.SUCCESS,
-            self.TYPE_SUGGESTION: theme_manager.PRIMARY,
-            self.TYPE_PROGRESS: theme_manager.TEXT_SECONDARY,
-            self.TYPE_ERROR: theme_manager.ERROR,
-            self.TYPE_SUCCESS: theme_manager.SUCCESS,
+            self.TYPE_THINKING: theme_manager.INFO,          # 青石蓝 - 思考
+            self.TYPE_ACTION: theme_manager.WARNING,         # 暖琥珀 - 动作
+            self.TYPE_OBSERVATION: theme_manager.SUCCESS,    # 翠绿 - 观察
+            self.TYPE_SUGGESTION: theme_manager.PRIMARY,     # 主色调 - 建议
+            self.TYPE_PROGRESS: theme_manager.TEXT_TERTIARY, # 浅褐 - 进度
+            self.TYPE_ERROR: theme_manager.ERROR,            # 烧焦赭 - 错误
+            self.TYPE_SUCCESS: theme_manager.SUCCESS,        # 翠绿 - 成功
+        }
+
+        # 背景透明度映射 - 使用主题对应的浅色背景
+        bg_map = {
+            self.TYPE_THINKING: theme_manager.INFO_BG if hasattr(theme_manager, 'INFO_BG') else f"{theme_manager.INFO}10",
+            self.TYPE_ACTION: theme_manager.WARNING_BG if hasattr(theme_manager, 'WARNING_BG') else f"{theme_manager.WARNING}10",
+            self.TYPE_OBSERVATION: theme_manager.SUCCESS_BG if hasattr(theme_manager, 'SUCCESS_BG') else f"{theme_manager.SUCCESS}10",
+            self.TYPE_SUGGESTION: theme_manager.BG_ACCENT if hasattr(theme_manager, 'BG_ACCENT') else theme_manager.BG_SECONDARY,
+            self.TYPE_PROGRESS: "transparent",
+            self.TYPE_ERROR: theme_manager.ERROR_BG if hasattr(theme_manager, 'ERROR_BG') else f"{theme_manager.ERROR}10",
+            self.TYPE_SUCCESS: theme_manager.SUCCESS_BG if hasattr(theme_manager, 'SUCCESS_BG') else f"{theme_manager.SUCCESS}10",
         }
 
         icon = icon_map.get(self.block_type, "[?]")
         color = color_map.get(self.block_type, theme_manager.TEXT_PRIMARY)
+        bg_color = bg_map.get(self.block_type, "transparent")
 
-        # 图标样式
+        # 图标样式 - 使用等宽字体确保对齐
         if self.icon_label:
             self.icon_label.setText(icon)
             self.icon_label.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(13)}px;
                 font-weight: bold;
                 color: {color};
             """)
@@ -301,14 +313,9 @@ class ThinkingBlock(ThemeAwareFrame):
                     line-height: 1.4;
                 """)
 
-        # 整体容器样式 - 左边框指示类型
-        # 注意：不使用Python类名选择器，Qt不识别Python类名
-        # 直接设置样式
-        border_color = color
-        bg_alpha = "08" if self.block_type == self.TYPE_SUGGESTION else "00"
+        # 整体容器样式 - 简洁风格，不使用左边框
         self.setStyleSheet(f"""
-            background-color: {color}{bg_alpha};
-            border-left: 3px solid {border_color};
+            background-color: {bg_color};
             border-radius: {dp(4)}px;
             margin: {dp(2)}px 0;
         """)
@@ -344,12 +351,17 @@ class ThinkingStreamView(ThemeAwareWidget):
         self.status_indicator = None
         self.progress_bar = None
         self.current_paragraph_label = None
+        self.stats_widget = None  # 统计信息组件
+        self.stats_high_label = None
+        self.stats_medium_label = None
+        self.stats_low_label = None
         self.is_collapsed = False
 
         # 进度跟踪
         self.total_paragraphs = 0
         self.current_paragraph = 0
         self.total_suggestions = 0
+        self.suggestion_counts = {"high": 0, "medium": 0, "low": 0}  # 分优先级统计
 
         # 动画状态
         self._animation_timer = None
@@ -395,6 +407,28 @@ class ThinkingStreamView(ThemeAwareWidget):
 
         layout.addLayout(header)
 
+        # 统计信息栏
+        self.stats_widget = QWidget()
+        stats_layout = QHBoxLayout(self.stats_widget)
+        stats_layout.setContentsMargins(dp(28), 0, 0, 0)  # 与状态指示器对齐
+        stats_layout.setSpacing(dp(12))
+
+        self.stats_high_label = QLabel("[!] 0")
+        self.stats_high_label.setToolTip("高优先级建议")
+        stats_layout.addWidget(self.stats_high_label)
+
+        self.stats_medium_label = QLabel("[~] 0")
+        self.stats_medium_label.setToolTip("中优先级建议")
+        stats_layout.addWidget(self.stats_medium_label)
+
+        self.stats_low_label = QLabel("[.] 0")
+        self.stats_low_label.setToolTip("低优先级建议")
+        stats_layout.addWidget(self.stats_low_label)
+
+        stats_layout.addStretch()
+        self.stats_widget.setVisible(False)  # 初始隐藏，有建议时显示
+        layout.addWidget(self.stats_widget)
+
         # 进度条
         self.progress_bar = QFrame()
         self.progress_bar.setFixedHeight(dp(3))
@@ -425,11 +459,11 @@ class ThinkingStreamView(ThemeAwareWidget):
         """应用主题"""
         ui_font = theme_manager.ui_font()
 
-        # 状态指示器
+        # 状态指示器 - 使用等宽字体确保对齐
         if self.status_indicator:
             self.status_indicator.setStyleSheet(f"""
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(13)}px;
                 font-weight: bold;
                 color: {theme_manager.PRIMARY};
             """)
@@ -461,6 +495,43 @@ class ThinkingStreamView(ThemeAwareWidget):
         if self.collapse_btn:
             self.collapse_btn.setStyleSheet(btn_style)
 
+        # 统计信息样式 - 使用主题色彩系统
+        error_bg = theme_manager.ERROR_BG if hasattr(theme_manager, 'ERROR_BG') else theme_manager.BG_TERTIARY
+        warning_bg = theme_manager.WARNING_BG if hasattr(theme_manager, 'WARNING_BG') else theme_manager.BG_TERTIARY
+
+        if self.stats_high_label:
+            self.stats_high_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.ERROR};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {error_bg};
+                border-radius: {dp(4)}px;
+            """)
+
+        if self.stats_medium_label:
+            self.stats_medium_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.WARNING};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {warning_bg};
+                border-radius: {dp(4)}px;
+            """)
+
+        if self.stats_low_label:
+            self.stats_low_label.setStyleSheet(f"""
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(12)}px;
+                font-weight: bold;
+                color: {theme_manager.TEXT_TERTIARY};
+                padding: {dp(2)}px {dp(6)}px;
+                background-color: {theme_manager.BG_TERTIARY};
+                border-radius: {dp(4)}px;
+            """)
+
         # 进度条
         if self.progress_bar:
             progress = self._calculate_progress()
@@ -485,7 +556,6 @@ class ThinkingStreamView(ThemeAwareWidget):
                 padding: {dp(6)}px {dp(10)}px;
                 background-color: {theme_manager.BG_SECONDARY};
                 border-radius: {dp(4)}px;
-                border-left: 3px solid {theme_manager.PRIMARY};
             """)
 
         if self.scroll_area:
@@ -598,8 +668,8 @@ class ThinkingStreamView(ThemeAwareWidget):
         if self.status_indicator:
             self.status_indicator.setText(icon)
             self.status_indicator.setStyleSheet(f"""
-                font-family: {theme_manager.ui_font()};
-                font-size: {sp(14)}px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: {sp(13)}px;
                 font-weight: bold;
                 color: {color};
             """)
@@ -673,16 +743,38 @@ class ThinkingStreamView(ThemeAwareWidget):
             content += f" (相关度: {relevance:.0%})"
         self._add_block(ThinkingBlock.TYPE_OBSERVATION, content, None, indent, details)
 
-    def add_suggestion_hint(self, reason: str, indent: int = 0):
+    def add_suggestion_hint(self, reason: str, indent: int = 0, priority: str = "medium"):
         """
         添加建议提示
 
         Args:
             reason: 建议原因
             indent: 缩进级别
+            priority: 优先级 (high/medium/low)
         """
         self._add_block(ThinkingBlock.TYPE_SUGGESTION, reason, None, indent)
         self.total_suggestions += 1
+
+        # 更新优先级统计
+        if priority in self.suggestion_counts:
+            self.suggestion_counts[priority] += 1
+            QTimer.singleShot(0, self._update_stats_display)
+
+    def _update_stats_display(self):
+        """更新统计显示"""
+        if self.stats_high_label:
+            self.stats_high_label.setText(f"[!] {self.suggestion_counts['high']}")
+
+        if self.stats_medium_label:
+            self.stats_medium_label.setText(f"[~] {self.suggestion_counts['medium']}")
+
+        if self.stats_low_label:
+            self.stats_low_label.setText(f"[.] {self.suggestion_counts['low']}")
+
+        # 有建议时显示统计栏
+        total = sum(self.suggestion_counts.values())
+        if self.stats_widget:
+            self.stats_widget.setVisible(total > 0)
 
     def add_error(self, message: str):
         """添加错误信息"""
@@ -762,6 +854,7 @@ class ThinkingStreamView(ThemeAwareWidget):
         self.total_paragraphs = 0
         self.current_paragraph = 0
         self.total_suggestions = 0
+        self.suggestion_counts = {"high": 0, "medium": 0, "low": 0}
 
         # UI操作在主线程执行
         QTimer.singleShot(0, self._do_clear)
@@ -774,6 +867,16 @@ class ThinkingStreamView(ThemeAwareWidget):
 
         if self.current_paragraph_label:
             self.current_paragraph_label.setVisible(False)
+
+        # 重置统计显示
+        if self.stats_widget:
+            self.stats_widget.setVisible(False)
+        if self.stats_high_label:
+            self.stats_high_label.setText("[!] 0")
+        if self.stats_medium_label:
+            self.stats_medium_label.setText("[~] 0")
+        if self.stats_low_label:
+            self.stats_low_label.setText("[.] 0")
 
         self._update_progress_bar()
         self._do_set_status("running")

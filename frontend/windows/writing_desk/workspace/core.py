@@ -94,8 +94,8 @@ class WDWorkspace(
             on_preview_prompt=self._onPreviewPrompt,
         )
 
-        # 漫画生成状态标志（防止异步加载覆盖UI状态）
-        self._manga_generating = False
+        # 漫画生成状态标志（记录正在生成的章节号，None表示没有生成）
+        self._manga_generating_chapter = None
 
         # 保存组件引用
         self.empty_state = None

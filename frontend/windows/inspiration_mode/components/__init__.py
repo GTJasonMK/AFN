@@ -5,7 +5,7 @@
 - ChatBubble: 对话气泡
 - ConversationInput: 对话输入框
 - BlueprintDisplay: 蓝图展示
-- BlueprintConfirmation: 蓝图确认界面
+- BlueprintConfirmation: 蓝图确认界面（小说项目）
 - InspiredOptionsContainer: 灵感选项卡片容器
 """
 

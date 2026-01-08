@@ -4,8 +4,10 @@
 负责小说项目蓝图的创建、更新、清理等核心业务逻辑。
 """
 
+import json
 import logging
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -15,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.constants import NovelConstants
 from ..models.novel import NovelProject, CharacterStateIndex, ForeshadowingIndex
+from ..models.part_outline import PartOutline
 from ..repositories.blueprint_repository import (
     BlueprintCharacterRepository,
     BlueprintRelationshipRepository,

@@ -33,6 +33,14 @@ from ...schemas.protagonist import (
     ImplicitCheckRequest,
     ImplicitCheckResponse,
     AttributeCategory,
+    # 快照相关
+    SnapshotResponse,
+    SnapshotSummary,
+    SnapshotListResponse,
+    DiffResponse,
+    AttributeDiff,
+    RollbackRequest,
+    RollbackResponse,
 )
 from ...schemas.user import UserInDB
 from ...services.protagonist_profile import (
@@ -572,3 +580,153 @@ async def check_implicit_update(
         suggested_new_value=decision.new_value,
         evidence_summary=decision.evidence_summary
     )
+
+
+# ============== 状态快照（类Git节点） ==============
+
+@router.get("/{project_id}/protagonist-profiles/{name}/snapshots", response_model=SnapshotListResponse)
+async def get_snapshots(
+    project_id: str = Path(..., description="项目ID"),
+    name: str = Path(..., description="角色名称"),
+    start_chapter: Optional[int] = Query(None, description="起始章节", ge=1),
+    end_chapter: Optional[int] = Query(None, description="结束章节", ge=1),
+    _: NovelProject = Depends(verify_project_exists),
+    profile_service: ProtagonistProfileService = Depends(get_profile_service),
+) -> SnapshotListResponse:
+    """获取档案的所有快照列表（类似Git log）"""
+    profile = await profile_service.get_profile(project_id, name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    snapshots = await profile_service.get_all_snapshots(
+        profile_id=profile.id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter
+    )
+
+    summaries = [
+        SnapshotSummary(
+            chapter_number=s.chapter_number,
+            changes_in_chapter=s.changes_in_chapter,
+            behaviors_in_chapter=s.behaviors_in_chapter,
+            attribute_counts={
+                "explicit": len(s.explicit_attributes or {}),
+                "implicit": len(s.implicit_attributes or {}),
+                "social": len(s.social_attributes or {}),
+            },
+            created_at=s.created_at,
+        )
+        for s in snapshots
+    ]
+
+    return SnapshotListResponse(
+        profile_id=profile.id,
+        character_name=profile.character_name,
+        total_snapshots=len(summaries),
+        snapshots=summaries,
+    )
+
+
+@router.get("/{project_id}/protagonist-profiles/{name}/snapshots/{chapter}", response_model=SnapshotResponse)
+async def get_snapshot_at_chapter(
+    project_id: str = Path(..., description="项目ID"),
+    name: str = Path(..., description="角色名称"),
+    chapter: int = Path(..., description="章节号", ge=1),
+    _: NovelProject = Depends(verify_project_exists),
+    profile_service: ProtagonistProfileService = Depends(get_profile_service),
+) -> SnapshotResponse:
+    """获取指定章节的快照（时间旅行：查看该章节结束时的角色状态）"""
+    profile = await profile_service.get_profile(project_id, name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    snapshot = await profile_service.get_snapshot_at_chapter(profile.id, chapter)
+    if not snapshot:
+        raise HTTPException(
+            status_code=404,
+            detail=f"第 {chapter} 章的快照不存在"
+        )
+
+    return SnapshotResponse.model_validate(snapshot)
+
+
+@router.get("/{project_id}/protagonist-profiles/{name}/diff", response_model=DiffResponse)
+async def get_diff_between_chapters(
+    project_id: str = Path(..., description="项目ID"),
+    name: str = Path(..., description="角色名称"),
+    from_chapter: int = Query(..., description="起始章节号", ge=0),
+    to_chapter: int = Query(..., description="目标章节号", ge=1),
+    _: NovelProject = Depends(verify_project_exists),
+    profile_service: ProtagonistProfileService = Depends(get_profile_service),
+) -> DiffResponse:
+    """比较两个章节之间的状态差异（类似Git diff）
+
+    - from_chapter=0 表示初始状态（空状态）
+    - 可用于查看某章节的状态变化
+    """
+    profile = await profile_service.get_profile(project_id, name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    diff_result = await profile_service.diff_between_chapters(
+        profile_id=profile.id,
+        from_chapter=from_chapter,
+        to_chapter=to_chapter
+    )
+
+    # 转换categories格式
+    categories = {}
+    for cat_name, cat_diff in diff_result.get("categories", {}).items():
+        categories[cat_name] = AttributeDiff(
+            added=cat_diff.get("added", {}),
+            modified=cat_diff.get("modified", {}),
+            deleted=cat_diff.get("deleted", {}),
+        )
+
+    has_changes = bool(categories)
+
+    return DiffResponse(
+        profile_id=profile.id,
+        character_name=profile.character_name,
+        from_chapter=from_chapter,
+        to_chapter=to_chapter,
+        categories=categories,
+        has_changes=has_changes,
+    )
+
+
+@router.post("/{project_id}/protagonist-profiles/{name}/rollback", response_model=RollbackResponse)
+async def rollback_to_chapter(
+    project_id: str = Path(..., description="项目ID"),
+    name: str = Path(..., description="角色名称"),
+    data: RollbackRequest = Body(...),
+    _: NovelProject = Depends(verify_project_exists),
+    profile_service: ProtagonistProfileService = Depends(get_profile_service),
+    session: AsyncSession = Depends(get_session),
+) -> RollbackResponse:
+    """回滚到指定章节的状态（类似Git reset）
+
+    警告：此操作会删除目标章节之后的所有快照
+    """
+    profile = await profile_service.get_profile(project_id, name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    success = await profile_service.rollback_to_chapter(
+        profile_id=profile.id,
+        target_chapter=data.target_chapter
+    )
+
+    if success:
+        await session.commit()
+        return RollbackResponse(
+            success=True,
+            target_chapter=data.target_chapter,
+            message=f"已成功回滚到第 {data.target_chapter} 章的状态"
+        )
+    else:
+        return RollbackResponse(
+            success=False,
+            target_chapter=data.target_chapter,
+            message=f"回滚失败：第 {data.target_chapter} 章的快照不存在"
+        )

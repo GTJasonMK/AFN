@@ -32,8 +32,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 使用统一的路径配置
-PORTRAITS_ROOT = settings.generated_images_dir
+
+def get_portraits_root() -> Path:
+    """获取立绘根目录（支持热更新）"""
+    return settings.generated_images_dir
 
 
 class CharacterPortraitService:
@@ -135,7 +137,7 @@ class CharacterPortraitService:
 
         # 创建立绘专用目录
         safe_name = self._safe_character_name(request.character_name)
-        portrait_dir = PORTRAITS_ROOT / project_id / "portraits" / safe_name
+        portrait_dir = get_portraits_root() / project_id / "portraits" / safe_name
         portrait_dir.mkdir(parents=True, exist_ok=True)
 
         # 生成唯一文件名
@@ -158,7 +160,7 @@ class CharacterPortraitService:
 
         # 5. 创建立绘记录
         # 使用正斜杠存储路径，确保URL兼容
-        relative_path = str(new_path.relative_to(PORTRAITS_ROOT)).replace("\\", "/")
+        relative_path = str(new_path.relative_to(get_portraits_root())).replace("\\", "/")
         portrait = CharacterPortrait(
             id=portrait_id,
             project_id=project_id,
@@ -277,7 +279,7 @@ class CharacterPortraitService:
 
         # 删除文件
         if portrait.image_path:
-            file_path = PORTRAITS_ROOT / portrait.image_path
+            file_path = get_portraits_root() / portrait.image_path
             if file_path.exists():
                 try:
                     file_path.unlink()
@@ -301,7 +303,7 @@ class CharacterPortraitService:
         """
         portraits = await self.repo.get_all_active_by_project(project_id)
         return {
-            portrait.character_name: str(PORTRAITS_ROOT / portrait.image_path)
+            portrait.character_name: str(get_portraits_root() / portrait.image_path)
             for portrait in portraits
             if portrait.image_path
         }
@@ -528,7 +530,7 @@ class CharacterPortraitService:
         generated_image = gen_result.images[0]
 
         safe_name = self._safe_character_name(character_name)
-        portrait_dir = PORTRAITS_ROOT / project_id / "portraits" / safe_name
+        portrait_dir = get_portraits_root() / project_id / "portraits" / safe_name
         portrait_dir.mkdir(parents=True, exist_ok=True)
 
         portrait_id = str(uuid.uuid4())
@@ -548,7 +550,7 @@ class CharacterPortraitService:
         await self.session.flush()
 
         # 5. 创建立绘记录（标记为次要角色和自动生成）
-        relative_path = str(new_path.relative_to(PORTRAITS_ROOT)).replace("\\", "/")
+        relative_path = str(new_path.relative_to(get_portraits_root())).replace("\\", "/")
         portrait = CharacterPortrait(
             id=portrait_id,
             project_id=project_id,

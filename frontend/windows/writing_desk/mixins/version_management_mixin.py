@@ -79,6 +79,10 @@ class VersionManagementMixin:
         # 刷新workspace显示（displayChapter会清除版本切换状态）
         self.workspace.refreshCurrentChapter()
 
+        # Bug 34 修复: 版本切换后刷新漫画数据，因为不同版本可能对应不同的图片
+        if hasattr(self.workspace, '_loadMangaDataAsync'):
+            self.workspace._loadMangaDataAsync()
+
         # 重新加载项目数据以刷新侧边栏
         self.loadProject()
 
@@ -190,6 +194,10 @@ class VersionManagementMixin:
 
         # 刷新workspace显示（displayChapter会清除版本切换状态）
         self.workspace.refreshCurrentChapter()
+
+        # 刷新漫画数据（重新生成的版本可能需要重新生成漫画分镜）
+        if hasattr(self.workspace, '_loadMangaDataAsync'):
+            self.workspace._loadMangaDataAsync()
 
         # 重新加载项目数据以刷新侧边栏
         self.loadProject()

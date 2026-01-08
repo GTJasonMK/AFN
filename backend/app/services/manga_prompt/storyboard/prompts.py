@@ -2,21 +2,39 @@
 分镜设计模块提示词
 
 定义分镜设计的 LLM 提示词模板。
+简化版：移除复杂坐标系统，专注于详细描述生成。
 """
 
 # 提示词名称（用于从 PromptService 加载）
 PROMPT_NAME = "manga_storyboard_design"
 
-# 分镜设计提示词模板
-STORYBOARD_DESIGN_PROMPT = """你是专业的漫画分镜师。请为以下页面设计详细的分镜。
+# 分镜设计提示词模板（回退用，主要从 PromptService 加载）
+STORYBOARD_DESIGN_PROMPT = """你是资深的漫画分镜师，专注于为AI图像生成器创建详细的视觉描述。
+
+## 核心理念
+
+每个画格都是一张独立完整的图片。AI图像生成器会根据你的描述直接绘制：
+- 场景和角色
+- 对话气泡和文字
+- 音效文字
+
+你只需专注于描述，布局由程序自动处理。
+
+## 画格重要性等级
+
+- hero: 整行大图，极震撼（每章最多1-2次）
+- major: 半行，重要画面
+- standard: 1/3行，标准叙事（默认）
+- minor: 1/4行，快速过渡
+- micro: 1/4行，特写细节
 
 ## 页面信息
 
-### 页码
 第 {page_number} 页 / 共 {total_pages} 页
+页面角色: {page_role}（{pacing}节奏）
 
-### 页面角色
-{page_role}（{pacing}节奏）
+### 场景环境
+{scene_context}
 
 ### 包含的事件
 {events_json}
@@ -35,33 +53,25 @@ STORYBOARD_DESIGN_PROMPT = """你是专业的漫画分镜师。请为以下页�
 
 ## 设计要求
 
-1. **分镜数量**: 设计 {min_panels}-{max_panels} 个分镜
-2. **镜头变化**: 相邻分镜的镜头类型应有变化，避免单调
-3. **大小节奏**: 重要画面用大格，过渡用小格
-4. **对话分配**: 每格对话不超过2句，长对话需要分格
-5. **视觉焦点**: 每格有明确的视觉焦点
+1. **分镜数量**: {min_panels}-{max_panels} 格
+2. **重要性分配**: 根据内容重要程度标记 importance
+3. **描述详尽**: visual_description_en 必须超级详细
+4. **文字融入**: 对话、音效必须写入 visual_description_en 中
 
-## 镜头类型说明
-- establishing: 建立镜头，展示环境全貌
-- long: 远景，展示人物和环境关系
-- medium: 中景，展示人物上半身
-- close_up: 近景，展示面部表情
-- extreme_close_up: 特写，展示眼睛或关键细节
-- over_shoulder: 过肩镜头，对话场景常用
-- pov: 主观视角
-- bird_eye: 鸟瞰
-- worm_eye: 仰视
+## 详细描述指南
 
-## 画格大小说明
-- small: 小格，用于快速过渡
-- medium: 中格，标准大小
-- large: 大格，强调重要画面
-- half: 半页，高潮或关键画面
-- full: 整页，极其重要的画面
+visual_description_en 必须包含：
+1. 艺术风格：manga style, black and white, screentone
+2. 构图：rule of thirds / centered composition
+3. 镜头：close-up / medium shot / wide shot
+4. 视角：eye level / low angle / high angle
+5. 角色外观、表情、动作
+6. 光线和氛围（与场景一致）
+7. 背景细节（与场景一致）
+8. 对话气泡：speech bubble saying "对话内容"
+9. 音效文字：sound effect "音效" in bold style
 
 ## 输出格式
-
-请以 JSON 格式输出：
 
 ```json
 {{
@@ -69,14 +79,15 @@ STORYBOARD_DESIGN_PROMPT = """你是专业的漫画分镜师。请为以下页�
   "panels": [
     {{
       "panel_id": 1,
+      "importance": "standard",
       "size": "medium",
       "shape": "rectangle",
       "shot_type": "medium",
-      "visual_description": "画面描述（中文）",
-      "visual_description_en": "Visual description in English for AI image generation",
-      "characters": ["角色1", "角色2"],
-      "character_actions": {{"角色1": "动作描述"}},
-      "character_expressions": {{"角色1": "表情描述"}},
+      "visual_description": "中文画面描述",
+      "visual_description_en": "超详细英文描述，包含对话气泡和音效...",
+      "characters": ["角色1"],
+      "character_actions": {{"角色1": "动作"}},
+      "character_expressions": {{"角色1": "表情"}},
       "dialogues": [
         {{
           "speaker": "角色1",
@@ -86,53 +97,44 @@ STORYBOARD_DESIGN_PROMPT = """你是专业的漫画分镜师。请为以下页�
           "emotion": "neutral"
         }}
       ],
-      "narration": "旁白（如有）",
-      "sound_effects": [
-        {{
-          "text": "音效",
-          "type": "action",
-          "intensity": "medium",
-          "position": "center"
-        }}
-      ],
-      "focus_point": "视觉焦点",
-      "lighting": "光线描述",
-      "atmosphere": "氛围描述",
-      "background": "背景描述",
+      "narration": "",
+      "sound_effects": [],
+      "focus_point": "焦点",
+      "lighting": "光线（与场景一致）",
+      "atmosphere": "氛围（与场景一致）",
+      "background": "背景（与场景一致）",
       "motion_lines": false,
       "impact_effects": false,
       "event_indices": [0],
-      "is_key_panel": false,
-      "transition_hint": "到下一格的过渡"
+      "is_key_panel": false
     }}
   ],
   "page_purpose": "页面目的",
-  "reading_flow": "right_to_left",
-  "visual_rhythm": "视觉节奏描述",
+  "reading_flow": "left_to_right",
+  "visual_rhythm": "节奏描述",
   "layout_description": "布局描述"
 }}
 ```
 
-## 重要提示
-
-1. **英文描述**: visual_description_en 必须是详细的英文描述，用于AI绘图
-2. **角色一致性**: 使用提供的角色外观描述
-3. **镜头变化**: 避免连续使用相同的镜头类型
-4. **对话气泡**: 合理安排对话气泡位置，不遮挡重要画面
-5. **情感表达**: 通过表情和镜头传达情感
-
-请确保输出的 JSON 格式正确，可以被程序解析。
+**重要**: visual_description_en 是核心，必须超级详细，包含对话气泡和音效文字！
+确保输出的 JSON 格式正确。
 """
 
 # 系统提示词
-STORYBOARD_SYSTEM_PROMPT = """你是一位专业的漫画分镜师。你的任务是为漫画页面设计详细的分镜。
+STORYBOARD_SYSTEM_PROMPT = """你是资深的漫画分镜师，专注于为AI图像生成器创建详细的视觉描述。
 
-你需要：
-1. 理解页面在整体叙事中的位置
-2. 设计合适的镜头和构图
-3. 安排对话和音效的位置
-4. 确保视觉节奏流畅
+你的任务：
+1. 将故事事件分解为独立的画格
+2. 为每个画格编写超详细的英文描述
+3. 将对话、音效等文字元素融入描述中
+4. 根据重要性标记 importance（决定布局大小）
 5. 以结构化的 JSON 格式输出结果
+
+关键要求：
+- visual_description_en 是最重要的字段，必须详细完整
+- 对话内容要写成 "speech bubble saying ..." 的形式
+- 音效文字要写成 "sound effect ... in bold style" 的形式
+- 场景的光线、氛围、背景必须与提供的场景环境一致
 
 请始终确保输出的 JSON 格式正确，可以被程序解析。
 """

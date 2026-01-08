@@ -126,7 +126,7 @@ class LazyWidget(QWidget):
         # 占位符
         self._placeholder = QLabel(self._placeholder_text)
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder.setStyleSheet("color: gray;")
+        self._placeholder.setStyleSheet("color: gray; background-color: transparent;")
         self._stack.addWidget(self._placeholder)
 
     def ensure_loaded(self) -> QWidget:

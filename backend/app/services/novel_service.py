@@ -196,16 +196,43 @@ class NovelService:
         await self.session.refresh(project)
         return project
 
-    async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
+    async def delete_projects(
+        self,
+        project_ids: List[str],
+        user_id: int,
+        vector_store: Optional["VectorStoreService"] = None,
+    ) -> None:
         """
         删除项目（批量）
+
+        Args:
+            project_ids: 要删除的项目ID列表
+            user_id: 用户ID（用于权限验证）
+            vector_store: 向量库服务（可选，用于清理RAG数据）
 
         注意：此方法不commit，调用方需要在适当时候commit
         """
         from sqlalchemy import delete
+        from ..models.image_config import GeneratedImage
 
         for pid in project_ids:
             await self.ensure_project_owner(pid, user_id)
+
+        # 清理向量库数据（在数据库删除之前执行）
+        if vector_store:
+            for pid in project_ids:
+                try:
+                    deleted_count = await vector_store.delete_by_project(pid)
+                    logger.info("项目 %s 向量库清理完成，删除 %d 条记录", pid, deleted_count)
+                except Exception as exc:
+                    # 向量库清理失败不阻止项目删除，仅记录警告
+                    logger.warning("项目 %s 向量库清理失败: %s", pid, exc)
+
+        # 清理生成的图片记录（project_id不是外键，需要手动清理）
+        # 注意：图片文件保留在磁盘上，不自动删除（用户可能需要备份）
+        await self.session.execute(
+            delete(GeneratedImage).where(GeneratedImage.project_id.in_(project_ids))
+        )
 
         await self.session.execute(
             delete(NovelProject).where(NovelProject.id.in_(project_ids))
@@ -320,8 +347,16 @@ class NovelService:
         page: int = 1,
         page_size: int = 20,
     ) -> Tuple[List[NovelProjectSummary], int]:
-        """分页获取用户的项目摘要列表"""
-        projects, total = await self.repo.list_by_user(user_id, page, page_size)
+        """分页获取用户的项目摘要列表
+
+        Args:
+            user_id: 用户ID
+            page: 页码
+            page_size: 每页数量
+        """
+        projects, total = await self.repo.list_by_user(
+            user_id, page, page_size
+        )
         summaries: List[NovelProjectSummary] = []
 
         for project in projects:
@@ -427,24 +462,37 @@ class NovelService:
     # ------------------------------------------------------------------
 
     async def check_and_update_completion_status(self, project_id: str, user_id: int) -> None:
-        """检查项目是否完成，如果所有章节都已选择版本，更新状态为completed
+        """检查并更新项目完成状态，支持升级和降级
+
+        升级: 当所有章节都已选择版本时，从 WRITING 升级到 COMPLETED
+        降级: 当已完成章节数少于总章节数时，从 COMPLETED 降级到 WRITING
+              (Bug 19 修复: 删除章节后项目状态能够正确回退)
 
         注意：空白项目（跳过灵感对话创建的项目）没有预设的章节总数，
-        因此不会自动转换到完成状态。用户需要手动管理空白项目的完成状态。
+        因此不会自动转换状态。用户需要手动管理空白项目的状态。
         """
         project_schema = await self.get_project_schema(project_id, user_id)
         project = await self.repo.get_by_id(project_id)
 
-        # 空白项目没有蓝图或章节总数，跳过自动完成检查
+        # 空白项目没有蓝图或章节总数，跳过自动状态检查
         if not project_schema.blueprint or not project_schema.blueprint.total_chapters:
             return
 
         total_chapters = project_schema.blueprint.total_chapters
         completed_chapters = sum(1 for ch in project_schema.chapters if ch.selected_version)
 
+        # 升级: WRITING -> COMPLETED
         if completed_chapters == total_chapters and project.status == ProjectStatus.WRITING.value:
             await self.transition_project_status(project, ProjectStatus.COMPLETED.value)
             logger.info("项目 %s 所有章节完成，状态更新为 %s", project_id, ProjectStatus.COMPLETED.value)
+
+        # Bug 19 修复: 降级: COMPLETED -> WRITING (当章节被删除后)
+        elif completed_chapters < total_chapters and project.status == ProjectStatus.COMPLETED.value:
+            await self.transition_project_status(project, ProjectStatus.WRITING.value)
+            logger.info(
+                "项目 %s 完成章节数(%d)少于总章节数(%d)，状态降级为 %s",
+                project_id, completed_chapters, total_chapters, ProjectStatus.WRITING.value
+            )
 
     # ------------------------------------------------------------------
     # 向量库清理

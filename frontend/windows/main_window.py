@@ -789,7 +789,7 @@ class MainWindow(QMainWindow):
 
         # 检查页面是否已缓存
         cache_key = page_type
-        if page_type in ['DETAIL', 'WRITING_DESK']:
+        if page_type in ['DETAIL', 'WRITING_DESK', 'CODING_DETAIL', 'CODING_DESK']:
             project_id = params.get('project_id')
             if project_id:
                 cache_key = f"{page_type}_{project_id}"
@@ -797,7 +797,7 @@ class MainWindow(QMainWindow):
         is_cached = cache_key in self.pages
 
         # 对于需要创建的新页面（复杂页面），显示加载动画
-        needs_loading = not is_cached and page_type in ['DETAIL', 'WRITING_DESK']
+        needs_loading = not is_cached and page_type in ['DETAIL', 'WRITING_DESK', 'CODING_DETAIL', 'CODING_DESK']
 
         if needs_loading:
             # 显示加载动画
@@ -963,9 +963,9 @@ class MainWindow(QMainWindow):
         Returns:
             页面widget实例
         """
-        # 对于需要多实例的页面（如DETAIL, WRITING_DESK），使用参数作为缓存键
+        # 对于需要多实例的页面（如DETAIL, WRITING_DESK, CODING_DETAIL, CODING_DESK），使用参数作为缓存键
         cache_key = page_type
-        if page_type in ['DETAIL', 'WRITING_DESK']:
+        if page_type in ['DETAIL', 'WRITING_DESK', 'CODING_DETAIL', 'CODING_DESK']:
             project_id = params.get('project_id')
             if not project_id:
                 logger.error(

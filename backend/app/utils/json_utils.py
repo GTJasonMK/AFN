@@ -134,6 +134,138 @@ def normalize_chinese_quotes(text: str) -> str:
     return ''.join(result)
 
 
+def try_fix_inner_quotes(text: str) -> str:
+    """
+    尝试修复JSON字符串值内的未转义双引号
+
+    LLM有时会在JSON字符串值中使用未转义的双引号（如"穿越者"），
+    这会导致JSON解析失败。此函数尝试将这些内部引号转义。
+
+    修复策略：
+    1. 首先尝试直接解析，成功则返回
+    2. 使用启发式方法识别字符串内的引号并转义
+
+    Args:
+        text: 可能包含格式问题的JSON文本
+
+    Returns:
+        修复后的文本
+    """
+    if not text:
+        return text
+
+    # 先尝试直接解析，如果成功则无需修复
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError as e:
+        error_pos = e.pos if hasattr(e, 'pos') else -1
+        logger.debug("JSON解析失败，尝试修复。错误位置: %d, 错误: %s", error_pos, e.msg)
+
+    # 策略1：扫描并转义字符串值内的双引号
+    fixed_text = _fix_quotes_by_scanning(text)
+    try:
+        json.loads(fixed_text)
+        logger.debug("JSON内部引号修复成功（扫描方式）")
+        return fixed_text
+    except json.JSONDecodeError:
+        pass
+
+    # 策略2：替换所有可能有问题的引号模式
+    fixed_text = _fix_quotes_by_pattern(text)
+    try:
+        json.loads(fixed_text)
+        logger.debug("JSON内部引号修复成功（模式匹配方式）")
+        return fixed_text
+    except json.JSONDecodeError:
+        pass
+
+    # 修复失败，返回原文本
+    return text
+
+
+def _fix_quotes_by_scanning(text: str) -> str:
+    """
+    通过扫描方式修复字符串内的引号
+
+    启发式规则：
+    - 如果一个双引号后面紧跟 `,` `:` `]` `}` 或空白字符后跟这些符号，则是字符串结束
+    - 否则可能是字符串内的引号，需要转义
+    """
+    result = []
+    i = 0
+    in_string = False
+
+    while i < len(text):
+        char = text[i]
+
+        # 处理转义字符
+        if char == '\\' and i + 1 < len(text):
+            result.append(char)
+            result.append(text[i + 1])
+            i += 2
+            continue
+
+        if char == '"':
+            if not in_string:
+                # 进入字符串
+                in_string = True
+                result.append(char)
+            else:
+                # 检查这是否是字符串结束引号
+                next_non_space = i + 1
+                while next_non_space < len(text) and text[next_non_space] in ' \t\n\r':
+                    next_non_space += 1
+
+                # 如果后面是 , : ] } 或文件结束，说明这是字符串结束
+                if next_non_space >= len(text) or text[next_non_space] in ',:]}\n':
+                    in_string = False
+                    result.append(char)
+                else:
+                    # 这可能是字符串内的引号，需要转义
+                    result.append('\\')
+                    result.append(char)
+            i += 1
+            continue
+
+        result.append(char)
+        i += 1
+
+    return ''.join(result)
+
+
+def _fix_quotes_by_pattern(text: str) -> str:
+    """
+    通过模式匹配方式修复常见的引号问题
+
+    处理模式：
+    1. "word" 形式的引用词（如 a "casual" outfit）
+    2. 连续的未转义引号
+    """
+    # 模式1：匹配 ": "...text "word" more text..."
+    # 在JSON字符串值中，如果出现 空格"单词"空格 的模式，将引号替换为单引号
+    def fix_quoted_words(match):
+        # 保留前后空格，将双引号替换为单引号
+        before = match.group(1)  # 前面的空格或字符
+        word = match.group(2)    # 被引用的单词
+        after = match.group(3)   # 后面的空格或字符
+        return f"{before}'{word}'{after}"
+
+    # 匹配 空格/逗号 + "单词" + 空格/逗号/句号 的模式
+    # 但不匹配JSON结构性引号（如 ": " 或 ", "）
+    pattern = r'([,\.\s])\"([^\"]{1,30})\"([,\.\s])'
+    fixed = re.sub(pattern, fix_quoted_words, text)
+
+    # 如果没有变化，尝试更激进的修复
+    if fixed == text:
+        # 替换所有 英文字母后的引号+英文字母 模式中的引号为单引号
+        # 例如: wearing a "casual" outfit -> wearing a 'casual' outfit
+        pattern2 = r'([a-zA-Z])\s*\"\s*([a-zA-Z][^\"]{0,20})\s*\"\s*([a-zA-Z])'
+        fixed = re.sub(pattern2, r"\1 '\2' \3", text)
+
+    return fixed
+
+
 def parse_llm_json_or_fail(
     raw_text: str,
     error_context: str,
@@ -145,7 +277,8 @@ def parse_llm_json_or_fail(
     1. 移除think标签
     2. 提取JSON（去除markdown包装）
     3. 替换中文引号
-    4. 解析JSON，失败直接报错
+    4. 尝试修复字符串内的未转义引号
+    5. 解析JSON，失败直接报错
 
     Args:
         raw_text: LLM返回的原始文本
@@ -160,6 +293,8 @@ def parse_llm_json_or_fail(
     try:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
+        # 尝试修复字符串内的未转义引号
+        normalized = try_fix_inner_quotes(normalized)
         return json.loads(normalized)
 
     except json.JSONDecodeError as exc:
@@ -219,6 +354,8 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
     try:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
+        # 尝试修复字符串内的未转义引号
+        normalized = try_fix_inner_quotes(normalized)
         return json.loads(normalized)
 
     except json.JSONDecodeError as e:

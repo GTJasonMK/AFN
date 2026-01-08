@@ -28,6 +28,7 @@ from utils.message_service import MessageService
 from utils.formatters import get_project_status_text
 from utils.async_worker import AsyncAPIWorker
 from utils.constants import WorkerTimeouts
+from utils.project_helpers import get_blueprint
 
 from .dirty_tracker import DirtyTracker
 from .mixins import (
@@ -39,6 +40,7 @@ from .mixins import (
     SaveManagerMixin,
     BlueprintRefinerMixin,
     ImportAnalyzerMixin,
+    RAGManagerMixin,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ class NovelDetail(
     SaveManagerMixin,
     BlueprintRefinerMixin,
     ImportAnalyzerMixin,
+    RAGManagerMixin,
     BasePage
 ):
     """项目详情页面 - 现代化设计
@@ -194,8 +197,8 @@ class NovelDetail(
 
         self.project_data = response
 
-        # 调试日志
-        blueprint = self.project_data.get('blueprint', {})
+        # 调试日志 - 使用辅助函数获取蓝图
+        blueprint = get_blueprint(self.project_data)
         chapter_outline = blueprint.get('chapter_outline', [])
         logger.info(
             f"loadProjectBasicInfo: project_id={self.project_id}, "
@@ -208,7 +211,8 @@ class NovelDetail(
         title = self.project_data.get('title', '未命名项目')
         self.project_title.setText(title)
 
-        genre = self.project_data.get('blueprint', {}).get('genre', '未知类型')
+        # 获取类型描述（小说项目使用genre字段）
+        genre = blueprint.get('genre', '未知类型')
         status = self.project_data.get('status', 'draft')
 
         self.genre_tag.setText(genre)
@@ -252,8 +256,7 @@ class NovelDetail(
             if hasattr(self, 'create_btn') and self.create_btn:
                 self.create_btn.setVisible(True)
 
-        # 加载头像（如果有）
-        blueprint = self.project_data.get('blueprint', {})
+        # 加载头像（如果有）- 使用已获取的 blueprint 变量
         avatar_svg = blueprint.get('avatar_svg') if blueprint else None
         self._loadAvatar(avatar_svg)
 

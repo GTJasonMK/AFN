@@ -96,13 +96,14 @@ class BlueprintCharacterRepository(BaseRepository[BlueprintCharacter]):
                 name=data.get("name", ""),
                 identity=data.get("identity"),
                 personality=data.get("personality"),
+                appearance=data.get("appearance"),  # 外貌特征
                 goals=data.get("goals"),
                 abilities=data.get("abilities"),
                 relationship_to_protagonist=data.get("relationship_to_protagonist"),
                 extra={
                     k: v for k, v in data.items()
                     if k not in {
-                        "name", "identity", "personality",
+                        "name", "identity", "personality", "appearance",
                         "goals", "abilities", "relationship_to_protagonist",
                     }
                 },

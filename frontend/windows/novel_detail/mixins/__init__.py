@@ -9,6 +9,7 @@ NovelDetail Mixins - 提供页面功能的模块化实现
 - SaveManagerMixin: 保存管理
 - BlueprintRefinerMixin: 蓝图优化
 - ImportAnalyzerMixin: 导入分析
+- RAGManagerMixin: RAG数据同步管理
 """
 
 from .header_manager import HeaderManagerMixin
@@ -19,6 +20,7 @@ from .edit_dispatcher import EditDispatcherMixin
 from .save_manager import SaveManagerMixin
 from .blueprint_refiner import BlueprintRefinerMixin
 from .import_analyzer import ImportAnalyzerMixin
+from .rag_manager import RAGManagerMixin
 
 __all__ = [
     'HeaderManagerMixin',
@@ -29,4 +31,5 @@ __all__ = [
     'SaveManagerMixin',
     'BlueprintRefinerMixin',
     'ImportAnalyzerMixin',
+    'RAGManagerMixin',
 ]

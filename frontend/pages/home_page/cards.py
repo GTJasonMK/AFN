@@ -28,7 +28,7 @@ class RecentProjectCard(TransparencyAwareMixin, ThemeAwareFrame):
     _transparency_component_id = "card_glass"
 
     # 定义信号
-    deleteRequested = pyqtSignal(str, str)  # project_id, title
+    deleteRequested = pyqtSignal(str, str, str)  # project_id, title, project_type
 
     def __init__(self, project_data: dict, parent=None, show_delete: bool = False):
         self.project_data = project_data
@@ -233,7 +233,8 @@ class RecentProjectCard(TransparencyAwareMixin, ThemeAwareFrame):
     def _on_delete_clicked(self):
         """删除按钮点击处理"""
         title = self.project_data.get('title', '未命名项目')
-        self.deleteRequested.emit(self.project_id, title)
+        project_type = self.project_data.get('project_type', 'novel')
+        self.deleteRequested.emit(self.project_id, title, project_type)
 
     def mousePressEvent(self, event):
         """点击卡片时通知父组件（排除删除按钮区域）"""

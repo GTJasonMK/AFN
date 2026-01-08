@@ -24,7 +24,7 @@
         def _apply_theme(self):
             # 应用主题样式（可多次调用）
             if self.my_label:
-                self.my_label.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+                self.my_label.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY}; background-color: transparent;")
 
 设计原则：
 - 拆分UI创建和样式应用
@@ -332,7 +332,7 @@ class ThemeAwareMixin:
         示例：
             def _apply_theme(self):
                 if self.title_label:
-                    self.title_label.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY};")
+                    self.title_label.setStyleSheet(f"color: {theme_manager.TEXT_PRIMARY}; background-color: transparent;")
         """
         raise NotImplementedError("子类必须实现 _apply_theme() 方法")
 

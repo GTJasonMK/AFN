@@ -41,7 +41,7 @@ async def get_default_user(
         logger.error("默认用户 'desktop_user' 未找到，数据库可能未正确初始化")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="默认用户未初始化，请删除 backend/storage/afn.db 后重启应用"
+            detail="默认用户未初始化，请删除 storage/afn.db 后重启应用"
         )
 
     return UserInDB.model_validate(user)

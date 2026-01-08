@@ -11,7 +11,7 @@ inspiration_mode/
 │   ├── chat_bubble.py          # 对话气泡
 │   ├── conversation_input.py   # 对话输入框
 │   ├── blueprint_display.py    # 蓝图展示
-│   ├── blueprint_confirmation.py # 蓝图确认界面
+│   ├── blueprint_confirmation.py # 蓝图确认界面（小说项目）
 │   └── inspired_option_card.py # 灵感选项卡片
 └── services/               # 服务模块
     └── conversation_state.py   # 对话状态管理

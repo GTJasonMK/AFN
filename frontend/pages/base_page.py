@@ -38,6 +38,10 @@ class BasePage(QWidget):
 
         # LoadingOverlay 延迟创建，首次调用 show_loading 时初始化
         self._loading_overlay = None
+        # 当前加载操作的ID，用于防止异步操作间的竞态条件
+        # 只有持有当前操作ID的调用才能隐藏加载动画
+        self._loading_operation_id = None
+        self._loading_operation_counter = 0
 
     def _connect_theme_signal(self):
         """连接主题信号（只连接一次）"""
@@ -161,22 +165,68 @@ class BasePage(QWidget):
             # 初始化大小
             self._loading_overlay.setGeometry(self.rect())
 
-    def show_loading(self, text="加载中..."):
+    def show_loading(self, text="加载中...", operation_id=None):
         """显示加载遮罩（带动画效果）
 
         Args:
             text: 加载提示文字，默认"加载中..."
+            operation_id: 操作标识符（可选）。
+                         如果提供，后续 hide_loading 必须使用相同的ID才能隐藏。
+                         如果不提供，系统会自动生成一个ID。
+
+        Returns:
+            str: 操作ID，用于后续调用 hide_loading
 
         Example:
-            self.show_loading("正在生成蓝图...")
+            op_id = self.show_loading("正在生成蓝图...")
+            # ... 异步操作 ...
+            self.hide_loading(op_id)  # 只有匹配的ID才能隐藏
         """
+        # 生成或使用提供的操作ID
+        if operation_id is None:
+            self._loading_operation_counter += 1
+            operation_id = f"op_{self._loading_operation_counter}"
+
+        # 记录当前操作ID（新的show_loading会覆盖旧的，取得"所有权"）
+        self._loading_operation_id = operation_id
+
         self._ensure_loading_overlay()
         self._loading_overlay.show_with_animation(text)
 
-    def hide_loading(self):
-        """隐藏加载遮罩（带动画效果）"""
-        if self._loading_overlay:
-            self._loading_overlay.hide_with_animation()
+        return operation_id
+
+    def hide_loading(self, operation_id=None):
+        """隐藏加载遮罩（带动画效果）
+
+        Args:
+            operation_id: 操作标识符（可选）。
+                         如果提供，只有当此ID与当前加载操作ID匹配时才会隐藏。
+                         如果不提供，则强制隐藏（向后兼容）。
+
+        竞态条件保护：
+            当多个异步操作共享同一个LoadingOverlay时，可能出现：
+            1. 操作A显示加载动画
+            2. 操作B也显示加载动画（覆盖A）
+            3. 操作A完成，调用hide_loading
+            4. 操作B的加载动画被错误地隐藏
+
+            通过操作ID机制，操作A的hide_loading(op_id_A)不会影响操作B的动画，
+            因为当前的_loading_operation_id已经是op_id_B了。
+        """
+        if not self._loading_overlay:
+            return
+
+        # 如果提供了操作ID，检查是否匹配当前操作
+        if operation_id is not None:
+            if self._loading_operation_id != operation_id:
+                logger.debug(
+                    f"hide_loading 跳过: 操作ID不匹配 (当前={self._loading_operation_id}, 请求={operation_id})"
+                )
+                return
+
+        logger.debug(f"hide_loading 执行: op_id={operation_id}, page={self.__class__.__name__}")
+        self._loading_operation_id = None
+        self._loading_overlay.hide_with_animation()
 
     def resizeEvent(self, event):
         """窗口大小改变时自动调整overlay大小"""

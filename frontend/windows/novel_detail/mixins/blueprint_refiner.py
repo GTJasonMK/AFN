@@ -32,8 +32,9 @@ class BlueprintRefinerMixin:
         """优化蓝图"""
         from ..dialogs import RefineDialog
 
-        # 检查是否有蓝图
-        if not self.project_data or not self.project_data.get('blueprint'):
+        # 检查是否有蓝图 - 使用 _safe_get_blueprint 支持两种项目类型
+        blueprint = self._safe_get_blueprint()
+        if not self.project_data or not blueprint:
             MessageService.show_warning(self, "请先生成蓝图后再进行优化", "提示")
             return
 

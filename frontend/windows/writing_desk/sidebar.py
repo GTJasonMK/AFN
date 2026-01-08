@@ -73,6 +73,20 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         self._init_transparency_state()  # 初始化透明度状态
         self.setupUI()
 
+    def _get_blueprint(self, project=None):
+        """获取蓝图数据（小说项目专用）
+
+        Args:
+            project: 项目数据，如果为None则使用self.project
+
+        Returns:
+            dict: 蓝图数据
+        """
+        proj = project or self.project
+        if not proj:
+            return {}
+        return proj.get('blueprint') or {}
+
     def _create_ui_structure(self):
         """创建UI结构（只调用一次）"""
         logger.info("WDSidebar._create_ui_structure 开始执行")
@@ -251,8 +265,8 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         logger.info(f"WDSidebar.setProject被调用")
         logger.info(f"项目数据键: {list(project.keys()) if isinstance(project, dict) else 'NOT A DICT'}")
 
-        # 更新蓝图预览
-        blueprint = project.get('blueprint', {})
+        # 更新蓝图预览 - 使用辅助方法获取蓝图
+        blueprint = self._get_blueprint(project)
         logger.info(f"blueprint存在: {bool(blueprint)}")
 
         # 判断是否为空白项目
@@ -325,8 +339,8 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         # 构建章节大纲映射
         outlines_map = {o.get('chapter_number'): o for o in chapter_outlines}
 
-        # 判断是否为空白项目
-        blueprint = self.project.get('blueprint', {})
+        # 判断是否为空白项目 - 使用辅助方法
+        blueprint = self._get_blueprint()
         is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
 
         # 合并章节列表：大纲 + 实际章节（去重）
@@ -380,6 +394,20 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                 'is_manual': not outline  # 标记是否为手动创建（无大纲）
             })
 
+        # 找到最新的已创作章节（非 not_generated 状态的最大章节号）
+        # 只有这个章节才能清空数据，保证小说创作的连贯性
+        latest_created_chapter = None
+        for chapter_data in reversed(chapter_data_list):
+            if chapter_data['status'] != 'not_generated':
+                latest_created_chapter = chapter_data['chapter_number']
+                break
+
+        # 为每个章节添加 can_clear_data 标志
+        for chapter_data in chapter_data_list:
+            chapter_data['can_clear_data'] = (
+                chapter_data['chapter_number'] == latest_created_chapter
+            )
+
         # 分批创建章节卡片（优化：增大批次大小，减少定时器调用）
         self._pending_chapter_data = chapter_data_list
         self._batch_index = 0
@@ -419,6 +447,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             card.clicked.connect(self._on_chapter_card_clicked)
             card.editOutlineRequested.connect(self._on_edit_outline)
             card.regenerateOutlineRequested.connect(self._on_regenerate_outline)
+            card.clearChapterDataRequested.connect(self._on_clear_chapter_data)
             card.hoverPrefetchRequested.connect(self._on_hover_prefetch)
 
             # 添加到布局（插入到stretch之前）
@@ -451,6 +480,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                 card.clicked.disconnect(self._on_chapter_card_clicked)
                 card.editOutlineRequested.disconnect(self._on_edit_outline)
                 card.regenerateOutlineRequested.disconnect(self._on_regenerate_outline)
+                card.clearChapterDataRequested.disconnect(self._on_clear_chapter_data)
                 card.hoverPrefetchRequested.disconnect(self._on_hover_prefetch)
             except (TypeError, RuntimeError):
                 pass
@@ -488,8 +518,8 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             logger.warning("chapters_layout为None，无法显示空状态")
             return
 
-        # 判断是否为空白项目（无蓝图或蓝图为空）
-        blueprint = self.project.get('blueprint', {})
+        # 判断是否为空白项目（无蓝图或蓝图为空）- 使用辅助方法
+        blueprint = self._get_blueprint()
         is_empty_project = not blueprint or not blueprint.get('one_sentence_summary')
 
         if is_empty_project:
@@ -599,9 +629,9 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
 
     def _on_edit_outline(self, chapter_number):
         """处理编辑大纲请求"""
-        # 查找当前章节的大纲数据
+        # 查找当前章节的大纲数据 - 使用辅助方法
         current_outline = None
-        blueprint = self.project.get('blueprint', {})
+        blueprint = self._get_blueprint()
         chapter_outlines = blueprint.get('chapter_outline', [])
         
         for outline in chapter_outlines:
@@ -665,6 +695,36 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             
         except Exception as e:
             MessageService.show_error(self, f"重生成失败: {str(e)}", "错误")
+
+    def _on_clear_chapter_data(self, chapter_number):
+        """处理清空章节数据请求"""
+        if not confirm(
+            self,
+            f"确定要清空第 {chapter_number} 章的数据吗？\n\n"
+            f"此操作将删除：\n"
+            f"  - 所有生成的版本和内容\n"
+            f"  - 摘要和分析数据\n"
+            f"  - 漫画分镜和已生成图片\n\n"
+            f"章节大纲将保留不变。\n此操作不可恢复！",
+            "确认清空章节数据"
+        ):
+            return
+
+        try:
+            project_id = self.project.get('id')
+            # 调用API重置章节
+            updated_project = self.api_client.reset_chapter(
+                project_id,
+                chapter_number
+            )
+
+            MessageService.show_success(self, f"第 {chapter_number} 章数据已清空")
+
+            # 更新本地数据并刷新显示
+            self.setProject(updated_project)
+
+        except Exception as e:
+            MessageService.show_error(self, f"清空失败: {str(e)}", "错误")
 
     def setGeneratingChapter(self, chapter_num):
         """设置正在生成的章节

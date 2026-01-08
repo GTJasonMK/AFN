@@ -1,7 +1,7 @@
 """
 灵感模式主类
 
-通过AI对话生成项目蓝图
+通过AI对话生成小说项目蓝图
 """
 
 import logging
@@ -118,7 +118,7 @@ class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage)
 
         self.stack.addWidget(self.conversation_page)
 
-        # 页面2: 确认页面
+        # 页面2: 小说蓝图确认页面
         self.confirmation_page = BlueprintConfirmation()
         self.confirmation_page.confirmed.connect(self.onBlueprintConfirmed)
         self.confirmation_page.rejected.connect(self.onBlueprintRejected)
@@ -283,7 +283,6 @@ class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage)
 
     def initConversation(self):
         """初始化对话"""
-        # 添加AI欢迎消息
         welcome_msg = "你好！我是AFN AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
         self.addMessage(welcome_msg, is_user=False)
 

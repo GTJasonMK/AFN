@@ -269,6 +269,14 @@ class ProtagonistSyncService:
         # 7. 更新同步章节号
         await self.profile_service.update_synced_chapter(profile_id, chapter_number)
 
+        # 8. 创建状态快照（类似Git的commit节点）
+        await self.profile_service.create_snapshot(
+            profile_id=profile_id,
+            chapter_number=chapter_number,
+            changes_in_chapter=changes_applied,
+            behaviors_in_chapter=behaviors_recorded
+        )
+
         logger.info(
             f"同步完成: profile={profile_id}, chapter={chapter_number}, "
             f"changes={changes_applied}, behaviors={behaviors_recorded}, "

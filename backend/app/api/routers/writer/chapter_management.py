@@ -50,6 +50,109 @@ from ....utils.content_normalizer import count_chinese_characters
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ------------------------------------------------------------------
+# 辅助函数
+# ------------------------------------------------------------------
+
+async def _trigger_protagonist_sync(
+    session: AsyncSession,
+    project_id: str,
+    chapter_number: int,
+    content: str,
+    user_id: int,
+) -> None:
+    """
+    自动触发所有主角档案的同步
+
+    在RAG入库完成后调用，为项目中的每个主角档案同步当前章节内容。
+    这是最后一步处理，确保章节内容已经稳定。
+    错误不影响主流程，仅记录警告日志。
+
+    Args:
+        session: 数据库会话
+        project_id: 项目ID
+        chapter_number: 章节号
+        content: 章节内容
+        user_id: 用户ID
+    """
+    try:
+        from ....services.protagonist_profile.service import ProtagonistProfileService
+        from ....services.protagonist_profile.sync_service import ProtagonistSyncService
+        from ....services.protagonist_profile.analysis_service import ProtagonistAnalysisService
+        from ....services.protagonist_profile.implicit_tracker import ImplicitAttributeTracker
+        from ....services.protagonist_profile.deletion_protection import DeletionProtectionService
+        from ....services.llm_service import LLMService
+        from ....services.prompt_service import PromptService
+
+        # 获取项目所有主角档案
+        profile_service = ProtagonistProfileService(session)
+        profiles = await profile_service.get_all_profiles(project_id)
+
+        if not profiles:
+            logger.debug("项目 %s 无主角档案，跳过同步", project_id)
+            return
+
+        # 初始化同步所需的服务
+        llm_service = LLMService(session)
+        prompt_service = PromptService(session)
+        analysis_service = ProtagonistAnalysisService(
+            session, llm_service, prompt_service
+        )
+        implicit_tracker = ImplicitAttributeTracker(session)
+        deletion_protection = DeletionProtectionService(session)
+
+        sync_service = ProtagonistSyncService(
+            session=session,
+            profile_service=profile_service,
+            analysis_service=analysis_service,
+            implicit_tracker=implicit_tracker,
+            deletion_protection=deletion_protection
+        )
+
+        # 为每个档案同步
+        synced_count = 0
+        for profile in profiles:
+            try:
+                await sync_service.sync_from_chapter(
+                    profile_id=profile.id,
+                    chapter_number=chapter_number,
+                    chapter_content=content,
+                    user_id=user_id
+                )
+                synced_count += 1
+                logger.debug(
+                    "主角档案 %s 同步完成: project=%s chapter=%d",
+                    profile.character_name,
+                    project_id,
+                    chapter_number,
+                )
+            except Exception as e:
+                logger.warning(
+                    "主角档案 %s 同步失败: %s",
+                    profile.character_name,
+                    str(e),
+                )
+
+        if synced_count > 0:
+            await session.commit()
+            logger.info(
+                "主角档案自动同步完成: project=%s chapter=%d synced=%d/%d",
+                project_id,
+                chapter_number,
+                synced_count,
+                len(profiles),
+            )
+
+    except Exception as e:
+        # 主角档案同步是可选功能，错误不应影响主流程
+        logger.warning(f"主角档案自动同步触发失败: {e}")
+
+
+# ------------------------------------------------------------------
+# 章节导入接口
+# ------------------------------------------------------------------
+
 @router.post("/novels/{project_id}/chapters/import", response_model=NovelProjectSchema)
 async def import_chapter(
     project_id: str,
@@ -170,6 +273,23 @@ async def import_chapter(
             user_id=desktop_user.id,
         )
         logger.info("项目 %s 第 %s 章导入内容已同步至向量库", project_id, request.chapter_number)
+
+    # 5.5 自动入库到novel_rag（章节正文、摘要、伏笔、角色状态）
+    if request.content.strip():
+        from ....services.novel_rag import trigger_chapter_version_ingestion
+        await trigger_chapter_version_ingestion(
+            project_id, desktop_user.id, vector_store, llm_service
+        )
+
+    # 6. 主角档案同步（在所有RAG处理完成后执行）
+    if request.content.strip():
+        await _trigger_protagonist_sync(
+            session=session,
+            project_id=project_id,
+            chapter_number=request.chapter_number,
+            content=request.content,
+            user_id=desktop_user.id,
+        )
 
     # 检查完成状态
     await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
@@ -307,6 +427,21 @@ async def select_chapter_version(
                     logger.info("项目 %s 第 %s 章已同步至向量库", project_id, request.chapter_number)
                 except Exception as exc:
                     logger.error("项目 %s 第 %s 章向量入库失败: %s", project_id, request.chapter_number, exc)
+
+            # 5. 自动入库到novel_rag（章节正文、摘要、伏笔、角色状态）
+            from ....services.novel_rag import trigger_chapter_version_ingestion
+            await trigger_chapter_version_ingestion(
+                project_id, desktop_user.id, vector_store, llm_service
+            )
+
+            # 6. 主角档案同步（在所有RAG处理完成后执行）
+            await _trigger_protagonist_sync(
+                session=session,
+                project_id=project_id,
+                chapter_number=request.chapter_number,
+                content=content,
+                user_id=desktop_user.id,
+            )
 
     # 检查完成状态
     await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
@@ -469,6 +604,84 @@ async def delete_chapters(
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 
 
+@router.post("/novels/{project_id}/chapters/{chapter_number}/reset", response_model=NovelProjectSchema)
+async def reset_chapter(
+    project_id: str,
+    chapter_number: int,
+    novel_service: NovelService = Depends(get_novel_service),
+    llm_service: LLMService = Depends(get_llm_service),
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
+) -> NovelProjectSchema:
+    """
+    重置章节数据（清空内容、版本等，还原为未生成状态）
+
+    此操作会：
+    1. 删除章节的所有版本和评价
+    2. 重置章节状态为未生成
+    3. 清空字数、摘要、分析数据
+    4. 清理漫画分镜数据和已生成图片
+    5. 清理向量库中的章节数据
+    6. 清理角色状态和伏笔索引
+
+    注意：章节大纲保留不变
+
+    Args:
+        project_id: 项目ID
+        chapter_number: 章节号
+
+    Returns:
+        更新后的项目信息
+    """
+    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    logger.info(
+        "用户 %s 重置项目 %s 的章节 %d",
+        desktop_user.id,
+        project_id,
+        chapter_number,
+    )
+
+    # 1. 重置章节数据（版本、状态、索引等）
+    from ....services.chapter_version_service import ChapterVersionService
+
+    version_service = ChapterVersionService(session=session)
+
+    chapter = await version_service.reset_chapter(project_id, chapter_number)
+    if not chapter:
+        raise InvalidParameterError(f"章节 {chapter_number} 不存在")
+
+    # 2. 清理漫画分镜数据
+    from ....repositories.manga_prompt_repository import MangaPromptRepository
+    manga_repo = MangaPromptRepository(session)
+    await manga_repo.delete_by_chapter_id(chapter.id)
+    logger.info("项目 %s 章节 %d 漫画分镜数据已清理", project_id, chapter_number)
+
+    # 3. 清理已生成图片
+    from ....services.image_generation.service import ImageGenerationService
+    image_service = ImageGenerationService(session)
+    await image_service.delete_chapter_images(project_id, chapter_number)
+    logger.info("项目 %s 章节 %d 已生成图片已清理", project_id, chapter_number)
+
+    await session.commit()
+
+    # 4. 清理向量库中的章节数据
+    if vector_store:
+        try:
+            ingestion_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+            await ingestion_service.delete_chapters(project_id, [chapter_number])
+            logger.info("项目 %s 章节 %d 向量库数据已清理", project_id, chapter_number)
+        except Exception as exc:
+            logger.warning("清理向量库数据失败（不影响主流程）: %s", exc)
+
+    # 5. 检查并更新项目完成状态（可能需要从COMPLETED降级到WRITING）
+    await novel_service.check_and_update_completion_status(project_id, desktop_user.id)
+    await session.commit()
+
+    logger.info("项目 %s 章节 %d 重置完成", project_id, chapter_number)
+    return await novel_service.get_project_schema(project_id, desktop_user.id)
+
+
 @router.put("/novels/{project_id}/chapters/{chapter_number}", response_model=NovelProjectSchema)
 async def update_chapter(
     project_id: str,
@@ -608,39 +821,29 @@ async def update_chapter(
                 use_fallback=False,
             )
 
-    # 3. 章节分析（仅在缺失时生成）
+    # 3. 章节分析（RAG入库时强制重新生成）
     analysis_data = None
     if content.strip():
-        # 检查是否已有有效分析数据
-        has_valid_analysis = chapter.analysis_data and isinstance(chapter.analysis_data, dict) and len(chapter.analysis_data) > 0
-        if has_valid_analysis:
-            logger.info("项目 %s 第 %s 章已有分析数据，跳过生成", project_id, chapter_number)
-            # 从现有数据构建 analysis_data 用于后续索引更新
-            try:
-                from ....schemas.novel import ChapterAnalysisData
-                analysis_data = ChapterAnalysisData(**chapter.analysis_data)
-            except Exception as parse_exc:
-                logger.warning("项目 %s 第 %s 章已有分析数据格式无效，将重新生成: %s", project_id, chapter_number, parse_exc)
-                has_valid_analysis = False
-
-        if not has_valid_analysis:
-            try:
-                analysis_service = ChapterAnalysisService(session)
-                # 确保项目标题不为空（空白项目也应该有标题）
-                novel_title = project.title or f"项目{project_id[:8]}"
-                analysis_data = await analysis_service.analyze_chapter(
-                    content=content,
-                    title=chapter_title,
-                    chapter_number=chapter_number,
-                    novel_title=novel_title,
-                    user_id=desktop_user.id,
-                    timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
-                )
-                if analysis_data:
-                    chapter.analysis_data = analysis_data.model_dump()
-                    logger.info("项目 %s 第 %s 章分析数据已保存", project_id, chapter_number)
-            except Exception as exc:
-                logger.error("项目 %s 第 %s 章分析失败: %s", project_id, chapter_number, exc)
+        # RAG入库时强制重新分析，确保分析数据与最新内容同步
+        try:
+            analysis_service = ChapterAnalysisService(session)
+            # 确保项目标题不为空（空白项目也应该有标题）
+            novel_title = project.title or f"项目{project_id[:8]}"
+            analysis_data = await analysis_service.analyze_chapter(
+                content=content,
+                title=chapter_title,
+                chapter_number=chapter_number,
+                novel_title=novel_title,
+                user_id=desktop_user.id,
+                timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+            )
+            if analysis_data:
+                chapter.analysis_data = analysis_data.model_dump()
+                logger.info("项目 %s 第 %s 章分析数据已保存", project_id, chapter_number)
+            else:
+                logger.warning("项目 %s 第 %s 章分析返回空结果", project_id, chapter_number)
+        except Exception as exc:
+            logger.error("项目 %s 第 %s 章分析失败: %s", project_id, chapter_number, exc)
 
     await session.commit()
 
@@ -673,6 +876,22 @@ async def update_chapter(
             logger.info("项目 %s 第 %s 章已同步至向量库", project_id, chapter_number)
         except Exception as exc:
             logger.error("项目 %s 第 %s 章向量入库失败: %s", project_id, chapter_number, exc)
+
+    # 5.5 自动入库到novel_rag（章节正文、摘要、伏笔、角色状态）
+    from ....services.novel_rag import trigger_chapter_version_ingestion
+    await trigger_chapter_version_ingestion(
+        project_id, desktop_user.id, vector_store, llm_service
+    )
+
+    # 6. 主角档案同步（在所有RAG处理完成后执行）
+    # 这是最后一步，确保章节内容已经稳定，用户已完成细调
+    await _trigger_protagonist_sync(
+        session=session,
+        project_id=project_id,
+        chapter_number=chapter_number,
+        content=content,
+        user_id=desktop_user.id,
+    )
 
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 

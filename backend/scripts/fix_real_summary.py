@@ -21,8 +21,9 @@ from app.models.novel import NovelProject, Chapter, ChapterOutline
 
 async def fix_real_summary():
     """修复所有项目的 real_summary 字段"""
-    # 创建数据库连接
-    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "afn.db")
+    # 创建数据库连接（存储目录在项目根目录）
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    db_path = os.path.join(project_root, "storage", "afn.db")
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

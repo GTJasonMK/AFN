@@ -90,6 +90,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         panels: list,
         source_version_id: Optional[int] = None,
         generation_status: str = "completed",
+        dialogue_language: str = "chinese",  # Bug 30 修复: 添加对话语言参数
+        analysis_data: Optional[dict] = None,  # 分析数据
     ) -> ChapterMangaPrompt:
         """
         创建或更新漫画提示词
@@ -106,6 +108,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             panels: 画格提示词列表
             source_version_id: 源版本ID
             generation_status: 生成状态
+            dialogue_language: 对话语言
+            analysis_data: 分析数据（章节信息提取和页面规划结果）
 
         Returns:
             漫画提示词实例
@@ -122,6 +126,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             existing.panels = panels
             existing.source_version_id = source_version_id
             existing.generation_status = generation_status
+            existing.dialogue_language = dialogue_language  # Bug 30 修复
+            existing.analysis_data = analysis_data  # 保存分析数据
             # 完成时清除断点数据
             if generation_status == "completed":
                 existing.checkpoint_data = None
@@ -140,6 +146,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
                 panels=panels,
                 source_version_id=source_version_id,
                 generation_status=generation_status,
+                dialogue_language=dialogue_language,  # Bug 30 修复
+                analysis_data=analysis_data,  # 保存分析数据
             )
             return await self.add(manga_prompt)
 
@@ -251,6 +259,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         self,
         chapter_id: int,
         result_data: dict,
+        analysis_data: Optional[dict] = None,
     ) -> ChapterMangaPrompt:
         """
         保存漫画提示词生成结果
@@ -260,6 +269,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         Args:
             chapter_id: 章节ID
             result_data: MangaPromptResult.to_dict() 返回的字典
+            analysis_data: 分析数据（章节信息提取和页面规划结果）
 
         Returns:
             漫画提示词实例
@@ -269,6 +279,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         total_pages = result_data.get("total_pages", 0)
         total_panels = result_data.get("total_panels", 0)
         character_profiles = result_data.get("character_profiles", {})
+        # Bug 30 修复: 提取对话语言
+        dialogue_language = result_data.get("dialogue_language", "chinese")
 
         # 将 pages 转换为 scenes 和 panels 格式
         pages = result_data.get("pages", [])
@@ -302,6 +314,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             scenes=scenes,
             panels=panels,
             generation_status="completed",
+            dialogue_language=dialogue_language,  # Bug 30 修复: 传递对话语言
+            analysis_data=analysis_data,  # 保存分析数据
         )
 
     async def get_result(self, chapter_id: int) -> Optional[dict]:
@@ -354,4 +368,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             "total_pages": manga_prompt.total_pages,
             "total_panels": manga_prompt.total_panels,
             "character_profiles": manga_prompt.character_profiles or {},
+            # Bug 30 修复: 返回对话语言
+            "dialogue_language": manga_prompt.dialogue_language or "chinese",
+            # 分析数据
+            "analysis_data": manga_prompt.analysis_data,
         }

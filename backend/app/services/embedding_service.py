@@ -7,6 +7,8 @@
 
 import asyncio
 import logging
+import threading
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -76,6 +78,172 @@ def _get_torch_device() -> str:
     except Exception as e:
         logger.debug("GPU 检测失败: %s", e)
     return 'cpu'
+
+
+class PreloadState(Enum):
+    """预加载状态枚举"""
+    NOT_STARTED = "not_started"
+    LOADING = "loading"
+    LOADED = "loaded"
+    FAILED = "failed"
+
+
+class EmbeddingPreloader:
+    """
+    嵌入模型预加载器（单例模式）
+
+    在应用启动时异步预加载本地嵌入模型，避免首次使用时的长时间等待。
+
+    使用方式：
+        # 启动时触发预加载（非阻塞）
+        await EmbeddingPreloader.instance().start_preload("BAAI/bge-base-zh-v1.5")
+
+        # 使用时等待预加载完成
+        await EmbeddingPreloader.instance().wait_until_ready()
+    """
+
+    _instance: Optional["EmbeddingPreloader"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+
+        self._state = PreloadState.NOT_STARTED
+        self._model_name: Optional[str] = None
+        self._error: Optional[str] = None
+        self._ready_event = asyncio.Event()
+        self._preload_task: Optional[asyncio.Task] = None
+
+    @classmethod
+    def instance(cls) -> "EmbeddingPreloader":
+        """获取单例实例"""
+        return cls()
+
+    @property
+    def state(self) -> PreloadState:
+        """获取当前预加载状态"""
+        return self._state
+
+    @property
+    def is_ready(self) -> bool:
+        """模型是否已加载完成"""
+        return self._state == PreloadState.LOADED
+
+    @property
+    def is_loading(self) -> bool:
+        """是否正在加载中"""
+        return self._state == PreloadState.LOADING
+
+    async def start_preload(self, model_name: str) -> None:
+        """
+        启动异步预加载（非阻塞）
+
+        Args:
+            model_name: 要预加载的模型名称（如 BAAI/bge-base-zh-v1.5）
+        """
+        if self._state in (PreloadState.LOADING, PreloadState.LOADED):
+            logger.debug("嵌入模型预加载已在进行中或已完成，跳过")
+            return
+
+        if not _check_sentence_transformers():
+            logger.warning("sentence-transformers 未安装，跳过预加载")
+            self._state = PreloadState.FAILED
+            self._error = "sentence-transformers 未安装"
+            self._ready_event.set()  # 标记完成（虽然失败）
+            return
+
+        self._model_name = model_name
+        self._state = PreloadState.LOADING
+        logger.info("开始异步预加载嵌入模型: %s", model_name)
+
+        # 在后台任务中加载模型
+        self._preload_task = asyncio.create_task(self._do_preload())
+
+    async def _do_preload(self) -> None:
+        """执行实际的模型加载（在后台运行）"""
+        try:
+            loop = asyncio.get_event_loop()
+
+            def _load_model():
+                global _local_model_cache
+                if self._model_name in _local_model_cache:
+                    logger.info("嵌入模型已在缓存中: %s", self._model_name)
+                    return True
+
+                logger.info("预加载嵌入模型: %s（首次加载可能需要下载）", self._model_name)
+                device = _get_torch_device()
+                logger.info("预加载使用设备: %s", device)
+
+                model = _SentenceTransformer(self._model_name, device=device)
+                _local_model_cache[self._model_name] = model
+                logger.info("嵌入模型预加载成功: %s", self._model_name)
+                return True
+
+            await loop.run_in_executor(None, _load_model)
+            self._state = PreloadState.LOADED
+            logger.info("嵌入模型预加载完成: %s", self._model_name)
+
+        except Exception as exc:
+            self._state = PreloadState.FAILED
+            self._error = str(exc)
+            logger.error("嵌入模型预加载失败: %s, error=%s", self._model_name, exc)
+
+        finally:
+            self._ready_event.set()  # 通知等待者
+
+    async def wait_until_ready(self, timeout: Optional[float] = None) -> bool:
+        """
+        等待预加载完成
+
+        Args:
+            timeout: 最大等待时间（秒），None 表示无限等待
+
+        Returns:
+            True 如果加载成功，False 如果加载失败或超时
+        """
+        if self._state == PreloadState.NOT_STARTED:
+            # 未启动预加载，直接返回
+            return False
+
+        if self._state == PreloadState.LOADED:
+            return True
+
+        if self._state == PreloadState.FAILED:
+            return False
+
+        # 等待加载完成
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
+            return self._state == PreloadState.LOADED
+        except asyncio.TimeoutError:
+            logger.warning("等待嵌入模型预加载超时: %s", self._model_name)
+            return False
+
+    def get_cached_model(self, model_name: str) -> Optional[Any]:
+        """
+        获取已缓存的模型
+
+        Args:
+            model_name: 模型名称
+
+        Returns:
+            缓存的模型实例，如果未缓存则返回 None
+        """
+        return _local_model_cache.get(model_name)
+
+
+# 全局预加载器实例（方便外部访问）
+embedding_preloader = EmbeddingPreloader.instance()
 
 
 class EmbeddingService:
@@ -243,6 +411,9 @@ class EmbeddingService:
         """
         使用 sentence-transformers 在本地生成嵌入向量
 
+        如果预加载器正在加载模型，会等待其完成。
+        如果模型已预加载，直接使用缓存的模型。
+
         Args:
             text: 要嵌入的文本
             target_model: 模型名称（如 BAAI/bge-small-zh-v1.5）
@@ -259,6 +430,12 @@ class EmbeddingService:
         # 使用默认模型（如果未指定）
         if not target_model:
             target_model = "BAAI/bge-base-zh-v1.5"
+
+        # 如果预加载器正在加载，等待其完成（最多等待120秒）
+        preloader = embedding_preloader
+        if preloader.is_loading:
+            logger.info("等待嵌入模型预加载完成: %s", target_model)
+            await preloader.wait_until_ready(timeout=120.0)
 
         # 从缓存获取或加载模型（在线程池中执行以避免阻塞）
         loop = asyncio.get_event_loop()

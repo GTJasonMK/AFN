@@ -41,7 +41,7 @@ if not exist .env (
     echo [跳过] .env 文件已存在
 )
 
-if not exist storage mkdir storage
+if not exist "..\storage" mkdir "..\storage"
 
 echo.
 echo ================================================

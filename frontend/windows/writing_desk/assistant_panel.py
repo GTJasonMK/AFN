@@ -254,7 +254,9 @@ class AssistantPanel(TransparencyAwareMixin, ThemeAwareFrame):
     _transparency_component_id = "sidebar"
 
     # 信号
-    suggestion_applied = pyqtSignal(dict)  # 建议被应用
+    suggestion_applied = pyqtSignal(dict)  # 建议被应用（确认预览）
+    suggestion_ignored = pyqtSignal(dict)  # 建议被忽略（撤销预览）
+    suggestion_preview_requested = pyqtSignal(dict)  # 请求预览建议
 
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
@@ -343,6 +345,8 @@ class AssistantPanel(TransparencyAwareMixin, ThemeAwareFrame):
         # 优化模式内容
         self.optimization_content = OptimizationContent(self.project_id, parent=self)
         self.optimization_content.suggestion_applied.connect(self._on_suggestion_applied)
+        self.optimization_content.suggestion_ignored.connect(self._on_suggestion_ignored)
+        self.optimization_content.suggestion_preview_requested.connect(self._on_suggestion_preview_requested)
         self.content_stack.addWidget(self.optimization_content)
 
         layout.addWidget(self.content_stack, stretch=1)
@@ -444,8 +448,18 @@ class AssistantPanel(TransparencyAwareMixin, ThemeAwareFrame):
         # 不自动切换模式，让用户手动选择
 
     def _on_suggestion_applied(self, suggestion: dict):
-        """处理建议被应用"""
+        """处理建议被应用 - 转发给上层确认预览"""
         self.suggestion_applied.emit(suggestion)
+
+    def _on_suggestion_ignored(self, suggestion: dict):
+        """处理建议被忽略 - 转发给上层撤销预览"""
+        self.suggestion_ignored.emit(suggestion)
+
+    def _on_suggestion_preview_requested(self, suggestion: dict):
+        """处理预览请求 - 转发给上层在正文中显示预览"""
+        logger.info("AssistantPanel._on_suggestion_preview_requested 被调用, 段落=%s",
+                    suggestion.get("paragraph_index", -1))
+        self.suggestion_preview_requested.emit(suggestion)
 
     def _apply_theme(self):
         """应用主题 - 使用TransparencyAwareMixin"""

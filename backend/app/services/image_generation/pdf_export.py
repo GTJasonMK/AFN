@@ -47,9 +47,15 @@ async def async_glob(path: Path, pattern: str) -> List[Path]:
     """异步glob匹配"""
     return await asyncio.to_thread(lambda: list(path.glob(pattern)))
 
-# 使用统一的路径配置
-EXPORT_DIR = settings.exports_dir
-IMAGES_ROOT = settings.generated_images_dir
+
+def get_export_dir() -> Path:
+    """获取导出目录（支持热更新）"""
+    return settings.exports_dir
+
+
+def get_images_root() -> Path:
+    """获取图片根目录（支持热更新）"""
+    return settings.generated_images_dir
 
 # P2修复: 统一页面尺寸定义，避免在多处重复定义
 # 页面尺寸常量（单位：点，1点=1/72英寸）
@@ -172,13 +178,15 @@ class PDFExportService:
                 )
 
             # 确保导出目录存在（异步）
-            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
+            await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             title = request.title or f"漫画导出_{request.project_id}"
-            file_name = f"{title}_{timestamp}.pdf"
-            file_path = EXPORT_DIR / file_name
+            # Bug 17 修复: 过滤文件名中的危险字符，防止路径遍历攻击
+            safe_title = "".join(c for c in title if c.isalnum() or c in " _-")
+            file_name = f"{safe_title}_{timestamp}.pdf"
+            file_path = get_export_dir() / file_name
 
             # P2修复: 使用统一的页面尺寸定义
             page_size = get_page_size(request.page_size)
@@ -255,7 +263,7 @@ class PDFExportService:
                 story.append(Paragraph(f"场景 {img.scene_id}", prompt_style))
 
                 # 添加图片（异步检查文件存在性）
-                img_path = IMAGES_ROOT / img.file_path
+                img_path = get_images_root() / img.file_path
                 if await async_exists(img_path):
                     try:
                         pdf_image = Image(str(img_path), width=img_width, height=img_height)
@@ -297,7 +305,7 @@ class PDFExportService:
 
     async def get_export_history(self, project_id: str) -> List[dict]:
         """获取项目的导出历史（使用异步文件操作）"""
-        export_dir = EXPORT_DIR
+        export_dir = get_export_dir()
         if not await async_exists(export_dir):
             return []
 
@@ -350,17 +358,14 @@ class PDFExportService:
                 GeneratedImage.chapter_number == chapter_number,
             )
 
-            # P1修复: 版本过滤逻辑优化 - 严格按版本过滤，不混入历史数据
-            # 如果指定了版本ID，只查询该版本的图片；否则只查询没有版本ID的历史图片
+            # Bug 42 修复: 版本过滤逻辑优化
+            # - 如果指定了版本ID，只查询该版本的图片
+            # - 如果未指定版本ID，返回所有图片（包括新旧数据）
             if request.chapter_version_id is not None:
                 query = query.where(
                     GeneratedImage.chapter_version_id == request.chapter_version_id
                 )
-            else:
-                # 未指定版本时，只获取无版本标记的历史图片
-                query = query.where(
-                    GeneratedImage.chapter_version_id.is_(None)
-                )
+            # 未指定版本时，不添加版本过滤条件，返回所有图片
 
             result = await self.session.execute(
                 query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
@@ -388,14 +393,14 @@ class PDFExportService:
                 )
 
             # 确保导出目录存在（异步）
-            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
+            await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             title = request.title or f"第{chapter_number}章"
             safe_title = "".join(c for c in title if c.isalnum() or c in " _-")
             file_name = f"manga_{project_id}_ch{chapter_number}_{timestamp}.pdf"
-            file_path = EXPORT_DIR / file_name
+            file_path = get_export_dir() / file_name
 
             # P2修复: 使用统一的页面尺寸定义
             page_size = get_page_size(request.page_size)
@@ -412,7 +417,7 @@ class PDFExportService:
 
             # 按场景分组，每个场景的图片连续排列
             for img in images:
-                img_path = IMAGES_ROOT / img.file_path
+                img_path = get_images_root() / img.file_path
                 if not await async_exists(img_path):
                     logger.warning(f"图片不存在: {img_path}")
                     continue
@@ -512,15 +517,13 @@ class PDFExportService:
         request: ChapterMangaPDFRequest,
     ) -> ChapterMangaPDFResponse:
         """
-        生成专业排版的漫画PDF
+        生成专业排版的漫画PDF（简化版网格布局）
 
-        根据AI生成的排版方案，将图片按分镜布局排列在页面上。
-        支持：
-        - 多图排版（一页多个分镜格子）
-        - 使用页面模板定义的画格坐标
-        - 按panel_id精确匹配图片
-        - 出血线和安全区域
-        - 专业的页面边距
+        使用 layout_slot 进行简单的行布局：
+        - full_row: 独占一行
+        - half_row: 每行最多2个
+        - third_row: 每行最多3个
+        - quarter_row: 每行最多4个
 
         Args:
             project_id: 项目ID
@@ -553,22 +556,45 @@ class PDFExportService:
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
             manga_prompt = chapter.manga_prompt
-            scenes_data = manga_prompt.scenes or []
             panels_data = manga_prompt.panels or []
 
-            # 如果没有场景或画格数据，回退到简单模式
-            if not scenes_data or not panels_data:
+            # 如果没有画格数据，回退到简单模式
+            if not panels_data:
                 logger.info("排版信息为空，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
             # 获取章节所有图片
+            # Bug 20 修复: 添加章节版本过滤，与简单模式保持一致
+            query = select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+            )
+
+            # 版本过滤逻辑（与简单模式一致）
+            if request.chapter_version_id is not None:
+                query = query.where(
+                    GeneratedImage.chapter_version_id == request.chapter_version_id
+                )
+
+            # Bug 32 修复: 按 created_at 降序排序，确保最新图片在前
             result = await self.session.execute(
-                select(GeneratedImage).where(
-                    GeneratedImage.project_id == project_id,
-                    GeneratedImage.chapter_number == chapter_number,
-                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
+                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
             )
             all_images = list(result.scalars().all())
+
+            # 如果指定版本没有图片，尝试回退到历史图片
+            if not all_images and request.chapter_version_id is not None:
+                logger.info(
+                    "专业模式: 版本 %s 无图片，尝试回退到历史图片",
+                    request.chapter_version_id
+                )
+                fallback_query = select(GeneratedImage).where(
+                    GeneratedImage.project_id == project_id,
+                    GeneratedImage.chapter_number == chapter_number,
+                    GeneratedImage.chapter_version_id.is_(None),
+                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
+                result = await self.session.execute(fallback_query)
+                all_images = list(result.scalars().all())
 
             if not all_images:
                 return ChapterMangaPDFResponse(
@@ -576,54 +602,43 @@ class PDFExportService:
                     error_message="该章节暂无图片",
                 )
 
-            # 按 panel_id 索引图片（精确匹配）
-            # 同时按 scene_id 索引作为后备
+            # Bug 32 修复: 按 panel_id 索引图片，由于排序为 created_at.desc()，
+            # 第一个遇到的是最新图片，后续重复的 panel_id 被忽略
             panel_image_map: Dict[str, GeneratedImage] = {}
-            scene_image_map: Dict[int, GeneratedImage] = {}
-
             for img in all_images:
                 if img.panel_id and img.panel_id not in panel_image_map:
                     panel_image_map[img.panel_id] = img
-                if img.scene_id not in scene_image_map:
-                    scene_image_map[img.scene_id] = img
 
-            logger.info(f"图片索引: panel_id={len(panel_image_map)}, scene_id={len(scene_image_map)}")
+            logger.info(f"图片索引: panel_id={len(panel_image_map)}")
 
-            # 确保导出目录存在（异步）
-            await async_mkdir(EXPORT_DIR, parents=True, exist_ok=True)
+            # 确保导出目录存在
+            await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             file_name = f"manga_pro_{project_id}_ch{chapter_number}_{timestamp}.pdf"
-            file_path = EXPORT_DIR / file_name
+            file_path = get_export_dir() / file_name
 
-            # 获取页面尺寸（从请求参数获取，默认A4）
+            # 获取页面尺寸
             page_size_name = request.page_size or "A4"
             page_size = PAGE_SIZES.get(page_size_name, PAGE_SIZES["A4"])
             page_width, page_height = page_size
 
-            # 出血线和安全区域（单位：点）
-            safe_margin = 5 * mm   # 安全区域 5mm
-            gutter = 2 * mm        # 格子间距 2mm
+            # 边距和间距
+            margin = 10 * mm
+            gap = 3 * mm
 
-            # 可用区域（减去安全边距）
-            content_x = safe_margin
-            content_y = safe_margin
-            content_width = page_width - 2 * safe_margin
-            content_height = page_height - 2 * safe_margin
+            # 可用区域
+            content_width = page_width - 2 * margin
+            content_height = page_height - 2 * margin
 
             # 创建PDF
             c = canvas.Canvas(str(file_path), pagesize=page_size)
             c.setTitle(f"第{chapter_number}章 漫画")
             c.setAuthor("AFN Novel Writing Assistant")
 
-            # 从 panels 数据中按页码分组
-            # 注意：panels 使用 page_number 字段来标识页码
-
             # 按页码组织画格
-            page_panels: Dict[int, List[Dict]] = {}  # page_number -> panels
-
-            # 从 panels 中提取每页的画格
+            page_panels: Dict[int, List[Dict]] = {}
             for panel in panels_data:
                 page_number = panel.get("page_number")
                 if page_number is not None:
@@ -633,272 +648,150 @@ class PDFExportService:
 
             logger.info(f"页面数据: {len(page_panels)} 页, 总画格: {len(panels_data)}")
 
-            # 如果没有有效的页面数据，回退到简单模式
             if not page_panels:
                 logger.info("无有效页面数据，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
+            # 布局槽位尺寸映射
+            SLOT_SIZES = {
+                "full_row": 1.0,
+                "half_row": 0.5,
+                "third_row": 0.333,
+                "quarter_row": 0.25,
+            }
+
             page_count = 0
 
-            # 按页码顺序绘制（每个page_number对应一页PDF）
+            # 按页码顺序绘制
             for page_number in sorted(page_panels.keys()):
                 panels = page_panels[page_number]
 
                 logger.debug(f"绘制第 {page_number} 页: {len(panels)} 个画格")
 
-                # 绘制页面背景（白色）
+                # 绘制页面背景
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
 
-                # ========== 智能漫画排版算法 ==========
-                # 充分利用画格的所有元数据：size, shape, aspect_ratio, is_key_panel, shot_type
+                # ========== 简单网格布局 ==========
+                # 将画格按 layout_slot 分配到行中
+                rows = []
+                current_row = []
+                current_row_capacity = 0.0
 
-                # size 对应的基础高度比例
-                SIZE_HEIGHT_RATIO = {
-                    "full": 1.0,      # 整页
-                    "spread": 1.0,    # 跨页
-                    "half": 0.45,     # 半页
-                    "large": 0.32,    # 大格
-                    "medium": 0.22,   # 中格
-                    "small": 0.15,    # 小格
-                }
-
-                # shape 对应的宽高比调整
-                SHAPE_ASPECT = {
-                    "rectangle": 1.5,    # 标准横向
-                    "square": 1.0,       # 正方形
-                    "vertical": 0.7,     # 竖长
-                    "horizontal": 2.0,   # 横长
-                    "irregular": 1.3,    # 不规则（默认偏横）
-                    "borderless": 1.5,   # 无边框
-                }
-
-                # shot_type 对应的尺寸加成
-                SHOT_TYPE_MODIFIER = {
-                    "establishing": 1.2,     # 全景建立镜头，加大
-                    "long": 1.1,             # 远景，稍大
-                    "bird_eye": 1.15,        # 鸟瞰，加大
-                    "worm_eye": 1.1,         # 仰视
-                    "medium": 1.0,           # 中景，标准
-                    "over_shoulder": 0.95,   # 过肩
-                    "close_up": 0.9,         # 近景，可以小一些
-                    "extreme_close_up": 0.85, # 特写，更小但突出
-                    "pov": 0.95,             # 主观视角
-                }
-
-                # 预处理：为每个画格计算理想尺寸
-                panel_specs = []
                 for panel in panels:
-                    size = panel.get("size", "medium")
-                    shape = panel.get("shape", "rectangle")
-                    aspect_ratio = panel.get("aspect_ratio", "4:3")
-                    is_key = panel.get("is_key_panel", False)
-                    shot_type = panel.get("shot_type", "medium")
+                    slot = panel.get("layout_slot", "third_row")
+                    slot_size = SLOT_SIZES.get(slot, 0.333)
 
-                    # 基础高度
-                    base_height = SIZE_HEIGHT_RATIO.get(size, 0.22)
+                    # full_row 独占一行，或当前行装不下
+                    if slot == "full_row" or current_row_capacity + slot_size > 1.02:
+                        if current_row:
+                            rows.append(current_row)
+                        current_row = [panel]
+                        current_row_capacity = slot_size
+                    else:
+                        current_row.append(panel)
+                        current_row_capacity += slot_size
 
-                    # shot_type 修正
-                    shot_modifier = SHOT_TYPE_MODIFIER.get(shot_type, 1.0)
-                    height = base_height * shot_modifier
+                if current_row:
+                    rows.append(current_row)
 
-                    # 关键画格加成 15%
-                    if is_key:
-                        height *= 1.15
+                # 计算每行高度（均分可用高度）
+                row_count = len(rows)
+                if row_count == 0:
+                    continue
 
-                    # 根据 shape 和 aspect_ratio 计算宽度
-                    shape_aspect = SHAPE_ASPECT.get(shape, 1.5)
+                row_height = (content_height - (row_count - 1) * gap) / row_count
+                current_y = page_height - margin  # 从顶部开始
 
-                    # 解析 aspect_ratio (如 "16:9" -> 1.78)
-                    try:
-                        w, h = aspect_ratio.split(":")
-                        ar = float(w) / float(h)
-                    except:
-                        ar = 1.33  # 默认 4:3
-
-                    # 综合 shape 和 aspect_ratio 决定宽度倾向
-                    # ar > 1 表示横向，ar < 1 表示纵向
-                    if ar >= 1.7:  # 16:9 或更宽
-                        width_tendency = 1.0  # 倾向占满宽度
-                    elif ar >= 1.2:  # 4:3 左右
-                        width_tendency = 0.48  # 可以并排
-                    else:  # 纵向画格
-                        width_tendency = 0.35  # 更窄
-
-                    # half/full/spread/large 通常占满宽度
-                    if size in ["full", "spread", "half", "large"]:
-                        width_tendency = max(width_tendency, 0.65)
-
-                    panel_specs.append({
-                        "panel": panel,
-                        "height": height,
-                        "width_tendency": width_tendency,
-                        "is_key": is_key,
-                        "aspect_ratio": ar,
-                    })
-
-                # 行填充布局算法
-                panel_layouts = []
-                current_y = 0.0
-                row_panels = []
-                row_width_used = 0.0
-                row_height = 0.0
-
-                for spec in panel_specs:
-                    width = spec["width_tendency"]
-                    height = spec["height"]
-
-                    # 检查当前行是否能容纳
-                    if row_width_used + width > 1.02:
-                        # 完成当前行
-                        if row_panels:
-                            # 计算实际分配：按比例分配剩余空间
-                            total_width = sum(rp["width"] for rp in row_panels)
-                            scale = 0.98 / total_width if total_width > 0 else 1.0
-                            x_offset = 0.01  # 1% 左边距
-
-                            for rp in row_panels:
-                                actual_width = rp["width"] * scale
-                                rp["final_x"] = x_offset
-                                rp["final_y"] = current_y
-                                rp["final_width"] = actual_width - 0.01  # 留间距
-                                rp["final_height"] = row_height
-                                x_offset += actual_width
-
-                            panel_layouts.extend(row_panels)
-
-                        # 新行
-                        current_y += row_height + 0.015
-                        row_panels = []
-                        row_width_used = 0.0
-                        row_height = 0.0
-
-                    # 添加到当前行
-                    row_panels.append({
-                        "spec": spec,
-                        "width": width,
-                    })
-                    row_width_used += width + 0.02
-                    row_height = max(row_height, height)
-
-                # 处理最后一行
-                if row_panels:
-                    total_width = sum(rp["width"] for rp in row_panels)
-                    scale = 0.98 / total_width if total_width > 0 else 1.0
-                    x_offset = 0.01
-
-                    for rp in row_panels:
-                        actual_width = rp["width"] * scale
-                        rp["final_x"] = x_offset
-                        rp["final_y"] = current_y
-                        rp["final_width"] = actual_width - 0.01
-                        rp["final_height"] = row_height
-                        x_offset += actual_width
-
-                    panel_layouts.extend(row_panels)
-
-                # 计算总高度并缩放
-                total_height = current_y + row_height
-                if total_height > 0.98:
-                    scale_factor = 0.96 / total_height
-                    for pl in panel_layouts:
-                        pl["final_y"] *= scale_factor
-                        pl["final_height"] *= scale_factor
-
-                logger.debug(f"页面 {page_number}: {len(panel_layouts)} 个画格布局完成，总高度={total_height:.2f}")
-
-                # ========== 绘制画格 ==========
-                for pl in panel_layouts:
-                    spec = pl["spec"]
-                    panel = spec["panel"]
-                    panel_id = panel.get("panel_id", "")
-                    panel_number = panel.get("panel_number", 1)
-                    is_key = spec["is_key"]
-
-                    # 获取布局坐标
-                    rel_x = pl["final_x"]
-                    rel_y = pl["final_y"]
-                    rel_width = pl["final_width"]
-                    rel_height = pl["final_height"]
-
-                    # 获取图片
-                    img_record = panel_image_map.get(panel_id)
-
-                    if not img_record:
-                        logger.debug(f"画格 {panel_id} 无图片")
+                # 绘制每一行
+                for row in rows:
+                    current_y -= row_height
+                    panel_count = len(row)
+                    if panel_count == 0:
                         continue
 
-                    img_path = IMAGES_ROOT / img_record.file_path
-                    if not await async_exists(img_path):
-                        logger.warning(f"图片不存在: {img_path}")
-                        continue
+                    # 计算每个画格宽度（均分行宽度）
+                    panel_width = (content_width - (panel_count - 1) * gap) / panel_count
+                    current_x = margin
 
-                    # 转换为绝对坐标
-                    panel_x = content_x + rel_x * content_width
-                    panel_width = rel_width * content_width - gutter
-                    panel_height = rel_height * content_height - gutter
-                    panel_y = page_height - content_y - rel_y * content_height - panel_height
+                    for panel in row:
+                        panel_id = panel.get("panel_id", "")
+                        panel_number = panel.get("panel_number", 1)
+                        is_key = panel.get("is_key_panel", False)
 
-                    try:
-                        # 读取图片（异步）
-                        pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
-                        img_width, img_height = pil_img.size
+                        # 获取图片
+                        img_record = panel_image_map.get(panel_id)
 
-                        # 计算图片在格子内的尺寸（保持比例，适配格子）
-                        scale_w = panel_width / img_width
-                        scale_h = panel_height / img_height
+                        if img_record:
+                            img_path = get_images_root() / img_record.file_path
+                            if await async_exists(img_path):
+                                try:
+                                    # 读取图片
+                                    pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
+                                    img_w, img_h = pil_img.size
 
-                        # 使用较小的缩放比例（适配模式，确保图片完整显示不被裁剪）
-                        scale = min(scale_w, scale_h)
+                                    # 计算缩放（填满格子，超出部分被裁切）
+                                    # 使用 max 而不是 min，确保图片完全填满格子无留白
+                                    scale = max(panel_width / img_w, row_height / img_h)
+                                    draw_width = img_w * scale
+                                    draw_height = img_h * scale
 
-                        draw_width = img_width * scale
-                        draw_height = img_height * scale
+                                    # 居中偏移（超出部分会被clipPath裁切）
+                                    offset_x = (panel_width - draw_width) / 2
+                                    offset_y = (row_height - draw_height) / 2
 
-                        # 计算居中偏移
-                        offset_x = (panel_width - draw_width) / 2
-                        offset_y = (panel_height - draw_height) / 2
+                                    # 裁剪区域（超出格子的部分会被裁切）
+                                    c.saveState()
+                                    path = c.beginPath()
+                                    path.rect(current_x, current_y, panel_width, row_height)
+                                    c.clipPath(path, stroke=0)
 
-                        # 设置裁剪区域（只显示格子内的部分）
-                        c.saveState()
-                        path = c.beginPath()
-                        path.rect(panel_x, panel_y, panel_width, panel_height)
-                        c.clipPath(path, stroke=0)
+                                    # 绘制图片（填满格子）
+                                    c.drawImage(
+                                        str(img_path),
+                                        current_x + offset_x,
+                                        current_y + offset_y,
+                                        width=draw_width,
+                                        height=draw_height,
+                                        preserveAspectRatio=True,
+                                    )
 
-                        # 绘制图片
-                        c.drawImage(
-                            str(img_path),
-                            panel_x + offset_x,
-                            panel_y + offset_y,
-                            width=draw_width,
-                            height=draw_height,
-                            preserveAspectRatio=True,
-                        )
+                                    c.restoreState()
 
-                        c.restoreState()
+                                except Exception as e:
+                                    logger.warning(f"绘制图片失败: {img_path}, {e}")
+                                    # 绘制占位符
+                                    c.setFillColorRGB(0.95, 0.95, 0.95)
+                                    c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                            else:
+                                # 图片不存在，绘制占位符
+                                c.setFillColorRGB(0.95, 0.95, 0.95)
+                                c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                        else:
+                            # 无图片，绘制占位符
+                            c.setFillColorRGB(0.95, 0.95, 0.95)
+                            c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                            _register_chinese_font()
+                            c.setFont(_CHINESE_FONT_NAME, 10)
+                            c.setFillColorRGB(0.5, 0.5, 0.5)
+                            c.drawCentredString(
+                                current_x + panel_width / 2,
+                                current_y + row_height / 2,
+                                f"Panel {panel_number}"
+                            )
 
-                        # 绘制格子边框
-                        # 关键画格使用更粗的边框
+                        # 绘制边框
                         if is_key:
-                            c.setStrokeColorRGB(0.1, 0.1, 0.1)  # 更深的颜色
-                            c.setLineWidth(2.5)  # 更粗的边框
+                            c.setStrokeColorRGB(0.1, 0.1, 0.1)
+                            c.setLineWidth(2.5)
                         else:
                             c.setStrokeColorRGB(0.2, 0.2, 0.2)
                             c.setLineWidth(1)
-                        c.rect(panel_x, panel_y, panel_width, panel_height, fill=False, stroke=True)
+                        c.rect(current_x, current_y, panel_width, row_height, fill=False, stroke=True)
 
-                    except Exception as e:
-                        logger.warning(f"绘制图片失败: {img_path}, {e}")
-                        # 绘制占位符
-                        c.setFillColorRGB(0.95, 0.95, 0.95)
-                        c.rect(panel_x, panel_y, panel_width, panel_height, fill=True, stroke=True)
-                        _register_chinese_font()
-                        c.setFont(_CHINESE_FONT_NAME, 10)
-                        c.setFillColorRGB(0.5, 0.5, 0.5)
-                        c.drawCentredString(
-                            panel_x + panel_width / 2,
-                            panel_y + panel_height / 2,
-                            f"Panel {panel_number}"
-                        )
+                        current_x += panel_width + gap
+
+                    current_y -= gap
 
                 # 绘制页码
                 _register_chinese_font()
@@ -919,7 +812,7 @@ class PDFExportService:
             # 保存PDF
             c.save()
 
-            logger.info(f"专业排版PDF生成完成: {page_count} 页")
+            logger.info(f"简化网格布局PDF生成完成: {page_count} 页")
 
             return ChapterMangaPDFResponse(
                 success=True,

@@ -163,6 +163,12 @@ async def retry_chapter_version(
 
     # 准备蓝图
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # Bug 8 修复: 检查蓝图是否存在
+    if not project_schema.blueprint:
+        raise InvalidParameterError(
+            "项目缺少蓝图数据，无法重试版本。请先完成灵感对话生成蓝图。",
+            "blueprint"
+        )
     blueprint_dict = project_schema.blueprint.model_dump()
     blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
 
@@ -201,7 +207,7 @@ async def retry_chapter_version(
         temperature=settings.llm_temp_writing,
         user_id=desktop_user.id,
         timeout=LLMConstants.CHAPTER_GENERATION_TIMEOUT,
-        max_tokens=LLMConstants.CHAPTER_MAX_TOKENS,
+        max_tokens=settings.llm_max_tokens_chapter,
         response_format=None,  # 章节内容是纯文本，不使用 JSON 模式
     )
 
@@ -211,6 +217,25 @@ async def retry_chapter_version(
     # 替换指定版本的内容
     target_version = versions[request.version_index]
     target_version.content = new_content
+
+    # Bug 3, 4 修复: 如果重试的是当前选中版本，需要更新字数和清理索引
+    if chapter.selected_version_id == target_version.id:
+        from ....utils.content_normalizer import count_chinese_characters
+
+        # Bug 4 修复: 更新字数
+        chapter.word_count = count_chinese_characters(new_content)
+        # 内容变化后，real_summary 需要重新生成（在 RAG 入库时会自动生成）
+        chapter.real_summary = None
+
+        # Bug 3 修复: 清理旧索引数据（新版本内容将在 RAG 入库时重新索引）
+        from ....services.incremental_indexer import IncrementalIndexer
+        indexer = IncrementalIndexer(session)
+        await indexer.cleanup_chapter_indexes(project_id, request.chapter_number)
+        logger.info(
+            "项目 %s 第 %s 章重试选中版本，已清理旧索引（将在RAG入库时重建）",
+            project_id, request.chapter_number
+        )
+
     await session.commit()
 
     logger.info("项目 %s 第 %s 章版本 %s 重试完成", project_id, request.chapter_number, request.version_index)
@@ -260,6 +285,12 @@ async def preview_chapter_prompt(
 
     # 3. 准备蓝图数据
     project_schema = await novel_service.get_project_schema(project_id, desktop_user.id)
+    # Bug 5 修复: 检查蓝图是否存在
+    if not project_schema.blueprint:
+        raise InvalidParameterError(
+            "项目缺少蓝图数据，无法预览提示词。请先完成灵感对话生成蓝图。",
+            "blueprint"
+        )
     blueprint_dict = project_schema.blueprint.model_dump()
     blueprint_dict = chapter_gen_service.prepare_blueprint_for_generation(blueprint_dict)
 
@@ -385,6 +416,9 @@ async def preview_chapter_prompt(
         rag_stats.chunk_count, rag_stats.summary_count
     )
 
+    # Bug 11 修复: 提交生成的章节摘要，避免被回滚
+    await session.commit()
+
     return PromptPreviewResponse(
         system_prompt=writer_prompt,
         user_prompt=prompt_input,
@@ -431,6 +465,32 @@ async def generate_chapter_stream(
     # 状态校验：确保项目处于可生成章节的状态
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
     validate_project_status(project.status, CHAPTER_GENERATION_STATES, "生成章节内容")
+
+    # Bug 12 修复: 顺序校验 - 与同步接口保持一致
+    # 第2章及以后的章节必须确保前一章已有选定的正文版本
+    chapter_number = request.chapter_number
+    if chapter_number > 1:
+        prev_chapter = next(
+            (ch for ch in project.chapters if ch.chapter_number == chapter_number - 1),
+            None
+        )
+        # 检查前一章是否存在、是否有选定版本、选定版本是否有内容
+        if not prev_chapter or not prev_chapter.selected_version_id:
+            raise InvalidParameterError(
+                f"请先完成第{chapter_number - 1}章的生成并选择一个版本后，再生成第{chapter_number}章",
+                parameter="chapter_number"
+            )
+        # 验证选定版本是否有实际内容
+        selected_version = prev_chapter.selected_version
+        if not selected_version or not selected_version.content or not selected_version.content.strip():
+            raise InvalidParameterError(
+                f"第{chapter_number - 1}章尚无正文内容，请先生成正文后再生成第{chapter_number}章",
+                parameter="chapter_number"
+            )
+        logger.debug(
+            "SSE模式章节顺序校验通过: 第%d章已有选定版本(id=%d, 字数=%d)",
+            chapter_number - 1, selected_version.id, len(selected_version.content or "")
+        )
 
     # 创建工作流
     workflow = ChapterGenerationWorkflow(

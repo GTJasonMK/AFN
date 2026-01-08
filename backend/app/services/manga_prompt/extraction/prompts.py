@@ -417,6 +417,9 @@ STEP_EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧助手。你
 2. 不要输出任何额外的解释或文字
 3. 确保JSON格式正确，可以被程序解析
 4. 所有字段都需要填写（可以为空字符串或空列表，但不要省略）
+5. **字符串值中不要使用双引号**：如需引用词语，请用单引号或中文引号代替
+   - 错误: "wearing a \"casual\" outfit"
+   - 正确: "wearing a 'casual' outfit" 或 "wearing a casual outfit"
 """
 
 __all__ = [

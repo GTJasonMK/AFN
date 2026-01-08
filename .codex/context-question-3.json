@@ -1,0 +1,42 @@
+{
+  "title": "关键疑问 - 漫画提示词/PDF 审查",
+  "items": [
+    {
+      "question": "PromptBuilder 是否在英文提示词中完整包含剧情/角色信息？缺乏对话会否导致画面与剧情脱节？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/manga_prompt/prompt_builder/builder.py:147-238 明确将 prompt_en 限制为纯视觉描述，并承诺 PDF 再注入文字",
+        "backend/app/services/image_generation/pdf_export.py 未引用 dialogues/narration 字段，PDF 中不会重建气泡"
+      ],
+      "conclusion": "提示词被强行剥离对话/旁白，且 PDF 层没有任何逻辑重新绘制文本，导致漫画输出完全无文本。"
+    },
+    {
+      "question": "PDFExportService 的专业排版模式如何获取 panel-level 图片？GeneratedImage 是否带有 panel_id？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/manga_prompt/prompt_builder/builder.py:147 将 panel_id 格式设为 `page{n}_panel{m}`",
+        "frontend/windows/writing_desk/workspace/manga_handlers.py:401-483 假定 panel_id 形如 `sceneX_pageY_panelZ` 并据此解析 scene_id",
+        "ImageGenerationService 保存图片时 (backend/app/services/image_generation/service.py:502-620) 直接使用传入的 panel_id"
+      ],
+      "conclusion": "前端解析 panel_id 获得 scene_id 的逻辑与后端生成的 panel_id 格式不一致，导致 scene_id 始终为 0，所有图片写入 scene_0 目录且 PDF 标识混乱。"
+    },
+    {
+      "question": "PromptBuilder 设置的 aspect_ratio / layout_slot 是否被 PDF 和图像生成模块使用？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/image_generation/service.py:502-607 在保存图片前调用 `_crop_to_aspect_ratio`，aspect_ratio 确实被用于裁切",
+        "backend/app/services/image_generation/pdf_export.py:646-706 在专业模式中仅按 layout_slot 将图片均分行列，没有使用 aspect_ratio，导致强行裁切/拉伸"
+      ],
+      "conclusion": "生成阶段会按照画格比例裁切，但 PDF 网格忽略实际比例与 slot 映射，导致最终排版被重新缩放甚至裁切。"
+    },
+    {
+      "question": "前端 writing_desk/panels/manga 是否正确展示/导出 prompt 结果？UI 是否遗漏 reference images / dialogue？",
+      "priority": "medium",
+      "status": "open",
+      "notes": "UI 能展示 reference_image_paths，并在生成图片时传递；但 PDF/导出端仍无对话渲染，需要后续补充。"
+    }
+  ]
+}

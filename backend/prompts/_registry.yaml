@@ -9,7 +9,7 @@ last_updated: "2024-12-30"
 prompts:
   # ==================== 01 构思阶段 ====================
   inspiration:
-    path: "01_inspiration/inspiration.md"
+    path: "novel/01_inspiration/inspiration.md"
     title: "灵感对话"
     category: "inspiration"
     status: "active"
@@ -21,7 +21,7 @@ prompts:
 
   # ==================== 02 蓝图阶段 ====================
   blueprint:
-    path: "02_blueprint/blueprint.md"
+    path: "novel/02_blueprint/blueprint.md"
     title: "蓝图生成"
     category: "blueprint"
     status: "active"
@@ -32,7 +32,7 @@ prompts:
     description: "根据灵感对话记录生成完整的故事蓝图，包括世界观设定、角色档案、剧情大纲"
 
   avatar_generation:
-    path: "02_blueprint/avatar_generation.md"
+    path: "novel/02_blueprint/avatar_generation.md"
     title: "项目头像生成"
     category: "blueprint"
     status: "active"
@@ -42,7 +42,7 @@ prompts:
     description: "基于蓝图信息生成项目封面SVG头像"
 
   reverse_blueprint:
-    path: "02_blueprint/reverse_blueprint.md"
+    path: "novel/02_blueprint/reverse_blueprint.md"
     title: "蓝图反推"
     category: "blueprint"
     status: "active"
@@ -53,7 +53,7 @@ prompts:
 
   # ==================== 03 大纲阶段 ====================
   outline:
-    path: "03_outline/outline.md"
+    path: "novel/03_outline/outline.md"
     title: "章节大纲生成"
     category: "outline"
     status: "active"
@@ -65,7 +65,7 @@ prompts:
     description: "基于分部大纲生成详细的章节大纲"
 
   part_outline:
-    path: "03_outline/part_outline.md"
+    path: "novel/03_outline/part_outline.md"
     title: "分部大纲生成(批量)"
     category: "outline"
     status: "active"
@@ -75,7 +75,7 @@ prompts:
     description: "批量生成所有分部的大纲内容"
 
   part_outline_single:
-    path: "03_outline/part_outline_single.md"
+    path: "novel/03_outline/part_outline_single.md"
     title: "分部大纲生成(串行)"
     category: "outline"
     status: "active"
@@ -86,7 +86,7 @@ prompts:
     description: "逐个生成分部大纲，支持上下文传递"
 
   part_chapters:
-    path: "03_outline/part_chapters.md"
+    path: "novel/03_outline/part_chapters.md"
     title: "分部章节细化"
     category: "outline"
     status: "active"
@@ -97,7 +97,7 @@ prompts:
     description: "将分部大纲细化为具体章节"
 
   reverse_outline:
-    path: "03_outline/reverse_outline.md"
+    path: "novel/03_outline/reverse_outline.md"
     title: "大纲反推"
     category: "outline"
     status: "active"
@@ -107,7 +107,7 @@ prompts:
     description: "从已有章节内容反推生成大纲"
 
   reverse_part_outline:
-    path: "03_outline/reverse_part_outline.md"
+    path: "novel/03_outline/reverse_part_outline.md"
     title: "分部大纲反推"
     category: "outline"
     status: "active"
@@ -118,7 +118,7 @@ prompts:
 
   # ==================== 04 写作阶段 ====================
   writing:
-    path: "04_writing/writing.md"
+    path: "novel/04_writing/writing.md"
     title: "章节写作"
     category: "writing"
     status: "active"
@@ -129,7 +129,7 @@ prompts:
     description: "基于大纲和上下文生成章节正文"
 
   extraction:
-    path: "04_writing/extraction.md"
+    path: "novel/04_writing/extraction.md"
     title: "摘要提取"
     category: "writing"
     status: "active"
@@ -139,7 +139,7 @@ prompts:
     description: "从章节内容中提取关键信息摘要"
 
   chapter_summary_single:
-    path: "04_writing/chapter_summary_single.md"
+    path: "novel/04_writing/chapter_summary_single.md"
     title: "单章摘要"
     category: "writing"
     status: "active"
@@ -150,7 +150,7 @@ prompts:
     description: "为单个章节生成详细摘要"
 
   chapter_summary_batch:
-    path: "04_writing/chapter_summary_batch.md"
+    path: "novel/04_writing/chapter_summary_batch.md"
     title: "批量摘要"
     category: "writing"
     status: "unused"
@@ -160,7 +160,7 @@ prompts:
 
   # ==================== 05 分析评审 ====================
   chapter_analysis:
-    path: "05_analysis/chapter_analysis.md"
+    path: "novel/05_analysis/chapter_analysis.md"
     title: "章节分析"
     category: "analysis"
     status: "active"
@@ -170,7 +170,7 @@ prompts:
     description: "对章节内容进行深度分析，提取角色状态、伏笔等信息"
 
   coherence_check:
-    path: "05_analysis/coherence_check.md"
+    path: "novel/05_analysis/coherence_check.md"
     title: "连贯性检查"
     category: "analysis"
     status: "active"
@@ -180,7 +180,7 @@ prompts:
     description: "检查章节与前文的连贯性问题"
 
   evaluation:
-    path: "05_analysis/evaluation.md"
+    path: "novel/05_analysis/evaluation.md"
     title: "版本评估"
     category: "analysis"
     status: "active"
@@ -190,7 +190,7 @@ prompts:
     description: "对多个章节版本进行对比评估"
 
   content_optimization_agent:
-    path: "05_analysis/content_optimization_agent.md"
+    path: "novel/05_analysis/content_optimization_agent.md"
     title: "正文优化Agent"
     category: "analysis"
     status: "active"
@@ -202,7 +202,7 @@ prompts:
 
   # ==================== 06 漫画模块 ====================
   manga_chapter_extraction:
-    path: "06_manga/manga_chapter_extraction.md"
+    path: "novel/06_manga/manga_chapter_extraction.md"
     title: "漫画信息提取"
     category: "manga"
     status: "active"
@@ -213,7 +213,7 @@ prompts:
 
   # 分步提取策略（避免单次LLM调用输出过大导致JSON被截断）
   manga_extraction_step1:
-    path: "06_manga/manga_extraction_step1.md"
+    path: "novel/06_manga/manga_extraction_step1.md"
     title: "分步提取-角色和事件"
     category: "manga"
     status: "active"
@@ -223,7 +223,7 @@ prompts:
     description: "分步提取策略的第一步，提取角色和事件信息"
 
   manga_extraction_step2:
-    path: "06_manga/manga_extraction_step2.md"
+    path: "novel/06_manga/manga_extraction_step2.md"
     title: "分步提取-对话"
     category: "manga"
     status: "active"
@@ -234,7 +234,7 @@ prompts:
     description: "分步提取策略的第二步，提取对话信息"
 
   manga_extraction_step3:
-    path: "06_manga/manga_extraction_step3.md"
+    path: "novel/06_manga/manga_extraction_step3.md"
     title: "分步提取-场景"
     category: "manga"
     status: "active"
@@ -245,7 +245,7 @@ prompts:
     description: "分步提取策略的第三步，提取场景信息"
 
   manga_extraction_step4:
-    path: "06_manga/manga_extraction_step4.md"
+    path: "novel/06_manga/manga_extraction_step4.md"
     title: "分步提取-物品和摘要"
     category: "manga"
     status: "active"
@@ -256,7 +256,7 @@ prompts:
     description: "分步提取策略的第四步，提取物品和章节摘要"
 
   manga_page_planning:
-    path: "06_manga/manga_page_planning.md"
+    path: "novel/06_manga/manga_page_planning.md"
     title: "页面规划"
     category: "manga"
     status: "active"
@@ -267,7 +267,7 @@ prompts:
     description: "规划漫画页数分配和节奏控制"
 
   manga_storyboard_design:
-    path: "06_manga/manga_storyboard_design.md"
+    path: "novel/06_manga/manga_storyboard_design.md"
     title: "分镜设计"
     category: "manga"
     status: "active"
@@ -278,7 +278,7 @@ prompts:
     description: "设计每页的画格布局和镜头安排"
 
   manga_prompt:
-    path: "06_manga/manga_prompt.md"
+    path: "novel/06_manga/manga_prompt.md"
     title: "提示词生成"
     category: "manga"
     status: "unused"
@@ -287,7 +287,7 @@ prompts:
     description: "生成AI绘图提示词(旧版，已由PromptBuilder替代)"
 
   manga_layout:
-    path: "06_manga/manga_layout.md"
+    path: "novel/06_manga/manga_layout.md"
     title: "布局规划"
     category: "manga"
     status: "unused"
@@ -296,7 +296,7 @@ prompts:
     description: "漫画页面布局规划(旧版，已整合到分镜设计)"
 
   screenwriting:
-    path: "06_manga/screenwriting.md"
+    path: "novel/06_manga/screenwriting.md"
     title: "分格剧本(已弃用)"
     category: "manga"
     status: "deprecated"
@@ -306,7 +306,7 @@ prompts:
 
   # ==================== 07 主角档案 ====================
   protagonist_analysis:
-    path: "07_protagonist/protagonist_analysis.md"
+    path: "novel/07_protagonist/protagonist_analysis.md"
     title: "主角分析"
     category: "protagonist"
     status: "experimental"
@@ -316,7 +316,7 @@ prompts:
     description: "分析并生成主角档案信息"
 
   implicit_classification:
-    path: "07_protagonist/implicit_classification.md"
+    path: "novel/07_protagonist/implicit_classification.md"
     title: "隐性属性分类"
     category: "protagonist"
     status: "experimental"
@@ -327,7 +327,7 @@ prompts:
     description: "对主角的隐性属性进行分类识别"
 
   implicit_update:
-    path: "07_protagonist/implicit_update.md"
+    path: "novel/07_protagonist/implicit_update.md"
     title: "隐性属性更新"
     category: "protagonist"
     status: "experimental"
@@ -337,43 +337,155 @@ prompts:
       - "implicit_classification"
     description: "根据章节内容更新主角的隐性属性"
 
+  # ==================== 08 编程项目 ====================
+  requirement_analysis:
+    path: "coding/requirement_analysis.md"
+    title: "需求分析"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingInspirationService.converse"
+    dependencies: []
+    description: "通过多轮对话明确编程项目需求，生成结构化需求摘要"
+
+  architecture_design:
+    path: "coding/architecture_design.md"
+    title: "架构设计"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingBlueprintService.generate"
+    dependencies:
+      - "requirement_analysis"
+    description: "根据需求分析生成项目架构设计文档"
+
+  system_design:
+    path: "coding/system_design.md"
+    title: "系统划分"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingSystemService.generate_systems"
+    dependencies:
+      - "architecture_design"
+    description: "将项目划分为多个独立子系统，定义系统边界和职责"
+
+  modules_batch_design:
+    path: "coding/modules_batch_design.md"
+    title: "模块批量设计"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingModuleService.generate_modules"
+    dependencies:
+      - "system_design"
+    description: "为指定系统批量生成模块列表和设计规范"
+
+  module_design:
+    path: "coding/module_design.md"
+    title: "模块详细设计"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingModuleService.design_single"
+    dependencies:
+      - "modules_batch_design"
+    description: "为单个模块生成详细的组件和接口设计"
+
+  features_batch_outline:
+    path: "coding/features_batch_outline.md"
+    title: "功能大纲批量生成"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingFeatureService.generate_outlines"
+    dependencies:
+      - "modules_batch_design"
+    description: "为指定模块批量生成功能大纲列表"
+
+  feature_design:
+    path: "coding/feature_design.md"
+    title: "功能详细设计"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingFeatureService.design_single"
+    dependencies:
+      - "features_batch_outline"
+    description: "为单个功能生成详细的实现规范"
+
+  prompt_generation:
+    path: "coding/prompt_generation.md"
+    title: "Prompt生成"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "CodingChapterService.generate"
+    dependencies:
+      - "feature_design"
+    description: "根据功能设计生成高质量的编程实现Prompt"
+
+  review_prompt_generation:
+    path: "coding/review_prompt_generation.md"
+    title: "审查Prompt生成"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "FeatureGeneration.generate_review_prompt"
+    dependencies:
+      - "prompt_generation"
+    description: "根据实现Prompt生成代码审查Prompt，用于验证AI生成代码的正确性"
+
 # ==================== 分类定义 ====================
 categories:
   inspiration:
     label: "构思"
+    project_type: "novel"
     color: "#e3f2fd"
     order: 1
     description: "故事构思和灵感对话阶段"
   blueprint:
     label: "蓝图"
+    project_type: "novel"
     color: "#fff3e0"
     order: 2
     description: "世界观、角色、剧情框架设计"
   outline:
     label: "大纲"
+    project_type: "novel"
     color: "#e8f5e9"
     order: 3
     description: "分部大纲和章节大纲生成"
   writing:
     label: "写作"
+    project_type: "novel"
     color: "#fce4ec"
     order: 4
     description: "章节正文生成和摘要提取"
   analysis:
     label: "分析"
+    project_type: "novel"
     color: "#f3e5f5"
     order: 5
     description: "章节分析、评审和优化"
   manga:
     label: "漫画"
+    project_type: "novel"
     color: "#e0f7fa"
     order: 6
     description: "漫画分镜生成流水线"
   protagonist:
     label: "主角"
+    project_type: "novel"
     color: "#fff9c4"
     order: 7
     description: "主角档案管理(实验性功能)"
+  coding:
+    label: "编程"
+    project_type: "coding"
+    color: "#e1f5fe"
+    order: 8
+    description: "编程项目Prompt生成流水线"
 
 # ==================== 状态定义 ====================
 statuses:

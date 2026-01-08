@@ -147,8 +147,9 @@ class BlueprintHandlerMixin:
                 MessageService.show_error(self, "蓝图生成失败：蓝图数据为空", "生成蓝图失败")
                 return
 
-            # 验证蓝图必需字段
+            # 验证蓝图数据必需字段
             required_fields = ['world_setting', 'characters']
+
             missing_fields = [f for f in required_fields if not self._state.blueprint.get(f)]
             if missing_fields:
                 MessageService.show_error(
@@ -227,8 +228,7 @@ class BlueprintHandlerMixin:
 
     def onBlueprintConfirmed(self: "InspirationMode"):
         """蓝图确认"""
-        # 使用navigateReplace跳转到项目详情页
-        # 这样返回时会跳过灵感对话页面，直接返回首页
+        # 使用navigateReplace跳转，这样返回时会跳过灵感对话页面，直接返回首页
         self.navigateReplace('DETAIL', project_id=self._state.project_id)
 
     def onBlueprintRejected(self: "InspirationMode"):

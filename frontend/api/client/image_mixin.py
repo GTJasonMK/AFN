@@ -147,6 +147,8 @@ class ImageMixin:
         panel_id: Optional[str] = None,
         reference_image_paths: Optional[List[str]] = None,
         reference_strength: Optional[float] = None,
+        # Bug 25/38 修复: 添加章节版本ID参数
+        chapter_version_id: Optional[int] = None,
         # 漫画画格元数据 - 对话相关
         dialogue: Optional[str] = None,
         dialogue_speaker: Optional[str] = None,
@@ -221,6 +223,10 @@ class ImageMixin:
             data['reference_image_paths'] = reference_image_paths
         if reference_strength is not None:
             data['reference_strength'] = reference_strength
+
+        # Bug 25/38 修复: 传递章节版本ID
+        if chapter_version_id is not None:
+            data['chapter_version_id'] = chapter_version_id
 
         # 漫画画格元数据 - 对话相关
         if dialogue:
@@ -418,6 +424,8 @@ class ImageMixin:
         title: Optional[str] = None,
         page_size: str = "A4",
         include_prompts: bool = False,
+        # Bug 26 修复: 添加章节版本ID参数
+        chapter_version_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         生成章节漫画PDF
@@ -428,6 +436,7 @@ class ImageMixin:
             title: PDF标题
             page_size: 页面大小（A4/A3/Letter）
             include_prompts: 是否包含提示词
+            chapter_version_id: 章节版本ID（可选，用于过滤特定版本的图片）
 
         Returns:
             生成结果，包含下载URL
@@ -438,6 +447,9 @@ class ImageMixin:
         }
         if title:
             data['title'] = title
+        # Bug 26 修复: 传递章节版本ID
+        if chapter_version_id is not None:
+            data['chapter_version_id'] = chapter_version_id
 
         return self._request(
             'POST',

@@ -213,7 +213,7 @@ class ChapterPromptBuilder:
         """
         构建关键参考部分
 
-        包含：涉及角色详情、待回收伏笔、相关段落、前情摘要
+        包含：涉及角色详情、主角档案约束、待回收伏笔、相关段落、前情摘要
         """
         lines = ["## 关键参考"]
         has_content = False
@@ -231,7 +231,13 @@ class ChapterPromptBuilder:
                 lines.append(char_line)
             has_content = True
 
-        # 2. 待回收伏笔（从 generation_context 获取）
+        # 2. 主角档案约束（从 generation_context 获取）
+        protagonist_section = self._format_protagonist_profiles(generation_context)
+        if protagonist_section:
+            lines.append(protagonist_section)
+            has_content = True
+
+        # 3. 待回收伏笔（从 generation_context 获取）
         foreshadowing = self._get_foreshadowing(generation_context)
         if foreshadowing:
             lines.append("### 待回收伏笔")
@@ -243,14 +249,14 @@ class ChapterPromptBuilder:
                     lines.append(f"- {marker} {description[:80]}")
             has_content = True
 
-        # 3. 相关段落（RAG检索结果）
+        # 4. 相关段落（RAG检索结果）
         rag_text = self._format_rag_context(rag_context)
         if rag_text:
             lines.append("### 相关段落")
             lines.append(rag_text)
             has_content = True
 
-        # 4. 前情摘要（仅首次生成时）
+        # 5. 前情摘要（仅首次生成时）
         if completed_chapters:
             from ...utils.writer_helpers import build_layered_summary
             summary_text = build_layered_summary(completed_chapters, chapter_number)
@@ -260,6 +266,78 @@ class ChapterPromptBuilder:
                 has_content = True
 
         return "\n".join(lines) if has_content else ""
+
+    def _format_protagonist_profiles(self, generation_context: Optional[Any]) -> str:
+        """
+        格式化主角档案信息为提示词文本
+
+        从 generation_context 中提取主角档案，格式化为约束信息。
+        帮助LLM保持角色行为的一致性。
+
+        Args:
+            generation_context: 生成上下文（包含protagonist_profiles）
+
+        Returns:
+            str: 格式化的主角档案文本，无档案时返回空字符串
+        """
+        if not generation_context:
+            return ""
+
+        # 获取主角档案列表
+        profiles = None
+        if hasattr(generation_context, "protagonist_profiles"):
+            profiles = generation_context.protagonist_profiles
+        elif isinstance(generation_context, dict):
+            profiles = generation_context.get("protagonist_profiles")
+
+        if not profiles:
+            return ""
+
+        lines = ["### 主角档案约束", "请确保角色行为与以下档案设定保持一致："]
+
+        for profile in profiles[:3]:  # 最多3个主角
+            name = profile.get("name", "未知")
+            lines.append(f"\n**{name}**:")
+
+            # 显性属性（外貌、装备等可观察特征）
+            if explicit := profile.get("explicit"):
+                if isinstance(explicit, dict) and explicit:
+                    attrs = ", ".join(
+                        f"{k}: {self._truncate_value(v)}"
+                        for k, v in list(explicit.items())[:5]
+                    )
+                    lines.append(f"  - 显性特征: {attrs}")
+
+            # 隐性属性（性格、习惯等内在特质）
+            if implicit := profile.get("implicit"):
+                if isinstance(implicit, dict) and implicit:
+                    attrs = ", ".join(
+                        f"{k}: {self._truncate_value(v)}"
+                        for k, v in list(implicit.items())[:3]
+                    )
+                    lines.append(f"  - 性格特质: {attrs}")
+
+            # 社会属性（关系、地位等社交特征）
+            if social := profile.get("social"):
+                if isinstance(social, dict) and social:
+                    attrs = ", ".join(
+                        f"{k}: {self._truncate_value(v)}"
+                        for k, v in list(social.items())[:3]
+                    )
+                    lines.append(f"  - 社会关系: {attrs}")
+
+        return "\n".join(lines)
+
+    def _truncate_value(self, value: Any, max_length: int = 30) -> str:
+        """截断属性值为合适长度的字符串"""
+        if isinstance(value, str):
+            return value[:max_length] + "..." if len(value) > max_length else value
+        elif isinstance(value, list):
+            return ", ".join(str(v)[:15] for v in value[:3])
+        elif isinstance(value, dict):
+            return str(value)[:max_length] + "..."
+        else:
+            return str(value)[:max_length]
 
     def _get_involved_characters(
         self,

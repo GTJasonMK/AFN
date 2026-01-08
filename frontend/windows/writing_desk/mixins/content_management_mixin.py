@@ -169,9 +169,15 @@ class ContentManagementMixin:
         )
         dialog.exec()
 
-        # 重新加载章节数据以显示更新后的摘要和分析
+        # 刷新章节数据以显示更新后的摘要和分析
+        # 使用 refreshCurrentChapter() 而不是 loadChapter()
+        # 因为 loadChapter() 会被 _last_loaded_chapter 检查阻止
         if hasattr(self, 'workspace') and self.workspace:
-            self.workspace.loadChapter(chapter_number)
+            self.workspace.refreshCurrentChapter()
+
+            # 刷新漫画数据（分析数据变更可能影响漫画）
+            if hasattr(self.workspace, '_loadMangaDataAsync'):
+                self.workspace._loadMangaDataAsync()
 
         # 重新加载项目数据以刷新侧边栏
         self.loadProject()
@@ -225,6 +231,10 @@ class ContentManagementMixin:
 
         # 刷新workspace显示
         self.workspace.refreshCurrentChapter()
+
+        # 刷新漫画数据（编辑后内容变化，漫画分镜可能需要更新）
+        if hasattr(self.workspace, '_loadMangaDataAsync'):
+            self.workspace._loadMangaDataAsync()
 
         # 重新加载项目数据以刷新侧边栏
         self.loadProject()

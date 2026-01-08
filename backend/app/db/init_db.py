@@ -365,6 +365,12 @@ async def _run_migrations() -> None:
             "auto_generated",
             "ALTER TABLE character_portraits ADD COLUMN auto_generated BOOLEAN NOT NULL DEFAULT 0"
         ),
+        # 漫画分镜：分析数据（角色、事件、场景、情绪曲线、页面规划等）
+        (
+            "chapter_manga_prompts",
+            "analysis_data",
+            "ALTER TABLE chapter_manga_prompts ADD COLUMN analysis_data JSON DEFAULT NULL"
+        ),
     ]
 
     async with engine.begin() as conn:

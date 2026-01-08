@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...schemas.protagonist import (
     ChapterAnalysisResult,
     BehaviorClassificationResult,
@@ -101,10 +102,10 @@ class ProtagonistAnalysisService:
 
         try:
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                payload={}
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                user_id=user_id,
+                max_tokens=settings.llm_max_tokens_analysis,
             )
 
             # 解析LLM返回的JSON
@@ -176,10 +177,10 @@ class ProtagonistAnalysisService:
 
         try:
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                payload={}
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                user_id=user_id,
+                max_tokens=settings.llm_max_tokens_analysis,
             )
 
             result_data = parse_llm_json_safe(response)
@@ -215,7 +216,7 @@ class ProtagonistAnalysisService:
     ) -> ImplicitUpdateDecision:
         """决定是否更新隐性属性
 
-        当某属性连续多次"不符合"时，由LLM决定是否真的需要更新。
+        当某属性在窗口内累计多次"不符合"时，由LLM决定是否真的需要更新。
 
         Args:
             attribute_key: 属性键名
@@ -250,10 +251,10 @@ class ProtagonistAnalysisService:
 
         try:
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                payload={}
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                user_id=user_id,
+                max_tokens=settings.llm_max_tokens_analysis,
             )
 
             result_data = parse_llm_json_safe(response)

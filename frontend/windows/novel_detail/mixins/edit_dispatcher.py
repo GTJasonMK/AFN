@@ -144,10 +144,9 @@ class EditDispatcherMixin:
         """处理关系列表编辑"""
         from ..dialogs import RelationshipListEditDialog
 
-        # 获取角色列表用于选择
-        characters = []
-        if self.project_data and self.project_data.get('blueprint'):
-            characters = self.project_data['blueprint'].get('characters', [])
+        # 获取角色列表用于选择 - 使用 _safe_get_blueprint 支持两种项目类型
+        blueprint = self._safe_get_blueprint()
+        characters = blueprint.get('characters', []) if blueprint else []
 
         relationships = value if isinstance(value, list) else []
         dialog = RelationshipListEditDialog(
@@ -234,9 +233,12 @@ class EditDispatcherMixin:
         2. 世界观字段: world_setting.core_rules, world_setting.key_locations等
         3. 复杂列表字段: characters, relationships
         """
-        if not self.project_data or not self.project_data.get('blueprint'):
+        # 获取蓝图（小说项目专用）
+        blueprint = self._safe_get_blueprint()
+        if not self.project_data or not blueprint:
             return
 
+        # 直接使用 blueprint 引用
         blueprint = self.project_data.get('blueprint', {})
 
         # 更新本地缓存

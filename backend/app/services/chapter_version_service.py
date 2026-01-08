@@ -141,9 +141,14 @@ class ChapterVersionService:
                 index, len(content), repr(content[:100]) if content else "EMPTY"
             )
 
+            # Bug 6 修复: 使用传入的 metadata 参数，而非硬编码为 None
+            version_metadata = None
+            if metadata and index < len(metadata):
+                version_metadata = metadata[index]
+
             versions_data.append({
                 "content": content,
-                "metadata": None,
+                "metadata": version_metadata,
                 "version_label": f"v{index+1}",
             })
 
@@ -220,6 +225,9 @@ class ChapterVersionService:
                 "已清理章节 %d 的旧版本索引，新版本索引将在章节分析时重建",
                 chapter.chapter_number,
             )
+
+        # 注意：主角档案同步已移至RAG入库流程（update_chapter with trigger_rag=True）
+        # 版本选择只是确定大致方向，用户可能还需要细调内容后再入库
 
         await self._touch_project(chapter.project_id)
         return selected
@@ -345,6 +353,81 @@ class ChapterVersionService:
         if count > 0:
             await self.chapter_outline_repo.delete_by_project(project_id)
         return count
+
+    async def reset_chapter(self, project_id: str, chapter_number: int) -> Optional[Chapter]:
+        """
+        重置章节数据（清空内容、版本等，还原为未生成状态）
+
+        此方法会：
+        1. 删除章节的所有版本
+        2. 重置章节状态为 not_generated
+        3. 清空字数、摘要、分析数据
+        4. 清理角色状态索引和伏笔索引中的相关数据
+
+        注意：此方法不commit，调用方需要在适当时候commit
+        注意：此方法不清理漫画数据和图片，需要调用方单独处理
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            重置后的章节对象，如果章节不存在则返回None
+        """
+        # 1. 获取章节
+        chapter = await self.chapter_repo.get_by_project_and_number(project_id, chapter_number)
+        if not chapter:
+            return None
+
+        # 2. 删除该章节的所有版本
+        await self.chapter_version_repo.delete_by_chapter(chapter.id)
+
+        # 3. 删除该章节的所有评价
+        await self.session.execute(
+            delete(ChapterEvaluation).where(ChapterEvaluation.chapter_id == chapter.id)
+        )
+
+        # 4. 重置章节字段
+        chapter.status = ChapterGenerationStatus.NOT_GENERATED.value
+        chapter.word_count = 0
+        chapter.selected_version_id = None
+        chapter.real_summary = None
+        chapter.analysis_data = None
+
+        # 5. 清理角色状态索引
+        await self.session.execute(
+            delete(CharacterStateIndex).where(
+                CharacterStateIndex.project_id == project_id,
+                CharacterStateIndex.chapter_number == chapter_number,
+            )
+        )
+
+        # 6. 清理伏笔索引
+        # 6.1 删除在此章节埋下的伏笔
+        await self.session.execute(
+            delete(ForeshadowingIndex).where(
+                ForeshadowingIndex.project_id == project_id,
+                ForeshadowingIndex.planted_chapter == chapter_number,
+            )
+        )
+
+        # 6.2 重置在此章节回收的伏笔状态（改为pending，而不是删除）
+        result = await self.session.execute(
+            select(ForeshadowingIndex).where(
+                ForeshadowingIndex.project_id == project_id,
+                ForeshadowingIndex.resolved_chapter == chapter_number,
+            )
+        )
+        for fs in result.scalars().all():
+            fs.status = "pending"
+            fs.resolved_chapter = None
+            fs.resolution = None
+
+        await self.session.flush()
+        await self._touch_project(project_id)
+
+        logger.info("章节 %s-%d 已重置为未生成状态", project_id, chapter_number)
+        return chapter
 
     # ------------------------------------------------------------------
     # 私有方法

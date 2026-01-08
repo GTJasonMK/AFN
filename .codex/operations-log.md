@@ -1,0 +1,193 @@
+## 2026-01-04 - Codex
+
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `pwd`、`ls` 收集根目录结构（初始扫描）
+- `shell_command` @ `/mnt/e/code/AFN`: `mkdir -p .codex` 创建上下文文件目录
+- `shell_command` @ `/mnt/e/code/AFN`: `cat README.md`、`cat backend/README.md`、`cat frontend/README.md`、`sed run_app.py` 收集项目结构与流程
+- `shell_command` @ `/mnt/e/code/AFN`: `date` 获取当前时间戳，用于日志记录
+- `shell_command` @ `/mnt/e/code/AFN`: `git log -5 --oneline` 了解提交信息风格
+- 备注：仓库要求使用 `sequential-thinking` MCP 工具，但当前环境未提供该工具，已记录此限制并改以手动推理（适用于 2026-01-04 的全部任务）
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/context-scan.json`，记录快速扫描结论
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/operations-log.md` 并补充日志
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/context-question-1.json`，整理关键疑问
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/context-question-2.json`，针对测试验证问题深挖
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/context-sufficiency.md`，完成充分性检查
+- `apply_patch` @ `/mnt/e/code/AFN`: 新增 `AGENTS.md`，编写贡献者指南
+- `shell_command` @ `/mnt/e/code/AFN`: `wc -w AGENTS.md` 校验字数（208 词）
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/testing.md`，记录本次文档改动未执行测试的原因
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `verification.md`，记录验证缺失与风险评估
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/review-report.md`，输出质量审查结论
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba AGENTS.md` 获取行号以便在交付中引用
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/structured-request.json`，记录结构化需求
+- `shell_command` @ `/mnt/e/code/AFN`: `git status -sb` 检查工作区状态（仓库存在大量既有改动，未触碰）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/structured-request.json`，加入“漫画提示词审查”任务
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-scan.json`，追加漫画提示词审查上下文
+- `apply_patch` @ `/mnt/e/code/AFN`: 创建 `.codex/context-question-3.json`，整理漫画提示词相关疑问
+- `shell_command` @ `/mnt/e/code/AFN`: 多次 `sed`/`nl` 阅读 `backend/app/services/manga_prompt/*`、`backend/app/services/image_generation/pdf_export.py`、`backend/app/models/novel.py`、`frontend/windows/writing_desk/workspace/manga_handlers.py`，梳理提示词流水线与 PDF 逻辑
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-question-3.json`，记录调查结果
+- `apply_patch` @ `/mnt/e/code/AFN`: 修改 `backend/app/services/manga_prompt/prompt_builder/builder.py`，重新将对白/旁白/音效写入提示词并放宽负面提示词
+- `apply_patch` @ `/mnt/e/code/AFN`: 修改 `frontend/windows/writing_desk/workspace/manga_handlers.py`，优先使用 panel 数据里的 scene_id，避免写入 scene_0
+- `apply_patch` @ `/mnt/e/code/AFN`: 再次修改 `backend/app/services/manga_prompt/prompt_builder/builder.py`，为提示词添加语言指令，强制对话/音效使用指定语言
+- `apply_patch` @ `/mnt/e/code/AFN`: 新增 `docs/MANGA_PIPELINE_REFACTOR.md`，整理漫画流水线重构方案（后续根据反馈再次更新，改为纯原子模板拼装）
+- `apply_patch` @ `/mnt/e/code/AFN`: 新增 `docs/BUG_REPORT.md`，记录小说生成工作流问题
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，补充重试版本索引/摘要等问题并记录元数据丢失
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `sequential-thinking`（环境未提供该命令，再次确认工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `shrimp-task-manager`（未找到命令，记录规划工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `ls`、`ls -a`、`ls .codex`、`sed` 多个 context 文件，了解现有 AGENTS 任务及漫画相关上下文
+- `shell_command` @ `/mnt/e/code/AFN`: 多次 `sed`/`nl` 阅读 `backend/app/services/chapter_generation/workflow.py`、`service.py`、`chapter_version_service.py`、`api/routers/writer/chapter_generation.py`、`prompt_builder.py`，定位新增的逻辑缺陷
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/structured-request.json`，新增“小说章节生成 bug 排查”条目
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-scan.json`，加入小说工作流的结构化扫描
+- `apply_patch` @ `/mnt/e/code/AFN`: 新增 `.codex/context-question-4.json`，记录本轮关键疑问与结论
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-sufficiency.md`，补充章节生成排查的充分性检查
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，追加 7-10 号缺陷（重生成回滚、空白项目 retry、伏笔丢失、并发缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: 再次执行 `sequential-thinking`（命令仍不存在，记录工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl` 阅读 `backend/app/api/routers/writer/chapter_generation.py`（preview/sse）与 `backend/app/services/chapter_generation/service.py`，确认摘要生成与校验细节
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-question-4.json`，新增预览摘要持久化与 SSE 校验相关疑问
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题 11-12
+- `shell_command` @ `/mnt/e/code/AFN`: 再次执行 `sequential-thinking`（命令依旧不存在，遵循“never”策略记录失败）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl` 阅读 `backend/app/core/state_validators.py` 与 `backend/app/services/chapter_generation/workflow.py`，确认 COMPLETED 状态校验差异
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-question-4.json`，补充“completed 状态无法生成”疑问
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题 15（完结项目无法重新生成章节）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg`/`sed` 阅读 `backend/app/api/routers/writer/chapter_generation.py`（retry接口）确认完结状态同样被禁止
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/context-question-4.json`，追加“完结项目无法重试版本”疑问
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题 16（完结项目无法重试版本）
+- `shell_command` @ `/mnt/e/code/AFN`: `which sequential-thinking`，确认命令仍未安装
+- `shell_command` @ `/mnt/e/code/AFN`: `cat .codex/operations-log.md`，回顾既有日志与约束
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `sequential-thinking`（命令缺失，输出 command not found）
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `shrimp-task-manager`（命令缺失，输出 command not found）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志文件以补记上述 shell 命令记录（本条同时作为此次补丁的日志）
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '1,200p' docs/BUG_REPORT.md`，阅读 bug 列表开头内容
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录读取 BUG_REPORT 的命令（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: 多次 `nl -ba ... | sed -n ...` 查看 `backend/app/services/chapter_generation/*.py` 与 `api/routers/writer/chapter_generation.py`、`chapter_outlines.py`、`schemas/novel.py` 等，核对 bug 涉及的实现
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "blueprint" backend/app -g"*.py"` 统计全局蓝图引用以确认空值处理情况
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "空白项目"` 搜索空白项目相关逻辑，验证蓝图缺失场景存在
+- `shell_command` @ `/mnt/e/code/AFN`: `code-index --help`（命令不存在，记录内部检索工具缺失）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，补充本轮代码阅读与工具缺失记录（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "pending_foreshadowing" backend/app -g"*.py"`，确认伏笔上下文只在强化RAG上下文中暴露
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/chapter_management.py | sed -n '220,260p'`，核对空白项目注释及状态流转
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录伏笔检索与空白项目代码阅读（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: `cat docs/BUG_REPORT.md`，确认当前文档内容以便标注验证结论
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，为16个缺陷补充验证情况说明（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba docs/BUG_REPORT.md | sed -n '1,200p'`，记录文档行号以便在交付中引用
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，补记上述行号获取命令（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，记录工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，记录规划工具不可用）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录新一轮工具调用失败（本条对应本次补丁）
+- `shell_command` @ `/mnt/e/code/AFN`: 多次 `nl -ba ...` / `rg` 阅读 `backend/app/services/image_generation/pdf_export.py`、`frontend/windows/writing_desk/workspace/manga_handlers.py` 等文件，排查 PDF 导出与本地图片路径逻辑
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录上述代码审查命令（本条对应本次补丁）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题17（PDF标题未净化导致文件名污染）与问题18（前端构造本地图片路径错误）
+- `shell_command` @ `/mnt/e/code/AFN`: 再次执行 `sequential-thinking`（命令缺失，确认无法使用）
+- `shell_command` @ `/mnt/e/code/AFN`: 再次执行 `shrimp-task-manager`（命令缺失，确认规划工具仍不可用）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录最新的工具调用失败
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "def delete_chapters" backend/app/services/novel_service.py`，查阅删除章节的服务实现
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/novel_service.py | sed -n '420,520p'`，核对 `check_and_update_completion_status` 仅执行写作->完结的状态转换
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "delete_chapters" backend/app/api/routers/writer/chapter_management.py` 并 `nl -ba ... | sed -n '520,620p'`，确认删除接口未触发状态回退
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新本日志，记录上述状态管理代码审查
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`，命令不存在（再次记录工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`，命令不存在（规划工具依旧缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/image_generation/pdf_export.py | sed -n '552,630p'`，审查专业排版 PDF 的图片查询条件
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/image_generation.py | sed -n '470,520p'`，确认路由始终调用专业排版函数
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "request\\.layout" backend/app/services/image_generation/pdf_export.py`，验证 `layout` 参数在服务层完全未使用
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题20-21（PDF版本过滤缺失、layout参数无效）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录本轮漫画 PDF 静态审查未执行测试的说明
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，继续记录）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/panels/manga/builder.py | sed -n '1,320p'`，阅读漫画面板构建器
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "dialogue" frontend/windows/writing_desk -g"*.py"`，搜索对白相关实现
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "'dialogue':" frontend -g"*.py"`，确认没有代码写入该字段
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/panels/manga/prompt_tab.py | sed -n '420,560p'`，查看 UI 对白展示逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "dialogue_speaker" -g"*.py"`，核对字段使用位置
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '400,520p'`，确认生成图片前对白/音效处理逻辑
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题22-23（对白字段未解析、音效细节丢失）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '80,140p'`，检查 `GenerateResponse` 字段
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '340,420p'`，确认 `_convert_to_response` 未输出 `dialogue_language`
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "dialogue_language" frontend/windows/writing_desk/workspace/manga_handlers.py`，确认前端多处读取该字段
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题24（API 未返回 dialogue_language）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录漫画 API 语言字段静态审查未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id" frontend`（无结果），确认前端完全未传递章节版本ID
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '420,520p' frontend/api/client/image_mixin.py`，验证 `generate_scene_image` 方法缺少 `chapter_version_id`
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '480,840p'`，查看单张/批量生成代码未传版本ID
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/image_generation/service.py | sed -n '500,620p'`，确认服务层会写入 `request.chapter_version_id`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题25（chapter_version_id 永远为 None）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/api/client/image_mixin.py | sed -n '400,460p'`，检查漫画 PDF 请求体未包含 `chapter_version_id`
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '560,620p'`，确认 `_onGenerateMangaPDF` 也未传版本ID
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/image_generation/pdf_export.py | sed -n '340,400p'`，复核后端已支持 `chapter_version_id` 过滤
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题26（PDF导出无法选择章节版本）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '240,280p'`，分析删除漫画分镜流程
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/manga_prompt/core/service.py | sed -n '455,470p'`，确认 `delete_result` 未调用图片清理
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '90,130p'`，验证删除后仍会加载图片
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题27（删除分镜不清理图片）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/image_generation.py | sed -n '520,580p'`，确认 download_url 返回相对路径
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/api/client/image_mixin.py | sed -n '460,500p'`，确认客户端简单拼接 base_url + download_url
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '620,650p'`，查看 `_onDownloadPDF` 如何调起浏览器
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题28（下载链接在远程环境无效）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录 download_url 静态审查未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令仍缺失，记录工具无法调用）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，再次确认规划工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba docs/BUG_REPORT.md | sed -n '200,460p'` 试图查看新增条目行号（文件不足200行未输出）
+- `shell_command` @ `/mnt/e/code/AFN`: `wc -l docs/BUG_REPORT.md` 获取当前缺陷文档行数（185 行）
+- `shell_command` @ `/mnt/e/code/AFN`: `cat docs/BUG_REPORT.md` 通读已记录的28个问题
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "pdf_info"` 全局搜索 PDF 信息字段的使用位置
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/panels/manga/pdf_tab.py` 阅读 PDF 预览 Tab 的实现
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "PyMuPDF"` 检索依赖引用情况，确认仅在前端 PDF 预览中使用
+- `shell_command` @ `/mnt/e/code/AFN`: `cat frontend/requirements.txt` 核实 PyMuPDF 依赖声明
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '1,260p'` 审查漫画数据准备与图片加载逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '560,700p'` 阅读 PDF 生成/下载回调
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/image_generation.py | sed -n '430,620p'` 对照 PDF 导出 API 响应字段
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/image_generation/pdf_export.py | sed -n '480,680p'` 审查专业排版 PDF 生成逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "get_manga_prompts"` 搜索 API/前端加载漫画分镜的入口
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '1,200p'`、`sed -n '200,340p'`、`sed -n '340,420p'` 依次查看漫画提示词请求/响应模型与转换逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "dialogue_language"` 全局确认语言字段在模型/仓储中的使用情况
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/manga_prompt/core/service.py | sed -n '360,460p'` 阅读 `_save_result` 与 `get_result` 的实现
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/repositories/manga_prompt_repository.py` 通读仓库层保存/读取逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "is_selected"` 搜索图片选中状态的引用，确认 PDF 导出未使用
+- `shell_command` @ `/mnt/e/code/AFN`: `cat .codex/testing.md` 查看既有测试记录，为后续审查条目追加备注做准备
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/panels/manga/builder.py | sed -n '1,260p'` 阅读漫画 Tab 构建器，确认 `update_images` 重建标签时未传入 `pdf_info`
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "update_images" -n frontend/windows/writing_desk/panels/manga/pdf_tab.py` 查看刷新图片回调如何调用 `update_images`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题33（刷新图片后 PDF 信息丢失且标签变更）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，补充本轮静态审查未执行测试的说明
+- `shell_command` @ `/mnt/e/code/AFN`: `sequential-thinking`、`shrimp-task-manager`（命令仍不存在，照例记录工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "reading_flow"`、`nl -ba backend/app/services/manga_prompt/storyboard/models.py`、`nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '360,430p'`，比对后端阅读流向字段
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "reading_flow" frontend`（确认前端完全未使用该字段）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/mixins/version_management_mixin.py | sed -n '1,200p'`、`rg -n "refreshCurrentChapter"`，检查版本切换回调
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/generation_handlers.py | sed -n '1,220p'`、`rg -n "_loadMangaDataAsync" frontend/windows/writing_desk`，分析章节刷新如何触发/跳过漫画加载
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/chapter_display.py | sed -n '520,620p'` 与 `sed -n '260,340p'`，确认漫画 Tab 懒加载与缓存清理逻辑
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题34（版本切换后漫画内容不刷新）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "scene_summary" -g"*.py"`、`nl -ba frontend/windows/writing_desk/panels/manga/scene_card.py | sed -n '1,240p'`，确认前端多个组件依赖场景摘要/情感字段
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/manga_prompt/prompt_builder/models.py | sed -n '150,200p'`、`nl -ba backend/app/repositories/manga_prompt_repository.py | sed -n '260,360p'`，检查 PagePromptResult/持久层只保存 layout_description 和 reading_flow
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "scene_summary" backend`，确认模型文档声明应保存该字段
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题35（场景元数据在保存时丢失）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "_on_generate_image" frontend/windows/writing_desk/panels/manga`、`nl -ba frontend/windows/writing_desk/panels/manga/scene_card.py | sed -n '90,150p'`，核对场景卡片按钮传参
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '396,520p'`，确认 `_onGenerateImage` 需要完整画格字典
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题36-37（slot_id 缺失及场景生成按钮崩溃）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id" -n backend/app`、`rg -n "chapter_version" frontend`，确认生成/导出 API 支持版本追溯而前端未传
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id" frontend/windows/writing_desk/workspace/manga_handlers.py`（无结果）证实调用缺失
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题38（图片生成/PDF 导出无法识别章节版本）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "trigger_rag_processing" -n` 确认该字段仅在后端 Schema 和路由中使用
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '1,200p' frontend/api/client/chapter_mixin.py` 查看前端 `select_chapter_version` 实现未传递 `trigger_rag_processing`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，先前新增的问题38经需求确认后被移除
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，再次记录工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，规划工具仍不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `wc -l docs/BUG_REPORT.md` 与 `sed -n '200,260p' docs/BUG_REPORT.md`，复盘现有缺陷条目范围
+- `shell_command` @ `/mnt/e/code/AFN`: `cat .codex/context-scan.json`、`sed -n '1,260p' backend/app/services/chapter_generation/workflow.py` 等命令，刷新章节/漫画上下文
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '60,180p'`、`nl -ba backend/app/api/routers/image_generation.py | sed -n '360,460p'`、`nl -ba backend/app/services/image_generation/service.py | sed -n '640,700p'`，定位漫画图片映射与版本过滤实现
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题39-40（画格卡片总是展示旧图、章节图片 API 无法按版本过滤）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录本轮静态审查未运行测试
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，仍无法使用强制思考工具）
+- `update_plan`：梳理新的 BUG 审查计划（确认范围→审查→更新文档）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "/api/images" backend/app`、`rg -n "/files/{project_id}" backend/app/api/routers/image_generation.py`，确认图片接口返回的 URL 与真实路由不符
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id is_(None)" backend/app/services/image_generation/pdf_export.py`、`sed -n '340,400p' backend/app/services/image_generation/pdf_export.py`，分析简单 PDF 在未指定版本时的查询条件
+- `shell_command` @ `/mnt/e/code/AFN`: `wc -l docs/BUG_REPORT.md`、`sed -n '200,280p' docs/BUG_REPORT.md`，准备插入新的缺陷条目
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题41（图片 URL 不存在）与问题42（PDF 默认只取 legacy 图片）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录本轮静态审查未运行测试
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `sequential-thinking`（命令依旧不存在，记录工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `shrimp-task-manager`（命令依旧不存在，记录规划工具缺失）
+- `shell_command` @ `/mnt/e/code/AFN`: `sed`/`rg` 多次阅读 `backend/app/services/chapter_generation/workflow.py`、`service.py`、`chapter_version_service.py`、`api/routers/writer/chapter_generation.py`、`backend/app/api/routers/image_generation.py`、`backend/app/services/image_generation/pdf_export.py`、`frontend/api/client/image_mixin.py`、`frontend/windows/writing_desk/workspace/manga_handlers.py`、`frontend/windows/writing_desk/panels/manga/*.py` 等文件，逐条核对 BUG_REPORT 中的条目是否仍然成立
+- `apply_patch` @ `/mnt/e/code/AFN`: 重新整理 `docs/BUG_REPORT.md`，移除已修复/重复的缺陷并保留 8 个仍存在的问题；更新日志以记录本轮审查结论
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，依然无法使用强制思考工具）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，规划工具仍不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg`/`sed` 阅读 `frontend/windows/writing_desk/workspace/manga_handlers.py`、`frontend/api/client/image_mixin.py`、`frontend/windows/writing_desk/workspace/chapter_display.py` 与 `backend/app/api/routers/image_generation.py`，确认章节图片加载没有传递 `chapter_version_id`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题9（章节图片加载接口仍混合所有版本）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`（命令缺失，记录本轮新任务无法使用强制思考工具）
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，再次记录规划工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "base_url" frontend`、`sed -n '90,140p' frontend/api/client/core.py`、`sed -n '20,80p' frontend/api/manager.py`、`sed -n '60,90p' frontend/utils/config_manager.py`，确认 API 客户端始终使用默认 `http://127.0.0.1:8123` 且未读取用户配置
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题10（桌面端无法连接自定义后端地址）

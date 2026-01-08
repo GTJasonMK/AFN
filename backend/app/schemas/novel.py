@@ -178,6 +178,8 @@ class Relationship(BaseModel):
     description: str
 
 
+# ==================== 小说项目 Schema ====================
+
 class Blueprint(BaseModel):
     title: str
     target_audience: str = ""
@@ -206,7 +208,7 @@ class NovelProject(BaseModel):
     initial_prompt: str
     status: str  # 项目状态：draft, blueprint_ready, part_outlines_ready, chapter_outlines_ready 等
     conversation_history: List[Dict[str, Any]] = []
-    blueprint: Optional[Blueprint] = None
+    blueprint: Optional[Blueprint] = None  # 小说项目蓝图
     chapters: List[Chapter] = []
     warnings: Optional[List[str]] = Field(
         default=None,

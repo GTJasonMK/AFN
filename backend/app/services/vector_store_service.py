@@ -476,6 +476,7 @@ class VectorStoreService:
             :metadata
         )
         ON CONFLICT(id) DO UPDATE SET
+            project_id=excluded.project_id,
             content=excluded.content,
             embedding=excluded.embedding,
             metadata=excluded.metadata,
@@ -695,6 +696,116 @@ class VectorStoreService:
         except Exception as exc:  # pragma: no cover - 删除失败时记录日志
             logger.error("删除章节向量失败: project=%s chapters=%s error=%s", project_id, chapter_numbers, exc)
 
+    async def delete_by_project(self, project_id: str) -> int:
+        """
+        删除项目的所有RAG数据
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            删除的记录数
+        """
+        if not self._client:
+            logger.warning("delete_by_project: 向量库客户端未初始化")
+            return 0
+
+        await self.ensure_schema()
+
+        try:
+            # 先统计现有记录数
+            count_sql = "SELECT COUNT(*) as cnt FROM rag_chunks WHERE project_id = :project_id"
+            count_result = await self._client.execute(count_sql, {"project_id": project_id})
+            before_count = 0
+            for row in self._iter_rows(count_result):
+                before_count = row.get("cnt", 0)
+                break
+
+            logger.info(
+                "delete_by_project: 开始删除 project=%s 删除前chunks数量=%d",
+                project_id, before_count
+            )
+
+            # 删除 chunks
+            chunk_sql = "DELETE FROM rag_chunks WHERE project_id = :project_id"
+            await self._client.execute(chunk_sql, {"project_id": project_id})
+
+            # 删除 summaries
+            summary_sql = "DELETE FROM rag_summaries WHERE project_id = :project_id"
+            await self._client.execute(summary_sql, {"project_id": project_id})
+
+            # 验证删除结果
+            verify_result = await self._client.execute(count_sql, {"project_id": project_id})
+            after_count = 0
+            for row in self._iter_rows(verify_result):
+                after_count = row.get("cnt", 0)
+                break
+
+            deleted_count = before_count - after_count
+
+            logger.info(
+                "delete_by_project: 删除完成 project=%s 删除前=%d 删除后=%d 实际删除=%d",
+                project_id, before_count, after_count, deleted_count
+            )
+
+            if after_count > 0:
+                logger.warning(
+                    "delete_by_project: 删除不完整! 仍有 %d 条记录未删除",
+                    after_count
+                )
+
+            return deleted_count
+        except Exception as exc:
+            logger.error("删除项目RAG数据失败: project=%s error=%s", project_id, exc)
+            return 0
+
+    async def delete_legacy_chunks(self, project_id: str) -> int:
+        """
+        删除项目中没有data_type字段的旧数据
+
+        这些是在添加data_type字段之前入库的数据，
+        可能导致来源显示错误（如显示"F1"而不是正确的类型）。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            删除的记录数
+        """
+        if not self._client:
+            return 0
+
+        await self.ensure_schema()
+
+        try:
+            # 删除没有data_type字段的chunks
+            # json_extract返回NULL表示字段不存在
+            sql = """
+            DELETE FROM rag_chunks
+            WHERE project_id = :project_id
+            AND (
+                json_extract(metadata, '$.data_type') IS NULL
+                OR json_extract(metadata, '$.data_type') = ''
+            )
+            """
+            result = await self._client.execute(sql, {"project_id": project_id})
+            deleted_count = 0
+            if hasattr(result, 'rowcount'):
+                deleted_count = result.rowcount
+
+            if deleted_count > 0:
+                logger.info(
+                    "已删除项目旧版RAG数据（无data_type字段）: project=%s deleted=%d",
+                    project_id, deleted_count
+                )
+            return deleted_count
+        except Exception as exc:
+            logger.warning(
+                "删除旧版RAG数据失败: project=%s error=%s",
+                project_id, exc
+            )
+            return 0
+
     async def get_chapter_chunks_metadata(
         self,
         project_id: str,
@@ -761,6 +872,72 @@ class VectorStoreService:
             logger.info("已删除 %d 个过时的chunk", len(chunk_ids))
         except Exception as exc:
             logger.warning("按ID删除chunk失败: count=%d error=%s", len(chunk_ids), exc)
+
+    async def get_chunks_hashes_by_type(
+        self,
+        project_id: str,
+        data_type: str,
+    ) -> Dict[str, str]:
+        """
+        获取指定项目和类型的所有chunk的内容哈希
+
+        用于变动检测：对比数据库中记录的哈希和向量库中存储的哈希。
+
+        Args:
+            project_id: 项目ID
+            data_type: 数据类型（如 "architecture", "module" 等）
+
+        Returns:
+            字典 {chunk_id: paragraph_hash}，用于快速查找和比对
+        """
+        if not self._client:
+            logger.debug("get_chunks_hashes_by_type: 向量库客户端未初始化")
+            return {}
+
+        await self.ensure_schema()
+
+        sql = """
+        SELECT id, json_extract(metadata, '$.paragraph_hash') AS paragraph_hash
+        FROM rag_chunks
+        WHERE project_id = :project_id
+        AND json_extract(metadata, '$.data_type') = :data_type
+        """
+
+        try:
+            result = await self._client.execute(
+                sql,
+                {"project_id": project_id, "data_type": data_type}
+            )
+            hashes = {}
+            null_hash_count = 0
+            for row in self._iter_rows(result):
+                chunk_id = row.get("id", "")
+                paragraph_hash = row.get("paragraph_hash", "")
+                if chunk_id and paragraph_hash:
+                    hashes[chunk_id] = paragraph_hash
+                elif chunk_id:
+                    # 记录有ID但没有paragraph_hash的情况
+                    null_hash_count += 1
+
+            # 调试日志
+            if null_hash_count > 0:
+                logger.warning(
+                    "get_chunks_hashes_by_type: 发现 %d 条记录缺少paragraph_hash "
+                    "(project=%s type=%s)",
+                    null_hash_count, project_id, data_type
+                )
+
+            logger.info(
+                "get_chunks_hashes_by_type: project=%s type=%s 返回 %d 条哈希",
+                project_id, data_type, len(hashes)
+            )
+            return hashes
+        except Exception as exc:
+            logger.warning(
+                "获取chunk哈希失败: project=%s type=%s error=%s",
+                project_id, data_type, exc
+            )
+            return {}
 
     @staticmethod
     def _to_f32_blob(embedding: Sequence[float]) -> bytes:

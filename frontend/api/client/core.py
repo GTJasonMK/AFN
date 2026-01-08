@@ -33,6 +33,7 @@ from .portrait_mixin import PortraitMixin
 from .import_mixin import ImportMixin
 from .theme_config_mixin import ThemeConfigMixin
 from .protagonist_mixin import ProtagonistMixin
+from .coding_mixin import CodingMixin
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class AFNAPIClient(
     ImportMixin,
     ThemeConfigMixin,
     ProtagonistMixin,
+    CodingMixin,
 ):
     """AFN API 客户端
 
@@ -83,6 +85,7 @@ class AFNAPIClient(
     - ImportMixin: 外部小说导入和分析
     - ThemeConfigMixin: 主题配置
     - ProtagonistMixin: 主角档案管理
+    - CodingMixin: 编程项目功能Prompt生成
     """
 
     def __init__(self, base_url: str = "http://127.0.0.1:8123"):

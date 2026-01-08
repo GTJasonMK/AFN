@@ -1,0 +1,106 @@
+{
+  "title": "关键疑问 - 小说生成工作流排查",
+  "items": [
+    {
+      "question": "章节重生成失败或被取消时，之前选定的正文是否会被恢复？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/chapter_generation/workflow.py:138-166 在 _initialize 内直接将 chapter.real_summary 与 selected_version_id 置空并 commit。",
+        "同文件:266-310/_reset_chapter_status 仅恢复 status=not_generated，未写回旧版本 ID 或摘要。"
+      ],
+      "conclusion": "一旦启动重生成，旧版本立即失去选中状态；若后续失败或取消，章节永久留在未选中状态，导致连贯性检查无法继续下一章。"
+    },
+    {
+      "question": "空白项目（无 blueprint）在 retry_chapter_version 流程会否崩溃？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/api/routers/writer/chapter_generation.py:156-193 直接对 project_schema.blueprint 调用 model_dump()，未做 None 判空。",
+        "generate_chapter 与 preview_chapter_prompt 已因同类问题列入 BUG_REPORT，retry 复用了同一逻辑。"
+      ],
+      "conclusion": "空白项目点击“重试版本”依旧会触发 AttributeError，用户完全无法修复该场景。"
+    },
+    {
+      "question": "未启用向量库时，伏笔/主角档案等上下文是否仍能进入提示词？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/chapter_generation/service.py:200-281 仅在 vector_store 存在时才实例化 EnhancedChapterContextService 并生成 generation_context。",
+        "backend/app/services/chapter_generation/prompt_builder.py:120-210 对伏笔/档案的引入完全依赖 generation_context，未读取 ChapterGenerationContext.pending_foreshadowing。"
+      ],
+      "conclusion": "默认桌面环境未配置 vector_store，导致所有伏笔/主角约束不再出现在提示词中，故事难以保持连贯。"
+    },
+    {
+      "question": "是否存在防护措施阻止同一章节被同时多次生成？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "chapter_generation router 中 generate_chapter/generate_chapter_stream 仅校验项目状态与章节顺序，未检查 chapter.status。",
+        "workflow._initialize 把 status 改为 \"generating\" 但没有检测已有 generating 状态。"
+      ],
+      "conclusion": "重复点击“生成”即可启动多个并发工作流，最终版本写入存在竞态，且会重复消耗提示词/LLM。"
+    },
+    {
+      "question": "预览提示词时触发的摘要生成是否会真正落库？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/api/routers/writer/chapter_generation.py:222-340 在 preview_chapter_prompt 中调用 collect_chapter_summaries 生成缺失摘要，但整个路由从未调用 session.commit()。",
+        "backend/app/services/chapter_generation/service.py:298-384 明确说明“此方法不commit，调用方需要在适当时候commit”。"
+      ],
+      "conclusion": "预览接口会消耗 LLM 生成摘要却在请求结束时被会话回滚，下次仍会重复生成，既浪费额度又无法真正补齐摘要。"
+    },
+    {
+      "question": "SSE 版本的章节生成是否缺少对上一章内容的校验？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "同步接口 generate_chapter 在 backend/app/api/routers/writer/chapter_generation.py:81-104 额外校验上一章 selected_version 存在且 content 非空。",
+        "generate_chapter_stream:399-461 仅校验项目状态，缺少上述内容校验，Workflow._initialize 也只检查 selected_version_id，不验证 content。"
+      ],
+      "conclusion": "使用流式生成可以绕过“上一章正文不能为空”的限制，导致在空内容甚至草稿状态下继续生成下一章，前情摘要会读到空文本。"
+    },
+    {
+      "question": "章节评估在空白项目（无蓝图）下会怎样？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/services/chapter_evaluation_service.py:287-302 直接对 `project_schema.blueprint.model_dump()` 调用，未判断 blueprint 是否存在。",
+        "空白项目（跳过灵感对话）的 blueprint 字段为 None，调用 `model_dump()` 即抛 AttributeError。"
+      ],
+      "conclusion": "空白项目无法执行章节评估，接口直接崩溃，无法提示用户补全蓝图。"
+    },
+    {
+      "question": "章节大纲生成/重生成在空白项目上会崩溃吗？",
+      "priority": "high",
+      "status": "resolved",
+      "evidence": [
+        "backend/app/api/routers/writer/chapter_outlines.py:175-178、605-607 均对 `project_schema.blueprint.model_dump()` 调用而未判空。",
+        "文件开头仅校验项目状态是否允许生成大纲，但对于跳过蓝图的空白项目（status 可能为 CHAPTER_OUTLINES_READY/WRITING），依旧会走到此处并触发 AttributeError。"
+      ],
+      "conclusion": "空白项目尝试生成或重生章节大纲会直接报错，用户无法获得可读提示。"
+    },
+    {
+      "question": "项目状态为 completed 时能否继续生成章节？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "ChapterGenerationWorkflow._initialize (backend/app/services/chapter_generation/workflow.py:84-110) 将 COMPLETED 列入允许状态，注释写明“允许在完成状态下继续编辑”。",
+        "`CHAPTER_GENERATION_STATES` 在 backend/app/core/state_validators.py:23-33 仅包含 `CHAPTER_OUTLINES_READY` 与 `WRITING`。",
+        "generate_chapter 与 generate_chapter_stream (backend/app/api/routers/writer/chapter_generation.py:77-80、432-434) 均调用 `validate_project_status(project.status, CHAPTER_GENERATION_STATES, ...)`。项目状态为 completed 时会直接抛 `InvalidStateTransitionError`。"
+      ],
+      "conclusion": "路由层面的状态校验与 Workflow 意图不一致，导致已完结项目无法重新生成或修复章节。"
+    },
+    {
+      "question": "完结项目是否能重试指定章节版本？",
+      "priority": "medium",
+      "status": "resolved",
+      "evidence": [
+        "`retry_chapter_version` 路由（backend/app/api/routers/writer/chapter_generation.py:132-200）同样调用 `validate_project_status(... CHAPTER_GENERATION_STATES ...)`。",
+        "`CHAPTER_GENERATION_STATES` 未包含 `COMPLETED`，因此项目一旦完结无法再进入重试逻辑，尽管后端服务并未限制。"
+      ],
+      "conclusion": "完结作品无法使用重试接口修订章节版本，只能棚卸状态或改数据库，严重影响后期编辑体验。"
+    }
+  ]
+}

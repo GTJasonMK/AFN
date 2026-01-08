@@ -309,6 +309,11 @@ class LoadingOverlay(ThemeAwareWidget):
         # 淡入动画
         if self._fade_animation:
             self._fade_animation.stop()
+            # 断开可能存在的淡出完成回调，防止淡入完成后错误触发隐藏
+            try:
+                self._fade_animation.finished.disconnect(self._on_fade_out_finished)
+            except TypeError:
+                pass  # 未连接时忽略
             self._fade_animation.setStartValue(0.0)
             self._fade_animation.setEndValue(1.0)
             self._fade_animation.start()

@@ -56,6 +56,10 @@ async def optimize_chapter_content(
             - scope: 分析范围 (full/selected)
             - selected_paragraphs: 选中的段落索引列表
             - dimensions: 检查维度列表
+            - mode: 优化模式 (auto/review/plan)
+                - auto: 自动模式，不暂停
+                - review: 审核模式，每个建议后暂停等待确认
+                - plan: 计划模式，完成全部分析后暂停，用户选择性应用
 
     Returns:
         SSE流式响应，包含以下事件类型：
@@ -66,6 +70,9 @@ async def optimize_chapter_content(
         - observation: 观察结果
         - suggestion: 修改建议
         - paragraph_complete: 段落处理完成
+        - workflow_paused: 工作流暂停（Review模式）
+        - workflow_resumed: 工作流恢复
+        - plan_ready: 分析完成等待用户选择（Plan模式）
         - workflow_complete: 工作流完成
         - error: 错误信息
     """
@@ -138,10 +145,12 @@ async def continue_optimization_session(
     """
     继续暂停的优化会话
 
-    在Review模式下，用户处理完建议后调用此接口让分析继续进行。
+    在以下场景调用此接口：
+    - Review模式：用户处理完单个建议后，让分析继续进行
+    - Plan模式：用户审阅完所有建议后，确认完成工作流
 
     Args:
-        session_id: 会话ID（从workflow_start事件获取）
+        session_id: 会话ID（从workflow_start或plan_ready事件获取）
 
     Returns:
         操作结果

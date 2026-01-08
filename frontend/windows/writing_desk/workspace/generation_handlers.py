@@ -126,19 +126,37 @@ class GenerationHandlersMixin:
         """显示评估结果
 
         Args:
-            result: 评估结果数据
+            result: API返回的项目数据（NovelProjectSchema），包含 chapters 列表
         """
-        # 切换到评审Tab并更新内容
+        # 失效缓存，确保下次切换章节时重新获取
+        if self.current_chapter and self.project_id:
+            from utils.chapter_cache import get_chapter_cache
+            get_chapter_cache().invalidate(self.project_id, self.current_chapter)
+
+        # 从项目数据中提取当前章节的评估结果
+        # 后端返回的是完整项目数据，评估结果在 chapters[n].evaluation 中
+        evaluation = None
+        chapters = result.get('chapters', [])
+        for chapter in chapters:
+            if chapter.get('chapter_number') == self.current_chapter:
+                evaluation = chapter.get('evaluation')
+                break
+
+        # 将评审结果添加到当前章节数据中
+        if hasattr(self, '_current_lazy_chapter_data') and self._current_lazy_chapter_data:
+            self._current_lazy_chapter_data['evaluation'] = evaluation
+
+        # 标记所有懒加载Tab为无效，确保数据一致性
+        # 评审可能会影响其他Tab显示的数据（如摘要、分析等）
+        if self.tab_widget and hasattr(self.tab_widget, 'invalidate_all_lazy_tabs'):
+            self.tab_widget.invalidate_all_lazy_tabs()
+
+        # 切换到评审Tab并强制重新加载
         if self.tab_widget:
             for i in range(self.tab_widget.count()):
                 if self.tab_widget.tabText(i) == "评审":
+                    self.tab_widget.reload_tab(i)
                     self.tab_widget.setCurrentIndex(i)
                     break
-
-        # 如果有评审面板构建器，更新评审内容
-        if hasattr(self, '_review_builder') and self._review_builder:
-            # 重新加载当前章节以显示新的评估结果
-            if self.current_chapter:
-                self.loadChapter(self.current_chapter)
 
         logger.info("评估结果已显示")

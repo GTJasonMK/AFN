@@ -4,6 +4,7 @@
 定义请求、响应、事件等数据结构。
 """
 
+import re
 from enum import Enum
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field, field_validator
@@ -90,6 +91,9 @@ class OptimizationEventType:
     WORKFLOW_PAUSED = "workflow_paused"    # 工作流暂停（等待用户确认）
     WORKFLOW_RESUMED = "workflow_resumed"  # 工作流恢复
 
+    # PLAN模式专用
+    PLAN_READY = "plan_ready"              # 分析完成，等待用户选择建议
+
     # 段落处理
     PARAGRAPH_START = "paragraph_start"    # 开始处理段落
     PARAGRAPH_COMPLETE = "paragraph_complete" # 完成段落处理
@@ -169,6 +173,22 @@ class WorkflowPausedEvent(BaseModel):
     """工作流暂停事件"""
     session_id: str = Field(..., description="会话ID")
     message: str = Field(default="等待用户确认", description="暂停原因")
+
+
+class PlanReadyEvent(BaseModel):
+    """PLAN模式分析完成事件，包含所有建议供用户选择"""
+    session_id: str = Field(..., description="会话ID")
+    total_paragraphs: int = Field(..., description="分析的段落总数")
+    suggestions: List[dict] = Field(default_factory=list, description="所有建议列表")
+    suggestions_by_priority: Dict[str, int] = Field(
+        default_factory=dict,
+        description="按优先级分组的建议数量 {high: n, medium: n, low: n}"
+    )
+    suggestions_by_category: Dict[str, int] = Field(
+        default_factory=dict,
+        description="按类别分组的建议数量"
+    )
+    message: str = Field(default="分析完成，请选择要应用的建议", description="提示信息")
 
 
 class ParagraphStartEvent(BaseModel):
@@ -259,7 +279,6 @@ class StructuredThinking(BaseModel):
                     break
 
             # 提取证据（引号内容）
-            import re
             evidence = re.findall(r'["\u201c\u300c]([^"\u201d\u300d]+)["\u201d\u300d]', line)
 
             # 估算置信度（使用配置常量）

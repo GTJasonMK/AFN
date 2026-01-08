@@ -639,7 +639,7 @@ class BlueprintConfirmation(ThemeAwareWidget):
         if not characters:
             logger.info("角色列表为空，显示暂无角色信息提示")
             no_char_label = QLabel("暂无角色信息")
-            no_char_label.setStyleSheet(f"color: {theme_manager.TEXT_TERTIARY}; font-size: {sp(14)}px;")
+            no_char_label.setStyleSheet(f"color: {theme_manager.TEXT_TERTIARY}; font-size: {sp(14)}px; background-color: transparent;")
             self.characters_layout.addWidget(no_char_label)
         else:
             for character in characters[:6]:  # 最多显示6个角色
@@ -649,7 +649,7 @@ class BlueprintConfirmation(ThemeAwareWidget):
 
             if len(characters) > 6:
                 more_label = QLabel(f"还有 {len(characters) - 6} 个角色...")
-                more_label.setStyleSheet(f"color: {theme_manager.TEXT_TERTIARY}; font-size: {sp(13)}px;")
+                more_label.setStyleSheet(f"color: {theme_manager.TEXT_TERTIARY}; font-size: {sp(13)}px; background-color: transparent;")
                 self.characters_layout.addWidget(more_label)
 
         logger.info(f"角色列表更新完成，当前布局中有 {self.characters_layout.count()} 个组件")

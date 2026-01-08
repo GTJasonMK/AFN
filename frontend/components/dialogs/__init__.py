@@ -46,6 +46,7 @@ from .config import PartOutlineConfigDialog
 from .special import (
     BookStyleDialog,
     CreateModeDialog,
+    CodingModeDialog,
     ImportProgressDialog,
 )
 
@@ -67,5 +68,6 @@ __all__ = [
     'PartOutlineConfigDialog',
     # 特殊对话框
     'CreateModeDialog',
+    'CodingModeDialog',
     'ImportProgressDialog',
 ]

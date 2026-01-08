@@ -24,6 +24,12 @@ class ProjectStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class ProjectType(str, Enum):
+    """项目类型枚举"""
+    NOVEL = "novel"      # 小说创作
+    CODING = "coding"    # 编程Prompt工程
+
+
 class ProjectStateMachine:
     """
     项目状态机
@@ -79,6 +85,26 @@ class ProjectStateMachine:
         ProjectStatus.CHAPTER_OUTLINES_READY: "章节大纲就绪",
         ProjectStatus.WRITING: "写作中",
         ProjectStatus.COMPLETED: "已完成",
+    }
+
+    # 项目类型特定的状态标签映射（用于UI显示）
+    PROJECT_TYPE_STATUS_LABELS: Dict[str, Dict[str, str]] = {
+        ProjectType.NOVEL: {
+            ProjectStatus.DRAFT: "灵感对话中",
+            ProjectStatus.BLUEPRINT_READY: "蓝图就绪",
+            ProjectStatus.PART_OUTLINES_READY: "分部大纲就绪",
+            ProjectStatus.CHAPTER_OUTLINES_READY: "章节大纲就绪",
+            ProjectStatus.WRITING: "写作中",
+            ProjectStatus.COMPLETED: "已完成",
+        },
+        ProjectType.CODING: {
+            ProjectStatus.DRAFT: "需求分析中",
+            ProjectStatus.BLUEPRINT_READY: "架构设计完成",
+            ProjectStatus.PART_OUTLINES_READY: "模块设计完成",
+            ProjectStatus.CHAPTER_OUTLINES_READY: "功能设计完成",
+            ProjectStatus.WRITING: "Prompt生成中",
+            ProjectStatus.COMPLETED: "已完成",
+        },
     }
 
     def __init__(self, current_status: str):
@@ -190,6 +216,28 @@ class ProjectStateMachine:
         """
         target_status = status if status is not None else self.current_status
         return self.STATUS_DESCRIPTIONS.get(target_status, target_status)
+
+    @classmethod
+    def get_status_label_by_project_type(
+        cls,
+        status: str,
+        project_type: str = "novel"
+    ) -> str:
+        """
+        根据项目类型获取状态显示标签
+
+        Args:
+            status: 项目状态
+            project_type: 项目类型 (novel/coding)
+
+        Returns:
+            str: 对应项目类型的状态标签
+        """
+        labels = cls.PROJECT_TYPE_STATUS_LABELS.get(
+            project_type,
+            cls.PROJECT_TYPE_STATUS_LABELS.get(ProjectType.NOVEL, {})
+        )
+        return labels.get(status, cls.STATUS_DESCRIPTIONS.get(status, status))
 
     @classmethod
     def validate_transition(cls, current_status: str, new_status: str) -> bool:

@@ -61,6 +61,9 @@ class PanelResponse(BaseModel):
     prompt_en: str
     prompt_zh: str
     negative_prompt: str
+    # Bug 36 修复: 添加布局属性
+    importance: str = "standard"
+    layout_slot: str = "third_row"
     # 文字元素
     dialogues: List[Dict[str, Any]] = []
     narration: str = ""
@@ -98,6 +101,10 @@ class GenerateResponse(BaseModel):
     total_panels: int
     pages: List[PageResponse]
     panels: List[PanelResponse]
+    # Bug 24 修复: 添加对话语言字段
+    dialogue_language: str = "chinese"
+    # 分析数据（章节信息提取和页面规划结果）
+    analysis_data: Optional[Dict[str, Any]] = None
 
 
 # ============================================================
@@ -225,21 +232,31 @@ async def get_manga_prompts(
     Returns:
         已保存的漫画分镜结果
     """
-    service = MangaPromptServiceV2(
-        session=session,
-        llm_service=llm_service,
-    )
+    # 直接使用 repository 获取原始数据（包含 analysis_data）
+    chapter_repo = ChapterRepository(session)
+    chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
 
-    result = await service.get_result(project_id, chapter_number)
+    if not chapter:
+        raise HTTPException(
+            status_code=404,
+            detail=f"章节 {chapter_number} 不存在"
+        )
 
-    if not result:
+    from ....repositories.manga_prompt_repository import MangaPromptRepository
+    manga_prompt_repo = MangaPromptRepository(session)
+    data = await manga_prompt_repo.get_result(chapter.id)
+
+    if not data:
         raise HTTPException(
             status_code=404,
             detail=f"章节 {chapter_number} 尚未生成漫画分镜"
         )
 
-    # 将 MangaPromptResult 对象转换为字典
-    return _convert_dict_to_response(result.to_dict())
+    # 添加章节号
+    data["chapter_number"] = chapter_number
+
+    # 将字典数据转换为API响应格式
+    return _convert_dict_to_response(data)
 
 
 @router.delete("/novels/{project_id}/chapters/{chapter_number}/manga-prompts")
@@ -381,6 +398,9 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             prompt_en=prompt.prompt_en,
             prompt_zh=prompt.prompt_zh,
             negative_prompt=prompt.negative_prompt,
+            # Bug 36 修复: 传递布局属性
+            importance=prompt.importance,
+            layout_slot=prompt.layout_slot,
             dialogues=prompt.dialogues,
             narration=prompt.narration,
             sound_effects=prompt.sound_effects,
@@ -405,6 +425,8 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
         total_panels=result.total_panels,
         pages=pages,
         panels=panels,
+        # Bug 24 修复: 传递对话语言
+        dialogue_language=result.dialogue_language,
     )
 
 
@@ -441,6 +463,9 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
             prompt_en=p.get("prompt_en") or "",
             prompt_zh=p.get("prompt_zh") or "",
             negative_prompt=p.get("negative_prompt") or "",
+            # Bug 36 修复: 传递布局属性
+            importance=p.get("importance") or "standard",
+            layout_slot=p.get("layout_slot") or "third_row",
             dialogues=p.get("dialogues") or [],
             narration=p.get("narration") or "",
             sound_effects=p.get("sound_effects") or [],
@@ -465,4 +490,8 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
         total_panels=data.get("total_panels", 0),
         pages=pages,
         panels=panels,
+        # Bug 24 修复: 传递对话语言
+        dialogue_language=data.get("dialogue_language", "chinese"),
+        # 分析数据
+        analysis_data=data.get("analysis_data"),
     )

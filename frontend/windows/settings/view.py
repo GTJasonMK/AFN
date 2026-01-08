@@ -240,6 +240,8 @@ class SettingsView(BasePage):
         self._add_nav_item("提示词管理")
         self._add_nav_item("主题配置")
         self._add_nav_item("高级配置")
+        self._add_nav_item("Max Tokens")
+        self._add_nav_item("Temperature")
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
         content_layout.addWidget(self.nav_list)
@@ -271,6 +273,8 @@ class SettingsView(BasePage):
         self.prompt_settings = None
         self.theme_settings = None
         self.advanced_settings = None
+        self.max_tokens_settings = None
+        self.temperature_settings = None
 
         page_layout.addWidget(self.page_stack)
         content_layout.addWidget(self.page_frame, stretch=1)
@@ -341,6 +345,8 @@ class SettingsView(BasePage):
                 from .queue_settings_widget import QueueSettingsWidget
                 from .prompt_settings_widget import PromptSettingsWidget
                 from .theme_settings import UnifiedThemeSettingsWidget
+                from .max_tokens_settings_widget import MaxTokensSettingsWidget
+                from .temperature_settings_widget import TemperatureSettingsWidget
 
                 self._widget_classes = {
                     'llm': LLMSettingsWidget,
@@ -350,6 +356,8 @@ class SettingsView(BasePage):
                     'prompt': PromptSettingsWidget,
                     'theme': UnifiedThemeSettingsWidget,
                     'advanced': AdvancedSettingsWidget,
+                    'max_tokens': MaxTokensSettingsWidget,
+                    'temperature': TemperatureSettingsWidget,
                 }
 
             # 步骤1-7: 分别创建各个widget
@@ -381,8 +389,16 @@ class SettingsView(BasePage):
                 self.advanced_settings = self._widget_classes['advanced']()
                 self.page_stack.addWidget(self.advanced_settings)
 
-            # 步骤8: 完成初始化
             elif step == 8:
+                self.max_tokens_settings = self._widget_classes['max_tokens']()
+                self.page_stack.addWidget(self.max_tokens_settings)
+
+            elif step == 9:
+                self.temperature_settings = self._widget_classes['temperature']()
+                self.page_stack.addWidget(self.temperature_settings)
+
+            # 步骤10: 完成初始化
+            elif step == 10:
                 self._widgets_initialized = True
                 self._widget_classes = None  # 释放引用
 
@@ -446,6 +462,10 @@ class SettingsView(BasePage):
                 self.theme_settings.refresh()
             elif page_index == 6 and self.advanced_settings:
                 self.advanced_settings.loadConfig()
+            elif page_index == 7 and self.max_tokens_settings:
+                self.max_tokens_settings.loadConfig()
+            elif page_index == 8 and self.temperature_settings:
+                self.temperature_settings.loadConfig()
         except RuntimeError:
             # Widget 已被删除，静默处理
             pass
@@ -540,7 +560,8 @@ class SettingsView(BasePage):
         # 清理其他可能有异步工作的widget
         for widget in [self.llm_settings, self.embedding_settings,
                        self.image_settings, self.queue_settings,
-                       self.prompt_settings, self.advanced_settings]:
+                       self.prompt_settings, self.advanced_settings,
+                       self.max_tokens_settings, self.temperature_settings]:
             if widget is not None and hasattr(widget, '_cleanup_worker'):
                 try:
                     widget._cleanup_worker()

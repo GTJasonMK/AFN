@@ -24,6 +24,7 @@ from ..utils.json_utils import (
     unwrap_markdown_json,
 )
 from ..utils.prompt_helpers import ensure_prompt
+from .project_factory import ProjectTypeConfig, ProjectStage
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +71,20 @@ class InspirationService:
         self.prompt_service = prompt_service
         self.conversation_service = ConversationService(session)
 
-    async def get_system_prompt(self) -> str:
+    async def get_system_prompt(self, project_type: str = "novel") -> str:
         """
-        获取灵感对话的系统提示词
+        获取灵感对话/需求分析的系统提示词
+
+        Args:
+            project_type: 项目类型 (novel/coding)
 
         Returns:
             str: 系统提示词内容
         """
-        system_prompt = await self.prompt_service.get_prompt("inspiration")
-        return ensure_prompt(system_prompt, "inspiration")
+        # 根据项目类型获取对应的提示词名称
+        prompt_name = ProjectTypeConfig.get_prompt_name(project_type, ProjectStage.INSPIRATION)
+        system_prompt = await self.prompt_service.get_prompt(prompt_name)
+        return ensure_prompt(system_prompt, prompt_name)
 
     async def build_conversation_context(
         self,
@@ -181,9 +187,10 @@ class InspirationService:
         project_id: str,
         user_input: Dict[str, Any],
         user_id: int,
+        project_type: str = "novel",
     ) -> InspirationResult:
         """
-        处理灵感对话（非流式）
+        处理灵感对话/需求分析（非流式）
 
         完整的对话处理流程：
         1. 构建对话上下文
@@ -197,6 +204,7 @@ class InspirationService:
             project_id: 项目ID
             user_input: 用户输入
             user_id: 用户ID
+            project_type: 项目类型 (novel/coding)
 
         Returns:
             InspirationResult: 处理结果
@@ -208,12 +216,12 @@ class InspirationService:
         user_content = conversation_history[-1]["content"]
 
         logger.info(
-            "项目 %s 灵感对话请求，用户 %s，历史记录 %s 条",
-            project_id, user_id, len(history_records),
+            "项目 %s 灵感对话请求，用户 %s，历史记录 %s 条，项目类型 %s",
+            project_id, user_id, len(history_records), project_type,
         )
 
-        # 2. 获取系统提示词
-        system_prompt = await self.get_system_prompt()
+        # 2. 获取系统提示词（根据项目类型）
+        system_prompt = await self.get_system_prompt(project_type)
 
         # 3. 调用LLM
         llm_response = await call_llm(
@@ -257,9 +265,10 @@ class InspirationService:
         project_id: str,
         user_input: Dict[str, Any],
         user_id: int,
+        project_type: str = "novel",
     ) -> AsyncIterator[Dict[str, Any]]:
         """
-        处理灵感对话（流式）
+        处理灵感对话/需求分析（流式）
 
         流式对话处理流程，通过yield返回事件：
         - streaming_start: 开始流式输出
@@ -271,6 +280,7 @@ class InspirationService:
             project_id: 项目ID
             user_input: 用户输入
             user_id: 用户ID
+            project_type: 项目类型 (novel/coding)
 
         Yields:
             Dict[str, Any]: 事件数据
@@ -282,12 +292,12 @@ class InspirationService:
         user_content = conversation_history[-1]["content"]
 
         logger.info(
-            "项目 %s 灵感对话流式请求，用户 %s，历史记录 %s 条",
-            project_id, user_id, len(history_records),
+            "项目 %s 灵感对话流式请求，用户 %s，历史记录 %s 条，项目类型 %s",
+            project_id, user_id, len(history_records), project_type,
         )
 
-        # 2. 获取系统提示词
-        system_prompt = await self.get_system_prompt()
+        # 2. 获取系统提示词（根据项目类型）
+        system_prompt = await self.get_system_prompt(project_type)
 
         # 3. 发送开始事件
         yield {"event": "streaming_start", "data": {"status": "started"}}
@@ -316,6 +326,25 @@ class InspirationService:
         await self.conversation_service.append_conversation(project_id, "user", user_content)
         await self.conversation_service.append_conversation(project_id, "assistant", normalized)
         await self.session.commit()
+
+        # 自动入库：灵感对话（仅编程项目）
+        if project_type == "coding":
+            try:
+                from .coding_rag import schedule_ingestion, CodingDataType
+                from ..core.dependencies import get_vector_store
+
+                vector_store = await get_vector_store()
+                if vector_store:
+                    schedule_ingestion(
+                        project_id=project_id,
+                        user_id=user_id,
+                        data_type=CodingDataType.INSPIRATION,
+                        vector_store=vector_store,
+                        llm_service=self.llm_service,
+                    )
+                    logger.info("项目 %s 灵感对话已调度RAG入库", project_id)
+            except Exception as rag_exc:
+                logger.warning("项目 %s 灵感对话RAG入库调度失败: %s", project_id, str(rag_exc))
 
         # 7. 计算完成状态
         is_complete, ready_for_blueprint, conversation_turns = self.calculate_completion_status(

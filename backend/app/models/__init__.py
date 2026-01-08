@@ -15,6 +15,15 @@ from .novel import (
     NovelConversation,
     NovelProject,
 )
+from .coding import (
+    CodingProject,
+    CodingConversation,
+    CodingBlueprint,
+    CodingSystem,
+    CodingModule,
+    CodingFeature,
+    CodingFeatureVersion,
+)
 from .character_portrait import CharacterPortrait
 from .embedding_config import EmbeddingConfig
 from .image_config import ImageGenerationConfig, GeneratedImage
@@ -31,6 +40,7 @@ from .theme_config import ThemeConfig
 from .user import User
 
 __all__ = [
+    # Novel models
     "CharacterPortrait",
     "EmbeddingConfig",
     "GeneratedImage",
@@ -56,4 +66,12 @@ __all__ = [
     "ProtagonistDeletionMark",
     "ThemeConfig",
     "User",
+    # Coding models
+    "CodingProject",
+    "CodingConversation",
+    "CodingBlueprint",
+    "CodingSystem",
+    "CodingModule",
+    "CodingFeature",
+    "CodingFeatureVersion",
 ]

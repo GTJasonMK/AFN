@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.dependencies import get_default_user, get_novel_service
+from ....core.dependencies import get_default_user, get_novel_service, get_vector_store
 from ....db.session import get_session
 from ....schemas.novel import (
     Chapter as ChapterSchema,
@@ -34,6 +34,7 @@ from .blueprints import router as blueprints_router
 from .outlines import router as outlines_router
 from .export import router as export_router
 from .import_analysis import router as import_analysis_router
+from .rag import router as rag_router
 from ..protagonist import router as protagonist_router
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,8 @@ async def create_novel(
         skip_inspiration=skip_inspiration,
     )
     await session.commit()
-    logger.info("用户 %s 创建项目 %s (skip_inspiration=%s)", desktop_user.id, project.id, skip_inspiration)
+    logger.info("用户 %s 创建小说项目 %s (skip_inspiration=%s)",
+                desktop_user.id, project.id, skip_inspiration)
     return await novel_service.get_project_schema(project.id, desktop_user.id)
 
 
@@ -81,13 +83,13 @@ async def list_novels(
     """
     列出用户的全部小说项目摘要信息
 
-    支持分页，默认返回前100条。桌面应用通常项目数量较少，
-    使用默认参数即可获取所有项目。
+    支持分页。默认返回前100条。
+    桌面应用通常项目数量较少，使用默认参数即可获取所有项目。
     """
     projects, total = await novel_service.list_projects_for_user(
         desktop_user.id, page, page_size
     )
-    logger.info("用户 %s 获取项目列表，页码=%d，返回 %d/%d 个",
+    logger.info("用户 %s 获取小说项目列表，页码=%d，返回 %d/%d 个",
                 desktop_user.id, page, len(projects), total)
     return projects
 
@@ -133,12 +135,13 @@ async def delete_novels(
     novel_service: NovelService = Depends(get_novel_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
+    vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
 ) -> Dict[str, str]:
     """批量删除项目
 
     请求体格式: ["project_id_1", "project_id_2"]
     """
-    await novel_service.delete_projects(project_ids, desktop_user.id)
+    await novel_service.delete_projects(project_ids, desktop_user.id, vector_store)
     await session.commit()  # 提交删除事务
     logger.info("用户 %s 删除项目 %s", desktop_user.id, project_ids)
     return {"status": "success", "message": f"成功删除 {len(project_ids)} 个项目"}
@@ -173,6 +176,7 @@ router.include_router(blueprints_router)
 router.include_router(outlines_router)
 router.include_router(export_router)
 router.include_router(import_analysis_router)
+router.include_router(rag_router, tags=["Novel RAG"])
 router.include_router(protagonist_router, tags=["Protagonist Profile"])
 
 __all__ = ["router"]

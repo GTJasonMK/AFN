@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 100
 # 单个段落最大迭代次数
 MAX_PARAGRAPH_ITERATIONS = 15
+# 对话历史最大轮数（每轮包含一对 user/assistant 消息）
+# 超过此限制时，会保留最近的消息，丢弃较早的消息
+MAX_CONVERSATION_HISTORY_ROUNDS = 20
+# 连续解析错误最大重试次数（防止死循环）
+MAX_CONSECUTIVE_PARSE_ERRORS = 3
 
 
 class ContentOptimizationAgent:
@@ -57,6 +62,28 @@ class ContentOptimizationAgent:
 
         # Agent对话历史（用于维持上下文）
         self.conversation_history: List[Dict[str, str]] = []
+
+    def _trim_conversation_history(self):
+        """
+        裁剪对话历史，防止超出 LLM 上下文限制
+
+        保留策略：
+        - 始终保留第一条消息（初始任务描述）
+        - 保留最近的 N 轮对话
+        """
+        max_messages = MAX_CONVERSATION_HISTORY_ROUNDS * 2  # 每轮 2 条消息
+        if len(self.conversation_history) <= max_messages + 1:  # +1 是初始消息
+            return
+
+        # 保留第一条消息和最近的 N 轮对话
+        first_message = self.conversation_history[0]
+        recent_messages = self.conversation_history[-(max_messages):]
+        self.conversation_history = [first_message] + recent_messages
+
+        logger.debug(
+            "对话历史已裁剪: 保留 %d 条消息",
+            len(self.conversation_history),
+        )
 
     async def run(
         self,
@@ -99,6 +126,7 @@ class ContentOptimizationAgent:
 
         iteration = 0
         paragraph_iteration = 0
+        consecutive_parse_errors = 0  # 连续解析错误计数
 
         while not state.is_complete and iteration < MAX_ITERATIONS:
             iteration += 1
@@ -174,16 +202,35 @@ class ContentOptimizationAgent:
 
                     # 根据错误类型构建提示信息
                     if parse_result.is_parse_error:
-                        # JSON解析错误或工具名称无效 - 不增加迭代计数，给LLM修正机会
-                        error_hint = f"工具调用格式错误: {parse_result.error}。"
-                        self.conversation_history.append({
-                            "role": "user",
-                            "content": f"{error_hint} 请检查并重新使用正确的JSON格式调用工具。",
-                        })
-                        # 回退迭代计数，给LLM修正的机会
-                        iteration -= 1
-                        paragraph_iteration -= 1
-                        logger.warning("工具调用解析失败，给予重试机会: %s", parse_result.error)
+                        consecutive_parse_errors += 1
+
+                        # 检查是否超过连续解析错误限制
+                        if consecutive_parse_errors >= MAX_CONSECUTIVE_PARSE_ERRORS:
+                            logger.warning(
+                                "连续解析错误达到上限 (%d 次)，放弃重试",
+                                MAX_CONSECUTIVE_PARSE_ERRORS,
+                            )
+                            # 不回退迭代计数，继续下一次迭代
+                            self.conversation_history.append({
+                                "role": "user",
+                                "content": "多次尝试解析工具调用失败，请使用其他工具或跳过当前操作。",
+                            })
+                        else:
+                            # JSON解析错误或工具名称无效 - 给LLM修正机会
+                            error_hint = f"工具调用格式错误: {parse_result.error}。"
+                            self.conversation_history.append({
+                                "role": "user",
+                                "content": f"{error_hint} 请检查并重新使用正确的JSON格式调用工具。",
+                            })
+                            # 回退迭代计数，给LLM修正的机会
+                            iteration -= 1
+                            paragraph_iteration -= 1
+                            logger.warning(
+                                "工具调用解析失败 (%d/%d)，给予重试机会: %s",
+                                consecutive_parse_errors,
+                                MAX_CONSECUTIVE_PARSE_ERRORS,
+                                parse_result.error,
+                            )
                     else:
                         # 没有找到tool_call标签 - 提示Agent选择工具
                         self.conversation_history.append({
@@ -192,6 +239,8 @@ class ContentOptimizationAgent:
                         })
                     continue
 
+                # 解析成功，重置连续错误计数
+                consecutive_parse_errors = 0
                 tool_call = parse_result.tool_call
 
                 # 发送动作事件
@@ -281,6 +330,9 @@ class ContentOptimizationAgent:
                     "content": format_tool_result(result),
                 })
 
+                # 裁剪对话历史，防止超出 LLM 上下文限制
+                self._trim_conversation_history()
+
             except Exception as e:
                 logger.error("Agent循环错误: %s", e, exc_info=True)
                 yield sse_event(OptimizationEventType.ERROR, {
@@ -290,6 +342,53 @@ class ContentOptimizationAgent:
                 self.conversation_history.append({
                     "role": "user",
                     "content": f"发生错误: {str(e)}。请继续分析或选择其他工具。",
+                })
+
+        # PLAN模式：分析完成后，发送汇总事件并等待用户选择
+        if self.optimization_mode == OptimizationMode.PLAN and self.optimization_session:
+            if state.suggestions:
+                # 构建建议汇总数据
+                suggestions_by_priority = {"high": 0, "medium": 0, "low": 0}
+                suggestions_by_category = {}
+
+                for suggestion in state.suggestions:
+                    # 统计优先级
+                    priority = suggestion.get("priority", "medium")
+                    if priority in suggestions_by_priority:
+                        suggestions_by_priority[priority] += 1
+
+                    # 统计类别
+                    category = suggestion.get("category", "coherence")
+                    suggestions_by_category[category] = suggestions_by_category.get(category, 0) + 1
+
+                # 发送PLAN_READY事件
+                yield sse_event(OptimizationEventType.PLAN_READY, {
+                    "session_id": self.optimization_session.session_id,
+                    "total_paragraphs": state.current_index + 1,
+                    "suggestions": state.suggestions,
+                    "suggestions_by_priority": suggestions_by_priority,
+                    "suggestions_by_category": suggestions_by_category,
+                    "message": f"分析完成，共发现 {len(state.suggestions)} 个建议，请选择要应用的建议",
+                })
+
+                # 暂停会话，等待用户选择
+                self.session_manager.pause_session(self.optimization_session.session_id)
+
+                can_continue = await self.session_manager.wait_if_paused(
+                    self.optimization_session.session_id,
+                    timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,  # 5分钟超时
+                )
+
+                if not can_continue:
+                    logger.info("PLAN模式：用户取消或等待超时: %s", self.optimization_session.session_id)
+                    yield sse_event(OptimizationEventType.ERROR, {
+                        "message": "用户取消或等待超时",
+                    })
+                    return
+
+                # 用户确认后，发送恢复事件
+                yield sse_event(OptimizationEventType.WORKFLOW_RESUMED, {
+                    "session_id": self.optimization_session.session_id,
                 })
 
         # 发送工作流完成事件
@@ -323,7 +422,8 @@ class ContentOptimizationAgent:
         if self.prompt_service:
             template = await self.prompt_service.get_prompt("content_optimization_agent")
             if template:
-                return template.format(dimensions=dim_desc, tools_prompt=tools_prompt)
+                # 使用replace替代format，避免模板中的JSON花括号被误解
+                return template.replace("{dimensions}", dim_desc).replace("{tools_prompt}", tools_prompt)
 
         # 回退到内联模板
         return f"""你是一个专业的小说编辑Agent，负责分析和优化小说章节内容。

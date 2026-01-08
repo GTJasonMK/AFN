@@ -88,17 +88,21 @@ class ToolExecutor:
         vector_store: Optional[VectorStoreService],
         paragraph_analyzer: ParagraphAnalyzer,
         embedding_service: Optional[Any] = None,  # EmbeddingService
-        character_index: Any = None,  # CharacterStateIndex model
-        foreshadowing_index: Any = None,  # ForeshadowingIndex model
+        enable_character_index: bool = False,  # 是否启用角色状态索引查询
+        enable_foreshadowing_index: bool = False,  # 是否启用伏笔索引查询
         llm_service: Optional[Any] = None,  # LLMService，用于深度检查
+        prompt_service: Optional[Any] = None,  # PromptService，用于加载提示词
+        user_id: str = "1",  # 用户ID，用于LLM调用
     ):
         self.session = session
         self.vector_store = vector_store
         self.paragraph_analyzer = paragraph_analyzer
         self.embedding_service = embedding_service
-        self.character_index = character_index
-        self.foreshadowing_index = foreshadowing_index
+        self.enable_character_index = enable_character_index
+        self.enable_foreshadowing_index = enable_foreshadowing_index
         self.llm_service = llm_service
+        self.prompt_service = prompt_service
+        self.user_id = user_id
 
         # 初始化时序感知检索器
         self.temporal_retriever: Optional[TemporalAwareRetriever] = None
@@ -277,7 +281,7 @@ class ToolExecutor:
             return state.character_states[character_name]
 
         # 从索引中查询
-        if self.character_index is not None:
+        if self.enable_character_index:
             from ...models.novel import CharacterStateIndex
             from sqlalchemy import select
 
@@ -318,7 +322,7 @@ class ToolExecutor:
         """获取伏笔信息（仅返回未解决的伏笔）"""
         keywords = params.get("keywords", [])
 
-        if self.foreshadowing_index is not None:
+        if self.enable_foreshadowing_index:
             from ...models.novel import ForeshadowingIndex
             from sqlalchemy import select
 
@@ -579,32 +583,23 @@ class ToolExecutor:
         调用CoherenceChecker进行深度分析，返回详细的问题列表和修改建议。
         """
         from .coherence_checker import CoherenceChecker
-        from .schemas import CheckDimension, RAGContext, OptimizationContext
+        from .schemas import RAGContext, OptimizationContext
 
         paragraph = state.current_paragraph
         if not paragraph:
             return {"error": "没有当前段落"}
 
-        # 解析检查维度
+        # 解析检查维度（统一使用字符串格式）
         dimensions_param = params.get("dimensions", ["coherence"])
         if isinstance(dimensions_param, str):
             dimensions_param = [d.strip() for d in dimensions_param.split(",")]
 
-        dimensions = []
-        dimension_map = {
-            "coherence": CheckDimension.COHERENCE,
-            "character": CheckDimension.CHARACTER,
-            "foreshadow": CheckDimension.FORESHADOW,
-            "timeline": CheckDimension.TIMELINE,
-            "style": CheckDimension.STYLE,
-            "scene": CheckDimension.SCENE,
-        }
-        for d in dimensions_param:
-            if d in dimension_map:
-                dimensions.append(dimension_map[d])
+        # 验证维度有效性
+        valid_dimensions = {"coherence", "character", "foreshadow", "timeline", "style", "scene"}
+        dimensions = [d for d in dimensions_param if d in valid_dimensions]
 
         if not dimensions:
-            dimensions = [CheckDimension.COHERENCE]
+            dimensions = ["coherence"]
 
         # 获取前文段落
         prev_paragraphs = []
@@ -613,10 +608,14 @@ class ToolExecutor:
             if i < len(state.paragraphs):
                 prev_paragraphs.append(state.paragraphs[i])
 
-        # 构建RAG上下文（如果有缓存的信息）
+        # 构建RAG上下文（转换 character_states 为 List[dict] 格式）
+        character_states_list = [
+            {"character": name, "state": info.get("status", ""), **info}
+            for name, info in state.character_states.items()
+        ]
         rag_context = RAGContext(
-            retrieved_chunks=[],  # 可以从之前的RAG检索结果中获取
-            character_states=state.character_states,
+            related_chunks=[],  # 可以从之前的RAG检索结果中获取
+            character_states=character_states_list,
             foreshadowings=[],
         )
 
@@ -625,8 +624,7 @@ class ToolExecutor:
             project_id=state.project_id,
             chapter_number=state.chapter_number,
             total_chapters=state.total_chapters,
-            blueprint_summary="",  # 可以从外部传入
-            chapter_outline="",
+            blueprint_core="",  # 可以从外部传入
         )
 
         # P1修复: 改进LLM服务可用性检查和降级策略
@@ -638,12 +636,13 @@ class ToolExecutor:
                 "message": "深度检查需要LLM服务，当前未配置。建议使用快速检查工具（check_coherence等）进行基础分析。",
                 "fallback": True,
                 "fallback_reason": "llm_service_not_configured",
-                "dimensions_requested": [d.value for d in dimensions],
+                "dimensions_requested": dimensions,  # 已经是字符串列表
                 "alternative_tools": ["check_coherence", "check_character", "check_timeline"],
             }
 
         try:
-            checker = CoherenceChecker(self.llm_service)
+            # P1修复: 传入 prompt_service 以支持外部提示词加载
+            checker = CoherenceChecker(self.llm_service, self.prompt_service)
             suggestions = await checker.check_paragraph(
                 paragraph=paragraph,
                 paragraph_index=state.current_index,
@@ -651,16 +650,16 @@ class ToolExecutor:
                 context=context,
                 rag_context=rag_context,
                 dimensions=dimensions,
-                user_id=1,  # 默认用户ID
+                user_id=self.user_id,
             )
 
-            # 转换建议为返回格式
+            # 转换建议为返回格式（SuggestionEvent 的 category/priority 是 str 类型）
             issues = []
             for suggestion in suggestions:
                 issues.append({
-                    "type": suggestion.category.value if hasattr(suggestion.category, 'value') else str(suggestion.category),
-                    "description": suggestion.description,
-                    "severity": suggestion.priority.value if hasattr(suggestion.priority, 'value') else str(suggestion.priority),
+                    "type": suggestion.category,
+                    "description": suggestion.reason,  # SuggestionEvent 没有 description，使用 reason
+                    "severity": suggestion.priority,
                     "original_text": suggestion.original_text,
                     "suggested_text": suggestion.suggested_text,
                     "reason": suggestion.reason,
@@ -668,7 +667,7 @@ class ToolExecutor:
 
             return {
                 "success": True,
-                "dimensions_checked": [d.value for d in dimensions],
+                "dimensions_checked": dimensions,  # 已经是字符串列表
                 "issues_found": len(issues),
                 "issues": issues,
                 "analysis_mode": "llm_deep_check",
@@ -697,7 +696,7 @@ class ToolExecutor:
                 "message": fallback_message,
                 "fallback": True,
                 "fallback_reason": fallback_reason,
-                "dimensions_requested": [d.value for d in dimensions],
+                "dimensions_requested": dimensions,  # 已经是字符串列表
                 "alternative_tools": ["check_coherence", "check_character", "check_timeline"],
             }
 

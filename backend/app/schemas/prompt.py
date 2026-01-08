@@ -30,6 +30,9 @@ class PromptRead(PromptBase):
 
     id: int
     is_modified: bool = Field(default=False, description="是否已被用户修改")
+    category: Optional[str] = Field(default=None, description="提示词分类")
+    status: Optional[str] = Field(default=None, description="提示词状态")
+    project_type: Optional[str] = Field(default=None, description="所属项目类型(novel/coding)")
 
     class Config:
         from_attributes = True
@@ -53,6 +56,9 @@ class PromptRead(PromptBase):
                 "description": getattr(obj, "description", None),
                 "tags": processed,
                 "is_modified": getattr(obj, "is_modified", False),
+                "category": getattr(obj, "category", None),
+                "status": getattr(obj, "status", None),
+                "project_type": getattr(obj, "project_type", None),
             }
             return super().model_validate(data, *args, **kwargs)
         return super().model_validate(obj, *args, **kwargs)
