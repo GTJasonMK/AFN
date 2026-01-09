@@ -188,8 +188,8 @@ class CodingProjectService:
     # ------------------------------------------------------------------
 
     async def ensure_project_owner(self, project_id: str, user_id: int) -> CodingProject:
-        """确保项目归属于指定用户"""
-        project = await self.project_repo.get_by_id(project_id)
+        """确保项目归属于指定用户（带关系加载）"""
+        project = await self.project_repo.get_with_relations(project_id)
         if not project:
             raise ResourceNotFoundError("Coding项目", project_id)
         if project.user_id != user_id:

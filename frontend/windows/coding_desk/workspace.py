@@ -9,11 +9,12 @@ import logging
 from typing import Dict, Any, Optional
 
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QTextEdit, QStackedWidget, QSplitter, QSizePolicy
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QTextEdit, QStackedWidget, QSplitter, QSizePolicy, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 
@@ -30,19 +31,21 @@ class TabButton(QPushButton):
         super().__init__(text, parent)
         self._is_active = is_active
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._apply_style()
+        self._apply_theme()
+        # 连接主题变化信号
+        theme_manager.theme_changed.connect(self._apply_theme)
 
     def setActive(self, active: bool):
         """设置激活状态"""
         self._is_active = active
-        self._apply_style()
+        self._apply_theme()
 
     def isActive(self) -> bool:
         """是否激活"""
         return self._is_active
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         if self._is_active:
             self.setStyleSheet(f"""
                 QPushButton {{
@@ -73,8 +76,8 @@ class TabButton(QPushButton):
             """)
 
 
-class ContentEditor(QFrame):
-    """内容编辑器（支持Tab切换）"""
+class ContentEditor(ThemeAwareFrame):
+    """内容编辑器（支持Tab切换，主题感知）"""
 
     # 实现Prompt信号
     contentChanged = pyqtSignal(str)
@@ -87,14 +90,21 @@ class ContentEditor(QFrame):
     tabChanged = pyqtSignal(str)  # "implementation" or "review"
 
     def __init__(self, parent=None):
-        super().__init__(parent)
         self._current_tab = "implementation"  # 当前Tab
         self._implementation_content = ""  # 实现Prompt内容
         self._review_content = ""  # 审查Prompt内容
-        self._setup_ui()
+        self.impl_tab = None
+        self.review_tab = None
+        self.title_label = None
+        self.word_count_label = None
+        self.generate_review_btn = None
+        self.save_btn = None
+        self.editor = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("content_editor")
 
         layout = QVBoxLayout(self)
@@ -160,8 +170,6 @@ class ContentEditor(QFrame):
         self.editor.setPlaceholderText("在此编辑内容...")
         self.editor.textChanged.connect(self._on_text_changed)
         layout.addWidget(self.editor, 1)
-
-        self._apply_style()
 
     def _switch_tab(self, tab: str):
         """切换Tab"""
@@ -280,8 +288,8 @@ class ContentEditor(QFrame):
         self.editor.blockSignals(False)
         self.word_count_label.setText("0 字")
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#content_editor {{
                 background-color: {theme_manager.book_bg_secondary()};
@@ -334,15 +342,15 @@ class ContentEditor(QFrame):
         """)
 
 
-class EmptyState(QFrame):
-    """空状态"""
+class EmptyState(ThemeAwareFrame):
+    """空状态（主题感知）"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._setup_ui()
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("empty_state")
 
         layout = QVBoxLayout(self)
@@ -360,10 +368,8 @@ class EmptyState(QFrame):
         text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(text_label)
 
-        self._apply_style()
-
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#empty_state {{
                 background-color: {theme_manager.book_bg_secondary()};
@@ -381,15 +387,17 @@ class EmptyState(QFrame):
         """)
 
 
-class GeneratingState(QFrame):
-    """生成中状态"""
+class GeneratingState(ThemeAwareFrame):
+    """生成中状态（主题感知）"""
 
     def __init__(self, parent=None):
+        self.title_label = None
+        self.content_display = None
         super().__init__(parent)
-        self._setup_ui()
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("generating_state")
 
         layout = QVBoxLayout(self)
@@ -410,8 +418,6 @@ class GeneratingState(QFrame):
         self.content_display.setMinimumHeight(dp(200))
         layout.addWidget(self.content_display, 1)
 
-        self._apply_style()
-
     def setTitle(self, title: str):
         """设置标题"""
         self.title_label.setText(f"正在生成: {title}")
@@ -424,8 +430,8 @@ class GeneratingState(QFrame):
         """清空内容"""
         self.content_display.clear()
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#generating_state {{
                 background-color: {theme_manager.book_bg_secondary()};
@@ -448,8 +454,8 @@ class GeneratingState(QFrame):
         """)
 
 
-class CDWorkspace(QFrame):
-    """CodingDesk工作区"""
+class CDWorkspace(ThemeAwareFrame):
+    """CodingDesk工作区（主题感知）"""
 
     # 实现Prompt信号
     generateRequested = pyqtSignal(int)
@@ -459,14 +465,19 @@ class CDWorkspace(QFrame):
     saveReviewRequested = pyqtSignal(int, str)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
         self._project_id = None
         self._current_feature_index = None
         self._current_feature_title = None
-        self._setup_ui()
+        self.content_stack = None
+        self.empty_state = None
+        self.generating_state = None
+        self.editor = None
+        self.assistant_panel = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("cd_workspace")
 
         layout = QHBoxLayout(self)
@@ -500,10 +511,9 @@ class CDWorkspace(QFrame):
         # 默认显示空状态
         self.content_stack.setCurrentWidget(self.empty_state)
 
-        self._apply_style()
-
     def setProjectId(self, project_id: str):
         """设置项目ID"""
+        logger.info("CDWorkspace.setProjectId 被调用: project_id=%s", project_id)
         self._project_id = project_id
         # 同步设置到助手面板
         self.assistant_panel.setProjectId(project_id)
@@ -605,8 +615,8 @@ class CDWorkspace(QFrame):
         """获取当前Tab"""
         return self.editor.getCurrentTab()
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#cd_workspace {{
                 background-color: transparent;

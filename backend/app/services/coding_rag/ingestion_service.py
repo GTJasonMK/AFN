@@ -15,17 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .data_types import CodingDataType, BLUEPRINT_INGESTION_TYPES
 from .content_splitter import ContentSplitter, IngestionRecord
 
-# 导入ORM模型
-from ...models.novel import (
-    NovelProject,
-    NovelBlueprint,
-    NovelConversation,
-    Chapter,
-    ChapterOutline,
-    BlueprintCharacter,
-    BlueprintRelationship,
+# 导入ORM模型 - 使用编程项目的模型
+from ...models.coding import (
+    CodingProject,
+    CodingBlueprint,
+    CodingConversation,
+    CodingSystem,
+    CodingModule,
+    CodingFeature,
+    CodingFeatureVersion,
 )
-from ...models.part_outline import PartOutline
 
 logger = logging.getLogger(__name__)
 
@@ -533,9 +532,9 @@ class CodingProjectIngestionService:
 
     async def _generate_inspiration_records(self, project_id: str) -> List[IngestionRecord]:
         """生成灵感对话记录"""
-        stmt = select(NovelConversation).where(
-            NovelConversation.project_id == project_id
-        ).order_by(NovelConversation.seq)
+        stmt = select(CodingConversation).where(
+            CodingConversation.project_id == project_id
+        ).order_by(CodingConversation.seq)
         conversations = (await self.session.execute(stmt)).scalars().all()
 
         if not conversations:
@@ -550,29 +549,29 @@ class CodingProjectIngestionService:
     async def _generate_architecture_records(self, project_id: str) -> List[IngestionRecord]:
         """生成架构设计记录"""
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.full_synopsis:
+        if not blueprint or not blueprint.architecture_synopsis:
             return []
 
         return self.splitter.split_architecture(
-            content=blueprint.full_synopsis,
+            content=blueprint.architecture_synopsis,
             source_id=project_id,
-            data_type=CodingDataType.ARCHITECTURE
+            data_type=CodingDataType.ARCHITECTURE,
+            project_id=project_id
         )
 
     async def _generate_tech_stack_records(self, project_id: str) -> List[IngestionRecord]:
         """生成技术栈记录"""
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
+        if not blueprint or not blueprint.tech_stack:
             return []
 
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        tech_stack = blueprint.tech_stack
+        if isinstance(tech_stack, str):
             try:
-                world_setting = json.loads(world_setting)
+                tech_stack = json.loads(tech_stack)
             except json.JSONDecodeError:
                 return []
 
-        tech_stack = world_setting.get("tech_stack", world_setting)
         records: List[IngestionRecord] = []
 
         for idx, comp in enumerate(tech_stack.get("components", [])):
@@ -582,6 +581,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.TECH_STACK,
                     source_id=project_id,
+                    project_id=project_id,
                     component_index=idx,
                     component_name=comp.get("name", "")
                 )
@@ -595,6 +595,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.TECH_STACK,
                     source_id=project_id,
+                    project_id=project_id,
                     domain_index=idx,
                     domain_name=domain.get("name", "")
                 )
@@ -606,24 +607,25 @@ class CodingProjectIngestionService:
     async def _generate_requirement_records(self, project_id: str) -> List[IngestionRecord]:
         """生成核心需求记录"""
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
+        if not blueprint or not blueprint.core_requirements:
             return []
 
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        requirements = blueprint.core_requirements
+        if isinstance(requirements, str):
             try:
-                world_setting = json.loads(world_setting)
+                requirements = json.loads(requirements)
             except json.JSONDecodeError:
                 return []
 
         records: List[IngestionRecord] = []
-        for idx, req in enumerate(world_setting.get("core_requirements", [])):
+        for idx, req in enumerate(requirements):
             content = self._format_requirement(req)
             if content:
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.REQUIREMENT,
                     source_id=project_id,
+                    project_id=project_id,
                     requirement_index=idx
                 )
                 if record:
@@ -633,24 +635,25 @@ class CodingProjectIngestionService:
     async def _generate_challenge_records(self, project_id: str) -> List[IngestionRecord]:
         """生成技术挑战记录"""
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
+        if not blueprint or not blueprint.technical_challenges:
             return []
 
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        challenges = blueprint.technical_challenges
+        if isinstance(challenges, str):
             try:
-                world_setting = json.loads(world_setting)
+                challenges = json.loads(challenges)
             except json.JSONDecodeError:
                 return []
 
         records: List[IngestionRecord] = []
-        for idx, challenge in enumerate(world_setting.get("technical_challenges", [])):
+        for idx, challenge in enumerate(challenges):
             content = self._format_challenge(challenge)
             if content:
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.CHALLENGE,
                     source_id=project_id,
+                    project_id=project_id,
                     challenge_index=idx
                 )
                 if record:
@@ -659,9 +662,9 @@ class CodingProjectIngestionService:
 
     async def _generate_system_records(self, project_id: str) -> List[IngestionRecord]:
         """生成系统划分记录"""
-        stmt = select(PartOutline).where(
-            PartOutline.project_id == project_id
-        ).order_by(PartOutline.part_number)
+        stmt = select(CodingSystem).where(
+            CodingSystem.project_id == project_id
+        ).order_by(CodingSystem.system_number)
         systems = (await self.session.execute(stmt)).scalars().all()
 
         records: List[IngestionRecord] = []
@@ -672,7 +675,8 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.SYSTEM,
                     source_id=str(system.id),
-                    system_number=system.part_number
+                    project_id=project_id,
+                    system_number=system.system_number
                 )
                 if record:
                     records.append(record)
@@ -680,22 +684,22 @@ class CodingProjectIngestionService:
 
     async def _generate_module_records(self, project_id: str) -> List[IngestionRecord]:
         """生成模块定义记录"""
-        stmt = select(BlueprintCharacter).where(
-            BlueprintCharacter.project_id == project_id
-        ).order_by(BlueprintCharacter.position)
+        stmt = select(CodingModule).where(
+            CodingModule.project_id == project_id
+        ).order_by(CodingModule.module_number)
         modules = (await self.session.execute(stmt)).scalars().all()
 
         records: List[IngestionRecord] = []
         for module in modules:
             content = self._format_module(module)
             if content:
-                extra = module.extra or {}
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.MODULE,
                     source_id=str(module.id),
-                    module_number=extra.get("module_number", module.position),
-                    system_number=extra.get("system_number")
+                    project_id=project_id,
+                    module_number=module.module_number,
+                    system_number=module.system_number
                 )
                 if record:
                     records.append(record)
@@ -703,42 +707,53 @@ class CodingProjectIngestionService:
 
     async def _generate_feature_outline_records(self, project_id: str) -> List[IngestionRecord]:
         """生成功能大纲记录"""
-        stmt = select(ChapterOutline).where(
-            ChapterOutline.project_id == project_id
-        ).order_by(ChapterOutline.chapter_number)
-        outlines = (await self.session.execute(stmt)).scalars().all()
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
 
         records: List[IngestionRecord] = []
-        for outline in outlines:
-            content = self._format_feature_outline(outline)
+        for feature in features:
+            content = self._format_feature_outline(feature)
             if content:
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.FEATURE_OUTLINE,
-                    source_id=str(outline.id),
-                    feature_number=outline.chapter_number
+                    source_id=str(feature.id),
+                    project_id=project_id,
+                    feature_number=feature.feature_number
                 )
                 if record:
                     records.append(record)
         return records
 
     async def _generate_dependency_records(self, project_id: str) -> List[IngestionRecord]:
-        """生成依赖关系记录"""
-        stmt = select(BlueprintRelationship).where(
-            BlueprintRelationship.project_id == project_id
-        )
-        dependencies = (await self.session.execute(stmt)).scalars().all()
+        """生成依赖关系记录 - 从蓝图的dependencies字段获取"""
+        blueprint = await self._get_blueprint(project_id)
+        if not blueprint or not blueprint.dependencies:
+            return []
+
+        dependencies = blueprint.dependencies
+        if isinstance(dependencies, str):
+            try:
+                dependencies = json.loads(dependencies)
+            except json.JSONDecodeError:
+                return []
 
         records: List[IngestionRecord] = []
-        for dep in dependencies:
+        for idx, dep in enumerate(dependencies):
             content = self._format_dependency(dep)
             if content:
+                # dep 是字典格式: {"from": "模块名", "to": "模块名", "description": "..."}
+                from_mod = dep.get("from", dep.get("from_module", ""))
+                to_mod = dep.get("to", dep.get("to_module", ""))
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.DEPENDENCY,
-                    source_id=str(dep.id),
-                    from_module=dep.character_from,
-                    to_module=dep.character_to
+                    source_id=f"{project_id}_dep_{idx}",
+                    project_id=project_id,
+                    from_module=from_mod,
+                    to_module=to_mod
                 )
                 if record:
                     records.append(record)
@@ -747,29 +762,30 @@ class CodingProjectIngestionService:
     async def _generate_feature_prompt_records(self, project_id: str) -> List[IngestionRecord]:
         """生成功能Prompt记录"""
         from sqlalchemy.orm import selectinload
-        stmt = select(Chapter).where(
-            Chapter.project_id == project_id,
-            Chapter.selected_version_id.isnot(None)
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id,
+            CodingFeature.selected_version_id.isnot(None)
         ).options(
-            selectinload(Chapter.selected_version)
-        ).order_by(Chapter.chapter_number)
-        chapters = (await self.session.execute(stmt)).scalars().all()
+            selectinload(CodingFeature.selected_version)
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
 
         records: List[IngestionRecord] = []
-        for chapter in chapters:
-            if not chapter.selected_version or not chapter.selected_version.content:
+        for feature in features:
+            if not feature.selected_version or not feature.selected_version.content:
                 continue
-            content = chapter.selected_version.content
+            content = feature.selected_version.content
             if not content.strip():
                 continue
 
-            chapter_records = self.splitter.split_feature_prompt(
+            feature_records = self.splitter.split_feature_prompt(
                 content=content,
-                feature_number=chapter.chapter_number,
-                feature_title=f"功能 {chapter.chapter_number}",
-                source_id=str(chapter.id)
+                feature_number=feature.feature_number,
+                feature_title=feature.name or f"功能 {feature.feature_number}",
+                source_id=str(feature.id),
+                project_id=project_id
             )
-            records.extend(chapter_records)
+            records.extend(feature_records)
         return records
 
     # ==================== 私有方法：各类型入库 ====================
@@ -779,9 +795,9 @@ class CodingProjectIngestionService:
         result = IngestionResult(success=True, data_type=CodingDataType.INSPIRATION)
 
         # 获取对话记录
-        stmt = select(NovelConversation).where(
-            NovelConversation.project_id == project_id
-        ).order_by(NovelConversation.seq)
+        stmt = select(CodingConversation).where(
+            CodingConversation.project_id == project_id
+        ).order_by(CodingConversation.seq)
         conversations = (await self.session.execute(stmt)).scalars().all()
 
         if not conversations:
@@ -809,14 +825,15 @@ class CodingProjectIngestionService:
         result = IngestionResult(success=True, data_type=CodingDataType.ARCHITECTURE)
 
         blueprint = await self._get_blueprint(project_id)
-        # 编程项目架构描述存储在 full_synopsis 字段
-        if not blueprint or not blueprint.full_synopsis:
+        # 编程项目架构描述存储在 architecture_synopsis 字段
+        if not blueprint or not blueprint.architecture_synopsis:
             return result
 
         records = self.splitter.split_architecture(
-            content=blueprint.full_synopsis,
+            content=blueprint.architecture_synopsis,
             source_id=project_id,
-            data_type=CodingDataType.ARCHITECTURE
+            data_type=CodingDataType.ARCHITECTURE,
+            project_id=project_id
         )
         result.total_records = len(records)
 
@@ -827,22 +844,16 @@ class CodingProjectIngestionService:
         result = IngestionResult(success=True, data_type=CodingDataType.TECH_STACK)
 
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
+        # 编程项目技术栈直接存储在 tech_stack 字段
+        if not blueprint or not blueprint.tech_stack:
             return result
 
-        # 编程项目技术栈存储在 world_setting 字段
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        tech_stack = blueprint.tech_stack
+        if isinstance(tech_stack, str):
             try:
-                world_setting = json.loads(world_setting)
+                tech_stack = json.loads(tech_stack)
             except json.JSONDecodeError:
                 return result
-
-        # tech_stack 可能在子对象中，也可能直接在顶层
-        tech_stack = world_setting.get("tech_stack", {})
-        if not tech_stack:
-            # 旧格式：直接在 world_setting 顶层
-            tech_stack = world_setting
 
         records: List[IngestionRecord] = []
 
@@ -855,6 +866,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.TECH_STACK,
                     source_id=project_id,
+                    project_id=project_id,
                     component_index=idx,
                     component_name=comp.get("name", "")
                 )
@@ -870,6 +882,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.TECH_STACK,
                     source_id=project_id,
+                    project_id=project_id,
                     domain_index=idx,
                     domain_name=domain.get("name", "")
                 )
@@ -884,20 +897,19 @@ class CodingProjectIngestionService:
         result = IngestionResult(success=True, data_type=CodingDataType.REQUIREMENT)
 
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
-            logger.info("入库核心需求: 无蓝图或world_setting为空")
+        # 编程项目核心需求直接存储在 core_requirements 字段
+        if not blueprint or not blueprint.core_requirements:
+            logger.info("入库核心需求: 无蓝图或core_requirements为空")
             return result
 
-        # 编程项目核心需求存储在 world_setting["core_requirements"]
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        requirements = blueprint.core_requirements
+        if isinstance(requirements, str):
             try:
-                world_setting = json.loads(world_setting)
+                requirements = json.loads(requirements)
             except json.JSONDecodeError:
-                logger.warning("入库核心需求: world_setting JSON解析失败")
+                logger.warning("入库核心需求: core_requirements JSON解析失败")
                 return result
 
-        requirements = world_setting.get("core_requirements", [])
         logger.info("入库核心需求: 找到 %d 条需求", len(requirements))
 
         records: List[IngestionRecord] = []
@@ -908,6 +920,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.REQUIREMENT,
                     source_id=project_id,
+                    project_id=project_id,
                     requirement_index=idx
                 )
                 if record:
@@ -921,20 +934,19 @@ class CodingProjectIngestionService:
         result = IngestionResult(success=True, data_type=CodingDataType.CHALLENGE)
 
         blueprint = await self._get_blueprint(project_id)
-        if not blueprint or not blueprint.world_setting:
-            logger.info("入库技术挑战: 无蓝图或world_setting为空")
+        # 编程项目技术挑战直接存储在 technical_challenges 字段
+        if not blueprint or not blueprint.technical_challenges:
+            logger.info("入库技术挑战: 无蓝图或technical_challenges为空")
             return result
 
-        # 编程项目技术挑战存储在 world_setting["technical_challenges"]
-        world_setting = blueprint.world_setting
-        if isinstance(world_setting, str):
+        challenges = blueprint.technical_challenges
+        if isinstance(challenges, str):
             try:
-                world_setting = json.loads(world_setting)
+                challenges = json.loads(challenges)
             except json.JSONDecodeError:
-                logger.warning("入库技术挑战: world_setting JSON解析失败")
+                logger.warning("入库技术挑战: technical_challenges JSON解析失败")
                 return result
 
-        challenges = world_setting.get("technical_challenges", [])
         logger.info("入库技术挑战: 找到 %d 条挑战", len(challenges))
 
         records: List[IngestionRecord] = []
@@ -945,6 +957,7 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.CHALLENGE,
                     source_id=project_id,
+                    project_id=project_id,
                     challenge_index=idx
                 )
                 if record:
@@ -957,10 +970,10 @@ class CodingProjectIngestionService:
         """入库系统划分"""
         result = IngestionResult(success=True, data_type=CodingDataType.SYSTEM)
 
-        # 系统存储在part_outlines表
-        stmt = select(PartOutline).where(
-            PartOutline.project_id == project_id
-        ).order_by(PartOutline.part_number)
+        # 系统存储在 coding_systems 表
+        stmt = select(CodingSystem).where(
+            CodingSystem.project_id == project_id
+        ).order_by(CodingSystem.system_number)
         systems = (await self.session.execute(stmt)).scalars().all()
 
         if not systems:
@@ -974,7 +987,8 @@ class CodingProjectIngestionService:
                     content=content,
                     data_type=CodingDataType.SYSTEM,
                     source_id=str(system.id),
-                    system_number=system.part_number
+                    project_id=project_id,
+                    system_number=system.system_number
                 )
                 if record:
                     records.append(record)
@@ -986,10 +1000,10 @@ class CodingProjectIngestionService:
         """入库模块定义"""
         result = IngestionResult(success=True, data_type=CodingDataType.MODULE)
 
-        # 模块存储在blueprint_characters表
-        stmt = select(BlueprintCharacter).where(
-            BlueprintCharacter.project_id == project_id
-        ).order_by(BlueprintCharacter.position)
+        # 模块存储在 coding_modules 表
+        stmt = select(CodingModule).where(
+            CodingModule.project_id == project_id
+        ).order_by(CodingModule.module_number)
         modules = (await self.session.execute(stmt)).scalars().all()
 
         if not modules:
@@ -999,14 +1013,13 @@ class CodingProjectIngestionService:
         for module in modules:
             content = self._format_module(module)
             if content:
-                # module_number 和 system_number 存储在 extra 字段中
-                extra = module.extra or {}
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.MODULE,
                     source_id=str(module.id),
-                    module_number=extra.get("module_number", module.position),
-                    system_number=extra.get("system_number")
+                    project_id=project_id,
+                    module_number=module.module_number,
+                    system_number=module.system_number
                 )
                 if record:
                     records.append(record)
@@ -1018,24 +1031,25 @@ class CodingProjectIngestionService:
         """入库功能大纲"""
         result = IngestionResult(success=True, data_type=CodingDataType.FEATURE_OUTLINE)
 
-        # 功能大纲存储在chapter_outlines表
-        stmt = select(ChapterOutline).where(
-            ChapterOutline.project_id == project_id
-        ).order_by(ChapterOutline.chapter_number)
-        outlines = (await self.session.execute(stmt)).scalars().all()
+        # 功能大纲存储在 coding_features 表
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
 
-        if not outlines:
+        if not features:
             return result
 
         records: List[IngestionRecord] = []
-        for outline in outlines:
-            content = self._format_feature_outline(outline)
+        for feature in features:
+            content = self._format_feature_outline(feature)
             if content:
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.FEATURE_OUTLINE,
-                    source_id=str(outline.id),
-                    feature_number=outline.chapter_number
+                    source_id=str(feature.id),
+                    project_id=project_id,
+                    feature_number=feature.feature_number
                 )
                 if record:
                     records.append(record)
@@ -1044,28 +1058,34 @@ class CodingProjectIngestionService:
         return await self._ingest_records(records, result, project_id)
 
     async def _ingest_dependencies(self, project_id: str) -> IngestionResult:
-        """入库依赖关系"""
+        """入库依赖关系 - 从蓝图的dependencies字段获取"""
         result = IngestionResult(success=True, data_type=CodingDataType.DEPENDENCY)
 
-        # 依赖关系存储在blueprint_relationships表
-        stmt = select(BlueprintRelationship).where(
-            BlueprintRelationship.project_id == project_id
-        )
-        dependencies = (await self.session.execute(stmt)).scalars().all()
-
-        if not dependencies:
+        blueprint = await self._get_blueprint(project_id)
+        if not blueprint or not blueprint.dependencies:
             return result
 
+        dependencies = blueprint.dependencies
+        if isinstance(dependencies, str):
+            try:
+                dependencies = json.loads(dependencies)
+            except json.JSONDecodeError:
+                return result
+
         records: List[IngestionRecord] = []
-        for dep in dependencies:
+        for idx, dep in enumerate(dependencies):
             content = self._format_dependency(dep)
             if content:
+                # dep 是字典格式: {"from": "模块名", "to": "模块名", "description": "..."}
+                from_mod = dep.get("from", dep.get("from_module", ""))
+                to_mod = dep.get("to", dep.get("to_module", ""))
                 record = self.splitter.create_simple_record(
                     content=content,
                     data_type=CodingDataType.DEPENDENCY,
-                    source_id=str(dep.id),
-                    from_module=dep.character_from,
-                    to_module=dep.character_to
+                    source_id=f"{project_id}_dep_{idx}",
+                    project_id=project_id,
+                    from_module=from_mod,
+                    to_module=to_mod
                 )
                 if record:
                     records.append(record)
@@ -1077,124 +1097,140 @@ class CodingProjectIngestionService:
         """入库功能Prompt"""
         result = IngestionResult(success=True, data_type=CodingDataType.FEATURE_PROMPT)
 
-        # 功能Prompt存储在chapters表，内容在选中版本中
+        # 功能Prompt存储在 coding_features 表，内容在选中版本中
         from sqlalchemy.orm import selectinload
-        stmt = select(Chapter).where(
-            Chapter.project_id == project_id,
-            Chapter.selected_version_id.isnot(None)
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id,
+            CodingFeature.selected_version_id.isnot(None)
         ).options(
-            selectinload(Chapter.selected_version)
-        ).order_by(Chapter.chapter_number)
-        chapters = (await self.session.execute(stmt)).scalars().all()
+            selectinload(CodingFeature.selected_version)
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
 
-        if not chapters:
+        if not features:
             return result
 
         records: List[IngestionRecord] = []
-        for chapter in chapters:
+        for feature in features:
             # 获取选中版本的内容
-            if not chapter.selected_version or not chapter.selected_version.content:
+            if not feature.selected_version or not feature.selected_version.content:
                 continue
 
-            content = chapter.selected_version.content
+            content = feature.selected_version.content
             if not content.strip():
                 continue
 
             # 功能Prompt需要分割
-            chapter_records = self.splitter.split_feature_prompt(
+            feature_records = self.splitter.split_feature_prompt(
                 content=content,
-                feature_number=chapter.chapter_number,
-                feature_title=f"功能 {chapter.chapter_number}",
-                source_id=str(chapter.id)
+                feature_number=feature.feature_number,
+                feature_title=feature.name or f"功能 {feature.feature_number}",
+                source_id=str(feature.id),
+                project_id=project_id
             )
-            records.extend(chapter_records)
+            records.extend(feature_records)
 
         result.total_records = len(records)
         return await self._ingest_records(records, result, project_id)
 
     # ==================== 私有方法：辅助函数 ====================
 
-    async def _get_blueprint(self, project_id: str) -> Optional[NovelBlueprint]:
+    async def _get_blueprint(self, project_id: str) -> Optional[CodingBlueprint]:
         """获取项目蓝图"""
-        stmt = select(NovelBlueprint).where(NovelBlueprint.project_id == project_id)
+        stmt = select(CodingBlueprint).where(CodingBlueprint.project_id == project_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def _get_db_count(self, project_id: str, data_type: CodingDataType) -> int:
         """获取数据库中某类型的记录数"""
-        table = CodingDataType.get_source_table(data_type.value)
-
-        # 根据表名查询
-        if table == "novel_conversations":
-            stmt = select(func.count()).select_from(NovelConversation).where(
-                NovelConversation.project_id == project_id
+        # 根据数据类型查询对应的编程项目表
+        if data_type == CodingDataType.INSPIRATION:
+            stmt = select(func.count()).select_from(CodingConversation).where(
+                CodingConversation.project_id == project_id
             )
             # 对话按轮次计算，大约是记录数/2
             result = await self.session.execute(stmt)
             count = result.scalar() or 0
             return (count + 1) // 2  # 估算轮次数
 
-        elif table == "novel_blueprints":
-            # 蓝图字段，需要检查非空
+        elif data_type == CodingDataType.ARCHITECTURE:
             blueprint = await self._get_blueprint(project_id)
-            if not blueprint:
+            return 1 if blueprint and blueprint.architecture_synopsis else 0
+
+        elif data_type == CodingDataType.TECH_STACK:
+            blueprint = await self._get_blueprint(project_id)
+            if not blueprint or not blueprint.tech_stack:
                 return 0
-
-            # 编程项目数据存储在 world_setting 字段中
-            world_setting = blueprint.world_setting or {}
-            if isinstance(world_setting, str):
+            tech_stack = blueprint.tech_stack
+            if isinstance(tech_stack, str):
                 try:
-                    world_setting = json.loads(world_setting)
+                    tech_stack = json.loads(tech_stack)
                 except json.JSONDecodeError:
-                    world_setting = {}
+                    return 0
+            return len(tech_stack.get("components", [])) + len(tech_stack.get("domains", []))
 
-            if data_type == CodingDataType.ARCHITECTURE:
-                # 架构描述存储在 full_synopsis
-                return 1 if blueprint.full_synopsis else 0
-            elif data_type == CodingDataType.TECH_STACK:
-                # 技术栈存储在 world_setting["tech_stack"] 或直接在 world_setting
-                tech_stack = world_setting.get("tech_stack", world_setting)
-                return len(tech_stack.get("components", [])) + len(tech_stack.get("domains", []))
-            elif data_type == CodingDataType.REQUIREMENT:
-                reqs = world_setting.get("core_requirements", [])
-                return len(reqs) if isinstance(reqs, list) else 0
-            elif data_type == CodingDataType.CHALLENGE:
-                challenges = world_setting.get("technical_challenges", [])
-                return len(challenges) if isinstance(challenges, list) else 0
+        elif data_type == CodingDataType.REQUIREMENT:
+            blueprint = await self._get_blueprint(project_id)
+            if not blueprint or not blueprint.core_requirements:
+                return 0
+            reqs = blueprint.core_requirements
+            if isinstance(reqs, str):
+                try:
+                    reqs = json.loads(reqs)
+                except json.JSONDecodeError:
+                    return 0
+            return len(reqs) if isinstance(reqs, list) else 0
 
-        elif table == "part_outlines":
-            stmt = select(func.count()).select_from(PartOutline).where(
-                PartOutline.project_id == project_id
+        elif data_type == CodingDataType.CHALLENGE:
+            blueprint = await self._get_blueprint(project_id)
+            if not blueprint or not blueprint.technical_challenges:
+                return 0
+            challenges = blueprint.technical_challenges
+            if isinstance(challenges, str):
+                try:
+                    challenges = json.loads(challenges)
+                except json.JSONDecodeError:
+                    return 0
+            return len(challenges) if isinstance(challenges, list) else 0
+
+        elif data_type == CodingDataType.SYSTEM:
+            stmt = select(func.count()).select_from(CodingSystem).where(
+                CodingSystem.project_id == project_id
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
 
-        elif table == "blueprint_characters":
-            stmt = select(func.count()).select_from(BlueprintCharacter).where(
-                BlueprintCharacter.project_id == project_id
+        elif data_type == CodingDataType.MODULE:
+            stmt = select(func.count()).select_from(CodingModule).where(
+                CodingModule.project_id == project_id
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
 
-        elif table == "chapter_outlines":
-            stmt = select(func.count()).select_from(ChapterOutline).where(
-                ChapterOutline.project_id == project_id
+        elif data_type == CodingDataType.FEATURE_OUTLINE:
+            stmt = select(func.count()).select_from(CodingFeature).where(
+                CodingFeature.project_id == project_id
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
 
-        elif table == "blueprint_relationships":
-            stmt = select(func.count()).select_from(BlueprintRelationship).where(
-                BlueprintRelationship.project_id == project_id
-            )
-            result = await self.session.execute(stmt)
-            return result.scalar() or 0
+        elif data_type == CodingDataType.DEPENDENCY:
+            blueprint = await self._get_blueprint(project_id)
+            if not blueprint or not blueprint.dependencies:
+                return 0
+            deps = blueprint.dependencies
+            if isinstance(deps, str):
+                try:
+                    deps = json.loads(deps)
+                except json.JSONDecodeError:
+                    return 0
+            return len(deps) if isinstance(deps, list) else 0
 
-        elif table == "chapters":
-            # 章节内容在选中版本中，需要检查有选中版本的章节数
-            stmt = select(func.count()).select_from(Chapter).where(
-                Chapter.project_id == project_id,
-                Chapter.selected_version_id.isnot(None)
+        elif data_type == CodingDataType.FEATURE_PROMPT:
+            # 功能Prompt需要检查有选中版本的功能数
+            stmt = select(func.count()).select_from(CodingFeature).where(
+                CodingFeature.project_id == project_id,
+                CodingFeature.selected_version_id.isnot(None)
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
@@ -1531,63 +1567,100 @@ class CodingProjectIngestionService:
             return "\n".join(parts) if parts else ""
         return str(challenge) if challenge else ""
 
-    def _format_system(self, system: PartOutline) -> str:
-        """格式化系统划分"""
-        parts = [f"系统 {system.part_number}: {system.title or ''}"]
-        if system.summary:
-            parts.append(f"描述: {system.summary}")
-        # 职责存储在 theme 字段
-        if system.theme:
-            try:
-                responsibilities = json.loads(system.theme) if system.theme.startswith('[') else [system.theme]
-                if responsibilities:
-                    parts.append(f"职责: {', '.join(str(r) for r in responsibilities)}")
-            except (json.JSONDecodeError, TypeError):
-                parts.append(f"职责: {system.theme}")
-        # 技术要求存储在 key_events 字段
-        if system.key_events:
-            if isinstance(system.key_events, list):
-                tech_req = "\n".join(str(e) for e in system.key_events)
+    def _format_system(self, system: CodingSystem) -> str:
+        """
+        格式化系统划分
+
+        Args:
+            system: CodingSystem模型实例
+
+        Returns:
+            格式化的系统描述文本
+        """
+        parts = [f"系统 {system.system_number}: {system.name or ''}"]
+        if system.description:
+            parts.append(f"描述: {system.description}")
+        # 职责存储在 responsibilities 字段 (JSON列表)
+        if system.responsibilities:
+            responsibilities = system.responsibilities
+            if isinstance(responsibilities, list):
+                parts.append(f"职责: {', '.join(str(r) for r in responsibilities)}")
             else:
-                tech_req = str(system.key_events)
-            if tech_req:
-                parts.append(f"技术要求: {tech_req}")
+                parts.append(f"职责: {responsibilities}")
+        # 技术要求存储在 tech_requirements 字段
+        if system.tech_requirements:
+            parts.append(f"技术要求: {system.tech_requirements}")
         return "\n".join(parts)
 
-    def _format_module(self, module: BlueprintCharacter) -> str:
-        """格式化模块定义"""
+    def _format_module(self, module: CodingModule) -> str:
+        """
+        格式化模块定义
+
+        Args:
+            module: CodingModule模型实例
+
+        Returns:
+            格式化的模块描述文本
+        """
         parts = [f"模块: {module.name or ''}"]
-        if module.identity:
-            parts.append(f"类型: {module.identity}")
-        if module.personality:
-            parts.append(f"描述: {module.personality}")
-        if module.goals:
-            parts.append(f"接口: {module.goals}")
-        # 依赖存储在 abilities 字段
-        if module.abilities:
-            try:
-                deps = json.loads(module.abilities) if module.abilities.startswith('[') else [d.strip() for d in module.abilities.split(',') if d.strip()]
-                if deps:
-                    parts.append(f"依赖: {', '.join(str(d) for d in deps)}")
-            except (json.JSONDecodeError, TypeError):
-                parts.append(f"依赖: {module.abilities}")
+        if module.module_type:
+            parts.append(f"类型: {module.module_type}")
+        if module.description:
+            parts.append(f"描述: {module.description}")
+        if module.interface:
+            parts.append(f"接口: {module.interface}")
+        # 依赖存储在 dependencies 字段 (JSON列表)
+        if module.dependencies:
+            deps = module.dependencies
+            if isinstance(deps, list):
+                parts.append(f"依赖: {', '.join(str(d) for d in deps)}")
+            else:
+                parts.append(f"依赖: {deps}")
         return "\n".join(parts)
 
-    def _format_feature_outline(self, outline: ChapterOutline) -> str:
-        """格式化功能大纲"""
-        parts = [f"功能 {outline.chapter_number}: {outline.title or ''}"]
-        if outline.summary:
-            parts.append(f"描述: {outline.summary}")
+    def _format_feature_outline(self, feature: CodingFeature) -> str:
+        """
+        格式化功能大纲
+
+        Args:
+            feature: CodingFeature模型实例
+
+        Returns:
+            格式化的功能大纲文本
+        """
+        parts = [f"功能 {feature.feature_number}: {feature.name or ''}"]
+        if feature.description:
+            parts.append(f"描述: {feature.description}")
+        if feature.inputs:
+            parts.append(f"输入: {feature.inputs}")
+        if feature.outputs:
+            parts.append(f"输出: {feature.outputs}")
+        if feature.implementation_notes:
+            parts.append(f"实现说明: {feature.implementation_notes}")
+        if feature.priority:
+            parts.append(f"优先级: {feature.priority}")
         return "\n".join(parts)
 
-    def _format_dependency(self, dep: BlueprintRelationship) -> str:
-        """格式化依赖关系"""
+    def _format_dependency(self, dep: Dict[str, Any]) -> str:
+        """
+        格式化依赖关系
+
+        Args:
+            dep: 依赖关系字典，包含 from/from_module, to/to_module, description 等字段
+
+        Returns:
+            格式化的依赖关系文本
+        """
         parts = []
-        # 依赖关系：从 character_from 到 character_to
-        if dep.character_from and dep.character_to:
-            parts.append(f"依赖关系: {dep.character_from} -> {dep.character_to}")
-        if dep.description:
-            parts.append(f"描述: {dep.description}")
+        # 支持多种字段名格式
+        from_mod = dep.get("from", dep.get("from_module", ""))
+        to_mod = dep.get("to", dep.get("to_module", ""))
+        description = dep.get("description", "")
+
+        if from_mod and to_mod:
+            parts.append(f"依赖关系: {from_mod} -> {to_mod}")
+        if description:
+            parts.append(f"描述: {description}")
         return "\n".join(parts) if parts else "模块依赖关系"
 
 

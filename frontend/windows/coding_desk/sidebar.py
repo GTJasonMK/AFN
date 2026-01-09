@@ -9,32 +9,33 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QWidget, QSizePolicy
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QWidget, QSizePolicy, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 
 logger = logging.getLogger(__name__)
 
 
-class SidebarFeatureItem(QFrame):
-    """侧边栏功能项（最底层）"""
+class SidebarFeatureItem(ThemeAwareFrame):
+    """侧边栏功能项（最底层，主题感知）"""
 
     clicked = pyqtSignal(int)  # feature_number
     generateClicked = pyqtSignal(int)  # feature_number
 
     def __init__(self, feature_data: Dict[str, Any], parent=None):
-        super().__init__(parent)
         self.feature_data = feature_data
         self.feature_number = feature_data.get('feature_number', 0)
         self._selected = False
-        self._setup_ui()
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("sidebar_feature_item")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(dp(40))
@@ -58,22 +59,18 @@ class SidebarFeatureItem(QFrame):
 
         # 状态和生成按钮
         status = self.feature_data.get('status', 'pending')
+        has_content = self.feature_data.get('has_content', False)
 
-        if status == 'pending':
-            # 未生成：显示"生成"按钮
-            gen_btn = QPushButton("生成")
-            gen_btn.setObjectName("gen_btn")
-            gen_btn.setFixedSize(dp(40), dp(22))
-            gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            gen_btn.clicked.connect(lambda: self.generateClicked.emit(self.feature_number))
-            layout.addWidget(gen_btn)
-        elif status == 'generating':
+        # 判断是否已生成：优先使用 has_content 字段
+        is_generated = has_content or status in ['generated', 'successful', 'reviewed']
+
+        if status == 'generating':
             # 生成中：显示状态
             status_label = QLabel("...")
             status_label.setObjectName("status_generating")
             status_label.setFixedWidth(dp(20))
             layout.addWidget(status_label)
-        else:
+        elif is_generated:
             # 已生成：显示"重新生成"按钮
             regen_btn = QPushButton("重生成")
             regen_btn.setObjectName("regen_btn")
@@ -81,8 +78,14 @@ class SidebarFeatureItem(QFrame):
             regen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             regen_btn.clicked.connect(lambda: self.generateClicked.emit(self.feature_number))
             layout.addWidget(regen_btn)
-
-        self._apply_style()
+        else:
+            # 未生成：显示"生成"按钮
+            gen_btn = QPushButton("生成")
+            gen_btn.setObjectName("gen_btn")
+            gen_btn.setFixedSize(dp(40), dp(22))
+            gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            gen_btn.clicked.connect(lambda: self.generateClicked.emit(self.feature_number))
+            layout.addWidget(gen_btn)
 
     def _get_status_icon(self, status: str) -> str:
         """获取状态图标"""
@@ -96,10 +99,10 @@ class SidebarFeatureItem(QFrame):
     def setSelected(self, selected: bool):
         """设置选中状态"""
         self._selected = selected
-        self._apply_style()
+        self._apply_theme()
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         border_color = theme_manager.PRIMARY if self._selected else "transparent"
         bg_color = f"{theme_manager.PRIMARY}15" if self._selected else "transparent"
 
@@ -166,23 +169,26 @@ class SidebarFeatureItem(QFrame):
         super().mousePressEvent(event)
 
 
-class SidebarModuleNode(QFrame):
-    """侧边栏模块节点（中间层）"""
+class SidebarModuleNode(ThemeAwareFrame):
+    """侧边栏模块节点（中间层，主题感知）"""
 
     featureClicked = pyqtSignal(int)  # feature_number
     featureGenerateClicked = pyqtSignal(int)  # feature_number
 
     def __init__(self, module_data: Dict[str, Any], features: List[Dict] = None, parent=None):
-        super().__init__(parent)
         self.module_data = module_data
         self.module_number = module_data.get('module_number', 0)
         self.features = features or []
         self._expanded = False
         self._feature_items: List[SidebarFeatureItem] = []
-        self._setup_ui()
+        self.header = None
+        self.expand_icon = None
+        self.features_container = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("sidebar_module_node")
 
         layout = QVBoxLayout(self)
@@ -237,8 +243,6 @@ class SidebarModuleNode(QFrame):
         # 头部点击事件
         self.header.mousePressEvent = self._on_header_click
 
-        self._apply_style()
-
     def _populate_features(self, layout):
         """填充功能列表"""
         for item in self._feature_items:
@@ -288,8 +292,8 @@ class SidebarModuleNode(QFrame):
                 return True
         return False
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#sidebar_module_node {{
                 background-color: transparent;
@@ -333,8 +337,8 @@ class SidebarModuleNode(QFrame):
         """)
 
 
-class SidebarSystemNode(QFrame):
-    """侧边栏系统节点（顶层）"""
+class SidebarSystemNode(ThemeAwareFrame):
+    """侧边栏系统节点（顶层，主题感知）"""
 
     featureClicked = pyqtSignal(int)  # feature_number
     featureGenerateClicked = pyqtSignal(int)  # feature_number
@@ -346,17 +350,20 @@ class SidebarSystemNode(QFrame):
         features: List[Dict] = None,
         parent=None
     ):
-        super().__init__(parent)
         self.system_data = system_data
         self.system_number = system_data.get('system_number', 0)
         self.modules = modules or []
         self.all_features = features or []
         self._expanded = True  # 默认展开
         self._module_nodes: List[SidebarModuleNode] = []
-        self._setup_ui()
+        self.header = None
+        self.expand_icon = None
+        self.modules_container = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("sidebar_system_node")
 
         layout = QVBoxLayout(self)
@@ -410,8 +417,6 @@ class SidebarSystemNode(QFrame):
         # 头部点击事件
         self.header.mousePressEvent = self._on_header_click
 
-        self._apply_style()
-
     def _populate_modules(self, layout):
         """填充模块列表"""
         for node in self._module_nodes:
@@ -461,8 +466,8 @@ class SidebarSystemNode(QFrame):
         for node in self._module_nodes:
             node.clearSelection()
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#sidebar_system_node {{
                 background-color: transparent;
@@ -507,21 +512,24 @@ class SidebarSystemNode(QFrame):
         """)
 
 
-class CDSidebar(QFrame):
-    """CodingDesk侧边栏 - 三级结构"""
+class CDSidebar(ThemeAwareFrame):
+    """CodingDesk侧边栏 - 三级结构（主题感知）"""
 
     featureSelected = pyqtSignal(int)  # feature_number (1-based)
     generateFeature = pyqtSignal(int)  # feature_number (1-based)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
         self.project = None
         self._system_nodes: List[SidebarSystemNode] = []
         self._selected_feature_number: Optional[int] = None
-        self._setup_ui()
+        self.stats_label = None
+        self.list_container = None
+        self.list_layout = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("cd_sidebar")
         self.setFixedWidth(dp(280))
 
@@ -571,8 +579,6 @@ class CDSidebar(QFrame):
         scroll.setWidget(self.list_container)
         layout.addWidget(scroll, 1)
 
-        self._apply_style()
-
     def setProject(self, project: Dict[str, Any]):
         """设置项目数据"""
         self.project = project
@@ -588,31 +594,31 @@ class CDSidebar(QFrame):
         if not self.project:
             return
 
-        # 从coding_blueprint获取三层数据
-        blueprint = self.project.get('coding_blueprint') or {}
+        # 从blueprint获取三层数据
+        blueprint = self.project.get('blueprint') or {}
         systems = blueprint.get('systems', [])
         modules = blueprint.get('modules', [])
         features = blueprint.get('features', [])
 
-        # 获取章节数据用于判断生成状态
-        chapters = self.project.get('chapters', [])
-        chapter_map = {ch.get('chapter_number'): ch for ch in chapters}
+        # features 现在直接包含 status 和 has_content 字段
+        # 创建 feature_map 供后续使用
+        feature_map = {f.get('feature_number'): f for f in features}
 
-        # 为每个功能添加状态
+        # 为每个功能确保有状态字段（兼容旧数据）
         for feature in features:
-            feature_num = feature.get('feature_number', 0)
-            chapter = chapter_map.get(feature_num)
-            if chapter:
-                feature['status'] = chapter.get('generation_status') or chapter.get('status', 'generated')
-            else:
-                feature['status'] = 'pending'
+            if 'status' not in feature:
+                # 如果没有status字段，检查has_content
+                if feature.get('has_content'):
+                    feature['status'] = 'generated'
+                else:
+                    feature['status'] = 'pending'
 
         # 更新统计
         self.stats_label.setText(f"{len(systems)}S/{len(modules)}M/{len(features)}F")
 
         # 如果没有系统，显示空状态或使用旧的扁平模式
         if not systems:
-            self._populate_flat_features(blueprint, chapter_map)
+            self._populate_flat_features(blueprint, feature_map)
             return
 
         # 按系统构建三级结构
@@ -642,7 +648,7 @@ class CDSidebar(QFrame):
             first_feature_num = features[0].get('feature_number', 1)
             self._on_feature_clicked(first_feature_num)
 
-    def _populate_flat_features(self, blueprint: Dict, chapter_map: Dict):
+    def _populate_flat_features(self, blueprint: Dict, feature_map: Dict):
         """兼容旧的扁平功能列表（当没有系统划分时）"""
         # 获取功能列表（可能是features或chapter_outline或modules）
         features = blueprint.get('features', [])
@@ -671,7 +677,7 @@ class CDSidebar(QFrame):
         converted_features = []
         for idx, feature in enumerate(features):
             feature_num = feature.get('feature_number') or feature.get('chapter_number', idx + 1)
-            chapter = chapter_map.get(feature_num)
+            existing_feature = feature_map.get(feature_num)
 
             converted = {
                 'feature_number': feature_num,
@@ -680,8 +686,12 @@ class CDSidebar(QFrame):
                 'system_number': feature.get('system_number', 1),
                 'status': 'pending',
             }
-            if chapter:
-                converted['status'] = chapter.get('generation_status') or chapter.get('status', 'generated')
+            # 使用已有的状态信息
+            if existing_feature:
+                if existing_feature.get('has_content'):
+                    converted['status'] = 'generated'
+                elif existing_feature.get('status'):
+                    converted['status'] = existing_feature.get('status')
 
             converted_features.append(converted)
 
@@ -722,8 +732,8 @@ class CDSidebar(QFrame):
         """外部调用选中功能"""
         self._on_feature_clicked(feature_number)
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         from themes.modern_effects import ModernEffects
 
         transparency_config = theme_manager.get_transparency_config()

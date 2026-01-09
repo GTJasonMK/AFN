@@ -613,11 +613,10 @@ class HomePage(BasePage):
         result = dialog.exec()
 
         if result == CodingModeDialog.MODE_AI:
-            # AI辅助需求分析：暂时导航到CODING_DETAIL（后续可添加独立的Coding灵感模式）
-            # TODO: 实现独立的Coding灵感对话模式
-            self._create_empty_coding_project()
+            # AI辅助需求分析：导航到需求分析对话页面
+            self.navigateTo('CODING_INSPIRATION')
         elif result == CodingModeDialog.MODE_EMPTY:
-            # 空项目：先输入标题，然后创建空项目
+            # 空项目：只收集标题，跳过需求对话，直接进入BLUEPRINT_READY状态
             self._create_empty_coding_project()
 
     def _create_free_project(self):
@@ -662,10 +661,11 @@ class HomePage(BasePage):
         from utils.message_service import MessageService
 
         def do_create():
-            # 使用独立的Coding API创建项目
+            # 使用独立的Coding API创建项目，跳过需求对话
             return self.api_client.create_coding_project(
                 title=title,
-                initial_prompt=""
+                initial_prompt="",
+                skip_conversation=True  # 跳过需求对话，直接进入蓝图状态
             )
 
         def on_success(project):

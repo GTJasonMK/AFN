@@ -9,7 +9,7 @@
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from .data_types import CodingDataType, BLUEPRINT_INGESTION_TYPES
 from .ingestion_service import CodingProjectIngestionService
@@ -21,8 +21,8 @@ async def trigger_async_ingestion(
     project_id: str,
     user_id: str,
     data_type: CodingDataType,
-    vector_store: Optional[any] = None,
-    llm_service: Optional[any] = None,
+    vector_store: Optional[Any] = None,
+    llm_service: Optional[Any] = None,
 ) -> None:
     """
     异步触发入库

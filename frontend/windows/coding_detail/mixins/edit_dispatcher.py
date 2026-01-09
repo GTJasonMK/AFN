@@ -304,11 +304,11 @@ class EditDispatcherMixin:
         if not self.project_data:
             return
 
-        # 获取coding_blueprint引用
-        blueprint = self.project_data.get('coding_blueprint', {})
+        # 获取blueprint引用
+        blueprint = self.project_data.get('blueprint', {})
         if not blueprint:
-            self.project_data['coding_blueprint'] = {}
-            blueprint = self.project_data['coding_blueprint']
+            self.project_data['blueprint'] = {}
+            blueprint = self.project_data['blueprint']
 
         # 更新本地缓存
         if field.startswith('tech_stack.'):

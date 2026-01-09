@@ -29,18 +29,30 @@ class IngestionRecord:
     data_type: CodingDataType     # 数据类型
     source_id: str                # 来源记录ID
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
+    project_id: str = ""          # 项目ID，用于生成唯一chunk_id
 
     def get_content_hash(self) -> str:
         """计算内容哈希，用于增量更新"""
         return hashlib.md5(self.content.encode('utf-8')).hexdigest()[:16]
 
     def get_chunk_id(self) -> str:
-        """生成唯一的chunk ID"""
-        type_prefix = self.data_type.value[:4]
+        """
+        生成唯一的chunk ID
+
+        格式: {project_prefix}_{type}_{source_suffix}_{section}_{hash}
+        包含project_id前缀以避免跨项目碰撞。
+        """
+        # 使用完整的数据类型名（避免inspiration和其他以insp开头的类型冲突）
+        type_name = self.data_type.value
+        # 项目ID前8位（如果有）
+        project_prefix = self.project_id[:8] if self.project_id else "global"
+        # 来源ID后8位
         source_suffix = self.source_id[-8:] if len(self.source_id) > 8 else self.source_id
+        # 内容哈希
         content_hash = self.get_content_hash()
+        # 分段索引
         section_idx = self.metadata.get('section_index', 0)
-        return f"{type_prefix}_{source_suffix}_{section_idx}_{content_hash}"
+        return f"{project_prefix}_{type_name}_{source_suffix}_{section_idx}_{content_hash}"
 
 
 class ContentSplitter:
@@ -121,7 +133,8 @@ class ContentSplitter:
         content: str,
         feature_number: int,
         feature_title: str,
-        source_id: str
+        source_id: str,
+        project_id: str = ""
     ) -> List[IngestionRecord]:
         """
         分割功能Prompt内容
@@ -133,6 +146,7 @@ class ContentSplitter:
             feature_number: 功能编号
             feature_title: 功能标题
             source_id: 来源章节ID
+            project_id: 项目ID（用于生成唯一chunk_id）
 
         Returns:
             入库记录列表
@@ -155,7 +169,8 @@ class ContentSplitter:
                         'section_title': '',
                         'section_index': 0,
                         'total_sections': 1,
-                    }
+                    },
+                    project_id=project_id
                 ))
             return records
 
@@ -174,7 +189,8 @@ class ContentSplitter:
                     'section_title': section.title,
                     'section_index': section.index,
                     'total_sections': total_sections,
-                }
+                },
+                project_id=project_id
             ))
 
         return records
@@ -183,7 +199,8 @@ class ContentSplitter:
         self,
         content: str,
         source_id: str,
-        data_type: CodingDataType = CodingDataType.ARCHITECTURE
+        data_type: CodingDataType = CodingDataType.ARCHITECTURE,
+        project_id: str = ""
     ) -> List[IngestionRecord]:
         """
         分割架构设计内容
@@ -192,6 +209,7 @@ class ContentSplitter:
             content: 架构设计内容
             source_id: 来源蓝图ID
             data_type: 数据类型
+            project_id: 项目ID（用于生成唯一chunk_id）
 
         Returns:
             入库记录列表
@@ -214,7 +232,8 @@ class ContentSplitter:
                     'section_title': '',
                     'section_index': 0,
                     'total_sections': 1,
-                }
+                },
+                project_id=project_id
             ))
             return records
 
@@ -230,7 +249,8 @@ class ContentSplitter:
                     'section_title': section.title,
                     'section_index': section.index,
                     'total_sections': total_sections,
-                }
+                },
+                project_id=project_id
             ))
 
         return records
@@ -240,6 +260,7 @@ class ContentSplitter:
         content: str,
         data_type: CodingDataType,
         source_id: str,
+        project_id: str = "",
         **extra_metadata
     ) -> Optional[IngestionRecord]:
         """
@@ -251,6 +272,7 @@ class ContentSplitter:
             content: 内容
             data_type: 数据类型
             source_id: 来源ID
+            project_id: 项目ID（用于生成唯一chunk_id）
             **extra_metadata: 额外元数据
 
         Returns:
@@ -267,7 +289,8 @@ class ContentSplitter:
                 'section_index': 0,
                 'total_sections': 1,
                 **extra_metadata
-            }
+            },
+            project_id=project_id
         )
 
     def merge_qa_rounds(
@@ -360,7 +383,8 @@ class ContentSplitter:
                 'round_number': round_number,
                 'start_seq': start_seq,
                 'message_count': len(round_convs),
-            }
+            },
+            project_id=project_id
         )
 
 

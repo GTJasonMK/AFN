@@ -105,6 +105,21 @@ async def get_novel_service(
     return NovelService(session)
 
 
+async def get_coding_project_service(
+    session: AsyncSession = Depends(get_session),
+) -> "CodingProjectService":
+    """
+    获取CodingProjectService实例（依赖注入）
+
+    统一Service获取方式，避免在每个路由函数中重复初始化。
+
+    Returns:
+        CodingProjectService实例
+    """
+    from ..services.coding import CodingProjectService
+    return CodingProjectService(session)
+
+
 async def get_llm_service(
     session: AsyncSession = Depends(get_session),
 ) -> "LLMService":

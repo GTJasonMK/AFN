@@ -191,3 +191,16 @@
 - `shell_command` @ `/mnt/e/code/AFN`: 执行 `shrimp-task-manager`（命令缺失，再次记录规划工具不可用）
 - `shell_command` @ `/mnt/e/code/AFN`: `rg -n "base_url" frontend`、`sed -n '90,140p' frontend/api/client/core.py`、`sed -n '20,80p' frontend/api/manager.py`、`sed -n '60,90p' frontend/utils/config_manager.py`，确认 API 客户端始终使用默认 `http://127.0.0.1:8123` 且未读取用户配置
 - `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题10（桌面端无法连接自定义后端地址）
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '200,260p' frontend/windows/writing_desk/workspace/manga_handlers.py`、`rg -n \"local_path\" frontend/windows/writing_desk`、`sed -n '420,520p' backend/app/api/routers/image_generation.py`，确认前端始终读取本地 `backend/storage` 路径而不使用返回的 `url`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题11（漫画图片在远程环境无法显示）
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `sequential-thinking`（命令依旧不存在，记录新一轮缺少该工具）
+- `shell_command` @ `/mnt/e/code/AFN`: 直接执行 `shrimp-task-manager`（命令依旧不存在，规划工具仍不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/novel_detail/sections/chapters_section.py | sed -n '300,360p'`、`sed -n '520,560p'`，审查章节详情加载与导入流程
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '1,200p' frontend/windows/writing_desk/workspace/chapter_display.py`，对比写作台使用 AsyncAPIWorker 的实现
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题12（小说详情章节列表阻塞主线程）
+- `list_mcp_resources`: 查询配置的 MCP 资源以寻找 `sequential-thinking` 工具（返回空列表，记录工具缺失）
+- `list_mcp_resource_templates`: 获取 MCP 资源模板以再次确认无可用的思考/规划工具
+- `shell_command` @ `/mnt/e/code/AFN`: `ls -a`、`ls .codex` 收集仓库与 `.codex` 目录结构；`sed -n '1,200p' docs/BUG_REPORT.md` 查看当前缺陷列表；`sed -n '1,200p' .codex/operations-log.md`、`.codex/testing.md` 回顾既有日志与测试记录
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id" frontend/api/client/image_mixin.py`、`nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '380,660p'` 等命令确认前端仍未传递版本ID；`nl -ba backend/app/services/image_generation/service.py | sed -n '600,660p'` 与 `nl -ba backend/app/api/routers/image_generation.py | sed -n '670,700p'` 对比生成结果返回的 URL 与实际路由，定位 `/api/images` 死链
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题13（图片生成响应中的 URL 仍指向不存在的 `/api/images/...` 路由）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“图片 URL 缺陷复查”阶段未执行测试

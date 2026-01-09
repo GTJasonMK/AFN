@@ -15,15 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....core.dependencies import (
     get_default_user,
     get_llm_service,
-    get_novel_service,
+    get_coding_project_service,
     get_vector_store,
-    get_vector_ingestion_service,
 )
 from ....db.session import get_session
 from ....schemas.user import UserInDB
 from ....services.llm_service import LLMService
-from ....services.novel_service import NovelService
-from ....services.chapter_ingest_service import ChapterIngestionService
+from ....services.coding import CodingProjectService
 from ....services.vector_store_service import VectorStoreService
 from ....services.coding_rag import (
     CodingProjectIngestionService,
@@ -146,7 +144,7 @@ class RAGQueryResponse(BaseModel):
 async def diagnose_rag_data(
     project_id: str,
     user: UserInDB = Depends(get_default_user),
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ):
     """
@@ -158,7 +156,7 @@ async def diagnose_rag_data(
         return {"error": "向量库未启用"}
 
     # 验证项目
-    project = await novel_service.get_project_schema(project_id, user.id)
+    project = await coding_project_service.get_project_schema(project_id, user.id)
     if not project:
         return {"error": "项目不存在"}
 
@@ -260,7 +258,7 @@ async def check_rag_completeness(
     project_id: str,
     session: AsyncSession = Depends(get_session),
     user: UserInDB = Depends(get_default_user),
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ):
@@ -277,18 +275,11 @@ async def check_rag_completeness(
         )
 
     # 获取项目数据
-    project = await novel_service.get_project_schema(project_id, user.id)
+    project = await coding_project_service.get_project_schema(project_id, user.id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="项目不存在"
-        )
-
-    # 检查项目类型
-    if project.project_type != "coding":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只有编程项目支持此操作"
         )
 
     # 创建入库服务并检查完整性
@@ -337,7 +328,7 @@ async def ingest_all_rag_data(
     request: Optional[FullIngestionRequest] = None,
     session: AsyncSession = Depends(get_session),
     user: UserInDB = Depends(get_default_user),
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ):
@@ -355,18 +346,11 @@ async def ingest_all_rag_data(
         )
 
     # 获取项目数据
-    project = await novel_service.get_project_schema(project_id, user.id)
+    project = await coding_project_service.get_project_schema(project_id, user.id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="项目不存在"
-        )
-
-    # 检查项目类型
-    if project.project_type != "coding":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只有编程项目支持此操作"
         )
 
     # 创建入库服务
@@ -451,106 +435,67 @@ async def reindex_coding_project(
     project_id: str,
     session: AsyncSession = Depends(get_session),
     user: UserInDB = Depends(get_default_user),
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
-    ingestion_service: Optional[ChapterIngestionService] = Depends(get_vector_ingestion_service),
 ):
     """
     将编程项目的功能Prompt入库到向量数据库
 
-    遍历所有已生成内容的功能（存储在chapters表中），
-    将其Prompt内容向量化并存储到ChromaDB。
+    使用CodingProjectIngestionService进行入库，与ingest_all_rag_data保持一致。
     这是一个幂等操作，会增量更新索引。
     """
     # 检查向量库是否启用
-    if vector_store is None or ingestion_service is None:
+    if vector_store is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="向量库未启用，请在设置中配置嵌入服务"
         )
 
-    # 获取项目数据
-    project = await novel_service.get_project_schema(project_id, user.id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="项目不存在"
-        )
+    # 验证项目归属
+    await coding_project_service.ensure_project_owner(project_id, user.id)
 
-    # 检查项目类型
-    if project.project_type != "coding":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只有编程项目支持此操作"
-        )
-
-    # 获取所有章节（功能Prompt）
-    chapters = project.chapters or []
-    if not chapters:
-        return ReindexResponse(
-            success=True,
-            indexed_count=0,
-            message="项目暂无已生成的功能Prompt"
-        )
-
-    # 过滤有内容的章节
-    chapters_with_content = [ch for ch in chapters if ch.content and ch.content.strip()]
-    if not chapters_with_content:
-        return ReindexResponse(
-            success=True,
-            indexed_count=0,
-            message="项目暂无已生成的功能Prompt内容"
-        )
-
-    # 逐个入库
-    indexed_count = 0
-    failed_count = 0
-
-    for chapter in chapters_with_content:
-        try:
-            result = await ingestion_service.ingest_chapter(
-                project_id=project_id,
-                chapter_number=chapter.chapter_number,
-                title=chapter.title or f"功能 {chapter.chapter_number}",
-                content=chapter.content,
-                summary=chapter.summary,
-                user_id=user.id,
-            )
-            if result.get("success"):
-                indexed_count += 1
-                logger.info(
-                    "功能Prompt入库成功: project=%s feature=%d",
-                    project_id, chapter.chapter_number
-                )
-            else:
-                failed_count += 1
-                logger.warning(
-                    "功能Prompt入库跳过: project=%s feature=%d reason=%s",
-                    project_id, chapter.chapter_number, result.get("message")
-                )
-        except Exception as e:
-            failed_count += 1
-            logger.error(
-                "功能Prompt入库失败: project=%s feature=%d error=%s",
-                project_id, chapter.chapter_number, str(e)
-            )
-
-    # 构建结果消息
-    if indexed_count > 0 and failed_count == 0:
-        message = f"成功入库 {indexed_count} 个功能Prompt"
-    elif indexed_count > 0 and failed_count > 0:
-        message = f"入库完成: 成功 {indexed_count} 个, 失败 {failed_count} 个"
-    elif indexed_count == 0 and failed_count > 0:
-        message = f"入库失败: {failed_count} 个功能Prompt处理失败"
-    else:
-        message = "没有需要入库的内容"
-
-    return ReindexResponse(
-        success=indexed_count > 0,
-        indexed_count=indexed_count,
-        message=message
+    # 使用CodingProjectIngestionService进行入库（与ingest_all_rag_data一致）
+    ingestion_service = CodingProjectIngestionService(
+        session=session,
+        vector_store=vector_store,
+        llm_service=llm_service,
+        user_id=user.id
     )
+
+    try:
+        result = await ingestion_service.ingest_by_type(
+            project_id=project_id,
+            data_type=CodingDataType.FEATURE_PROMPT
+        )
+
+        if result.success:
+            if result.total_records == 0:
+                message = "项目暂无已生成的功能Prompt内容"
+            else:
+                message = f"成功入库 {result.added_count} 个功能Prompt片段"
+            return ReindexResponse(
+                success=True,
+                indexed_count=result.added_count,
+                message=message
+            )
+        else:
+            return ReindexResponse(
+                success=False,
+                indexed_count=0,
+                message=f"入库失败: {result.error_message}"
+            )
+
+    except Exception as e:
+        logger.error(
+            "功能Prompt入库失败: project=%s error=%s",
+            project_id, str(e)
+        )
+        return ReindexResponse(
+            success=False,
+            indexed_count=0,
+            message=f"入库失败: {str(e)}"
+        )
 
 
 @router.post("/coding/{project_id}/rag/query", response_model=RAGQueryResponse)
@@ -558,7 +503,7 @@ async def query_coding_rag(
     project_id: str,
     request: RAGQueryRequest,
     user: UserInDB = Depends(get_default_user),
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ):
@@ -575,7 +520,7 @@ async def query_coding_rag(
         )
 
     # 验证项目存在
-    project = await novel_service.get_project_schema(project_id, user.id)
+    project = await coding_project_service.get_project_schema(project_id, user.id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -594,16 +539,20 @@ async def query_coding_rag(
         )
 
     # 检索片段
+    # 如果指定了类型过滤，需要over-fetch以确保过滤后仍有足够数量
+    fetch_multiplier = 3 if request.data_types else 1
+    fetch_top_k = request.top_k * fetch_multiplier
+
     chunks = await vector_store.query_chunks(
         project_id=project_id,
         embedding=query_embedding,
-        top_k=request.top_k
+        top_k=fetch_top_k
     )
 
     # 调试日志：记录检索到的原始数据
     logger.info(
-        "RAG查询: project=%s query='%s' 检索到 %d 个chunks",
-        project_id, request.query[:50], len(chunks)
+        "RAG查询: project=%s query='%s' 检索到 %d 个chunks (请求 %d)",
+        project_id, request.query[:50], len(chunks), fetch_top_k
     )
     for i, chunk in enumerate(chunks[:3]):  # 只记录前3个
         meta = chunk.metadata or {}

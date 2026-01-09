@@ -144,6 +144,11 @@ class CodingFeature(BaseModel):
     outputs: str = Field(default="", description="输出结果说明")
     implementation_notes: str = Field(default="", description="实现要点和注意事项")
     priority: str = Field(default="medium", description="优先级：high/medium/low")
+    # 内容生成状态字段
+    status: str = Field(default="not_generated", description="生成状态")
+    has_content: bool = Field(default=False, description="是否已生成内容")
+    selected_version_id: Optional[int] = Field(default=None, description="选中的版本ID")
+    version_count: int = Field(default=0, description="版本数量")
 
 
 # ==================== 蓝图 ====================
@@ -222,6 +227,7 @@ class CodingProjectCreate(BaseModel):
     """创建代码项目请求"""
     title: str = Field(..., description="项目名称", min_length=1, max_length=255)
     initial_prompt: Optional[str] = Field(default=None, description="初始需求描述")
+    skip_conversation: bool = Field(default=False, description="是否跳过需求对话（直接进入蓝图状态）")
 
 
 class CodingProjectUpdate(BaseModel):

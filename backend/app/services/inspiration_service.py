@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.constants import NovelConstants, LLMConstants
 from ..models.novel import NovelConversation
-from ..services.conversation_service import ConversationService
+from ..models.coding import CodingConversation
+from ..services.conversation_service import ConversationService, ConversationRecord
 from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm, LLMProfile
 from ..services.prompt_service import PromptService
@@ -69,7 +70,24 @@ class InspirationService:
         self.session = session
         self.llm_service = llm_service
         self.prompt_service = prompt_service
-        self.conversation_service = ConversationService(session)
+        # 对话服务会根据项目类型动态创建
+        self._conversation_services: Dict[str, ConversationService] = {}
+
+    def _get_conversation_service(self, project_type: str = "novel") -> ConversationService:
+        """
+        获取对应项目类型的对话服务
+
+        Args:
+            project_type: 项目类型 (novel/coding)
+
+        Returns:
+            ConversationService: 对话服务实例
+        """
+        if project_type not in self._conversation_services:
+            self._conversation_services[project_type] = ConversationService(
+                self.session, project_type=project_type
+            )
+        return self._conversation_services[project_type]
 
     async def get_system_prompt(self, project_type: str = "novel") -> str:
         """
@@ -90,18 +108,21 @@ class InspirationService:
         self,
         project_id: str,
         user_input: Dict[str, Any],
-    ) -> tuple[List[Dict[str, str]], List[NovelConversation]]:
+        project_type: str = "novel",
+    ) -> tuple[List[Dict[str, str]], List[ConversationRecord]]:
         """
         构建对话上下文
 
         Args:
             project_id: 项目ID
             user_input: 用户输入
+            project_type: 项目类型 (novel/coding)
 
         Returns:
             tuple: (conversation_history, history_records)
         """
-        history_records = await self.conversation_service.list_conversations(project_id)
+        conversation_service = self._get_conversation_service(project_type)
+        history_records = await conversation_service.list_conversations(project_id)
 
         conversation_history = [
             {"role": record.role, "content": record.content}
@@ -116,7 +137,7 @@ class InspirationService:
     def calculate_completion_status(
         self,
         parsed: Dict[str, Any],
-        history_records: List[NovelConversation],
+        history_records: List[ConversationRecord],
         project_id: str,
     ) -> tuple[bool, bool, int]:
         """
@@ -211,7 +232,7 @@ class InspirationService:
         """
         # 1. 构建对话上下文
         conversation_history, history_records = await self.build_conversation_context(
-            project_id, user_input
+            project_id, user_input, project_type
         )
         user_content = conversation_history[-1]["content"]
 
@@ -237,8 +258,9 @@ class InspirationService:
         parsed, normalized = self.parse_llm_response(llm_response, project_id)
 
         # 5. 保存对话历史
-        await self.conversation_service.append_conversation(project_id, "user", user_content)
-        await self.conversation_service.append_conversation(project_id, "assistant", normalized)
+        conversation_service = self._get_conversation_service(project_type)
+        await conversation_service.append_conversation(project_id, "user", user_content)
+        await conversation_service.append_conversation(project_id, "assistant", normalized)
 
         # 6. 计算完成状态
         is_complete, ready_for_blueprint, conversation_turns = self.calculate_completion_status(
@@ -287,7 +309,7 @@ class InspirationService:
         """
         # 1. 构建对话上下文
         conversation_history, history_records = await self.build_conversation_context(
-            project_id, user_input
+            project_id, user_input, project_type
         )
         user_content = conversation_history[-1]["content"]
 
@@ -323,8 +345,9 @@ class InspirationService:
         # 6. 保存对话历史并立即提交
         # 注意：在流式响应中，对话保存是关键操作，应该尽快持久化
         # 避免在生成器外部commit，防止客户端断开导致事务状态不确定
-        await self.conversation_service.append_conversation(project_id, "user", user_content)
-        await self.conversation_service.append_conversation(project_id, "assistant", normalized)
+        conversation_service = self._get_conversation_service(project_type)
+        await conversation_service.append_conversation(project_id, "user", user_content)
+        await conversation_service.append_conversation(project_id, "assistant", normalized)
         await self.session.commit()
 
         # 自动入库：灵感对话（仅编程项目）

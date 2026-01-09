@@ -231,6 +231,30 @@ class ChatBubble(ThemeAwareFrame):
         if self.message_label:
             self.message_label.setText("")
 
+    def set_error(self, error_message: str):
+        """
+        设置错误状态 - 显示错误消息并应用错误样式
+
+        Args:
+            error_message: 错误消息内容
+        """
+        # 先停止加载动画
+        self.stop_loading()
+
+        # 设置错误文本
+        if self.message_label:
+            self.message_label.setText(f"[错误] {error_message}")
+            # 应用错误样式 - 红色文字
+            error_color = "#ff6b6b" if theme_manager.is_dark_mode() else "#dc3545"
+            ui_font = theme_manager.ui_font()
+            self.message_label.setStyleSheet(f"""
+                font-family: {ui_font};
+                font-size: {sp(15)}px;
+                color: {error_color};
+                line-height: 1.6;
+                padding: 0px;
+            """)
+
     def closeEvent(self, event):
         """组件关闭时清理资源"""
         self._cleanup_timers()

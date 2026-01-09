@@ -80,6 +80,83 @@ def _get_torch_device() -> str:
     return 'cpu'
 
 
+def _check_model_cached(model_name: str) -> bool:
+    """
+    检查模型是否已缓存在本地
+
+    Args:
+        model_name: 模型名称（如 BAAI/bge-base-zh-v1.5）
+
+    Returns:
+        True 如果模型已缓存
+    """
+    import os
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        from huggingface_hub.utils import EntryNotFoundError
+
+        # 检查模型配置文件是否已缓存
+        try:
+            result = try_to_load_from_cache(model_name, "config.json")
+            if result is not None:
+                logger.debug("模型 %s 已缓存在本地", model_name)
+                return True
+        except (EntryNotFoundError, Exception):
+            pass
+
+        # 备选：检查 HF_HOME 或默认缓存目录
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        model_cache_dir = os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}")
+        if os.path.exists(model_cache_dir):
+            logger.debug("模型缓存目录存在: %s", model_cache_dir)
+            return True
+
+    except ImportError:
+        logger.debug("huggingface_hub 未安装，无法检查缓存")
+    except Exception as e:
+        logger.debug("检查模型缓存失败: %s", e)
+
+    return False
+
+
+def _load_sentence_transformer(model_name: str, device: str) -> Any:
+    """
+    加载 SentenceTransformer 模型，优先使用本地缓存
+
+    Args:
+        model_name: 模型名称
+        device: 设备类型
+
+    Returns:
+        加载的模型实例
+    """
+    import os
+
+    # 如果模型已缓存，尝试离线加载（避免网络检查）
+    if _check_model_cached(model_name):
+        try:
+            logger.info("尝试离线加载已缓存的模型: %s", model_name)
+            # 设置环境变量强制离线模式
+            old_offline = os.environ.get("HF_HUB_OFFLINE")
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            try:
+                model = _SentenceTransformer(model_name, device=device)
+                logger.info("离线加载模型成功: %s", model_name)
+                return model
+            finally:
+                # 恢复原环境变量
+                if old_offline is None:
+                    os.environ.pop("HF_HUB_OFFLINE", None)
+                else:
+                    os.environ["HF_HUB_OFFLINE"] = old_offline
+        except Exception as e:
+            logger.warning("离线加载失败，尝试在线加载: %s", e)
+
+    # 在线加载（首次下载或离线失败时）
+    logger.info("在线加载模型: %s（可能需要下载）", model_name)
+    return _SentenceTransformer(model_name, device=device)
+
+
 class PreloadState(Enum):
     """预加载状态枚举"""
     NOT_STARTED = "not_started"
@@ -180,11 +257,12 @@ class EmbeddingPreloader:
                     logger.info("嵌入模型已在缓存中: %s", self._model_name)
                     return True
 
-                logger.info("预加载嵌入模型: %s（首次加载可能需要下载）", self._model_name)
+                logger.info("预加载嵌入模型: %s", self._model_name)
                 device = _get_torch_device()
                 logger.info("预加载使用设备: %s", device)
 
-                model = _SentenceTransformer(self._model_name, device=device)
+                # 使用智能加载函数（优先离线模式）
+                model = _load_sentence_transformer(self._model_name, device)
                 _local_model_cache[self._model_name] = model
                 logger.info("嵌入模型预加载成功: %s", self._model_name)
                 return True
@@ -444,12 +522,12 @@ class EmbeddingService:
             global _local_model_cache
 
             if target_model not in _local_model_cache:
-                logger.info("首次加载本地嵌入模型: %s（可能需要下载）", target_model)
+                logger.info("加载本地嵌入模型: %s", target_model)
                 try:
-                    # 显式指定设备，避免 meta tensor 兼容性问题
                     device = _get_torch_device()
                     logger.info("使用设备: %s", device)
-                    model = _SentenceTransformer(target_model, device=device)
+                    # 使用智能加载函数（优先离线模式）
+                    model = _load_sentence_transformer(target_model, device)
                     _local_model_cache[target_model] = model
                     logger.info("本地嵌入模型加载成功: %s", target_model)
                 except Exception as exc:

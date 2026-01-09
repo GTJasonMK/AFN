@@ -71,3 +71,31 @@
 - **问题**：`AFNAPIClient` 的构造函数把 `base_url` 默认写死为 `http://127.0.0.1:8123`，`APIClientManager.get_client()` 也从未注入用户配置。虽然 `ConfigManager` 暴露了 `get_api_base_url/set_api_base_url`，设置页面也允许填写 API 地址，但整个代码库没有任何地方读取这个值，导致桌面端只能访问本机 FastAPI，无法连接远程部署或容器化后的后端。前面 Bug #4 针对 PDF 下载链接已经暴露该问题，但更根本的是所有 REST/SSE 请求都固定在 localhost，用户在不同机器运行前后端时根本无法使用应用。
 - **建议**：在应用启动时读取 `ConfigManager.get_api_base_url()`，将其传递给 `AFNAPIClient`（`APIClientManager` 持有单例时也要监听设置变更），同时在设置界面提供保存按钮以便实时更新 `base_url`。此外，生成下载 URL、SSE 等地方都应基于该配置。
 - **验证情况**：✅ `frontend/api/client/core.py:91-105` 直接使用默认参数；`APIClientManager.get_client` 在创建实例时没有引用任何配置；`ConfigManager.get_api_base_url` 以及对应的 settings UI 从未被调用，证明当前版本无法连接远程后端。
+
+## 11. 漫画图片和缩略图只能在本机读取文件，远程后端无法显示
+
+- **位置**：`frontend/windows/writing_desk/workspace/manga_handlers.py:201-255`、`frontend/windows/writing_desk/panels/manga/pdf_tab.py:423-446`、`backend/app/api/routers/image_generation.py:363-420`
+- **问题**：`_loadChapterImages` 忽略后端返回的 `GeneratedImageInfo.url`，而是硬编码从前端源码目录回到 `backend/storage/generated_images/...` 获取 `local_path`。这要求前后端共享同一文件系统（甚至是相对目录结构一致）。一旦后端部署到远程服务器或 Docker 容器，桌面应用本地并不存在这些图片文件，`local_path` 会指向一个不存在的路径，漫画卡片和图片预览因此全部失效。同时，PDF Tab 中预览单张图片仍然依赖 `image_data['local_path']`，完全没有网络回退。
+- **建议**：前端应优先使用接口返回的 `url`（通过 `self.api_client.base_url` 拼接）来加载/下载图片；只有在本地共享文件系统时才使用 `local_path`。同时在 PDF Tab 的缩略图和预览中也要支持 HTTP 下载，避免远程部署无法查看任何内容。
+- **验证情况**：✅ `backend/app/api/routers/image_generation.py:363-420` 已在 `GeneratedImageInfo` 中提供 `url=f"/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{img.scene_id}/{img.file_name}"`；但 `_loadChapterImages`（`manga_handlers.py:201-255`）始终尝试 `os.path.join(base_dir, 'backend', 'storage', 'generated_images', file_path)` 并写入 `local_path`，`pdf_tab.py:438` 以及卡片渲染全部读取 `local_path`。远程环境下该路径不存在，导致图片永远无法显示。
+
+## 12. 小说详情的章节列表阻塞主线程，加载或导入时整个 UI 卡死
+
+- **位置**：`frontend/windows/novel_detail/sections/chapters_section.py:320-338`、`frontend/windows/novel_detail/sections/chapters_section.py:520-554`
+- **问题**：章节列表在选中章节或导入章节时直接调用 `self.api_client.get_chapter` / `import_chapter`，而这两个方法内部使用 `requests` 同步阻塞网络。Unlike 写作台 `ChapterDisplayMixin`，这里没有使用 `AsyncAPIWorker` 或后台线程。只要后端响应慢、网络抖动、章节内容较大，整个 PyQt UI 就会冻结，所有窗口无法响应，严重影响体验。
+- **建议**：与写作台章节加载一致，使用 `AsyncAPIWorker` 在后台线程调用 API，并在回调里更新 UI；导入章节也应该在任务完成后通知 UI，避免阻塞事件循环。
+- **验证情况**：✅ `_loadChapterDetail`（`chapters_section.py:320-338`）直接在主线程调用 `self.api_client.get_chapter` 并缓存结果，没有任何异步处理；`_onImportChapter`（`520-554`）同样在按钮回调中同步执行 `self.api_client.import_chapter`。这与写作台 `ChapterDisplayMixin._do_load_chapter`（使用 `AsyncAPIWorker`）形成对比，证明小说详情页的网络请求会锁死 UI。
+
+## 13. 新生成图片的下载 URL 仍然指向不存在的 `/api/images/...`
+
+- **位置**：`backend/app/services/image_generation/service.py:613-621`、`backend/app/api/routers/image_generation.py:674-693`
+- **问题**：图片生成服务在返回 `GeneratedImageInfo` 时硬编码 `url=f"/api/images/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"`，但路由实际暴露在 `/api/image-generation/files/...`。调用 `/api/image-generation/novels/.../generate` 或批量生成接口后，响应中的 `images[i].url` 永远 404，前端若尝试直接预览刚生成的图片会立即失败，只能重新加载列表并依赖后端在列表响应里重新拼出的正确 URL。
+- **建议**：与 `get_scene_images`/`get_chapter_images` 保持一致，统一通过 `f"/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{scene_id}/{file_name}"`（或统一的 helper）构造访问路径，确保实时生成的返回值即可使用。
+- **验证情况**：✅ 路由文件（`image_generation.py:674-693`）只注册了 `/api/image-generation/files/...` 和 `/api/image-generation/files/{image_path}` 两条路径，项目中不存在 `/api/images/...`；而 `ImageGenerationService.save_generated_images`（`service.py:613-621`）仍返回旧的 `/api/images/...` URL，说明新生成图片的链接必然指向不存在的路由。
+
+## 14. 项目接口不返回 `selected_version_id`，前端无法得知真实章节版本 ID
+
+- **位置**：`backend/app/serializers/novel_serializer.py:332-382`、`backend/app/schemas/novel.py:164-172`、`frontend/windows/writing_desk/workspace/chapter_display.py:234-252`
+- **问题**：`ChapterSchema` 仅包含 `selected_version`（版本索引）与 `versions`（纯文本列表），序列化时根本没有输出 `chapter.selected_version_id` 或每个版本的数据库 ID。写作台在 `displayChapter` 中试图读取 `chapter_data['selected_version_id']` 来缓存当前版本并传递给漫画图片/PDF 接口，但该字段永远不存在，只能得到 `None`。结果前端即使补齐了 `chapter_version_id` 参数，也没有任何来源可以获取有效 ID，所有需要“按正文版本过滤”的接口都无法工作（Bug #2/#3/#9/#10/#11/#13 都依赖这一字段）。
+- **建议**：在 `ChapterSchema` 中增加 `selected_version_id`（以及版本列表的 `version_ids` 或 `versions: List[Dict]`），序列化时直接写入 `chapter.selected_version_id`，使前端能拿到真实 ID 并在生成图片、导出 PDF、清理旧图等场景中传入。必要时为每个版本附带 `version_id` 与元数据，避免只剩文本内容。
+- **验证情况**：✅ `ChapterSchema`（`backend/app/schemas/novel.py:164-172`）只有 `selected_version` 整数索引，没有任何 ID 字段；`NovelSerializer.build_chapter_schema`（`serializers/novel_serializer.py:332-382`）也只计算 `selected_version_idx` 并返回，不曾把 `chapter.selected_version_id` 放入响应。写作台 `displayChapter`（`chapter_display.py:234-252`）调用 `chapter_data.get('selected_version_id')` 时恒为 `None`，证实当前 API 无法提供章节版本 ID。

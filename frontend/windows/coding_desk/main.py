@@ -182,7 +182,7 @@ class CodingDesk(BasePage):
         """加载项目数据"""
         self._load_project_op_id = self.show_loading("正在加载项目数据...", "load_project")
 
-        worker = AsyncAPIWorker(self.api_client.get_novel, self.project_id)
+        worker = AsyncAPIWorker(self.api_client.get_coding_project, self.project_id)
         worker.success.connect(self._onProjectLoaded)
         worker.error.connect(self._onProjectLoadError)
         self.worker_manager.start(worker, 'load_project')
@@ -263,13 +263,14 @@ class CodingDesk(BasePage):
         # 获取功能标题
         feature_title = self._getFeatureTitle(feature_index)
 
-        # 检查是否已有生成内容
-        chapters = self.project.get('chapters', []) if self.project else []
-        existing_chapter = next(
-            (ch for ch in chapters if ch.get('chapter_number') == feature_number),
+        # 检查是否已有生成内容（从blueprint.features获取状态）
+        blueprint = self.project.get('blueprint', {}) if self.project else {}
+        features = blueprint.get('features', [])
+        existing_feature = next(
+            (f for f in features if f.get('feature_number') == feature_number),
             None
         )
-        has_content = existing_chapter and existing_chapter.get('content')
+        has_content = existing_feature and existing_feature.get('has_content')
 
         # 根据是否已有内容显示不同的确认信息
         if has_content:
@@ -335,13 +336,13 @@ class CodingDesk(BasePage):
     def _getFeatureTitle(self, feature_index: int) -> str:
         """获取功能标题
 
-        从 coding_blueprint.features 中获取功能名称。
+        从 blueprint.features 中获取功能名称。
         注意：features 是功能列表，modules 是模块列表，不要混淆。
         """
         if not self.project:
             return f"功能 {feature_index + 1}"
 
-        blueprint = self.project.get('coding_blueprint') or {}
+        blueprint = self.project.get('blueprint') or {}
 
         # 优先从 features 字段获取（三层架构的标准字段）
         # 回退兼容：chapter_outline（旧格式）
@@ -491,20 +492,18 @@ class CodingDesk(BasePage):
             MessageService.show_warning(self, "正在生成中，请稍候...")
             return
 
-        # 检查是否已有实现Prompt
-        # 注意：项目数据中 chapters 的 content 字段为空（include_content=False）
-        # 应该检查 word_count > 0 或 selected_version is not None
-        chapters = self.project.get('chapters', []) if self.project else []
-        existing_chapter = next(
-            (ch for ch in chapters if ch.get('chapter_number') == feature_index + 1),
+        feature_number = feature_index + 1  # 转换为1-based编号
+
+        # 检查是否已有实现Prompt（从blueprint.features获取状态）
+        blueprint = self.project.get('blueprint', {}) if self.project else {}
+        features = blueprint.get('features', [])
+        existing_feature = next(
+            (f for f in features if f.get('feature_number') == feature_number),
             None
         )
 
-        # 检查 word_count 或 selected_version 来判断是否已生成内容
-        has_content = (
-            existing_chapter and
-            (existing_chapter.get('word_count', 0) > 0 or existing_chapter.get('selected_version') is not None)
-        )
+        # 使用 has_content 字段检查是否已生成实现Prompt
+        has_content = existing_feature and existing_feature.get('has_content')
 
         if not has_content:
             MessageService.show_warning(self, "请先生成功能Prompt，才能生成审查Prompt")

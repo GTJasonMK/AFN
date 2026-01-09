@@ -1,17 +1,22 @@
 """
 对话管理服务
 
-负责小说项目的灵感对话历史管理和格式化。
+负责小说项目和编程项目的灵感对话/需求分析对话历史管理和格式化。
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.novel import NovelConversation
-from ..repositories.conversation_repository import NovelConversationRepository
+from ..models.coding import CodingConversation
+from ..repositories.conversation_repository import NovelConversationRepository, CodingConversationRepository
 from ..utils.json_utils import parse_llm_json_safe
 from ..exceptions import ConversationExtractionError
+
+
+# 对话记录类型（支持两种项目类型）
+ConversationRecord = Union[NovelConversation, CodingConversation]
 
 
 class ConversationService:
@@ -19,19 +24,27 @@ class ConversationService:
     对话管理服务
 
     负责对话记录的增删查改和格式化处理。
+    支持小说项目(novel)和编程项目(coding)两种类型。
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, project_type: str = "novel"):
         """
         初始化ConversationService
 
         Args:
             session: 数据库会话
+            project_type: 项目类型 (novel/coding)
         """
         self.session = session
-        self.conversation_repo = NovelConversationRepository(session)
+        self.project_type = project_type
 
-    async def list_conversations(self, project_id: str) -> List[NovelConversation]:
+        # 根据项目类型选择对应的Repository
+        if project_type == "coding":
+            self.conversation_repo = CodingConversationRepository(session)
+        else:
+            self.conversation_repo = NovelConversationRepository(session)
+
+    async def list_conversations(self, project_id: str) -> List[ConversationRecord]:
         """
         获取项目的所有对话记录
 
@@ -39,7 +52,7 @@ class ConversationService:
             project_id: 项目ID
 
         Returns:
-            List[NovelConversation]: 对话记录列表
+            List[ConversationRecord]: 对话记录列表
         """
         return await self.conversation_repo.list_by_project(project_id)
 
@@ -63,7 +76,7 @@ class ConversationService:
         """
         await self.conversation_repo.append(project_id, role, content, metadata)
 
-    def format_conversation_history(self, history_records: List[NovelConversation]) -> List[Dict[str, str]]:
+    def format_conversation_history(self, history_records: List[ConversationRecord]) -> List[Dict[str, str]]:
         """
         格式化对话历史为LLM输入格式
 

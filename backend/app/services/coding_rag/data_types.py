@@ -80,6 +80,16 @@ class CodingDataType(str, Enum):
         """
         获取数据类型对应的数据库表名
 
+        【重要设计说明】
+        编程项目复用了小说系统的数据库表结构，以减少代码重复：
+        - novel_conversations: 存储灵感对话（编程需求分析对话）
+        - novel_blueprints: 存储架构蓝图（full_synopsis=架构描述, world_setting=技术栈等）
+        - part_outlines: 存储系统划分（title=系统名, summary=描述, theme=职责, key_events=技术要求）
+        - blueprint_characters: 存储模块定义（name=模块名, identity=类型, personality=描述, goals=接口, abilities=依赖）
+        - chapter_outlines: 存储功能大纲
+        - blueprint_relationships: 存储模块依赖关系
+        - chapters: 存储功能Prompt内容
+
         Args:
             data_type: 数据类型字符串
 

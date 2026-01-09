@@ -37,7 +37,8 @@ class CodingMixin:
     def create_coding_project(
         self,
         title: str,
-        initial_prompt: str = ""
+        initial_prompt: str = "",
+        skip_conversation: bool = False
     ) -> Dict[str, Any]:
         """
         创建编程项目
@@ -45,6 +46,7 @@ class CodingMixin:
         Args:
             title: 项目标题
             initial_prompt: 初始提示词（需求描述）
+            skip_conversation: 是否跳过需求对话（直接进入蓝图状态）
 
         Returns:
             创建的项目信息
@@ -54,7 +56,8 @@ class CodingMixin:
             '/api/coding',
             {
                 'title': title,
-                'initial_prompt': initial_prompt
+                'initial_prompt': initial_prompt,
+                'skip_conversation': skip_conversation
             }
         )
 
@@ -866,21 +869,26 @@ class CodingMixin:
     def delete_coding_dependency(
         self,
         project_id: str,
-        dependency_id: int
+        dependency_id: int,
+        from_module: str,
+        to_module: str
     ) -> Dict[str, Any]:
         """
         删除模块依赖关系
 
         Args:
             project_id: 项目ID
-            dependency_id: 依赖关系ID
+            dependency_id: 依赖关系ID（伪ID，用于兼容）
+            from_module: 源模块名称
+            to_module: 目标模块名称
 
         Returns:
             删除结果
         """
         return self._request(
             'DELETE',
-            f'/api/coding/{project_id}/dependencies/{dependency_id}'
+            f'/api/coding/{project_id}/dependencies/{dependency_id}',
+            params={'from_module': from_module, 'to_module': to_module}
         )
 
     def sync_coding_dependencies(self, project_id: str) -> Dict[str, Any]:
@@ -1014,7 +1022,17 @@ class CodingMixin:
             - failed: 失败数
             - details: 各类型详情
         """
-        payload = {'force': force} if force else None
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "=== ingest_all_rag_data 被调用 === project_id=%s force=%s",
+            project_id, force
+        )
+
+        # 始终发送请求体，即使 force=False
+        payload = {'force': force}
+        logger.info("发送请求到 /api/coding/%s/rag/ingest-all payload=%s", project_id, payload)
+
         return self._request(
             'POST',
             f'/api/coding/{project_id}/rag/ingest-all',
@@ -1064,4 +1082,231 @@ class CodingMixin:
             'POST',
             f'/api/coding/{project_id}/features/{feature_index}/review-prompt/save',
             {'review_prompt': review_prompt}
+        )
+
+    # ==================== 需求分析对话 API ====================
+
+    def get_coding_inspiration_history(
+        self,
+        project_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        获取编程项目的需求分析对话历史
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            对话历史列表，每条包含:
+            - id: 记录ID
+            - role: 角色 (user/assistant)
+            - content: 消息内容
+            - created_at: 创建时间
+        """
+        return self._request(
+            'GET',
+            f'/api/coding/{project_id}/inspiration/history'
+        )
+
+    def generate_coding_blueprint(
+        self,
+        project_id: str,
+        allow_incomplete: bool = False
+    ) -> Dict[str, Any]:
+        """
+        生成编程项目的架构设计蓝图
+
+        基于需求分析对话内容，生成项目的架构设计文档。
+
+        Args:
+            project_id: 项目ID
+            allow_incomplete: 是否允许在对话未完成时生成（自动补全模式）
+
+        Returns:
+            生成结果:
+            - success: 是否成功
+            - blueprint: 蓝图数据
+        """
+        params = {}
+        if allow_incomplete:
+            params['allow_incomplete'] = True
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/blueprint/generate',
+            params=params if params else None,
+            timeout=180
+        )
+
+    # ==================== Prompt 优化 API ====================
+
+    def get_optimization_dimensions(
+        self,
+        project_id: str,
+        prompt_type: str = "implementation"
+    ) -> List[Dict[str, Any]]:
+        """
+        获取可用的优化检查维度
+
+        Args:
+            project_id: 项目ID
+            prompt_type: Prompt类型 (implementation 或 review)
+
+        Returns:
+            维度列表，每个维度包含:
+            - id: 维度标识
+            - name: 维度名称
+            - weight: 维度权重
+        """
+        return self._request(
+            'GET',
+            f'/api/coding/{project_id}/optimization/dimensions',
+            params={'prompt_type': prompt_type}
+        )
+
+    def get_optimization_stream_url(
+        self,
+        project_id: str
+    ) -> str:
+        """
+        获取 Prompt 优化的 SSE 流式 URL
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            SSE 流式 URL
+        """
+        return f"{self.base_url}/api/coding/{project_id}/optimization/start"
+
+    def apply_optimization_suggestion(
+        self,
+        project_id: str,
+        feature_id: str,
+        suggestion_id: str,
+        suggested_text: str,
+        original_text: Optional[str] = None,
+        prompt_type: str = "implementation"
+    ) -> Dict[str, Any]:
+        """
+        应用优化建议到 Prompt
+
+        Args:
+            project_id: 项目ID
+            feature_id: 功能 ID
+            suggestion_id: 建议 ID
+            suggested_text: 建议的新文本
+            original_text: 原始文本（用于替换）
+            prompt_type: Prompt类型 (implementation 或 review)
+
+        Returns:
+            应用结果:
+            - success: 是否成功
+            - feature_id: 功能 ID
+            - suggestion_id: 建议 ID
+        """
+        payload = {
+            'feature_id': feature_id,
+            'suggestion_id': suggestion_id,
+            'suggested_text': suggested_text,
+            'prompt_type': prompt_type,
+        }
+        if original_text:
+            payload['original_text'] = original_text
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/optimization/apply',
+            payload
+        )
+
+    def pause_optimization_session(
+        self,
+        project_id: str,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        暂停优化会话
+
+        Args:
+            project_id: 项目ID
+            session_id: 会话 ID
+
+        Returns:
+            操作结果
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/optimization/pause',
+            {'session_id': session_id}
+        )
+
+    def resume_optimization_session(
+        self,
+        project_id: str,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        恢复优化会话
+
+        Args:
+            project_id: 项目ID
+            session_id: 会话 ID
+
+        Returns:
+            操作结果
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/optimization/resume',
+            {'session_id': session_id}
+        )
+
+    def cancel_optimization_session(
+        self,
+        project_id: str,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        取消优化会话
+
+        Args:
+            project_id: 项目ID
+            session_id: 会话 ID
+
+        Returns:
+            操作结果
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/optimization/cancel',
+            {'session_id': session_id}
+        )
+
+    def quick_score_prompt(
+        self,
+        project_id: str,
+        feature_id: str
+    ) -> Dict[str, Any]:
+        """
+        快速评分 - 对功能 Prompt 进行轻量级评分
+
+        Args:
+            project_id: 项目ID
+            feature_id: 功能 ID
+
+        Returns:
+            评分结果:
+            - success: 是否成功
+            - score: 分数 (0-100)
+            - grade: 等级 (A/B/C/D/F)
+            - brief_assessment: 简要评价
+            - top_issue: 主要问题（如有）
+            - top_strength: 主要优点
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/optimization/quick-score',
+            {'feature_id': feature_id},
+            timeout=60
         )

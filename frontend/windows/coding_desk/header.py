@@ -8,30 +8,36 @@ import logging
 from typing import Dict, Any
 
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QWidget, QMenu
+    QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QWidget, QMenu, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 
 logger = logging.getLogger(__name__)
 
 
-class CDHeader(QFrame):
-    """CodingDesk头部组件"""
+class CDHeader(ThemeAwareFrame):
+    """CodingDesk头部组件（主题感知）"""
 
     goBackClicked = pyqtSignal()
     viewDetailClicked = pyqtSignal()
     exportClicked = pyqtSignal(str)  # 导出格式
 
     def __init__(self, parent=None):
-        super().__init__(parent)
         self.project = None
-        self._setup_ui()
+        self.back_btn = None
+        self.title_label = None
+        self.subtitle_label = None
+        self.detail_btn = None
+        self.export_btn = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("cd_header")
         self.setFixedHeight(dp(56))
 
@@ -91,8 +97,6 @@ class CDHeader(QFrame):
 
         layout.addWidget(actions_widget)
 
-        self._apply_style()
-
     def _show_export_menu(self):
         """显示导出菜单"""
         menu = QMenu(self)
@@ -132,8 +136,8 @@ class CDHeader(QFrame):
         title = project.get('title', '未命名项目')
         self.title_label.setText(title)
 
-        # 从coding_blueprint获取信息
-        blueprint = project.get('coding_blueprint') or {}
+        # 从blueprint获取信息
+        blueprint = project.get('blueprint') or {}
         summary = blueprint.get('one_sentence_summary', '')
         if summary:
             self.subtitle_label.setText(summary[:50] + '...' if len(summary) > 50 else summary)
@@ -141,8 +145,8 @@ class CDHeader(QFrame):
             project_type = blueprint.get('project_type_desc', '编程项目')
             self.subtitle_label.setText(project_type)
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         from themes.modern_effects import ModernEffects
 
         transparency_config = theme_manager.get_transparency_config()

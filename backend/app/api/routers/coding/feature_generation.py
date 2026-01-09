@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import (
     get_default_user,
-    get_novel_service,
+    get_coding_project_service,
     get_llm_service,
     get_prompt_service,
     get_vector_store,
@@ -25,9 +25,9 @@ from ....exceptions import (
     ResourceNotFoundError,
 )
 from ....schemas.user import UserInDB
-from ....serializers.novel_serializer import NovelSerializer
+from ....serializers.coding_serializer import CodingSerializer
 from ....services.llm_service import LLMService
-from ....services.novel_service import NovelService
+from ....services.coding import CodingProjectService
 from ....services.prompt_service import PromptService
 from ....utils.sse_helpers import sse_event, create_sse_response
 from ....utils.prompt_helpers import ensure_prompt
@@ -77,14 +77,14 @@ class SelectVersionRequest(BaseModel):
 def get_coding_blueprint(project) -> Optional[dict]:
     """从项目中获取编程蓝图数据
 
-    编程项目的蓝图通过 NovelSerializer 从项目的各个关联表
-    （blueprint、characters、relationships_、outlines等）中构建。
+    编程项目的蓝图通过 CodingSerializer 从项目的各个关联表
+    （blueprint、systems、modules、features等）中构建。
     """
     if not project.blueprint:
         return None
 
-    # 使用 NovelSerializer 构建编程蓝图
-    coding_blueprint_schema = NovelSerializer.build_coding_blueprint_schema(project)
+    # 使用 CodingSerializer 构建编程蓝图
+    coding_blueprint_schema = CodingSerializer.build_blueprint_schema(project)
     if not coding_blueprint_schema:
         return None
 
@@ -133,7 +133,7 @@ def get_feature_from_blueprint(coding_blueprint: dict, feature_number: int) -> O
 @router.get("/coding/{project_id}/features")
 async def list_features(
     project_id: str,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> List[dict]:
@@ -142,14 +142,20 @@ async def list_features(
 
     返回coding_blueprint中的功能大纲（modules或chapter_outline）
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
 
     coding_blueprint = get_coding_blueprint(project)
     if not coding_blueprint:
         return []
+
+    # 获取所有功能记录
+    feature_repo = CodingFeatureRepository(session)
+    db_features = await feature_repo.get_by_project_ordered(project_id)
+
+    # 构建功能编号到记录的映射
+    feature_map = {f.feature_number: f for f in db_features}
 
     # 优先返回modules，其次是chapter_outline
     features = coding_blueprint.get('modules', [])
@@ -159,20 +165,18 @@ async def list_features(
     # 添加索引和生成状态
     result = []
     for idx, feature in enumerate(features):
-        # 检查是否已有生成内容（通过chapters表）
-        chapter = next(
-            (ch for ch in project.chapters if ch.chapter_number == idx + 1),
-            None
-        )
+        feature_number = idx + 1
+        # 检查是否已有生成内容（通过coding_features表）
+        db_feature = feature_map.get(feature_number)
 
         result.append({
             "index": idx,
             "title": feature.get('title') or feature.get('name', f'功能{idx + 1}'),
             "summary": feature.get('summary') or feature.get('description', ''),
             "priority": feature.get('priority', 'medium'),
-            "status": chapter.status if chapter else 'not_generated',
-            "has_content": bool(chapter and chapter.selected_version_id),
-            "version_count": len(chapter.versions) if chapter else 0,
+            "status": db_feature.status if db_feature else 'not_generated',
+            "has_content": bool(db_feature and db_feature.selected_version_id),
+            "version_count": len(db_feature.versions) if db_feature and hasattr(db_feature, 'versions') else 0,
         })
 
     return result
@@ -182,7 +186,7 @@ async def list_features(
 async def get_feature_content(
     project_id: str,
     feature_index: int,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> FeatureContent:
@@ -191,10 +195,11 @@ async def get_feature_content(
 
     feature_index: 0-based索引，内部转换为feature_number = feature_index + 1
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
+    from ....models.coding import CodingFeatureVersion
+    from sqlalchemy import select
 
     coding_blueprint = get_coding_blueprint(project)
     if not coding_blueprint:
@@ -206,11 +211,9 @@ async def get_feature_content(
     if not feature:
         raise ResourceNotFoundError("feature", str(feature_number), "功能不存在")
 
-    # 查找对应的chapter（chapter_number = feature_number）
-    chapter = next(
-        (ch for ch in project.chapters if ch.chapter_number == feature_number),
-        None
-    )
+    # 查找对应的功能记录
+    feature_repo = CodingFeatureRepository(session)
+    db_feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
 
     content = ""
     review_prompt = ""
@@ -218,16 +221,23 @@ async def get_feature_content(
     selected_version_index = 0
     word_count = 0
 
-    if chapter:
-        version_count = len(chapter.versions)
-        word_count = chapter.word_count or 0
-        review_prompt = chapter.review_prompt or ""
+    if db_feature:
+        # 查询版本数量
+        result = await session.execute(
+            select(CodingFeatureVersion)
+            .where(CodingFeatureVersion.feature_id == db_feature.id)
+            .order_by(CodingFeatureVersion.created_at)
+        )
+        versions = list(result.scalars().all())
+        version_count = len(versions)
+        review_prompt = db_feature.review_prompt or ""
 
-        if chapter.selected_version and chapter.selected_version.content:
-            content = chapter.selected_version.content
-            # 找到选中版本的索引
-            for idx, v in enumerate(chapter.versions):
-                if v.id == chapter.selected_version_id:
+        if db_feature.selected_version_id:
+            # 查找选中的版本
+            for idx, v in enumerate(versions):
+                if v.id == db_feature.selected_version_id:
+                    content = v.content or ""
+                    word_count = len(content)
                     selected_version_index = idx
                     break
 
@@ -246,29 +256,36 @@ async def get_feature_content(
 async def get_feature_versions(
     project_id: str,
     feature_index: int,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> List[FeatureVersion]:
     """
     获取指定功能的所有版本
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
+    from ....models.coding import CodingFeatureVersion
+    from sqlalchemy import select
 
-    # 查找对应的chapter
-    chapter = next(
-        (ch for ch in project.chapters if ch.chapter_number == feature_index + 1),
-        None
-    )
+    feature_repo = CodingFeatureRepository(session)
+    feature_number = feature_index + 1
+    db_feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
 
-    if not chapter:
+    if not db_feature:
         return []
 
+    # 查询所有版本
+    result = await session.execute(
+        select(CodingFeatureVersion)
+        .where(CodingFeatureVersion.feature_id == db_feature.id)
+        .order_by(CodingFeatureVersion.created_at)
+    )
+    db_versions = list(result.scalars().all())
+
     versions = []
-    for idx, version in enumerate(chapter.versions):
+    for idx, version in enumerate(db_versions):
         versions.append(FeatureVersion(
             version_index=idx,
             content=version.content or "",
@@ -283,7 +300,7 @@ async def generate_feature_prompt(
     project_id: str,
     feature_index: int,
     request: GenerateFeaturePromptRequest,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
@@ -299,10 +316,8 @@ async def generate_feature_prompt(
         project_id, feature_index, desktop_user.id
     )
 
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
 
     coding_blueprint = get_coding_blueprint(project)
     if not coding_blueprint:
@@ -339,37 +354,36 @@ async def generate_feature_prompt(
     content, _ = extract_llm_content(response)
 
     # 保存到数据库
-    from ....repositories.chapter_repository import ChapterRepository
-    chapter_repo = ChapterRepository(session)
+    from ....repositories.coding_repository import CodingFeatureRepository
+    from ....models.coding import CodingFeatureVersion
+    from sqlalchemy import select, func
 
-    # 获取或创建chapter
-    chapter = await chapter_repo.get_by_project_and_number(project_id, feature_index + 1)
-    if not chapter:
-        # 创建新chapter
-        from ....models.novel import Chapter
-        chapter = Chapter(
-            project_id=project_id,
-            chapter_number=feature_index + 1,
-            status="successful",
-            word_count=len(content),
-        )
-        session.add(chapter)
-        await session.flush()
+    feature_repo = CodingFeatureRepository(session)
+    feature_number = feature_index + 1
+
+    # 获取功能记录
+    db_feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
+    if not db_feature:
+        raise ResourceNotFoundError("feature", str(feature_number), "功能大纲不存在，请先生成功能大纲")
+
+    # 查询版本数量
+    result = await session.execute(
+        select(func.count(CodingFeatureVersion.id)).where(CodingFeatureVersion.feature_id == db_feature.id)
+    )
+    version_count = result.scalar() or 0
 
     # 创建版本
-    from ....models.novel import ChapterVersion
-    version = ChapterVersion(
-        chapter_id=chapter.id,
-        version_label=f"v{len(chapter.versions) + 1}",
+    version = CodingFeatureVersion(
+        feature_id=db_feature.id,
+        version_label=f"v{version_count + 1}",
         content=content,
     )
     session.add(version)
     await session.flush()
 
     # 选中此版本
-    chapter.selected_version_id = version.id
-    chapter.status = "successful"
-    chapter.word_count = len(content)
+    db_feature.selected_version_id = version.id
+    db_feature.status = "generated"
 
     await session.commit()
 
@@ -382,7 +396,7 @@ async def generate_feature_prompt(
         "success": True,
         "feature_index": feature_index,
         "content": content,
-        "version_count": len(chapter.versions),
+        "version_count": version_count + 1,
     }
 
 
@@ -391,7 +405,7 @@ async def generate_feature_prompt_stream(
     project_id: str,
     feature_index: int,
     request: GenerateFeaturePromptRequest,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
@@ -416,11 +430,7 @@ async def generate_feature_prompt_stream(
             # 验证项目
             yield sse_event("progress", {"stage": "validating", "message": "验证项目..."})
 
-            project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-
-            if project.project_type != 'coding':
-                yield sse_event("error", {"message": "此API仅支持编程项目"})
-                return
+            project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
             coding_blueprint = get_coding_blueprint(project)
             if not coding_blueprint:
@@ -465,41 +475,36 @@ async def generate_feature_prompt_stream(
             # 保存结果
             yield sse_event("progress", {"stage": "saving", "message": "保存结果..."})
 
-            from ....repositories.chapter_repository import ChapterRepository
-            from ....models.novel import Chapter, ChapterVersion
+            from ....repositories.coding_repository import CodingFeatureRepository, CodingFeatureVersionRepository
+            from ....models.coding import CodingFeature as CodingFeatureModel, CodingFeatureVersion
             from sqlalchemy import select, func
 
-            chapter_repo = ChapterRepository(session)
+            feature_repo = CodingFeatureRepository(session)
 
-            chapter = await chapter_repo.get_by_project_and_number(project_id, feature_index + 1)
-            if not chapter:
-                chapter = Chapter(
-                    project_id=project_id,
-                    chapter_number=feature_index + 1,
-                    status="successful",
-                    word_count=len(full_content),
-                )
-                session.add(chapter)
-                await session.flush()
-                version_count = 0
-            else:
-                # 查询当前版本数量（避免懒加载）
-                result = await session.execute(
-                    select(func.count(ChapterVersion.id)).where(ChapterVersion.chapter_id == chapter.id)
-                )
-                version_count = result.scalar() or 0
+            # 使用 feature_number（1-based）
+            feature_number = feature_index + 1
+            feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
 
-            version = ChapterVersion(
-                chapter_id=chapter.id,
+            if not feature:
+                # 功能大纲不存在时抛出错误（功能应该先通过大纲生成创建）
+                raise ResourceNotFoundError("feature", str(feature_number), "功能大纲不存在，请先生成功能大纲")
+
+            # 查询当前版本数量
+            result = await session.execute(
+                select(func.count(CodingFeatureVersion.id)).where(CodingFeatureVersion.feature_id == feature.id)
+            )
+            version_count = result.scalar() or 0
+
+            version = CodingFeatureVersion(
+                feature_id=feature.id,
                 version_label=f"v{version_count + 1}",
                 content=full_content,
             )
             session.add(version)
             await session.flush()
 
-            chapter.selected_version_id = version.id
-            chapter.status = "successful"
-            chapter.word_count = len(full_content)
+            feature.selected_version_id = version.id
+            feature.status = "generated"
 
             await session.commit()
 
@@ -540,7 +545,7 @@ async def save_feature_content(
     project_id: str,
     feature_index: int,
     request: SaveFeatureContentRequest,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
@@ -548,22 +553,31 @@ async def save_feature_content(
     """
     保存功能内容（编辑后）
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
+    from ....models.coding import CodingFeatureVersion
+    from sqlalchemy import select
 
-    from ....repositories.chapter_repository import ChapterRepository
-    chapter_repo = ChapterRepository(session)
+    feature_repo = CodingFeatureRepository(session)
+    feature_number = feature_index + 1
+    feature = await feature_repo.get_with_versions(project_id, feature_number)
 
-    chapter = await chapter_repo.get_by_project_and_number(project_id, feature_index + 1)
-    if not chapter or not chapter.selected_version:
+    if not feature or not feature.selected_version_id:
         raise ResourceNotFoundError("feature", str(feature_index), "功能内容不存在")
 
+    # 获取选中的版本
+    result = await session.execute(
+        select(CodingFeatureVersion).where(CodingFeatureVersion.id == feature.selected_version_id)
+    )
+    selected_version = result.scalars().first()
+
+    if not selected_version:
+        raise ResourceNotFoundError("feature_version", str(feature.selected_version_id), "功能版本不存在")
+
     # 更新选中版本的内容
-    old_content = chapter.selected_version.content or ""
-    chapter.selected_version.content = request.content
-    chapter.word_count = len(request.content)
+    old_content = selected_version.content or ""
+    selected_version.content = request.content
 
     await session.commit()
 
@@ -573,7 +587,7 @@ async def save_feature_content(
     new_hash = hashlib.md5(request.content.encode('utf-8')).hexdigest()[:16]
     logger.info(
         "保存功能内容: project=%s feature=%d old_hash=%s new_hash=%s changed=%s",
-        project_id, feature_index + 1, old_hash, new_hash, old_hash != new_hash
+        project_id, feature_number, old_hash, new_hash, old_hash != new_hash
     )
 
     # RAG入库：更新向量库中的内容
@@ -589,9 +603,9 @@ async def save_feature_content(
                 vector_store=vector_store,
                 llm_service=llm_service,
             )
-            logger.info("功能 %s 内容已调度RAG入库: project=%s", feature_index + 1, project_id)
+            logger.info("功能 %s 内容已调度RAG入库: project=%s", feature_number, project_id)
     except Exception as exc:
-        logger.warning("功能 %s 内容向量更新调度失败: %s", feature_index + 1, exc)
+        logger.warning("功能 %s 内容向量更新调度失败: %s", feature_number, exc)
 
     return {"success": True, "word_count": len(request.content)}
 
@@ -601,39 +615,46 @@ async def select_feature_version(
     project_id: str,
     feature_index: int,
     request: SelectVersionRequest,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """
     选择功能的版本
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
+    from ....models.coding import CodingFeatureVersion
+    from sqlalchemy import select
 
-    chapter = next(
-        (ch for ch in project.chapters if ch.chapter_number == feature_index + 1),
-        None
-    )
+    feature_repo = CodingFeatureRepository(session)
+    feature_number = feature_index + 1
+    feature = await feature_repo.get_with_versions(project_id, feature_number)
 
-    if not chapter:
+    if not feature:
         raise ResourceNotFoundError("feature", str(feature_index), "功能不存在")
 
-    if request.version_index < 0 or request.version_index >= len(chapter.versions):
+    # 查询功能的所有版本
+    result = await session.execute(
+        select(CodingFeatureVersion)
+        .where(CodingFeatureVersion.feature_id == feature.id)
+        .order_by(CodingFeatureVersion.created_at)
+    )
+    versions = list(result.scalars().all())
+
+    if request.version_index < 0 or request.version_index >= len(versions):
         raise InvalidParameterError(f"版本索引{request.version_index}超出范围", parameter="version_index")
 
-    target_version = chapter.versions[request.version_index]
-    chapter.selected_version_id = target_version.id
-    chapter.word_count = len(target_version.content or "")
+    target_version = versions[request.version_index]
+    feature.selected_version_id = target_version.id
 
     await session.commit()
 
     return {
         "success": True,
         "selected_version_index": request.version_index,
-        "word_count": chapter.word_count,
+        "word_count": len(target_version.content or ""),
     }
 
 
@@ -825,7 +846,7 @@ async def generate_review_prompt(
     project_id: str,
     feature_index: int,
     request: Optional[GenerateReviewPromptRequest] = None,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
@@ -846,11 +867,7 @@ async def generate_review_prompt(
             # 验证项目
             yield sse_event("progress", {"stage": "validating", "message": "验证项目..."})
 
-            project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
-
-            if project.project_type != 'coding':
-                yield sse_event("error", {"message": "此API仅支持编程项目"})
-                return
+            project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
             coding_blueprint = get_coding_blueprint(project)
             if not coding_blueprint:
@@ -865,36 +882,43 @@ async def generate_review_prompt(
                 return
 
             # 获取实现Prompt内容
-            # 注意：必须使用 ChapterRepository 直接查询，而不是从 project.chapters 获取
-            # 因为 project.chapters 可能是缓存的旧数据，不包含最新生成的功能Prompt
-            from ....repositories.chapter_repository import ChapterRepository
-            chapter_repo = ChapterRepository(session)
-            chapter = await chapter_repo.get_by_project_and_number(project_id, feature_number)
+            # 使用 CodingFeatureRepository 直接查询
+            from ....repositories.coding_repository import CodingFeatureRepository
+            from ....models.coding import CodingFeatureVersion
+            from sqlalchemy import select
+
+            feature_repo = CodingFeatureRepository(session)
+            db_feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
 
             # 详细日志：诊断为什么找不到实现Prompt
             logger.info(
-                "查询章节结果: project_id=%s, feature_number=%d, chapter_exists=%s, "
-                "selected_version_id=%s, selected_version_exists=%s",
+                "查询功能结果: project_id=%s, feature_number=%d, feature_exists=%s, "
+                "selected_version_id=%s",
                 project_id,
                 feature_number,
-                chapter is not None,
-                chapter.selected_version_id if chapter else "N/A",
-                (chapter.selected_version is not None) if chapter else "N/A",
+                db_feature is not None,
+                db_feature.selected_version_id if db_feature else "N/A",
             )
 
             implementation_prompt = ""
-            if chapter and chapter.selected_version:
-                implementation_prompt = chapter.selected_version.content or ""
-                logger.info(
-                    "找到实现Prompt: feature=%d, content_length=%d",
-                    feature_number, len(implementation_prompt)
+            if db_feature and db_feature.selected_version_id:
+                # 查询选中的版本
+                result = await session.execute(
+                    select(CodingFeatureVersion).where(CodingFeatureVersion.id == db_feature.selected_version_id)
                 )
+                selected_version = result.scalars().first()
+                if selected_version:
+                    implementation_prompt = selected_version.content or ""
+                    logger.info(
+                        "找到实现Prompt: feature=%d, content_length=%d",
+                        feature_number, len(implementation_prompt)
+                    )
             else:
                 logger.warning(
-                    "未找到实现Prompt: feature=%d, chapter=%s, selected_version=%s",
+                    "未找到实现Prompt: feature=%d, db_feature=%s, selected_version_id=%s",
                     feature_number,
-                    "exists" if chapter else "None",
-                    "exists" if (chapter and chapter.selected_version) else "None"
+                    "exists" if db_feature else "None",
+                    db_feature.selected_version_id if db_feature else "None"
                 )
 
             if not implementation_prompt:
@@ -933,11 +957,8 @@ async def generate_review_prompt(
             # 保存结果
             yield sse_event("progress", {"stage": "saving", "message": "保存结果..."})
 
-            from ....repositories.chapter_repository import ChapterRepository
-            chapter_repo = ChapterRepository(session)
-
-            if chapter:
-                chapter.review_prompt = full_content
+            if db_feature:
+                db_feature.review_prompt = full_content
                 await session.commit()
 
             yield sse_event("complete", {
@@ -957,31 +978,30 @@ async def save_review_prompt(
     project_id: str,
     feature_index: int,
     request: SaveReviewPromptRequest,
-    novel_service: NovelService = Depends(get_novel_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """
     保存审查Prompt（编辑后）
     """
-    project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    if project.project_type != 'coding':
-        raise InvalidParameterError("此API仅支持编程项目", parameter="project_type")
+    from ....repositories.coding_repository import CodingFeatureRepository
 
-    from ....repositories.chapter_repository import ChapterRepository
-    chapter_repo = ChapterRepository(session)
+    feature_repo = CodingFeatureRepository(session)
+    feature_number = feature_index + 1
+    db_feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
 
-    chapter = await chapter_repo.get_by_project_and_number(project_id, feature_index + 1)
-    if not chapter:
+    if not db_feature:
         raise ResourceNotFoundError("feature", str(feature_index), "功能不存在")
 
-    chapter.review_prompt = request.review_prompt
+    db_feature.review_prompt = request.review_prompt
     await session.commit()
 
     logger.info(
         "保存审查Prompt: project=%s feature=%d length=%d",
-        project_id, feature_index + 1, len(request.review_prompt)
+        project_id, feature_number, len(request.review_prompt)
     )
 
     return {"success": True, "word_count": len(request.review_prompt)}

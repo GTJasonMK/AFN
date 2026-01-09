@@ -10,11 +10,12 @@ import logging
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QTextEdit, QStackedWidget, QScrollArea, QSpinBox,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QTextEdit, QStackedWidget, QScrollArea, QSpinBox, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
+from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
@@ -24,17 +25,17 @@ from api.manager import APIClientManager
 logger = logging.getLogger(__name__)
 
 
-class RAGResultCard(QFrame):
-    """RAG检索结果卡片"""
+class RAGResultCard(ThemeAwareFrame):
+    """RAG检索结果卡片（主题感知）"""
 
     def __init__(self, result_type: str, data: dict, parent=None):
-        super().__init__(parent)
         self.result_type = result_type
         self.data = data
-        self._setup_ui()
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("rag_result_card")
 
         layout = QVBoxLayout(self)
@@ -137,10 +138,8 @@ class RAGResultCard(QFrame):
         content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(content_label)
 
-        self._apply_style()
-
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#rag_result_card {{
                 background-color: {theme_manager.BG_PRIMARY};
@@ -174,14 +173,14 @@ class RAGResultCard(QFrame):
         """)
 
 
-class CodingAssistantPanel(QFrame):
-    """编程项目助手面板 - RAG检索和Prompt优化"""
+class CodingAssistantPanel(ThemeAwareFrame):
+    """编程项目助手面板 - RAG检索和Prompt优化（主题感知）"""
 
     # 信号
     optimizationApplied = pyqtSignal(str)  # 优化后的内容
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        # 初始化所有组件引用（ThemeAwareFrame要求）
         self.api_client = APIClientManager.get_client()
         self.project_id = None
         self.current_mode = "rag"  # "rag" 或 "optimize"
@@ -189,10 +188,32 @@ class CodingAssistantPanel(QFrame):
         self.is_loading = False
         self._worker = None
         self._result_widgets = []
-        self._setup_ui()
+        # UI组件引用
+        self.mode_container = None
+        self.rag_btn = None
+        self.optimize_btn = None
+        self.content_stack = None
+        self.rag_content = None
+        self.optimize_content = None
+        self.sync_btn = None
+        self.rebuild_btn = None
+        self.topk_spinner = None
+        self.rag_input = None
+        self.search_btn = None
+        self.rag_results = None
+        self.rag_results_layout = None
+        self.prompt_display = None
+        self.analyze_btn = None
+        self.apply_btn = None
+        self.optimize_results = None
+        self.optimize_results_layout = None
+        self.suggestion_label = None
+        self.suggestion_display = None
+        super().__init__(parent)
+        self.setupUI()
 
-    def _setup_ui(self):
-        """设置UI"""
+    def _create_ui_structure(self):
+        """创建UI结构"""
         self.setObjectName("coding_assistant_panel")
         self.setFixedWidth(dp(320))
 
@@ -242,8 +263,6 @@ class CodingAssistantPanel(QFrame):
         self.content_stack.addWidget(self.optimize_content)
 
         layout.addWidget(self.content_stack, 1)
-
-        self._apply_style()
 
     def _create_rag_content(self) -> QWidget:
         """创建RAG检索内容"""
@@ -446,6 +465,7 @@ class CodingAssistantPanel(QFrame):
 
     def setProjectId(self, project_id: str):
         """设置项目ID"""
+        logger.info("CodingAssistantPanel.setProjectId 被调用: project_id=%s", project_id)
         self.project_id = project_id
 
     def setPromptContent(self, content: str):
@@ -460,11 +480,15 @@ class CodingAssistantPanel(QFrame):
 
     def _on_sync_rag(self):
         """智能同步RAG数据（检查完整性并入库缺失数据）"""
+        logger.info("=== _on_sync_rag 被调用 === project_id=%s", self.project_id)
+
         if not self.project_id:
+            logger.warning("project_id 为空，显示警告")
             MessageService.show_warning(self, "项目未加载")
             return
 
         if self.is_loading:
+            logger.warning("正在加载中，跳过")
             return
 
         self.is_loading = True
@@ -473,6 +497,8 @@ class CodingAssistantPanel(QFrame):
         self.rebuild_btn.setEnabled(False)
 
         self._cleanup_worker()
+
+        logger.info("创建 AsyncAPIWorker 调用 ingest_all_rag_data (force=False)")
 
         # 调用智能入库API（默认只入库不完整的类型）
         self._worker = AsyncAPIWorker(
@@ -484,8 +510,12 @@ class CodingAssistantPanel(QFrame):
         self._worker.error.connect(self._on_sync_error)
         self._worker.start()
 
+        logger.info("AsyncAPIWorker 已启动")
+
     def _on_sync_success(self, response: dict):
         """同步成功"""
+        logger.info("=== _on_sync_success 被调用 === response=%s", response)
+
         self.is_loading = False
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("同步RAG")
@@ -512,6 +542,8 @@ class CodingAssistantPanel(QFrame):
 
     def _on_sync_error(self, error_msg: str):
         """同步失败"""
+        logger.error("=== _on_sync_error 被调用 === error=%s", error_msg)
+
         self.is_loading = False
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("同步RAG")
@@ -520,11 +552,15 @@ class CodingAssistantPanel(QFrame):
 
     def _on_force_rebuild(self):
         """强制重建RAG数据（重新入库所有类型）"""
+        logger.info("=== _on_force_rebuild 被调用 === project_id=%s", self.project_id)
+
         if not self.project_id:
+            logger.warning("project_id 为空，显示警告")
             MessageService.show_warning(self, "项目未加载")
             return
 
         if self.is_loading:
+            logger.warning("正在加载中，跳过")
             return
 
         self.is_loading = True
@@ -533,6 +569,8 @@ class CodingAssistantPanel(QFrame):
         self.sync_btn.setEnabled(False)
 
         self._cleanup_worker()
+
+        logger.info("创建 AsyncAPIWorker 调用 ingest_all_rag_data (force=True)")
 
         # 调用强制入库API
         self._worker = AsyncAPIWorker(
@@ -544,8 +582,12 @@ class CodingAssistantPanel(QFrame):
         self._worker.error.connect(self._on_rebuild_error)
         self._worker.start()
 
+        logger.info("AsyncAPIWorker 已启动")
+
     def _on_rebuild_success(self, response: dict):
         """重建成功"""
+        logger.info("=== _on_rebuild_success 被调用 === response=%s", response)
+
         self.is_loading = False
         self.rebuild_btn.setEnabled(True)
         self.rebuild_btn.setText("重建")
@@ -561,6 +603,8 @@ class CodingAssistantPanel(QFrame):
 
     def _on_rebuild_error(self, error_msg: str):
         """重建失败"""
+        logger.error("=== _on_rebuild_error 被调用 === error=%s", error_msg)
+
         self.is_loading = False
         self.rebuild_btn.setEnabled(True)
         self.rebuild_btn.setText("重建")
@@ -767,8 +811,8 @@ class CodingAssistantPanel(QFrame):
         finally:
             self._worker = None
 
-    def _apply_style(self):
-        """应用样式"""
+    def _apply_theme(self):
+        """应用主题样式"""
         self.setStyleSheet(f"""
             QFrame#coding_assistant_panel {{
                 background-color: {theme_manager.book_bg_secondary()};

@@ -155,7 +155,7 @@ class CodingDetail(
         """加载项目基本信息"""
         self._load_project_op_id = self.show_loading("正在加载项目信息...", "load_project")
 
-        worker = AsyncAPIWorker(self.api_client.get_novel, self.project_id)
+        worker = AsyncAPIWorker(self.api_client.get_coding_project, self.project_id)
         worker.success.connect(self._onProjectBasicInfoLoaded)
         worker.error.connect(self._onProjectBasicInfoError)
 
@@ -206,7 +206,7 @@ class CodingDetail(
         """获取编程项目蓝图数据"""
         if not self.project_data:
             return {}
-        return self.project_data.get('coding_blueprint') or {}
+        return self.project_data.get('blueprint') or {}
 
     def refreshProject(self):
         """刷新项目数据"""

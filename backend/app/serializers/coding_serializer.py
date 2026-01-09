@@ -326,6 +326,9 @@ class CodingSerializer:
         Returns:
             CodingFeature: 功能Schema
         """
+        # 计算版本数量
+        version_count = len(feature.versions) if hasattr(feature, 'versions') and feature.versions else 0
+
         return CodingFeature(
             feature_number=feature.feature_number,
             module_number=feature.module_number,
@@ -336,4 +339,9 @@ class CodingSerializer:
             outputs=feature.outputs or "",
             implementation_notes=feature.implementation_notes or "",
             priority=feature.priority or "medium",
+            # 内容生成状态
+            status=feature.status or "not_generated",
+            has_content=bool(feature.selected_version_id),
+            selected_version_id=feature.selected_version_id,
+            version_count=version_count,
         )
