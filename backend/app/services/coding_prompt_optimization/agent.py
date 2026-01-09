@@ -455,12 +455,12 @@ class PromptOptimizationAgent:
                 })
 
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=messages[-1]["content"] if messages else "",
-                conversation_history=messages[:-1] if len(messages) > 1 else [],
+                conversation_history=messages,
+                user_id=int(user_id) if user_id else None,
                 max_tokens=4000,
                 timeout=120,
+                response_format=None,  # Agent 响应不需要 JSON 格式
             )
 
             return response

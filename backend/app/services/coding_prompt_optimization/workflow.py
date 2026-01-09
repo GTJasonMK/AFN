@@ -219,9 +219,10 @@ class PromptOptimizationWorkflow:
             blueprint = await self._get_blueprint(project_id)
 
             # 构建项目上下文
+            # CodingProject 模型使用 id 和 title 字段
             project_context = ProjectContext(
-                project_id=project.project_id,
-                project_name=project.project_name,
+                project_id=project.id,
+                project_name=project.title,
                 architecture_synopsis=blueprint.architecture_synopsis if blueprint else None,
                 tech_stack=blueprint.tech_stack if blueprint else None,
                 core_requirements=blueprint.core_requirements if blueprint else None,

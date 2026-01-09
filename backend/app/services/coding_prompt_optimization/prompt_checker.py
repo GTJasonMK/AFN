@@ -62,9 +62,9 @@ class PromptChecker:
         try:
             # 调用 LLM
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                user_id=int(user_id) if user_id else None,
                 max_tokens=4000,
                 timeout=120,
             )
@@ -331,9 +331,9 @@ Prompt 内容:
 
         try:
             response = await self.llm_service.get_llm_response(
-                user_id=user_id,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                user_id=int(user_id) if user_id else None,
                 max_tokens=500,
                 timeout=30,
             )
