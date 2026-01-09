@@ -223,11 +223,15 @@ class ChatBubble(ThemeAwareFrame):
 
     def stop_loading(self):
         """停止加载动画"""
+        # 只在实际处于加载状态时才执行清理
+        if not self.is_loading:
+            return
+
         if self.loading_timer:
             self.loading_timer.stop()
             self.loading_timer = None
         self.is_loading = False
-        # 清空加载文本
+        # 清空加载文本（只有在实际停止加载时才清空）
         if self.message_label:
             self.message_label.setText("")
 

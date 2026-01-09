@@ -22,6 +22,7 @@ from ....schemas.coding import (
     CodingProjectUpdate,
     CodingProjectResponse,
     CodingProjectSummary,
+    GenerateBlueprintRequest,
 )
 from ....services.coding import CodingProjectService
 from ....services.conversation_service import ConversationService
@@ -125,7 +126,7 @@ async def batch_delete_coding_projects(
 @router.post("/coding/{project_id}/blueprint/generate")
 async def generate_coding_blueprint(
     project_id: str,
-    allow_incomplete: bool = False,
+    request: GenerateBlueprintRequest = None,
     session: AsyncSession = Depends(get_session),
     user: UserInDB = Depends(get_default_user),
     llm_service: LLMService = Depends(get_llm_service),
@@ -136,11 +137,15 @@ async def generate_coding_blueprint(
 
     Args:
         project_id: 项目ID
-        allow_incomplete: 是否允许在需求分析对话未完成时生成（自动补全模式）
+        request: 生成请求，包含allow_incomplete和preference参数
 
     Returns:
         生成结果，包含蓝图数据
     """
+    # 解析请求参数
+    allow_incomplete = request.allow_incomplete if request else False
+    preference = request.preference if request else None
+
     project_service = CodingProjectService(session)
     conversation_service = ConversationService(session, project_type="coding")
 
@@ -177,7 +182,7 @@ async def generate_coding_blueprint(
             detail="无法获取架构设计提示词"
         )
 
-    # 如果是自动补全模式，在提示词中添加说明
+    # 构建用户提示词
     user_prompt = f"以下是需求分析对话历史，请基于此生成项目架构设计：\n\n{conversation_text}"
     if allow_incomplete and not history_records:
         user_prompt = (
@@ -185,6 +190,11 @@ async def generate_coding_blueprint(
             "自动补全缺失的需求细节并生成完整的项目架构设计。\n\n"
             f"用户需求：\n{conversation_text}"
         )
+
+    # 如果有重新生成偏好，添加到用户提示词中
+    if preference:
+        user_prompt += f"\n\n## 用户偏好指导\n请特别注意以下偏好要求：\n{preference}"
+        logger.info("项目 %s 使用偏好指导重新生成蓝图", project_id)
 
     # 调用LLM生成架构设计
     logger.info("项目 %s 开始生成架构设计蓝图", project_id)
@@ -211,6 +221,29 @@ async def generate_coding_blueprint(
     from ....repositories.coding_repository import CodingBlueprintRepository
     blueprint_repo = CodingBlueprintRepository(session)
     blueprint = await blueprint_repo.get_by_project(project_id)
+
+    # 重新生成蓝图时，级联删除下游数据（Systems、Modules、Features）
+    from ....models.coding import (
+        CodingSystem as CodingSystemModel,
+        CodingModule as CodingModuleModel,
+        CodingFeature as CodingFeatureModel,
+    )
+    from sqlalchemy import delete as sql_delete
+
+    # 删除所有功能大纲
+    await session.execute(
+        sql_delete(CodingFeatureModel).where(CodingFeatureModel.project_id == project_id)
+    )
+    # 删除所有模块
+    await session.execute(
+        sql_delete(CodingModuleModel).where(CodingModuleModel.project_id == project_id)
+    )
+    # 删除所有系统
+    await session.execute(
+        sql_delete(CodingSystemModel).where(CodingSystemModel.project_id == project_id)
+    )
+    await session.flush()
+    logger.info("项目 %s 重新生成蓝图，已级联删除旧的系统/模块/功能数据", project_id)
 
     if blueprint:
         # 更新蓝图字段

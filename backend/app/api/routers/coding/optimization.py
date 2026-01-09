@@ -42,7 +42,7 @@ router = APIRouter()
 
 class StartOptimizationRequest(BaseModel):
     """启动优化请求"""
-    feature_id: str = Field(..., description="功能 ID")
+    feature_index: int = Field(..., description="功能索引（从0开始）")
     dimensions: Optional[List[str]] = Field(
         None,
         description="检查维度列表，默认使用全部维度",
@@ -59,7 +59,7 @@ class StartOptimizationRequest(BaseModel):
 
 class ApplySuggestionRequest(BaseModel):
     """应用建议请求"""
-    feature_id: str = Field(..., description="功能 ID")
+    feature_index: int = Field(..., description="功能索引（从0开始）")
     suggestion_id: str = Field(..., description="建议 ID")
     suggested_text: str = Field(..., description="建议的新文本")
     original_text: Optional[str] = Field(None, description="原始文本（用于替换）")
@@ -157,8 +157,8 @@ async def start_optimization(
     - error: 错误
     """
     logger.info(
-        "启动 Prompt 优化: project=%s feature=%s mode=%s prompt_type=%s",
-        project_id, request.feature_id, request.mode, request.prompt_type
+        "启动 Prompt 优化: project=%s feature_index=%s mode=%s prompt_type=%s",
+        project_id, request.feature_index, request.mode, request.prompt_type
     )
 
     # 验证项目
@@ -187,7 +187,8 @@ async def start_optimization(
     async def event_generator():
         try:
             async for event in workflow.start_optimization(
-                feature_id=request.feature_id,
+                project_id=project_id,
+                feature_index=request.feature_index,
                 dimensions=request.dimensions,
                 mode=mode,
                 prompt_type=prompt_type,
@@ -220,8 +221,8 @@ async def apply_suggestion(
     支持 implementation(实现) 和 review(审查) 两种 Prompt 类型。
     """
     logger.info(
-        "应用优化建议: project=%s feature=%s suggestion=%s prompt_type=%s",
-        project_id, request.feature_id, request.suggestion_id, request.prompt_type
+        "应用优化建议: project=%s feature_index=%s suggestion=%s prompt_type=%s",
+        project_id, request.feature_index, request.suggestion_id, request.prompt_type
     )
 
     # 验证项目
@@ -243,7 +244,8 @@ async def apply_suggestion(
 
     # 应用建议
     success = await workflow.apply_suggestion(
-        feature_id=request.feature_id,
+        project_id=project_id,
+        feature_index=request.feature_index,
         suggestion_id=request.suggestion_id,
         suggested_text=request.suggested_text,
         original_text=request.original_text,
@@ -254,7 +256,7 @@ async def apply_suggestion(
 
     return {
         "success": success,
-        "feature_id": request.feature_id,
+        "feature_index": request.feature_index,
         "suggestion_id": request.suggestion_id,
     }
 
@@ -368,8 +370,8 @@ async def quick_score(
     对功能 Prompt 进行快速评分，返回总体分数和简要评价。
     """
     logger.info(
-        "Prompt 快速评分: project=%s feature=%s",
-        project_id, request.feature_id
+        "Prompt 快速评分: project=%s feature_index=%s",
+        project_id, request.feature_index
     )
 
     # 验证项目
@@ -385,14 +387,14 @@ async def quick_score(
         user_id=str(desktop_user.id),
     )
 
-    context = await workflow._build_context(request.feature_id)
+    context = await workflow._build_context(project_id, request.feature_index)
     if not context:
         return {
             "success": False,
             "error": "无法获取功能上下文",
         }
 
-    prompt_content = await workflow._get_prompt_content(request.feature_id)
+    prompt_content = await workflow._get_prompt_content(project_id, request.feature_index)
     if not prompt_content:
         return {
             "success": False,

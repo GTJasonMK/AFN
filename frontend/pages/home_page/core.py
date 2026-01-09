@@ -825,8 +825,8 @@ class HomePage(BasePage):
                 # 已有蓝图，进入Prompt生成工作台
                 self.navigateTo('CODING_DESK', project_id=project_id)
             else:
-                # 未完成蓝图，进入编程项目详情页
-                self.navigateTo('CODING_DETAIL', project_id=project_id)
+                # 未完成蓝图（draft状态），导航回需求分析对话继续
+                self.navigateTo('CODING_INSPIRATION', project_id=project_id)
         else:
             # 小说项目导航（保持不变）
             if status in ['blueprint_ready', 'part_outlines_ready', 'chapter_outlines_ready', 'writing', 'completed']:

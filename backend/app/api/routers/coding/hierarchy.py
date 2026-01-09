@@ -122,6 +122,7 @@ class GenerateSystemsRequest(BaseModel):
     """生成系统请求"""
     min_systems: int = Field(default=3, description="最少系统数")
     max_systems: int = Field(default=8, description="最多系统数")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导")
 
 
 class GenerateModulesRequest(BaseModel):
@@ -129,6 +130,7 @@ class GenerateModulesRequest(BaseModel):
     system_number: int = Field(..., description="目标系统编号")
     min_modules: int = Field(default=3, description="最少模块数")
     max_modules: int = Field(default=8, description="最多模块数")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导")
 
 
 class GenerateFeaturesRequest(BaseModel):
@@ -137,6 +139,7 @@ class GenerateFeaturesRequest(BaseModel):
     module_number: int = Field(..., description="目标模块编号")
     min_features: int = Field(default=2, description="最少功能数")
     max_features: int = Field(default=6, description="最多功能数")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导")
 
 
 class CreateDependencyRequest(BaseModel):
@@ -702,8 +705,18 @@ async def generate_systems(
 - 最少系统数: {request.min_systems}
 - 最多系统数: {request.max_systems}
 - 项目规模: 根据架构描述自动判断
+"""
 
-请生成系统划分的JSON。"""
+    # 如果有偏好指导，添加到用户消息中
+    if request.preference:
+        user_message += f"""
+## 用户偏好指导
+请特别注意以下偏好要求：
+{request.preference}
+"""
+        logger.info("项目 %s 使用偏好指导重新生成系统划分", project_id)
+
+    user_message += "\n请生成系统划分的JSON。"
 
     # 调用LLM（系统划分需要足够的token来生成完整JSON）
     response = await llm_service.get_llm_response(
@@ -720,11 +733,22 @@ async def generate_systems(
 
     # 保存到数据库
     system_repo = CodingSystemRepository(session)
-    # 清除旧数据
+    # 清除旧数据（级联删除：先删功能、再删模块、最后删系统）
     from sqlalchemy import delete
+    # 删除所有功能大纲
+    await session.execute(
+        delete(CodingFeatureModel).where(CodingFeatureModel.project_id == project_id)
+    )
+    # 删除所有模块
+    await session.execute(
+        delete(CodingModuleModel).where(CodingModuleModel.project_id == project_id)
+    )
+    # 删除所有系统
     await session.execute(
         delete(CodingSystemModel).where(CodingSystemModel.project_id == project_id)
     )
+    await session.flush()
+    logger.info("项目 %s 重新生成系统划分，已级联删除旧的系统/模块/功能数据", project_id)
 
     systems = result.get("systems", [])
     created_systems = []
@@ -814,8 +838,18 @@ async def generate_modules(
 - 起始模块编号 (start_module_number): {start_module_number}
 - 最少模块数: {request.min_modules}
 - 最多模块数: {request.max_modules}
+"""
 
-请生成该系统的模块列表JSON。"""
+    # 如果有偏好指导，添加到用户消息中
+    if request.preference:
+        user_message += f"""
+## 用户偏好指导
+请特别注意以下偏好要求：
+{request.preference}
+"""
+        logger.info("项目 %s 系统 %d 使用偏好指导重新生成模块", project_id, request.system_number)
+
+    user_message += "\n请生成该系统的模块列表JSON。"
 
     # 调用LLM（模块设计需要足够的token）
     response = await llm_service.get_llm_response(
@@ -831,8 +865,16 @@ async def generate_modules(
     result = parse_llm_json_or_fail(response, "模块生成失败")
 
     # 保存到数据库
-    # 先删除该系统下的旧模块
+    # 先删除该系统下的旧功能和旧模块（级联删除）
     from sqlalchemy import delete
+    # 删除该系统下的所有功能大纲
+    await session.execute(
+        delete(CodingFeatureModel).where(
+            CodingFeatureModel.project_id == project_id,
+            CodingFeatureModel.system_number == request.system_number
+        )
+    )
+    # 删除该系统下的所有模块
     await session.execute(
         delete(CodingModuleModel).where(
             CodingModuleModel.project_id == project_id,
@@ -840,6 +882,7 @@ async def generate_modules(
         )
     )
     await session.flush()
+    logger.info("项目 %s 系统 %d 重新生成模块，已级联删除旧的模块/功能数据", project_id, request.system_number)
 
     modules = result.get("modules", [])
     created_modules = []
@@ -957,8 +1000,18 @@ async def generate_features(
 - 起始功能编号 (start_feature_number): {start_feature_number}
 - 最少功能数: {request.min_features}
 - 最多功能数: {request.max_features}
+"""
 
-请生成该模块的功能大纲列表JSON。"""
+    # 如果有偏好指导，添加到用户消息中
+    if request.preference:
+        user_message += f"""
+## 用户偏好指导
+请特别注意以下偏好要求：
+{request.preference}
+"""
+        logger.info("项目 %s 模块 %d 使用偏好指导重新生成功能大纲", project_id, request.module_number)
+
+    user_message += "\n请生成该模块的功能大纲列表JSON。"
 
     # 调用LLM（功能大纲需要足够的token）
     response = await llm_service.get_llm_response(

@@ -146,8 +146,13 @@ class SectionLoaderMixin:
         section = None
 
         if section_id == 'overview':
-            section = CodingOverviewSection(data=blueprint, editable=True)
+            section = CodingOverviewSection(
+                data=blueprint,
+                editable=True,
+                project_id=self.project_id
+            )
             section.editRequested.connect(self.onEditRequested)
+            section.regenerateBlueprintRequested.connect(self._on_regenerate_blueprint)
 
         elif section_id == 'planning':
             # 项目规划：核心需求、技术挑战、非功能需求、风险、里程碑
@@ -207,8 +212,27 @@ class SectionLoaderMixin:
             section.loadingFinished.connect(self.hide_loading)
 
         elif section_id == 'generated':
-            chapters = self.project_data.get('chapters', []) if self.project_data else []
-            features = blueprint.get('features', []) or blueprint.get('modules', [])
+            # 编程项目的生成内容存储在 features 中，需要转换为 chapters 格式
+            features = blueprint.get('features', [])
+
+            # 筛选已生成内容的功能，并转换为 chapters 格式
+            chapters = []
+            for f in features:
+                # 检查功能是否已生成内容
+                has_content = f.get('has_content', False)
+                status = f.get('status', 'not_generated')
+
+                # 只显示已生成内容的功能
+                if has_content or status in ('generated', 'successful'):
+                    chapters.append({
+                        'chapter_number': f.get('feature_number', 0),
+                        'word_count': 0,  # 字数需要从版本内容获取，暂时为0
+                        'versions': [],   # 版本详情需要额外API获取
+                        'status': 'generated' if has_content else status,
+                        'created_at': '',
+                        'version_count': f.get('version_count', 0),
+                    })
+
             section = GeneratedSection(chapters=chapters, features=features)
             section.setProjectId(self.project_id)
             section.dataChanged.connect(self.refreshProject)

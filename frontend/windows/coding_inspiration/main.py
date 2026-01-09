@@ -390,8 +390,42 @@ class CodingInspirationMode(BasePage):
 
         if is_complete or ready_for_blueprint:
             self._state.is_complete = True
+            # 显示完成提示，引导用户点击生成按钮
+            self._show_completion_hint()
 
         self.current_worker = None
+
+    def _show_completion_hint(self):
+        """显示对话完成提示"""
+        # 添加一条系统提示消息
+        hint_msg = "需求分析已完成！点击右上角「生成架构设计」按钮，开始生成项目架构。"
+        hint_bubble = ChatBubble(hint_msg, is_user=False, typing_effect=False)
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, hint_bubble)
+
+        # 滚动到底部
+        QTimer.singleShot(100, lambda: self.chat_scroll.verticalScrollBar().setValue(
+            self.chat_scroll.verticalScrollBar().maximum()
+        ))
+
+        # 高亮生成按钮
+        if hasattr(self, 'generate_btn') and self.generate_btn:
+            highlight_color = theme_manager.book_accent_color()
+            self.generate_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {highlight_color};
+                    border: 2px solid {highlight_color};
+                    border-radius: {dp(4)}px;
+                    color: {theme_manager.BUTTON_TEXT};
+                    font-family: {theme_manager.serif_font()};
+                    font-weight: bold;
+                    padding: {dp(6)}px {dp(16)}px;
+                    min-width: 120px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme_manager.book_text_primary()};
+                    border-color: {theme_manager.book_text_primary()};
+                }}
+            """)
 
     def _on_stream_error(self, error_msg: str):
         """流式错误"""
@@ -591,6 +625,8 @@ class CodingInspirationMode(BasePage):
         try:
             history = self.api_client.get_coding_inspiration_history(project_id)
 
+            logger.info("加载对话历史: project_id=%s, 记录数=%d", project_id, len(history) if history else 0)
+
             if not history:
                 # 没有历史，显示初始欢迎消息
                 self._init_conversation()
@@ -620,14 +656,17 @@ class CodingInspirationMode(BasePage):
                 role = record.get('role')
                 content = record.get('content')
 
+                logger.debug("处理记录 %d: role=%s, content长度=%d", i, role, len(content) if content else 0)
+
                 if not role or not content:
                     continue
 
                 # 解析content（JSON字符串）
                 try:
                     data = json.loads(content)
-                except json.JSONDecodeError:
-                    # JSON格式错误，跳过此记录
+                except json.JSONDecodeError as e:
+                    # JSON格式错误，记录并跳过此记录
+                    logger.warning("记录 %d JSON解析失败: %s, 内容预览: %s", i, e, content[:200] if content else "")
                     continue
 
                 if role == 'user':
@@ -644,13 +683,19 @@ class CodingInspirationMode(BasePage):
 
                 elif role == 'assistant':
                     # AI消息
+                    logger.debug("处理assistant消息: data类型=%s, keys=%s", type(data).__name__, list(data.keys()) if isinstance(data, dict) else "N/A")
+
                     if isinstance(data, dict):
                         ai_message = data.get('ai_message', '')
                         ui_control = data.get('ui_control', {})
 
+                        logger.debug("ai_message长度=%d, ui_control类型=%s", len(ai_message) if ai_message else 0, ui_control.get('type') if ui_control else 'N/A')
+
                         # 添加AI消息气泡
                         if ai_message:
                             self._add_message(ai_message, is_user=False)
+                        else:
+                            logger.warning("记录 %d: ai_message为空，data=%s", i, str(data)[:500])
 
                         # 恢复灵感选项（如果有）
                         if ui_control.get('type') == 'inspired_options':
@@ -663,9 +708,11 @@ class CodingInspirationMode(BasePage):
                         # 更新对话完成状态
                         if data.get('is_complete'):
                             self._state.is_complete = True
+                    else:
+                        logger.warning("记录 %d: assistant消息data不是dict类型: %s", i, type(data).__name__)
 
         except Exception as e:
-            logger.error("加载对话历史失败: %s", e)
+            logger.error("加载对话历史失败: %s", e, exc_info=True)
             # 加载失败，显示初始欢迎消息
             self._init_conversation()
 

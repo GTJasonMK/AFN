@@ -224,15 +224,19 @@ class CodingSerializer:
             for feature in sorted(project.features, key=lambda f: f.feature_number)
         ]
 
-        # 反序列化依赖关系
-        dependencies = [
-            ModuleDependency(
-                from_module=dep.get("from_module", ""),
-                to_module=dep.get("to_module", ""),
-                description=dep.get("description", ""),
-            )
-            for dep in (blueprint_obj.dependencies or [])
-        ]
+        # 从模块的dependencies字段动态提取依赖关系
+        # 每个模块的dependencies存储了它依赖的其他模块名称列表
+        dependencies = []
+        for module in project.modules:
+            module_deps = module.dependencies or []
+            for dep_name in module_deps:
+                dependencies.append(
+                    ModuleDependency(
+                        from_module=module.name,
+                        to_module=dep_name,
+                        description=f"{module.name} 依赖 {dep_name}",
+                    )
+                )
 
         return CodingBlueprint(
             title=blueprint_obj.title or "",

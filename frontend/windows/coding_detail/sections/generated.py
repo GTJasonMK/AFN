@@ -330,26 +330,29 @@ class GeneratedSection(BaseSection):
             self._item_cards.append(empty_widget)
             return
 
+        # 构建 feature_number 到功能数据的映射
+        feature_map = {}
+        for f in self._features:
+            fn = f.get('feature_number', 0)
+            if fn > 0:
+                feature_map[fn] = f
+
         # 构建章节到功能的映射（chapter_number = feature_number）
         for chapter in self._chapters:
             chapter_number = chapter.get('chapter_number', 0)
             feature_number = chapter_number  # feature_number 就是 chapter_number
 
-            # 获取功能标题和描述
-            feature_title = f"功能 {feature_number}"
-            feature_summary = ""
-            feature_index = feature_number - 1
-            if self._features and feature_index < len(self._features):
-                feature = self._features[feature_index]
-                feature_title = feature.get('title') or feature.get('name', feature_title)
-                feature_summary = feature.get('summary') or feature.get('description', '')
+            # 通过 feature_number 查找对应的功能
+            feature = feature_map.get(feature_number, {})
+            feature_title = feature.get('name') or feature.get('title') or f'功能 {feature_number}'
+            feature_summary = feature.get('description') or feature.get('summary', '')
 
             # 合并数据
             item_data = {
                 'title': feature_title,
                 'summary': feature_summary,
                 'word_count': chapter.get('word_count', 0) or 0,
-                'version_count': len(chapter.get('versions') or []),
+                'version_count': chapter.get('version_count', 0) or len(chapter.get('versions') or []),
                 'status': chapter.get('status', 'generated') or 'generated',
                 'created_at': chapter.get('created_at', '') or '',
             }

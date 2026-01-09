@@ -247,7 +247,8 @@ class CodingMixin:
         self,
         project_id: str,
         min_systems: int = 3,
-        max_systems: int = 8
+        max_systems: int = 8,
+        preference: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         根据架构设计自动生成系统划分
@@ -256,6 +257,7 @@ class CodingMixin:
             project_id: 项目ID
             min_systems: 最少系统数
             max_systems: 最多系统数
+            preference: 重新生成时的偏好指导（可选）
 
         Returns:
             生成的系统列表
@@ -264,6 +266,8 @@ class CodingMixin:
             'min_systems': min_systems,
             'max_systems': max_systems,
         }
+        if preference:
+            payload['preference'] = preference
         return self._request(
             'POST',
             f'/api/coding/{project_id}/systems/generate',
@@ -426,7 +430,8 @@ class CodingMixin:
         project_id: str,
         system_number: int,
         min_modules: int = 3,
-        max_modules: int = 8
+        max_modules: int = 8,
+        preference: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         为指定系统生成模块列表
@@ -436,6 +441,7 @@ class CodingMixin:
             system_number: 目标系统编号
             min_modules: 最少模块数
             max_modules: 最多模块数
+            preference: 重新生成时的偏好指导（可选）
 
         Returns:
             生成的模块列表
@@ -445,6 +451,8 @@ class CodingMixin:
             'min_modules': min_modules,
             'max_modules': max_modules,
         }
+        if preference:
+            payload['preference'] = preference
         return self._request(
             'POST',
             f'/api/coding/{project_id}/modules/generate',
@@ -622,7 +630,8 @@ class CodingMixin:
         system_number: int,
         module_number: int,
         min_features: int = 2,
-        max_features: int = 6
+        max_features: int = 6,
+        preference: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         为指定模块生成功能大纲
@@ -633,6 +642,7 @@ class CodingMixin:
             module_number: 目标模块编号
             min_features: 最少功能数
             max_features: 最多功能数
+            preference: 重新生成时的偏好指导（可选）
 
         Returns:
             生成的功能大纲列表
@@ -643,6 +653,8 @@ class CodingMixin:
             'min_features': min_features,
             'max_features': max_features,
         }
+        if preference:
+            payload['preference'] = preference
         return self._request(
             'POST',
             f'/api/coding/{project_id}/features/generate',
@@ -1111,7 +1123,8 @@ class CodingMixin:
     def generate_coding_blueprint(
         self,
         project_id: str,
-        allow_incomplete: bool = False
+        allow_incomplete: bool = False,
+        preference: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         生成编程项目的架构设计蓝图
@@ -1121,20 +1134,23 @@ class CodingMixin:
         Args:
             project_id: 项目ID
             allow_incomplete: 是否允许在对话未完成时生成（自动补全模式）
+            preference: 重新生成时的偏好指导（可选）
 
         Returns:
             生成结果:
             - success: 是否成功
             - blueprint: 蓝图数据
         """
-        params = {}
-        if allow_incomplete:
-            params['allow_incomplete'] = True
+        payload = {
+            'allow_incomplete': allow_incomplete,
+        }
+        if preference:
+            payload['preference'] = preference
 
         return self._request(
             'POST',
             f'/api/coding/{project_id}/blueprint/generate',
-            params=params if params else None,
+            payload,
             timeout=180
         )
 

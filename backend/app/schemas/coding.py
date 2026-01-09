@@ -265,6 +265,12 @@ class CodingProjectSummary(BaseModel):
 
 # ==================== 蓝图相关 ====================
 
+class GenerateBlueprintRequest(BaseModel):
+    """生成架构设计蓝图请求"""
+    allow_incomplete: bool = Field(default=False, description="是否允许在需求对话未完成时生成")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，用于调整生成方向")
+
+
 class CodingBlueprintGenerationResponse(BaseModel):
     """架构设计生成响应"""
     blueprint: CodingBlueprint
@@ -324,15 +330,18 @@ class RetryCodingVersionRequest(BaseModel):
 class GenerateCodingSystemsRequest(BaseModel):
     """生成系统列表请求"""
     count: Optional[int] = Field(default=None, description="要生成的系统数量")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：更细粒度划分、合并某些系统等")
 
 
 class GenerateCodingModulesRequest(BaseModel):
     """生成模块列表请求"""
     system_number: int = Field(..., description="目标系统编号")
     count: Optional[int] = Field(default=None, description="要生成的模块数量")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：更关注某类功能、增加某种模块等")
 
 
 class GenerateCodingFeaturesRequest(BaseModel):
     """生成功能列表请求"""
     module_number: int = Field(..., description="目标模块编号")
     count: Optional[int] = Field(default=None, description="要生成的功能数量")
+    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：细化某类功能、增加边界处理等")

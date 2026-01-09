@@ -118,6 +118,11 @@ async def converse_with_inspiration_stream(
 
                     # 流式发送ai_message内容
                     ai_message = parsed.get("ai_message", "")
+                    logger.debug(
+                        "项目 %s 发送ai_message_chunk, 长度=%d",
+                        project_id,
+                        len(ai_message) if ai_message else 0
+                    )
                     if ai_message:
                         chunk_size = 15
                         for i in range(0, len(ai_message), chunk_size):

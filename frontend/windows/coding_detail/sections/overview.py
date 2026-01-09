@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
@@ -31,7 +31,11 @@ class CodingOverviewSection(BaseSection):
     - 架构概述
     """
 
-    def __init__(self, data: Dict[str, Any] = None, editable: bool = True, parent=None):
+    # 重新生成蓝图信号
+    regenerateBlueprintRequested = pyqtSignal(str)  # preference (可为None)
+
+    def __init__(self, data: Dict[str, Any] = None, editable: bool = True, project_id: str = None, parent=None):
+        self.project_id = project_id
         super().__init__(data, editable, parent)
         self.setupUI()
 
@@ -40,6 +44,28 @@ class CodingOverviewSection(BaseSection):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(dp(16))
+
+        # 标题行（包含重新生成按钮）
+        header_row = QWidget()
+        header_layout = QHBoxLayout(header_row)
+        header_layout.setContentsMargins(0, 0, 0, dp(8))
+        header_layout.setSpacing(dp(12))
+
+        section_title = QLabel("架构设计概览")
+        section_title.setObjectName("section_title")
+        header_layout.addWidget(section_title)
+
+        header_layout.addStretch()
+
+        # 重新生成蓝图按钮
+        if self._editable:
+            self.regenerate_btn = QPushButton("重新生成蓝图")
+            self.regenerate_btn.setObjectName("regenerate_blueprint_btn")
+            self.regenerate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.regenerate_btn.clicked.connect(self._on_regenerate_blueprint)
+            header_layout.addWidget(self.regenerate_btn)
+
+        layout.addWidget(header_row)
 
         # 一句话摘要卡片
         self.summary_card = self._create_field_card(
@@ -347,6 +373,33 @@ class CodingOverviewSection(BaseSection):
 
     def _apply_theme(self):
         """应用主题"""
+        # 标题样式
+        for child in self.findChildren(QLabel):
+            if child.objectName() == "section_title":
+                child.setStyleSheet(f"""
+                    QLabel#section_title {{
+                        color: {theme_manager.TEXT_PRIMARY};
+                        font-size: {dp(18)}px;
+                        font-weight: 600;
+                    }}
+                """)
+
+        # 重新生成按钮样式
+        if hasattr(self, 'regenerate_btn') and self.regenerate_btn:
+            self.regenerate_btn.setStyleSheet(f"""
+                QPushButton#regenerate_blueprint_btn {{
+                    background-color: transparent;
+                    color: {theme_manager.PRIMARY};
+                    border: 1px solid {theme_manager.PRIMARY};
+                    border-radius: {dp(6)}px;
+                    padding: {dp(8)}px {dp(16)}px;
+                    font-size: {dp(13)}px;
+                }}
+                QPushButton#regenerate_blueprint_btn:hover {{
+                    background-color: {theme_manager.PRIMARY}15;
+                }}
+            """)
+
         for card in [
             self.summary_card,
             self.audience_card,
@@ -361,6 +414,20 @@ class CodingOverviewSection(BaseSection):
         # 技术栈卡片单独应用样式
         if hasattr(self, 'tech_stack_card') and self.tech_stack_card:
             self._apply_tech_stack_style(self.tech_stack_card)
+
+    def _on_regenerate_blueprint(self):
+        """重新生成蓝图按钮点击"""
+        from components.dialogs import get_regenerate_preference
+
+        preference, ok = get_regenerate_preference(
+            self,
+            title="重新生成架构设计蓝图",
+            message="重新生成将基于已有的需求分析对话重新设计架构。\n\n"
+                    "现有的蓝图数据将被覆盖。",
+            placeholder="例如：更注重微服务架构、增加缓存层设计、简化技术栈等"
+        )
+        if ok:
+            self.regenerateBlueprintRequested.emit(preference if preference else "")
 
     def updateData(self, data: Dict[str, Any]):
         """更新数据"""

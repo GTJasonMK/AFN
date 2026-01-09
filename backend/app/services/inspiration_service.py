@@ -22,6 +22,7 @@ from ..services.prompt_service import PromptService
 from ..utils.json_utils import (
     parse_llm_json_or_fail,
     remove_think_tags,
+    try_fix_inner_quotes,
     unwrap_markdown_json,
 )
 from ..utils.prompt_helpers import ensure_prompt
@@ -139,17 +140,20 @@ class InspirationService:
         parsed: Dict[str, Any],
         history_records: List[ConversationRecord],
         project_id: str,
+        project_type: str = "novel",
     ) -> tuple[bool, bool, int]:
         """
         计算对话完成状态
 
         判断对话是否完成的逻辑：
-        - LLM明确标记完成 OR 对话轮次达到阈值
+        - 编程项目：完全由LLM判断（用户可随时手动生成）
+        - 小说项目：LLM判断 OR 对话轮次达到阈值
 
         Args:
             parsed: LLM解析后的响应
             history_records: 历史对话记录
             project_id: 项目ID（用于日志）
+            project_type: 项目类型 (novel/coding)
 
         Returns:
             tuple: (is_complete, ready_for_blueprint, conversation_turns)
@@ -159,24 +163,29 @@ class InspirationService:
         conversation_turns = total_messages // 2
 
         llm_says_complete = parsed.get("is_complete", False)
-        turns_threshold_met = conversation_turns >= NovelConstants.CONVERSATION_ROUNDS_SHORT
 
-        is_complete = llm_says_complete or turns_threshold_met
-        ready_for_blueprint = is_complete
+        # 编程项目：完全由LLM判断，不使用阈值
+        # 小说项目：保留阈值作为备用机制
+        if project_type == "coding":
+            is_complete = llm_says_complete
+        else:
+            turns_threshold_met = conversation_turns >= NovelConstants.CONVERSATION_ROUNDS_SHORT
+            is_complete = llm_says_complete or turns_threshold_met
 
-        # 记录完成原因（用于调试）
-        if is_complete:
-            if turns_threshold_met and not llm_says_complete:
+            if is_complete and turns_threshold_met and not llm_says_complete:
                 logger.info(
                     "项目 %s 对话已达到%d轮（阈值%d轮），自动标记为可生成蓝图",
                     project_id, conversation_turns, NovelConstants.CONVERSATION_ROUNDS_SHORT
                 )
-            else:
-                logger.info("项目 %s LLM标记对话完成，is_complete=true", project_id)
+
+        ready_for_blueprint = is_complete
+
+        if is_complete:
+            logger.info("项目 %s (%s) 对话完成，is_complete=true", project_id, project_type)
         else:
-            logger.info(
-                "项目 %s 灵感对话进行中，当前%d轮（阈值%d轮），is_complete=%s",
-                project_id, conversation_turns, NovelConstants.CONVERSATION_ROUNDS_SHORT, llm_says_complete
+            logger.debug(
+                "项目 %s (%s) 对话进行中，当前%d轮",
+                project_id, project_type, conversation_turns
             )
 
         return is_complete, ready_for_blueprint, conversation_turns
@@ -197,6 +206,8 @@ class InspirationService:
         """
         cleaned = remove_think_tags(llm_response)
         normalized = unwrap_markdown_json(cleaned)
+        # 应用内部引号修复，确保保存到数据库的JSON可以被正确解析
+        normalized = try_fix_inner_quotes(normalized)
         parsed = parse_llm_json_or_fail(
             llm_response,
             f"项目{project_id}的灵感对话响应解析失败"
@@ -264,7 +275,7 @@ class InspirationService:
 
         # 6. 计算完成状态
         is_complete, ready_for_blueprint, conversation_turns = self.calculate_completion_status(
-            parsed, history_records, project_id
+            parsed, history_records, project_id, project_type
         )
 
         # 更新解析结果
@@ -342,6 +353,15 @@ class InspirationService:
         llm_response = "".join(full_response)
         parsed, normalized = self.parse_llm_response(llm_response, project_id)
 
+        # 记录保存的内容用于调试
+        ai_message_preview = parsed.get('ai_message', '')[:100] if parsed.get('ai_message') else '(空)'
+        logger.info(
+            "项目 %s 解析对话响应: ai_message长度=%d, 预览='%s...'",
+            project_id,
+            len(parsed.get('ai_message', '') or ''),
+            ai_message_preview
+        )
+
         # 6. 保存对话历史并立即提交
         # 注意：在流式响应中，对话保存是关键操作，应该尽快持久化
         # 避免在生成器外部commit，防止客户端断开导致事务状态不确定
@@ -371,7 +391,7 @@ class InspirationService:
 
         # 7. 计算完成状态
         is_complete, ready_for_blueprint, conversation_turns = self.calculate_completion_status(
-            parsed, history_records, project_id
+            parsed, history_records, project_id, project_type
         )
 
         if is_complete:

@@ -529,6 +529,9 @@ class CDWorkspace(ThemeAwareFrame):
         self.editor.switchToImplementation()
         self.content_stack.setCurrentWidget(self.editor)
 
+        # 设置助手面板的功能索引
+        self.assistant_panel.setFeatureIndex(feature_index)
+
     def setFeatureContent(self, feature_index: int, data: dict):
         """设置功能内容（从API加载的数据）"""
         self._current_feature_index = feature_index
@@ -544,6 +547,11 @@ class CDWorkspace(ThemeAwareFrame):
         self.editor.updateWordCount(word_count)
         self.editor.switchToImplementation()
         self.content_stack.setCurrentWidget(self.editor)
+
+        # 设置助手面板的功能索引和内容
+        self.assistant_panel.setFeatureIndex(feature_index)
+        if content:
+            self.assistant_panel.setPromptContent(content, feature_index)
 
     def showGenerating(self, feature_index: int, feature_title: str = None):
         """显示生成中状态"""
@@ -575,7 +583,7 @@ class CDWorkspace(ThemeAwareFrame):
         self.content_stack.setCurrentWidget(self.editor)
 
         # 将生成的内容传递给助手面板，便于优化
-        self.assistant_panel.setPromptContent(content)
+        self.assistant_panel.setPromptContent(content, self._current_feature_index)
 
     def finishGeneratingReview(self, review_prompt: str):
         """完成审查Prompt生成"""

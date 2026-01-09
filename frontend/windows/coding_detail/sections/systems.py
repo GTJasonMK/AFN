@@ -860,19 +860,22 @@ class SystemsSection(BaseSection):
 
     def _on_generate_systems(self):
         """生成系统划分"""
-        from utils.message_service import confirm
+        from components.dialogs import get_regenerate_preference
 
         logger.info(f"生成系统划分: project_id={self.project_id}")
 
+        preference = None
+
         # 检查是否已有系统数据
         if self.systems and len(self.systems) > 0:
-            if not confirm(
+            preference, ok = get_regenerate_preference(
                 self,
-                f"当前已有 {len(self.systems)} 个系统划分。\n\n"
-                "重新生成将覆盖现有的系统、模块和功能大纲数据。\n\n"
-                "确定要继续吗？",
-                "确认覆盖"
-            ):
+                title="重新生成系统划分",
+                message=f"当前已有 {len(self.systems)} 个系统划分。\n\n"
+                        "重新生成将覆盖现有的系统、模块和功能大纲数据。",
+                placeholder="例如：希望更细粒度划分、合并某些系统、增加某类系统等"
+            )
+            if not ok:
                 return
 
         self.loadingRequested.emit("正在生成系统划分，请稍候...")
@@ -881,7 +884,8 @@ class SystemsSection(BaseSection):
             self.api_client.generate_coding_systems,
             self.project_id,
             min_systems=3,
-            max_systems=8
+            max_systems=8,
+            preference=preference
         )
         worker.success.connect(self._on_systems_generated)
         worker.error.connect(self._on_generate_error)
@@ -897,9 +901,11 @@ class SystemsSection(BaseSection):
 
     def _on_generate_modules(self, system_number: int):
         """生成模块"""
-        from utils.message_service import confirm
+        from components.dialogs import get_regenerate_preference
 
         logger.info(f"生成模块: system_number={system_number}")
+
+        preference = None
 
         # 检查该系统下是否已有模块
         existing_modules = [m for m in self.modules if m.get('system_number') == system_number]
@@ -908,13 +914,14 @@ class SystemsSection(BaseSection):
                 (s.get('name', f'系统{system_number}') for s in self.systems if s.get('system_number') == system_number),
                 f'系统{system_number}'
             )
-            if not confirm(
+            preference, ok = get_regenerate_preference(
                 self,
-                f"系统 [{system_name}] 下已有 {len(existing_modules)} 个模块。\n\n"
-                "重新生成将覆盖现有的模块和功能大纲数据。\n\n"
-                "确定要继续吗？",
-                "确认覆盖"
-            ):
+                title=f"重新生成模块 - {system_name}",
+                message=f"系统 [{system_name}] 下已有 {len(existing_modules)} 个模块。\n\n"
+                        "重新生成将覆盖现有的模块和功能大纲数据。",
+                placeholder="例如：增加某类模块、更关注某类功能、合并某些模块等"
+            )
+            if not ok:
                 return
 
         self.loadingRequested.emit("正在生成模块，请稍候...")
@@ -924,7 +931,8 @@ class SystemsSection(BaseSection):
             self.project_id,
             system_number,
             min_modules=3,
-            max_modules=8
+            max_modules=8,
+            preference=preference
         )
         worker.success.connect(self._on_modules_generated)
         worker.error.connect(self._on_generate_error)
@@ -940,9 +948,11 @@ class SystemsSection(BaseSection):
 
     def _on_generate_features(self, system_number: int, module_number: int):
         """生成功能"""
-        from utils.message_service import confirm
+        from components.dialogs import get_regenerate_preference
 
         logger.info(f"生成功能: system={system_number}, module={module_number}")
+
+        preference = None
 
         # 检查该模块下是否已有功能
         existing_features = [
@@ -954,13 +964,14 @@ class SystemsSection(BaseSection):
                 (m.get('name', f'模块{module_number}') for m in self.modules if m.get('module_number') == module_number),
                 f'模块{module_number}'
             )
-            if not confirm(
+            preference, ok = get_regenerate_preference(
                 self,
-                f"模块 [{module_name}] 下已有 {len(existing_features)} 个功能大纲。\n\n"
-                "重新生成将覆盖现有的功能大纲数据。\n\n"
-                "确定要继续吗？",
-                "确认覆盖"
-            ):
+                title=f"重新生成功能大纲 - {module_name}",
+                message=f"模块 [{module_name}] 下已有 {len(existing_features)} 个功能大纲。\n\n"
+                        "重新生成将覆盖现有的功能大纲数据。",
+                placeholder="例如：细化某类功能、增加边界处理、增加异常处理等"
+            )
+            if not ok:
                 return
 
         self.loadingRequested.emit("正在生成功能大纲，请稍候...")
@@ -971,7 +982,8 @@ class SystemsSection(BaseSection):
             system_number,
             module_number,
             min_features=2,
-            max_features=6
+            max_features=6,
+            preference=preference
         )
         worker.success.connect(self._on_features_generated)
         worker.error.connect(self._on_generate_error)

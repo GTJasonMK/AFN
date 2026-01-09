@@ -3,7 +3,7 @@ CodingDesk 助手面板
 
 支持两种模式：
 1. RAG检索 - 查询项目相关上下文（功能描述、模块信息等）
-2. Prompt优化 - 分析当前Prompt并提供改进建议
+2. Prompt优化 - 分析当前Prompt并提供改进建议（基于LLM Agent）
 """
 
 import logging
@@ -19,6 +19,7 @@ from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
+from utils.sse_worker import SSEWorker
 from utils.message_service import MessageService
 from api.manager import APIClientManager
 
@@ -183,10 +184,12 @@ class CodingAssistantPanel(ThemeAwareFrame):
         # 初始化所有组件引用（ThemeAwareFrame要求）
         self.api_client = APIClientManager.get_client()
         self.project_id = None
+        self.current_feature_index = None  # 当前功能索引（0-based）
         self.current_mode = "rag"  # "rag" 或 "optimize"
         self.current_prompt = ""  # 当前要优化的Prompt
         self.is_loading = False
         self._worker = None
+        self._sse_worker = None  # SSE Worker
         self._result_widgets = []
         # UI组件引用
         self.mode_container = None
@@ -468,9 +471,21 @@ class CodingAssistantPanel(ThemeAwareFrame):
         logger.info("CodingAssistantPanel.setProjectId 被调用: project_id=%s", project_id)
         self.project_id = project_id
 
-    def setPromptContent(self, content: str):
-        """设置要优化的Prompt内容"""
+    def setFeatureIndex(self, feature_index: int):
+        """设置当前功能索引（0-based）"""
+        logger.info("CodingAssistantPanel.setFeatureIndex 被调用: feature_index=%s", feature_index)
+        self.current_feature_index = feature_index
+
+    def setPromptContent(self, content: str, feature_index: int = None):
+        """设置要优化的Prompt内容
+
+        Args:
+            content: Prompt内容
+            feature_index: 功能索引（0-based），如果提供则更新当前功能索引
+        """
         self.current_prompt = content
+        if feature_index is not None:
+            self.current_feature_index = feature_index
         self.prompt_display.setPlainText(content)
         # 清空之前的建议
         self.suggestion_display.clear()
@@ -738,9 +753,17 @@ class CodingAssistantPanel(ThemeAwareFrame):
         self._result_widgets.clear()
 
     def _on_analyze(self):
-        """分析优化Prompt"""
+        """分析优化Prompt（调用后端Agent优化API）"""
         if not self.current_prompt:
             MessageService.show_warning(self, "没有可优化的Prompt")
+            return
+
+        if not self.project_id:
+            MessageService.show_warning(self, "项目未加载")
+            return
+
+        if self.current_feature_index is None:
+            MessageService.show_warning(self, "请先选择一个功能")
             return
 
         if self.is_loading:
@@ -753,13 +776,132 @@ class CodingAssistantPanel(ThemeAwareFrame):
         # 显示分析提示
         self.suggestion_label.setVisible(True)
         self.suggestion_display.setVisible(True)
-        self.suggestion_display.setPlainText("正在分析Prompt并生成优化建议...")
+        self.suggestion_display.setPlainText("正在连接AI Agent进行Prompt优化分析...")
 
-        # 模拟分析（实际应调用后端API）
-        QTimer.singleShot(1500, self._generate_suggestions)
+        # 清理旧的SSE Worker
+        self._cleanup_sse_worker()
+
+        # 创建SSE Worker调用后端优化API
+        url = f"{self.api_client.base_url}/api/coding/{self.project_id}/optimization/start"
+        payload = {
+            "feature_index": self.current_feature_index,
+            "mode": "auto",  # 自动模式
+            "prompt_type": "implementation",  # 实现Prompt
+        }
+
+        logger.info(
+            "启动Prompt优化SSE: project_id=%s feature_index=%s",
+            self.project_id, self.current_feature_index
+        )
+
+        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker.token_received.connect(self._on_optimization_token)
+        self._sse_worker.progress_received.connect(self._on_optimization_progress)
+        self._sse_worker.complete.connect(self._on_optimization_complete)
+        self._sse_worker.error.connect(self._on_optimization_error)
+        self._sse_worker.start()
+
+    def _on_optimization_token(self, token: str):
+        """处理优化流式文本"""
+        # 追加到建议显示区域
+        current_text = self.suggestion_display.toPlainText()
+        if current_text.startswith("正在连接"):
+            # 清除初始提示
+            self.suggestion_display.setPlainText(token)
+        else:
+            self.suggestion_display.insertPlainText(token)
+
+    def _on_optimization_progress(self, data: dict):
+        """处理优化进度"""
+        event_type = data.get('event_type', '')
+        message = data.get('message', '')
+
+        if event_type == 'workflow_start':
+            feature_name = data.get('feature_name', '')
+            prompt_type_name = data.get('prompt_type_name', '实现')
+            self.suggestion_display.setPlainText(
+                f"开始优化: {feature_name} ({prompt_type_name}Prompt)\n"
+                f"维度: {', '.join(data.get('dimension_names', []))}\n\n"
+            )
+        elif event_type == 'thinking':
+            # Agent思考过程
+            thought = data.get('thought', message)
+            if thought:
+                self.suggestion_display.append(f"[思考] {thought}\n")
+        elif event_type == 'action':
+            # Agent执行动作
+            action = data.get('action', message)
+            if action:
+                self.suggestion_display.append(f"[动作] {action}\n")
+        elif event_type == 'observation':
+            # 动作结果
+            observation = data.get('observation', message)
+            if observation:
+                # 截断过长的观察结果
+                if len(observation) > 500:
+                    observation = observation[:500] + "..."
+                self.suggestion_display.append(f"[结果] {observation}\n")
+        elif event_type == 'suggestion':
+            # 优化建议
+            suggestion = data.get('suggestion', '')
+            dimension = data.get('dimension', '')
+            score = data.get('score', 0)
+            if suggestion:
+                self.suggestion_display.append(
+                    f"\n=== 优化建议 ({dimension}) [评分: {score}/100] ===\n"
+                    f"{suggestion}\n"
+                )
+                self.apply_btn.setEnabled(True)
+
+    def _on_optimization_complete(self, data: dict):
+        """处理优化完成"""
+        self.is_loading = False
+        self.analyze_btn.setEnabled(True)
+        self.analyze_btn.setText("分析优化")
+
+        # 显示完成信息
+        total_score = data.get('total_score', 0)
+        suggestion_count = data.get('suggestion_count', 0)
+
+        self.suggestion_display.append(
+            f"\n{'='*40}\n"
+            f"优化分析完成！\n"
+            f"总体评分: {total_score}/100\n"
+            f"建议数量: {suggestion_count}\n"
+        )
+
+        if suggestion_count > 0:
+            self.apply_btn.setEnabled(True)
+            MessageService.show_success(self, f"优化分析完成，发现 {suggestion_count} 条建议")
+        else:
+            MessageService.show_info(self, "Prompt质量良好，无需优化")
+
+        self._cleanup_sse_worker()
+
+    def _on_optimization_error(self, error_msg: str):
+        """处理优化错误"""
+        self.is_loading = False
+        self.analyze_btn.setEnabled(True)
+        self.analyze_btn.setText("分析优化")
+
+        self.suggestion_display.append(f"\n[错误] {error_msg}\n")
+        MessageService.show_error(self, f"优化分析失败: {error_msg}")
+
+        self._cleanup_sse_worker()
+
+    def _cleanup_sse_worker(self):
+        """清理SSE Worker"""
+        if self._sse_worker is not None:
+            try:
+                self._sse_worker.stop()
+                self._sse_worker.deleteLater()
+            except RuntimeError:
+                pass
+            finally:
+                self._sse_worker = None
 
     def _generate_suggestions(self):
-        """生成优化建议（模拟）"""
+        """生成优化建议（备用规则方法，当后端不可用时使用）"""
         self.is_loading = False
         self.analyze_btn.setEnabled(True)
         self.analyze_btn.setText("分析优化")
@@ -939,6 +1081,7 @@ class CodingAssistantPanel(ThemeAwareFrame):
     def cleanup(self):
         """清理资源"""
         self._cleanup_worker()
+        self._cleanup_sse_worker()
         self._clear_rag_results()
 
 
