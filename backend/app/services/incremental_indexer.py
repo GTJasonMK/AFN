@@ -126,11 +126,13 @@ class IncrementalIndexer:
                 location = state.location
                 status = state.status
                 changes = state.changes if hasattr(state, "changes") else []
+                emotional_state = getattr(state, "emotional_state", None)
             elif isinstance(state, dict):
                 # 字典格式
                 location = state.get("location")
                 status = state.get("status")
                 changes = state.get("changes", [])
+                emotional_state = state.get("emotional_state")
             else:
                 continue
 
@@ -141,6 +143,7 @@ class IncrementalIndexer:
                 location=location,
                 status=status,
                 changes=changes,
+                emotional_state=emotional_state,
             )
             self.session.add(state_record)
             indexed_count += 1

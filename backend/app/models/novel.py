@@ -328,7 +328,8 @@ class CharacterStateIndex(Base):
 
     # 额外元数据
     emotional_state: Mapped[Optional[str]] = mapped_column(String(64))  # 情绪状态
-    relationships_snapshot: Mapped[Optional[dict]] = mapped_column(JSON)  # 关系快照
+    # TODO: relationships_snapshot 待实现 - 用于追踪角色关系变化
+    relationships_snapshot: Mapped[Optional[dict]] = mapped_column(JSON)  # 关系快照（预留字段）
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

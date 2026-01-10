@@ -28,8 +28,9 @@ tags: analysis, rag, extraction
 ### 3. 角色状态快照 (character_states)
 为每个出场角色记录：
 - **location**: 章节结束时的位置
-- **status**: 当前状态描述（身体状况、情绪、处境等）
+- **status**: 当前状态描述（身体状况、处境等）
 - **changes**: 本章发生的重要变化（能力提升、关系转变、获得物品等）
+- **emotional_state**: 情绪状态（如：平静、愤怒、悲伤、兴奋、焦虑等）
 
 ### 4. 伏笔追踪 (foreshadowing)
 - **planted**: 本章埋下的新伏笔
@@ -84,7 +85,8 @@ tags: analysis, rag, extraction
     "角色名": {
       "location": "某地",
       "status": "状态描述",
-      "changes": ["变化1", "变化2"]
+      "changes": ["变化1", "变化2"],
+      "emotional_state": "情绪状态"
     }
   },
   "foreshadowing": {
@@ -174,7 +176,7 @@ tags: analysis, rag, extraction
 |----------|------|------------|
 | metadata | 对象 | characters, locations, items, tags, tone, timeline_marker |
 | summaries | 对象 | compressed, one_line, keywords |
-| character_states | 对象 | 每个角色: location, status, changes |
+| character_states | 对象 | 每个角色: location, status, changes, emotional_state |
 | foreshadowing | 对象 | planted, resolved, tensions |
 | key_events | 数组 | 每个事件: type, description, importance, involved_characters |
 

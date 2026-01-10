@@ -9,6 +9,7 @@
 - rag_query.py: RAG检索查询（测试向量检索效果）
 - content_optimization.py: 正文优化（段落分析、连贯性检查）
 - manga_prompt_v2.py: 漫画提示词生成（基于专业漫画分镜架构）
+- character_state.py: 角色状态追踪（查询角色状态时间线）
 """
 
 from fastapi import APIRouter
@@ -20,6 +21,7 @@ from .part_outlines import router as part_outlines_router
 from .rag_query import router as rag_query_router
 from .content_optimization import router as content_optimization_router
 from .manga_prompt_v2 import router as manga_prompt_router
+from .character_state import router as character_state_router
 
 # 创建writer总路由器（prefix在主路由器中设置）
 router = APIRouter(tags=["Writer"])
@@ -32,5 +34,6 @@ router.include_router(part_outlines_router)
 router.include_router(rag_query_router)
 router.include_router(content_optimization_router)
 router.include_router(manga_prompt_router)
+router.include_router(character_state_router)
 
 __all__ = ["router"]

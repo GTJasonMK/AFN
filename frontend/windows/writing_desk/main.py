@@ -395,10 +395,30 @@ class WritingDesk(
         from .utils import extract_protagonist_name
         protagonist_name = extract_protagonist_name(self.project)
 
+        # 获取蓝图角色列表
+        blueprint = self.project.get('blueprint') or {}
+        blueprint_characters = blueprint.get('characters', [])
+
+        # 获取章节总数
+        chapters = self.project.get('chapters', [])
+        total_chapters = len(chapters)
+
         # 显示主角档案对话框
         from .dialogs import ProtagonistProfileDialog
-        dialog = ProtagonistProfileDialog(project_id, protagonist_name, self)
+        dialog = ProtagonistProfileDialog(
+            project_id=project_id,
+            protagonist_name=protagonist_name,
+            blueprint_characters=blueprint_characters,
+            total_chapters=total_chapters,
+            parent=self
+        )
+        dialog.profileUpdated.connect(self._onProtagonistProfileUpdated)
         dialog.exec()
+
+    def _onProtagonistProfileUpdated(self):
+        """主角档案更新后刷新项目数据"""
+        logger.info("主角档案已更新，刷新项目数据")
+        self.loadProject()
 
     # ==================== 导航 ====================
 

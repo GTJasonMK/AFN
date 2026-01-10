@@ -20,6 +20,7 @@ class CharacterDetailDialog(QDialog):
     def __init__(self, character: dict, parent=None):
         super().__init__(parent)
         self.character = character
+        self.close_btn = None
         # 使用现代UI字体
         self.ui_font = theme_manager.ui_font()
         name = character.get('name', '未命名')
@@ -27,6 +28,17 @@ class CharacterDetailDialog(QDialog):
         self.setMinimumSize(dp(500), dp(400))
         self._setup_ui()
         self._apply_style()
+
+        # 连接主题切换信号
+        theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_name: str):
+        """主题切换时更新样式"""
+        self.ui_font = theme_manager.ui_font()
+        self._apply_style()
+        # 刷新按钮样式
+        if hasattr(self, 'close_btn') and self.close_btn:
+            self.close_btn.setStyleSheet(ButtonStyles.primary())
 
     def _setup_ui(self):
         """设置UI"""
@@ -98,11 +110,12 @@ class CharacterDetailDialog(QDialog):
         footer = QHBoxLayout()
         footer.addStretch()
 
-        close_btn = QPushButton("关闭")
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(ButtonStyles.primary())
-        close_btn.clicked.connect(self.accept)
-        footer.addWidget(close_btn)
+        self.close_btn = QPushButton("关闭")
+        self.close_btn.setObjectName("close_btn")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setStyleSheet(ButtonStyles.primary())
+        self.close_btn.clicked.connect(self.accept)
+        footer.addWidget(self.close_btn)
 
         layout.addLayout(footer)
 
@@ -173,6 +186,13 @@ class CharacterDetailDialog(QDialog):
             }}
             {theme_manager.scrollbar()}
         """)
+
+    def __del__(self):
+        """析构时断开主题信号连接"""
+        try:
+            theme_manager.theme_changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass
 
 
 class CharacterRow(QFrame):
