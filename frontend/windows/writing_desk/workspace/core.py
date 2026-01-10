@@ -197,3 +197,16 @@ class WDWorkspace(
             content = self.content_text.toPlainText()
             self.ragIngestRequested.emit(self.current_chapter, content)
             # 注意：成功消息由 main.py 的异步回调显示，此处不显示
+
+    def get_current_content(self) -> str:
+        """
+        获取编辑器当前内容
+
+        用于实时内容同步，如正文优化时获取最新编辑器内容。
+
+        Returns:
+            当前编辑器的文本内容，如果编辑器未初始化则返回空字符串
+        """
+        if self.content_text:
+            return self.content_text.toPlainText()
+        return ""

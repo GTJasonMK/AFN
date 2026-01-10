@@ -7,14 +7,16 @@
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
+import numpy as np
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .data_types import NovelDataType, BLUEPRINT_INGESTION_TYPES
 from .content_splitter import NovelContentSplitter, NovelIngestionRecord
+from .chunk_strategy import NovelChunkMethod, get_novel_strategy_manager
 
 # 导入ORM模型
 from ...models.novel import (
@@ -31,6 +33,31 @@ from ...models.part_outline import PartOutline
 from ...models.protagonist import ProtagonistProfile, ProtagonistAttributeChange
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_to_native_types(obj: Any) -> Any:
+    """
+    递归将 numpy 类型转换为 Python 原生类型，确保 JSON 可序列化
+
+    Args:
+        obj: 需要转换的对象（可以是字典、列表、numpy类型或其他）
+
+    Returns:
+        转换后的对象
+    """
+    if isinstance(obj, dict):
+        return {k: _convert_to_native_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_to_native_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
 
 
 @dataclass
@@ -799,7 +826,16 @@ class NovelProjectIngestionService:
         return records
 
     async def _generate_chapter_content_records(self, project_id: str) -> List[NovelIngestionRecord]:
-        """生成章节正文记录"""
+        """生成章节正文记录
+
+        根据策略配置，使用不同的分块方法：
+        - SEMANTIC_DP: 使用语义动态规划分块（基于句子嵌入）
+        - 其他: 使用传统分块方法
+        """
+        # 检查策略配置
+        config = get_novel_strategy_manager().get_config(NovelDataType.CHAPTER_CONTENT)
+        use_semantic = config.method == NovelChunkMethod.SEMANTIC_DP
+
         # 先获取章节大纲，建立章节号到标题的映射
         outline_stmt = select(ChapterOutline).where(
             ChapterOutline.project_id == project_id
@@ -827,16 +863,74 @@ class NovelProjectIngestionService:
             # 从大纲映射获取章节标题
             chapter_title = title_map.get(chapter.chapter_number, f"第{chapter.chapter_number}章")
 
-            # 分割章节内容
-            chapter_records = self.splitter.split_chapter_content(
-                content=content,
-                chapter_number=chapter.chapter_number,
-                chapter_title=chapter_title,
-                source_id=str(chapter.id)
-            )
-            records.extend(chapter_records)
+            if use_semantic:
+                # 使用语义分块 - 需要提供嵌入函数
+                try:
+                    chapter_records = await self.splitter.split_content_semantic_async(
+                        content=content,
+                        data_type=NovelDataType.CHAPTER_CONTENT,
+                        source_id=str(chapter.id),
+                        embedding_func=self._get_sentence_embeddings,
+                        config=config,
+                        chapter_number=chapter.chapter_number,
+                        chapter_title=chapter_title
+                    )
+                    records.extend(chapter_records)
+                except Exception as e:
+                    logger.warning(
+                        "语义分块失败，降级为传统分块: chapter=%d error=%s",
+                        chapter.chapter_number, str(e)
+                    )
+                    # 降级为传统分块
+                    chapter_records = self.splitter.split_chapter_content(
+                        content=content,
+                        chapter_number=chapter.chapter_number,
+                        chapter_title=chapter_title,
+                        source_id=str(chapter.id)
+                    )
+                    records.extend(chapter_records)
+            else:
+                # 使用传统分块
+                chapter_records = self.splitter.split_chapter_content(
+                    content=content,
+                    chapter_number=chapter.chapter_number,
+                    chapter_title=chapter_title,
+                    source_id=str(chapter.id)
+                )
+                records.extend(chapter_records)
 
         return records
+
+    async def _get_sentence_embeddings(self, sentences: List[str]) -> List[List[float]]:
+        """获取句子列表的嵌入向量
+
+        为语义分块器提供的嵌入函数，批量获取句子的嵌入向量。
+
+        Args:
+            sentences: 句子列表
+
+        Returns:
+            嵌入向量列表（numpy数组形式）
+        """
+        import numpy as np
+
+        embeddings = []
+        for sentence in sentences:
+            try:
+                embedding = await self.llm_service.get_embedding(
+                    sentence,
+                    user_id=self.user_id
+                )
+                if embedding:
+                    embeddings.append(embedding)
+                else:
+                    # 返回零向量作为占位
+                    embeddings.append([0.0] * 1536)  # 默认维度
+            except Exception as e:
+                logger.warning("获取句子嵌入失败: %s", str(e))
+                embeddings.append([0.0] * 1536)
+
+        return np.array(embeddings)
 
     async def _generate_chapter_summary_records(self, project_id: str) -> List[NovelIngestionRecord]:
         """生成章节摘要记录"""
@@ -1201,25 +1295,30 @@ class NovelProjectIngestionService:
                 continue
 
             chunk_id = record.get_chunk_id()
-            metadata = {
+            # 转换 metadata 中的 numpy 类型为原生 Python 类型
+            metadata = _convert_to_native_types({
                 **record.metadata,
                 "data_type": record.data_type.value,
                 "paragraph_hash": record.get_content_hash(),
                 "length": len(record.content),
                 "source_id": record.source_id,
-            }
+            })
 
             # 获取来源信息
             chapter_number, chapter_title = self._get_source_info(record)
+            # 确保 chapter_number 是原生 Python int
+            chapter_number = int(chapter_number) if chapter_number is not None else 0
+            chunk_index = record.metadata.get("section_index", idx)
+            chunk_index = int(chunk_index) if chunk_index is not None else idx
 
             chunk_records.append({
                 "id": chunk_id,
                 "project_id": project_id,
                 "chapter_number": chapter_number,
-                "chunk_index": record.metadata.get("section_index", idx),
+                "chunk_index": chunk_index,
                 "chapter_title": chapter_title,
                 "content": record.content,
-                "embedding": embedding,
+                "embedding": embedding if not isinstance(embedding, np.ndarray) else embedding.tolist(),
                 "metadata": metadata,
             })
 

@@ -245,7 +245,7 @@ async def ingest_all_rag_data(
     if chapters_with_content:
         logger.info("项目 %s RAG入库: 开始处理 %d 个章节的分析数据", project_id, len(chapters_with_content))
 
-        summary_service = SummaryService(session, llm_service, desktop_user.id)
+        summary_service = SummaryService(llm_service)
         analysis_service = ChapterAnalysisService(session)
         indexer = IncrementalIndexer(session)
 
@@ -268,7 +268,7 @@ async def ingest_all_rag_data(
             )
             if not has_valid_summary:
                 try:
-                    summary = await summary_service.generate_summary(content, chapter_title)
+                    summary = await summary_service.generate_summary(content, desktop_user.id)
                     if summary:
                         chapter.real_summary = summary
                         logger.info("项目 %s 第 %s 章摘要已生成", project_id, chapter_number)

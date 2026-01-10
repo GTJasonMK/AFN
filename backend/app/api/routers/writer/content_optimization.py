@@ -137,9 +137,15 @@ class SessionActionResponse(BaseModel):
     message: str
 
 
+class ContinueSessionRequest(BaseModel):
+    """继续会话请求"""
+    content: Optional[str] = None  # 前端发送的最新编辑器内容
+
+
 @router.post("/optimization-sessions/{session_id}/continue")
 async def continue_optimization_session(
     session_id: str,
+    request: Optional[ContinueSessionRequest] = None,
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> SessionActionResponse:
     """
@@ -148,17 +154,25 @@ async def continue_optimization_session(
     在以下场景调用此接口：
     - Review模式：用户处理完单个建议后，让分析继续进行
     - Plan模式：用户审阅完所有建议后，确认完成工作流
+    - Auto模式：前端自动应用建议后，自动调用继续
+
+    重要：调用时应传入当前编辑器的最新内容，确保后端使用最新数据继续分析。
 
     Args:
         session_id: 会话ID（从workflow_start或plan_ready事件获取）
+        request: 请求体，包含可选的 content 字段
 
     Returns:
         操作结果
     """
     logger.info("用户 %s 请求继续会话 %s", desktop_user.id, session_id)
 
+    content = request.content if request else None
+    if content:
+        logger.info("收到新内容，长度: %d", len(content))
+
     session_manager = get_session_manager()
-    success = session_manager.resume_session(session_id)
+    success = session_manager.resume_session(session_id, content=content)
 
     if success:
         return SessionActionResponse(success=True, message="会话已恢复")

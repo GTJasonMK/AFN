@@ -961,6 +961,24 @@ async def generate_review_prompt(
                 db_feature.review_prompt = full_content
                 await session.commit()
 
+            # RAG入库：将审查Prompt内容写入向量库
+            try:
+                from ....services.coding_rag import schedule_ingestion, CodingDataType
+                from ....core.dependencies import get_vector_store
+
+                vector_store = await get_vector_store()
+                if vector_store:
+                    schedule_ingestion(
+                        project_id=project_id,
+                        user_id=desktop_user.id,
+                        data_type=CodingDataType.REVIEW_PROMPT,
+                        vector_store=vector_store,
+                    )
+                    logger.info("功能 %s 审查Prompt已调度RAG入库: project=%s", feature_index + 1, project_id)
+            except Exception as exc:
+                # RAG入库失败不影响主流程
+                logger.warning("功能 %s 审查Prompt向量入库调度失败: %s", feature_index + 1, exc)
+
             yield sse_event("complete", {
                 "review_prompt": full_content,
                 "feature_index": feature_index,
@@ -1004,6 +1022,23 @@ async def save_review_prompt(
         project_id, feature_number, len(request.review_prompt)
     )
 
+    # RAG入库：更新向量库中的审查Prompt内容
+    try:
+        from ....services.coding_rag import schedule_ingestion, CodingDataType
+        from ....core.dependencies import get_vector_store
+
+        vector_store = await get_vector_store()
+        if vector_store:
+            schedule_ingestion(
+                project_id=project_id,
+                user_id=desktop_user.id,
+                data_type=CodingDataType.REVIEW_PROMPT,
+                vector_store=vector_store,
+            )
+            logger.info("功能 %s 审查Prompt已调度RAG入库: project=%s", feature_number, project_id)
+    except Exception as exc:
+        logger.warning("功能 %s 审查Prompt向量更新调度失败: %s", feature_number, exc)
+
     return {"success": True, "word_count": len(request.review_prompt)}
 
 
@@ -1018,40 +1053,29 @@ async def _build_review_system_prompt(prompt_service: PromptService) -> str:
     except Exception:
         pass
 
-    # 默认系统提示词（当提示词文件不存在时使用）
-    return """你是一位资深的代码审查专家，擅长编写全面、可操作的功能验证Prompt。
+    # 默认系统提示词 - 专注于单元测试
+    return """你是一位资深的测试工程师，擅长编写清晰、可执行的单元测试提示词。
 
-你的任务是根据功能的实现Prompt，生成对应的审查Prompt，帮助验证AI生成的代码是否正确实现了功能。
+你的任务是根据功能的实现Prompt，生成对应的单元测试Prompt，帮助AI编码助手为该功能编写完整的单元测试。
 
-## 审查Prompt的内容应包括
+## 输出内容
 
-1. **功能验收标准**
-   - 核心功能点清单（必须实现的功能）
-   - 每个功能点的验证方法
+1. **测试目标**
+   - 简要说明需要测试的功能点
 
-2. **代码质量检查**
-   - 代码结构是否合理
-   - 命名是否规范
-   - 是否遵循了技术栈约束
+2. **测试用例清单**
+   - 正常流程测试（happy path）
+   - 边界条件测试
+   - 异常/错误处理测试
 
-3. **边界条件测试**
-   - 输入边界值测试用例
-   - 异常情况处理检查
-   - 空值/null检查
-
-4. **安全性检查**
-   - 输入验证
-   - 权限控制
-   - 敏感数据处理
-
-5. **性能考量**
-   - 算法复杂度
-   - 资源使用
-   - 潜在的性能瓶颈
+3. **Mock/Stub 建议**
+   - 需要模拟的外部依赖
+   - 建议的模拟方式
 
 ## 输出格式
 
-使用Markdown格式，结构清晰。直接输出审查Prompt内容，不要添加任何前缀说明。"""
+使用Markdown格式。直接输出测试Prompt内容，不要添加任何前缀说明。
+内容要简洁实用，便于直接复制给AI编码助手使用。"""
 
 
 def _build_review_prompt(
@@ -1067,6 +1091,8 @@ def _build_review_prompt(
     # 提取功能信息
     feature_name = feature.get('name') or feature.get('title') or f'功能{feature_number}'
     feature_desc = feature.get('description') or feature.get('summary') or ''
+    feature_inputs = feature.get('inputs', '')
+    feature_outputs = feature.get('outputs', '')
 
     # 提取技术栈信息
     tech_stack = coding_blueprint.get('tech_stack', {})
@@ -1075,17 +1101,19 @@ def _build_review_prompt(
     input_data = {
         "feature": {
             "name": feature_name,
-            "description": feature_desc[:300] if feature_desc else "",
+            "description": feature_desc[:200] if feature_desc else "",
+            "inputs": feature_inputs[:150] if feature_inputs else "",
+            "outputs": feature_outputs[:150] if feature_outputs else "",
         },
-        "tech_constraints": core_constraints[:300] if core_constraints else "",
-        "implementation_prompt": implementation_prompt[:2000],  # 限制长度
+        "tech_stack": core_constraints[:200] if core_constraints else "",
+        "implementation_prompt": implementation_prompt[:1500],
     }
 
     if extra_requirements:
-        input_data["extra_requirements"] = extra_requirements[:200]
+        input_data["extra_requirements"] = extra_requirements[:150]
 
-    return f"""请根据以下信息生成审查Prompt：
+    return f"""请为以下功能生成单元测试Prompt：
 
 {json.dumps(input_data, ensure_ascii=False, indent=2)}
 
-请生成一个全面的审查Prompt，用于验证这个功能的代码实现是否正确、完整、安全。"""
+生成一个简洁的单元测试Prompt，列出需要测试的场景和用例。"""

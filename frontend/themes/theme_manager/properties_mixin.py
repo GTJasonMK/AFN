@@ -384,6 +384,11 @@ class ThemePropertiesMixin:
         """UI字体"""
         return self._current_theme.FONT_UI
 
+    @property
+    def FONT_CODE(self):
+        """代码/等宽字体"""
+        return self._current_theme.FONT_CODE
+
     # ==================== 新增属性 - 过渡动画 ====================
     @property
     def TRANSITION_FAST(self):

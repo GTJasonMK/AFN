@@ -33,6 +33,9 @@ class DesignSystemConstants:
     # UI字体 - 界面元素
     FONT_UI = "'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif"
 
+    # 代码/等宽字体 - 用于状态指示器、代码显示等需要对齐的场景
+    FONT_CODE = "'Consolas', 'Monaco', 'Courier New', monospace"
+
     # ==================== 圆角规范 - 方正风格（微圆角设计）====================
     # 遵循 4px 递增规律：2 -> 4 -> 6 -> 8 -> 12 -> 16
     RADIUS_XS = "2px"    # 超小元素（几乎直角）

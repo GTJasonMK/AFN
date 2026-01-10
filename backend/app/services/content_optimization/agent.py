@@ -63,13 +63,14 @@ class ContentOptimizationAgent:
         # Agent对话历史（用于维持上下文）
         self.conversation_history: List[Dict[str, str]] = []
 
-    def _trim_conversation_history(self):
+    def _trim_conversation_history(self, state: Optional["AgentState"] = None):
         """
         裁剪对话历史，防止超出 LLM 上下文限制
 
         保留策略：
         - 始终保留第一条消息（初始任务描述）
         - 保留最近的 N 轮对话
+        - 裁剪后添加当前段落位置提醒（如果提供了state）
         """
         max_messages = MAX_CONVERSATION_HISTORY_ROUNDS * 2  # 每轮 2 条消息
         if len(self.conversation_history) <= max_messages + 1:  # +1 是初始消息
@@ -79,6 +80,23 @@ class ContentOptimizationAgent:
         first_message = self.conversation_history[0]
         recent_messages = self.conversation_history[-(max_messages):]
         self.conversation_history = [first_message] + recent_messages
+
+        # 裁剪后，在末尾添加位置提醒消息
+        # 注意：这将作为下一轮对话的上下文
+        if state is not None:
+            # 检查最后一条消息的角色，确保不会出现连续的user消息
+            last_role = self.conversation_history[-1].get("role", "") if self.conversation_history else ""
+            position_reminder = {
+                "role": "user",
+                "content": f"[系统提醒] 对话历史已裁剪。当前状态：正在分析第{state.current_index + 1}段（索引{state.current_index}），共{len(state.paragraphs)}段。已生成{len(state.suggestions)}条建议。请继续分析。",
+            }
+            # 只有当最后一条是assistant消息时才添加，避免连续user消息
+            if last_role == "assistant":
+                self.conversation_history.append(position_reminder)
+            else:
+                # 将提醒内容合并到最后一条user消息中
+                if last_role == "user" and self.conversation_history:
+                    self.conversation_history[-1]["content"] += f"\n\n{position_reminder['content']}"
 
         logger.debug(
             "对话历史已裁剪: 保留 %d 条消息",
@@ -115,6 +133,14 @@ class ContentOptimizationAgent:
             "dimensions": dimensions,
             "mode": self.optimization_mode.value if isinstance(self.optimization_mode, OptimizationMode) else self.optimization_mode,
         })
+
+        # 同步会话进度状态
+        if self.optimization_session:
+            self.session_manager.update_progress(
+                session_id,
+                current_paragraph=state.current_index,
+                total_paragraphs=len(state.paragraphs),
+            )
 
         # 初始化Agent
         system_prompt = await self._build_system_prompt(dimensions)
@@ -210,6 +236,8 @@ class ContentOptimizationAgent:
                                 "连续解析错误达到上限 (%d 次)，放弃重试",
                                 MAX_CONSECUTIVE_PARSE_ERRORS,
                             )
+                            # 重置计数器，避免后续循环重复添加提示
+                            consecutive_parse_errors = 0
                             # 不回退迭代计数，继续下一次迭代
                             self.conversation_history.append({
                                 "role": "user",
@@ -253,6 +281,14 @@ class ContentOptimizationAgent:
                 # 执行工具
                 result = await self.tool_executor.execute(tool_call, state)
 
+                # 同步会话进度（在工具执行后，段落索引可能已变化）
+                if self.optimization_session:
+                    self.session_manager.update_progress(
+                        self.optimization_session.session_id,
+                        current_paragraph=state.current_index,
+                        total_paragraphs=len(state.paragraphs),
+                    )
+
                 # 发送观察事件
                 yield sse_event(OptimizationEventType.OBSERVATION, {
                     "paragraph_index": state.current_index,
@@ -268,12 +304,16 @@ class ContentOptimizationAgent:
                         latest_suggestion = state.suggestions[-1]
                         yield sse_event(OptimizationEventType.SUGGESTION, latest_suggestion)
 
-                        # Review模式下，发送建议后暂停等待用户确认
-                        if self.optimization_mode == OptimizationMode.REVIEW and self.optimization_session:
+                        # Review模式和Auto模式都需要暂停等待前端处理
+                        # Auto模式：前端自动应用后调用 continue
+                        # Review模式：用户手动处理后调用 continue
+                        # 两者都需要接收最新编辑器内容以保持数据一致
+                        if self.optimization_mode in (OptimizationMode.REVIEW, OptimizationMode.AUTO) and self.optimization_session:
                             # 发送暂停事件
                             yield sse_event(OptimizationEventType.WORKFLOW_PAUSED, {
                                 "session_id": self.optimization_session.session_id,
-                                "message": "等待用户处理建议",
+                                "message": "等待用户处理建议" if self.optimization_mode == OptimizationMode.REVIEW else "等待前端应用建议",
+                                "mode": self.optimization_mode.value,
                             })
 
                             # 暂停会话
@@ -286,11 +326,27 @@ class ContentOptimizationAgent:
                             )
 
                             if not can_continue:
-                                # 会话被取消或超时
-                                logger.info("会话被取消或超时: %s", self.optimization_session.session_id)
+                                # 获取会话状态判断是取消还是超时
+                                session = self.session_manager.get_session(self.optimization_session.session_id)
+                                is_cancelled = session.is_cancelled if session else False
+
+                                if is_cancelled:
+                                    message = "用户已取消分析"
+                                    reason = "cancelled"
+                                else:
+                                    message = "等待用户操作超时，分析已停止"
+                                    reason = "timeout"
+
+                                logger.info("会话停止: %s, 原因: %s", self.optimization_session.session_id, reason)
                                 state.is_complete = True
-                                yield sse_event(OptimizationEventType.ERROR, {
-                                    "message": "用户取消或等待超时",
+
+                                # 发送包含已生成建议的停止事件
+                                yield sse_event(OptimizationEventType.WORKFLOW_PAUSED, {
+                                    "session_id": self.optimization_session.session_id,
+                                    "reason": reason,
+                                    "message": message,
+                                    "partial_suggestions": state.suggestions,  # 返回已生成的建议
+                                    "analyzed_paragraphs": state.current_index + 1,
                                 })
                                 break
 
@@ -298,6 +354,20 @@ class ContentOptimizationAgent:
                             yield sse_event(OptimizationEventType.WORKFLOW_RESUMED, {
                                 "session_id": self.optimization_session.session_id,
                             })
+
+                            # 检查是否有新内容需要更新
+                            # 用户在前端应用建议后，会在 continue 时发送最新编辑器内容
+                            pending_content = self.optimization_session.consume_pending_content()
+                            if pending_content:
+                                logger.info("检测到新内容，更新 AgentState")
+                                if state.update_content(pending_content):
+                                    # 内容更新成功，通知 Agent 段落可能已变化
+                                    self.conversation_history.append({
+                                        "role": "user",
+                                        "content": f"[系统提示] 用户已应用修改，内容已更新。当前正在分析第{state.current_index + 1}段（共{len(state.paragraphs)}段）。请使用 analyze_paragraph 重新获取当前段落内容后继续分析。",
+                                    })
+                                else:
+                                    logger.warning("内容更新失败，继续使用旧内容")
 
                 elif tool_call.tool_name == ToolName.NEXT_PARAGRAPH:
                     paragraph_iteration = 0
@@ -308,14 +378,23 @@ class ContentOptimizationAgent:
                         })
 
                 elif tool_call.tool_name == ToolName.FINISH_ANALYSIS:
+                    # 获取刚完成的段落索引（从工具结果中）
+                    finished_index = result.result.get("finished_paragraph_index", state.current_index)
                     yield sse_event(OptimizationEventType.PARAGRAPH_COMPLETE, {
-                        "index": state.current_index,
+                        "index": finished_index,
                         "suggestions_count": len([
                             s for s in state.suggestions
-                            if s["paragraph_index"] == state.current_index
+                            if s["paragraph_index"] == finished_index
                         ]),
                     })
                     paragraph_iteration = 0
+
+                    # 如果自动移动到了下一段，发送新段落开始事件
+                    if result.result.get("moved_to_next", False):
+                        yield sse_event(OptimizationEventType.PARAGRAPH_START, {
+                            "index": state.current_index,
+                            "text_preview": state.current_paragraph[:100] if state.current_paragraph else "",
+                        })
 
                 elif tool_call.tool_name == ToolName.COMPLETE_WORKFLOW:
                     state.is_complete = True
@@ -331,14 +410,38 @@ class ContentOptimizationAgent:
                 })
 
                 # 裁剪对话历史，防止超出 LLM 上下文限制
-                self._trim_conversation_history()
+                self._trim_conversation_history(state)
 
             except Exception as e:
+                error_str = str(e).lower()
+
+                # 判断是否为可恢复的错误
+                is_recoverable = any(keyword in error_str for keyword in [
+                    "not found", "invalid", "timeout", "parse", "json",
+                    "tool", "format", "parameter",
+                ])
+
+                # 不可恢复的错误（数据库、权限、连接等）
+                is_critical = any(keyword in error_str for keyword in [
+                    "database", "connection", "permission", "denied",
+                    "memory", "disk", "fatal", "critical",
+                ])
+
+                if is_critical:
+                    logger.critical("不可恢复的严重错误: %s", e, exc_info=True)
+                    state.is_complete = True
+                    yield sse_event(OptimizationEventType.ERROR, {
+                        "message": f"严重错误，分析已停止: {str(e)}",
+                        "is_recoverable": False,
+                    })
+                    break
+
                 logger.error("Agent循环错误: %s", e, exc_info=True)
                 yield sse_event(OptimizationEventType.ERROR, {
                     "message": f"Agent执行错误: {str(e)}",
+                    "is_recoverable": is_recoverable,
                 })
-                # 继续尝试下一次迭代
+                # 可恢复错误：继续尝试下一次迭代
                 self.conversation_history.append({
                     "role": "user",
                     "content": f"发生错误: {str(e)}。请继续分析或选择其他工具。",
@@ -352,14 +455,25 @@ class ContentOptimizationAgent:
                 suggestions_by_category = {}
 
                 for suggestion in state.suggestions:
-                    # 统计优先级
+                    # 统计优先级（未知优先级归为medium）
                     priority = suggestion.get("priority", "medium")
                     if priority in suggestions_by_priority:
                         suggestions_by_priority[priority] += 1
+                    else:
+                        logger.warning("未知的建议优先级: %s，归为medium", priority)
+                        suggestions_by_priority["medium"] += 1
 
                     # 统计类别
                     category = suggestion.get("category", "coherence")
                     suggestions_by_category[category] = suggestions_by_category.get(category, 0) + 1
+
+                # 验证统计总数一致性
+                total_counted = sum(suggestions_by_priority.values())
+                if total_counted != len(state.suggestions):
+                    logger.error(
+                        "建议统计不一致: 总数=%d, 统计数=%d",
+                        len(state.suggestions), total_counted
+                    )
 
                 # 发送PLAN_READY事件
                 yield sse_event(OptimizationEventType.PLAN_READY, {
@@ -442,7 +556,8 @@ class ContentOptimizationAgent:
 
 ## 响应格式
 <thinking>
-你的思考过程...分析当前段落，决定需要检查什么，以及下一步行动。
+你的思考过程...
+首先确认当前分析的是第几段，然后分析段落内容，决定需要检查什么。
 </thinking>
 
 <tool_call>
@@ -457,16 +572,34 @@ class ContentOptimizationAgent:
 1. 每次只调用一个工具
 2. 根据工具返回结果决定下一步行动
 3. 只在确认存在问题时才生成建议，避免过度修改
-4. 完成一个段落的分析后使用finish_analysis，然后用next_paragraph移动到下一段
-5. 所有段落分析完成后使用complete_workflow结束
+4. **段落切换流程**：完成一个段落的分析后，调用 finish_analysis（它会自动移动到下一段）
+5. 当 finish_analysis 返回"这是最后一段"时，调用 complete_workflow 结束
+6. 注意：工具返回结果中的 current_paragraph_index 是当前段落的真实索引，请以此为准
+
+## 生成建议的关键规则（极其重要）
+当调用 generate_suggestion 工具时：
+1. **original_text 必须是从 analyze_paragraph 返回的 full_text 中精确复制的文本片段**
+2. 不要自己编造或改写原文，必须逐字复制
+3. original_text 应该是需要修改的最小片段，而不是整个段落
+4. 如果你不确定原文的精确内容，请先调用 analyze_paragraph 获取 full_text
+5. suggested_text 是你建议的替换文本，用于直接替换 original_text
+
+正确示例：
+- full_text: "她走进房间，看到桌上放着一杯咖啡。"
+- 如果要添加描述，original_text 应该是 "她走进房间"（精确复制）
+- suggested_text 可以是 "她轻轻推开门，走进昏暗的房间"
+
+错误示例：
+- 不要写 original_text: "她走进了房间"（添加了"了"字，与原文不符）
+- 不要写 original_text: "走进房间"（缺少主语，无法精确匹配）
 
 ## 分析策略
-1. 先用analyze_paragraph了解段落内容
+1. 先用 analyze_paragraph 了解当前段落内容（注意查看返回的 full_text）
 2. 根据段落内容决定需要检查的维度
-3. 使用信息获取工具（如rag_retrieve、get_character_state）获取上下文
+3. 使用信息获取工具（如 rag_retrieve、get_character_state）获取上下文
 4. 使用检查工具验证一致性
-5. 发现问题时用generate_suggestion生成建议
-6. 没有问题或已处理完当前段落后，用finish_analysis标记完成
+5. 发现问题时用 generate_suggestion 生成建议（original_text 必须从 full_text 精确复制）
+6. 完成当前段落后，调用 finish_analysis 完成并自动前进到下一段
 """
 
     def _build_initial_message(self, state: AgentState, dimensions: List[str]) -> str:

@@ -550,7 +550,8 @@ def repair_truncated_json(text: str) -> str:
     已废弃：不再尝试修复截断的JSON
 
     保留此函数是为了向后兼容，直接返回原文本。
-    如果JSON格式错误，应该通过完善提示词来解决，而不是猜测修复。
+    截断的JSON即使被修复成可解析格式，内容也是不完整的，
+    强行解析会导致数据丢失。应该通过增加max_tokens或使用更强模型来解决。
     """
     logger.warning("repair_truncated_json 已废弃，不再尝试修复JSON")
     return text

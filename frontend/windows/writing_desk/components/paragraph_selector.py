@@ -156,20 +156,20 @@ class ParagraphItem(QFrame):
         # 标签样式
         self.index_label.setStyleSheet(f"""
             font-family: {ui_font};
-            font-size: {sp(13)}px;
-            font-weight: bold;
+            font-size: {theme_manager.FONT_SIZE_SM};
+            font-weight: {theme_manager.FONT_WEIGHT_BOLD};
             color: {theme_manager.TEXT_SECONDARY};
         """)
 
         self.preview_label.setStyleSheet(f"""
             font-family: {ui_font};
-            font-size: {sp(13)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_PRIMARY};
         """)
 
         self.length_label.setStyleSheet(f"""
             font-family: {ui_font};
-            font-size: {sp(12)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_SECONDARY};
         """)
 
@@ -279,15 +279,15 @@ class ParagraphSelector(QWidget):
 
         self.header_label.setStyleSheet(f"""
             font-family: {ui_font};
-            font-size: {sp(14)}px;
-            font-weight: bold;
+            font-size: {theme_manager.FONT_SIZE_BASE};
+            font-weight: {theme_manager.FONT_WEIGHT_BOLD};
             color: {theme_manager.TEXT_PRIMARY};
         """)
 
         btn_style = f"""
             QPushButton {{
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
                 background-color: transparent;
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -306,7 +306,7 @@ class ParagraphSelector(QWidget):
         self.range_input.setStyleSheet(f"""
             QLineEdit {{
                 font-family: {ui_font};
-                font-size: {sp(13)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_PRIMARY};
                 background-color: {theme_manager.BG_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -323,7 +323,7 @@ class ParagraphSelector(QWidget):
 
         self.status_label.setStyleSheet(f"""
             font-family: {ui_font};
-            font-size: {sp(12)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_SECONDARY};
         """)
 

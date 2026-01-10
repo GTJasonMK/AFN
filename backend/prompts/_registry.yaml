@@ -425,17 +425,6 @@ prompts:
       - "feature_design"
     description: "根据功能设计生成高质量的编程实现Prompt"
 
-  review_prompt_generation:
-    path: "coding/review_prompt_generation.md"
-    title: "审查Prompt生成"
-    category: "coding"
-    status: "active"
-    used_by:
-      - "FeatureGeneration.generate_review_prompt"
-    dependencies:
-      - "prompt_generation"
-    description: "根据实现Prompt生成代码审查Prompt，用于验证AI生成代码的正确性"
-
 # ==================== 分类定义 ====================
 categories:
   inspiration:

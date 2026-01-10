@@ -3,10 +3,9 @@
 
 整合思考流、建议卡片、段落选择器等组件，提供完整的优化功能界面。
 
-三层权限控制模式（参考Claude Code设计）：
+两层权限控制模式（参考Claude Code设计）：
 - 审核模式（默认）：每个建议暂停等待用户确认
 - 自动模式：自动应用建议并高亮标记
-- 计划模式：先分析全文生成报告，用户确认后再应用
 """
 
 import logging
@@ -46,17 +45,19 @@ class OptimizationContent(
 ):
     """正文优化内容组件 - Claude Code风格交互
 
-    三层权限控制：
+    两层权限控制：
     - 审核模式：每个建议单独确认，提供最高控制度
     - 自动模式：自动应用所有建议，适合快速优化
-    - 计划模式：先完成全部分析，用户选择性应用
+
+    实时内容同步：
+    - 通过 set_content_provider 设置回调获取编辑器当前内容
+    - 每次继续分析时发送最新内容给后端
     """
 
     # 信号
     suggestion_applied = pyqtSignal(dict)  # 应用建议信号
-    suggestion_ignored = pyqtSignal(dict)  # 忽略建议信号（新增）
-    suggestion_preview_requested = pyqtSignal(dict)  # 请求预览建议（新增）
-    optimization_complete = pyqtSignal(int)  # 优化完成信号（建议数）
+    suggestion_ignored = pyqtSignal(dict)  # 忽略建议信号
+    suggestion_preview_requested = pyqtSignal(dict)  # 请求预览建议
 
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
@@ -66,13 +67,14 @@ class OptimizationContent(
         self.sse_worker: Optional[SSEWorker] = None
         self.is_optimizing = False
 
-        # 三层权限模式 - 默认审核模式
+        # 实时内容同步：获取编辑器当前内容的回调
+        # 由 WritingDesk 通过 set_content_provider 设置
+        self._content_provider = None
+
+        # 两层权限模式 - 默认审核模式
         self.optimization_mode = OptimizationMode.REVIEW
         self.session_id: Optional[str] = None  # 后端会话ID，用于暂停/继续控制
         self.current_suggestion_card: Optional['SuggestionCard'] = None  # 当前待处理的建议卡片
-
-        # 计划模式相关
-        self.plan_mode_suggestions: List[dict] = []  # 计划模式收集的所有建议
 
         # UI组件
         self.header_label = None
@@ -93,10 +95,9 @@ class OptimizationContent(
         self.mode_group = None  # 模式选择按钮组
         self.review_radio = None
         self.auto_radio = None
-        self.plan_radio = None
         self.continue_btn = None  # 继续分析按钮
-        self.apply_plan_btn = None  # 计划模式应用按钮
         self.clear_thinking_btn = None  # 清空思考流按钮
+        self.back_btn = None  # 返回按钮
 
         # 空状态UI组件
         self.empty_hint = None
@@ -107,6 +108,33 @@ class OptimizationContent(
 
         super().__init__(parent)
         self.setupUI()  # 显式调用setupUI来创建UI结构
+
+    def set_content_provider(self, provider):
+        """
+        设置内容提供者回调
+
+        该回调用于获取编辑器的当前内容，实现实时同步。
+        当需要继续后端分析时，会调用此回调获取最新内容。
+
+        Args:
+            provider: 无参数函数，返回当前编辑器内容字符串
+        """
+        self._content_provider = provider
+
+    def get_current_content(self) -> Optional[str]:
+        """
+        获取编辑器的当前内容
+
+        Returns:
+            当前编辑器内容，如果未设置provider则返回None
+        """
+        if self._content_provider:
+            try:
+                return self._content_provider()
+            except Exception as e:
+                logger.error("获取当前内容失败: %s", e)
+                return None
+        return None
 
     def _create_ui_structure(self):
         """创建UI结构"""
@@ -174,10 +202,6 @@ class OptimizationContent(
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(dp(12))
 
-        # 提示
-        hint_label = QLabel("选择要分析的段落，或直接分析全部内容")
-        content_layout.addWidget(hint_label)
-
         # 段落选择器
         self.paragraph_selector = ParagraphSelector(parent=self.content_area)
         content_layout.addWidget(self.paragraph_selector, stretch=1)
@@ -219,18 +243,6 @@ class OptimizationContent(
         auto_desc.setObjectName("mode_desc")
         auto_desc.setContentsMargins(dp(24), 0, 0, 0)
         mode_layout.addWidget(auto_desc)
-
-        # 计划模式
-        self.plan_radio = QRadioButton("计划模式")
-        self.plan_radio.setObjectName("mode_radio")
-        self.plan_radio.setToolTip("先完成全部分析，然后选择性应用建议")
-        self.mode_group.addButton(self.plan_radio, 2)
-        mode_layout.addWidget(self.plan_radio)
-
-        plan_desc = QLabel("先完成分析生成报告，用户选择性应用")
-        plan_desc.setObjectName("mode_desc")
-        plan_desc.setContentsMargins(dp(24), 0, 0, 0)
-        mode_layout.addWidget(plan_desc)
 
         content_layout.addWidget(mode_frame)
 
@@ -352,10 +364,10 @@ class OptimizationContent(
         btn_layout = QHBoxLayout()
 
         # 返回设置按钮（移到左边，避免被右下角浮动按钮遮挡）
-        back_btn = QPushButton("返回")
-        back_btn.setFixedWidth(dp(60))
-        back_btn.clicked.connect(self._back_to_setup)
-        btn_layout.addWidget(back_btn)
+        self.back_btn = QPushButton("返回")
+        self.back_btn.setFixedWidth(dp(60))
+        self.back_btn.clicked.connect(self._back_to_setup)
+        btn_layout.addWidget(self.back_btn)
 
         self.stop_btn = QPushButton("停止")
         self.stop_btn.setFixedWidth(dp(60))
@@ -374,13 +386,6 @@ class OptimizationContent(
         self.continue_btn.clicked.connect(self._continue_analysis)
         self.continue_btn.setVisible(False)  # 初始隐藏
         btn_layout.addWidget(self.continue_btn)
-
-        # 计划模式应用按钮
-        self.apply_plan_btn = QPushButton("确认应用")
-        self.apply_plan_btn.setFixedWidth(dp(80))
-        self.apply_plan_btn.clicked.connect(self._apply_plan_suggestions)
-        self.apply_plan_btn.setVisible(False)  # 初始隐藏
-        btn_layout.addWidget(self.apply_plan_btn)
 
         btn_layout.addStretch()
 
@@ -426,15 +431,15 @@ class OptimizationContent(
         if self.header_label:
             self.header_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(16)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_MD};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
             """)
 
         if self.status_label:
             self.status_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
             """)
 
@@ -442,15 +447,15 @@ class OptimizationContent(
         if self.empty_icon_label:
             self.empty_icon_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(32)}px;
+                font-size: {theme_manager.FONT_SIZE_3XL};
                 color: {theme_manager.TEXT_TERTIARY};
             """)
 
         if self.empty_text_label:
             self.empty_text_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(15)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_MD};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_SECONDARY};
                 margin-top: {dp(16)}px;
             """)
@@ -458,7 +463,7 @@ class OptimizationContent(
         if self.empty_hint2_label:
             self.empty_hint2_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(13)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_TERTIARY};
                 margin-top: {dp(8)}px;
             """)
@@ -470,7 +475,7 @@ class OptimizationContent(
             self.stop_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(13)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.ERROR};
                     background-color: transparent;
                     border: 1px solid {theme_manager.ERROR};
@@ -482,12 +487,29 @@ class OptimizationContent(
                 }}
             """)
 
+        # 返回按钮样式
+        if self.back_btn:
+            self.back_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: {ui_font};
+                    font-size: {theme_manager.FONT_SIZE_SM};
+                    color: {theme_manager.TEXT_SECONDARY};
+                    background-color: transparent;
+                    border: 1px solid {theme_manager.BORDER_DEFAULT};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme_manager.BG_CARD_HOVER};
+                }}
+            """)
+
         # 清空按钮样式
         if self.clear_thinking_btn:
             self.clear_thinking_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(13)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.TEXT_SECONDARY};
                     background-color: transparent;
                     border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -502,7 +524,7 @@ class OptimizationContent(
         btn_style = f"""
             QPushButton {{
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
                 background-color: transparent;
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -550,8 +572,8 @@ class OptimizationContent(
             if mode_title:
                 mode_title.setStyleSheet(f"""
                     font-family: {ui_font};
-                    font-size: {sp(14)}px;
-                    font-weight: bold;
+                    font-size: {theme_manager.FONT_SIZE_BASE};
+                    font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                     color: {theme_manager.TEXT_PRIMARY};
                 """)
 
@@ -559,7 +581,7 @@ class OptimizationContent(
             radio_style = f"""
                 QRadioButton {{
                     font-family: {ui_font};
-                    font-size: {sp(13)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.TEXT_PRIMARY};
                     spacing: {dp(8)}px;
                 }}
@@ -575,7 +597,7 @@ class OptimizationContent(
                     background-color: {theme_manager.PRIMARY};
                 }}
             """
-            for radio in [self.review_radio, self.auto_radio, self.plan_radio]:
+            for radio in [self.review_radio, self.auto_radio]:
                 if radio:
                     radio.setStyleSheet(radio_style)
 
@@ -583,7 +605,7 @@ class OptimizationContent(
             for desc in self.content_area.findChildren(QLabel, "mode_desc"):
                 desc.setStyleSheet(f"""
                     font-family: {ui_font};
-                    font-size: {sp(11)}px;
+                    font-size: {theme_manager.FONT_SIZE_XS};
                     color: {theme_manager.TEXT_TERTIARY};
                 """)
 
@@ -592,7 +614,7 @@ class OptimizationContent(
             self.continue_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(13)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.BUTTON_TEXT};
                     background-color: {theme_manager.SUCCESS};
                     border: 1px solid {theme_manager.SUCCESS};
@@ -604,19 +626,15 @@ class OptimizationContent(
                 }}
             """)
 
-        # 计划模式应用按钮
-        if self.apply_plan_btn:
-            self.apply_plan_btn.setStyleSheet(ButtonStyles.primary())
-
         # 统计标签样式 - 使用主题色彩系统和等宽字体
         error_bg = theme_manager.ERROR_BG if hasattr(theme_manager, 'ERROR_BG') else theme_manager.BG_TERTIARY
         warning_bg = theme_manager.WARNING_BG if hasattr(theme_manager, 'WARNING_BG') else theme_manager.BG_TERTIARY
 
         if self.high_count_label:
             self.high_count_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.ERROR};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {error_bg};
@@ -625,9 +643,9 @@ class OptimizationContent(
 
         if self.medium_count_label:
             self.medium_count_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.WARNING};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {warning_bg};
@@ -636,9 +654,9 @@ class OptimizationContent(
 
         if self.low_count_label:
             self.low_count_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_TERTIARY};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {theme_manager.BG_TERTIARY};
@@ -726,7 +744,6 @@ class OptimizationContent(
     def _reset_state(self):
         """重置状态（不包括 is_optimizing，由调用方控制）"""
         self.suggestions.clear()
-        self.plan_mode_suggestions.clear()
         # 注意：is_optimizing 由 _start_optimization 和 _on_sse_complete 控制，不在此重置
         self.session_id = None
         self.current_suggestion_card = None
@@ -749,8 +766,6 @@ class OptimizationContent(
             self.apply_high_btn.setEnabled(False)
         if self.continue_btn:
             self.continue_btn.setVisible(False)
-        if self.apply_plan_btn:
-            self.apply_plan_btn.setVisible(False)
 
         self._update_status("")
         self._update_suggestion_stats()
@@ -797,7 +812,6 @@ class OptimizationContent(
         mode_names = {
             OptimizationMode.REVIEW: "审核模式",
             OptimizationMode.AUTO: "自动模式",
-            OptimizationMode.PLAN: "计划模式",
         }
         self._update_status(f"正在分析（{mode_names[self.optimization_mode]}）...")
 

@@ -1,7 +1,8 @@
 """
 编程项目RAG入库服务
 
-处理10种数据类型的向量化入库、完整性检查和增量更新。
+处理11种数据类型的向量化入库、完整性检查和增量更新。
+支持可配置的分块策略。
 """
 
 import json
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .data_types import CodingDataType, BLUEPRINT_INGESTION_TYPES
 from .content_splitter import ContentSplitter, IngestionRecord
+from .chunk_strategy import ChunkMethod, get_strategy_manager
 
 # 导入ORM模型 - 使用编程项目的模型
 from ...models.coding import (
@@ -245,6 +247,7 @@ class CodingProjectIngestionService:
             CodingDataType.FEATURE_OUTLINE: self._ingest_feature_outlines,
             CodingDataType.DEPENDENCY: self._ingest_dependencies,
             CodingDataType.FEATURE_PROMPT: self._ingest_feature_prompts,
+            CodingDataType.REVIEW_PROMPT: self._ingest_review_prompts,
         }
 
         method = method_map.get(data_type)
@@ -528,6 +531,8 @@ class CodingProjectIngestionService:
             return await self._generate_dependency_records(project_id)
         elif data_type == CodingDataType.FEATURE_PROMPT:
             return await self._generate_feature_prompt_records(project_id)
+        elif data_type == CodingDataType.REVIEW_PROMPT:
+            return await self._generate_review_prompt_records(project_id)
         return []
 
     async def _generate_inspiration_records(self, project_id: str) -> List[IngestionRecord]:
@@ -728,7 +733,7 @@ class CodingProjectIngestionService:
         return records
 
     async def _generate_dependency_records(self, project_id: str) -> List[IngestionRecord]:
-        """生成依赖关系记录 - 从蓝图的dependencies字段获取"""
+        """生成依赖关系记录 - 支持简单模式和模块聚合模式"""
         blueprint = await self._get_blueprint(project_id)
         if not blueprint or not blueprint.dependencies:
             return []
@@ -740,11 +745,26 @@ class CodingProjectIngestionService:
             except json.JSONDecodeError:
                 return []
 
+        # 检查策略配置
+        config = get_strategy_manager().get_config(CodingDataType.DEPENDENCY)
+
+        if config.method == ChunkMethod.MODULE_AGGREGATE:
+            # 按模块聚合依赖
+            return self._generate_aggregated_dependency_records(dependencies, project_id)
+        else:
+            # 简单模式：每条依赖一个chunk
+            return self._generate_simple_dependency_records(dependencies, project_id)
+
+    def _generate_simple_dependency_records(
+        self,
+        dependencies: List[Dict],
+        project_id: str
+    ) -> List[IngestionRecord]:
+        """生成简单依赖记录（每条依赖一个chunk）"""
         records: List[IngestionRecord] = []
         for idx, dep in enumerate(dependencies):
             content = self._format_dependency(dep)
             if content:
-                # dep 是字典格式: {"from": "模块名", "to": "模块名", "description": "..."}
                 from_mod = dep.get("from", dep.get("from_module", ""))
                 to_mod = dep.get("to", dep.get("to_module", ""))
                 record = self.splitter.create_simple_record(
@@ -759,8 +779,79 @@ class CodingProjectIngestionService:
                     records.append(record)
         return records
 
+    def _generate_aggregated_dependency_records(
+        self,
+        dependencies: List[Dict],
+        project_id: str
+    ) -> List[IngestionRecord]:
+        """生成聚合依赖记录（按模块聚合）"""
+        # 按模块聚合依赖关系
+        module_deps: Dict[str, Dict[str, List]] = {}  # {module_name: {outgoing: [], incoming: []}}
+
+        for dep in dependencies:
+            from_mod = dep.get("from", dep.get("from_module", ""))
+            to_mod = dep.get("to", dep.get("to_module", ""))
+            desc = dep.get("description", "")
+
+            # 记录出向依赖
+            if from_mod:
+                if from_mod not in module_deps:
+                    module_deps[from_mod] = {"outgoing": [], "incoming": []}
+                module_deps[from_mod]["outgoing"].append({"to": to_mod, "desc": desc})
+
+            # 记录入向依赖
+            if to_mod:
+                if to_mod not in module_deps:
+                    module_deps[to_mod] = {"outgoing": [], "incoming": []}
+                module_deps[to_mod]["incoming"].append({"from": from_mod, "desc": desc})
+
+        # 生成每个模块的依赖chunk
+        records: List[IngestionRecord] = []
+        for idx, (module_name, deps) in enumerate(module_deps.items()):
+            content = self._format_module_dependencies(module_name, deps)
+            if content:
+                record = self.splitter.create_simple_record(
+                    content=content,
+                    data_type=CodingDataType.DEPENDENCY,
+                    source_id=f"{project_id}_moddep_{idx}",
+                    project_id=project_id,
+                    module_name=module_name,
+                    aggregated=True
+                )
+                if record:
+                    records.append(record)
+
+        return records
+
+    def _format_module_dependencies(self, module_name: str, deps: Dict[str, List]) -> str:
+        """格式化模块依赖（聚合模式）"""
+        parts = [f"模块: {module_name}"]
+
+        if deps.get("outgoing"):
+            parts.append("依赖:")
+            for d in deps["outgoing"]:
+                desc_part = f": {d['desc']}" if d.get('desc') else ""
+                parts.append(f"  -> {d['to']}{desc_part}")
+
+        if deps.get("incoming"):
+            parts.append("被依赖:")
+            for d in deps["incoming"]:
+                desc_part = f": {d['desc']}" if d.get('desc') else ""
+                parts.append(f"  <- {d['from']}{desc_part}")
+
+        return "\n".join(parts) if len(parts) > 1 else ""
+
     async def _generate_feature_prompt_records(self, project_id: str) -> List[IngestionRecord]:
-        """生成功能Prompt记录"""
+        """生成功能Prompt记录
+
+        根据策略配置，使用不同的分块方法：
+        - SEMANTIC_DP: 使用语义动态规划分块
+        - 其他: 使用传统分块方法
+        """
+        # 检查策略配置
+        config = get_strategy_manager().get_config(CodingDataType.FEATURE_PROMPT)
+        use_semantic = config.method == ChunkMethod.SEMANTIC_DP
+
         from sqlalchemy.orm import selectinload
         stmt = select(CodingFeature).where(
             CodingFeature.project_id == project_id,
@@ -778,15 +869,146 @@ class CodingProjectIngestionService:
             if not content.strip():
                 continue
 
-            feature_records = self.splitter.split_feature_prompt(
-                content=content,
-                feature_number=feature.feature_number,
-                feature_title=feature.name or f"功能 {feature.feature_number}",
-                source_id=str(feature.id),
-                project_id=project_id
-            )
-            records.extend(feature_records)
+            feature_title = feature.name or f"功能 {feature.feature_number}"
+
+            if use_semantic:
+                # 使用语义分块
+                try:
+                    feature_records = await self.splitter.split_content_semantic_async(
+                        content=content,
+                        data_type=CodingDataType.FEATURE_PROMPT,
+                        source_id=str(feature.id),
+                        project_id=project_id,
+                        embedding_func=self._get_sentence_embeddings,
+                        config=config,
+                        feature_number=feature.feature_number,
+                        parent_title=feature_title
+                    )
+                    records.extend(feature_records)
+                except Exception as e:
+                    logger.warning(
+                        "功能Prompt语义分块失败，降级为传统分块: feature=%d error=%s",
+                        feature.feature_number, str(e)
+                    )
+                    # 降级为传统分块
+                    feature_records = self.splitter.split_feature_prompt(
+                        content=content,
+                        feature_number=feature.feature_number,
+                        feature_title=feature_title,
+                        source_id=str(feature.id),
+                        project_id=project_id
+                    )
+                    records.extend(feature_records)
+            else:
+                # 使用传统分块
+                feature_records = self.splitter.split_feature_prompt(
+                    content=content,
+                    feature_number=feature.feature_number,
+                    feature_title=feature_title,
+                    source_id=str(feature.id),
+                    project_id=project_id
+                )
+                records.extend(feature_records)
+
         return records
+
+    async def _generate_review_prompt_records(self, project_id: str) -> List[IngestionRecord]:
+        """生成审查/测试Prompt记录
+
+        根据策略配置，使用不同的分块方法：
+        - SEMANTIC_DP: 使用语义动态规划分块
+        - 其他: 使用传统分块方法
+        """
+        # 检查策略配置
+        config = get_strategy_manager().get_config(CodingDataType.REVIEW_PROMPT)
+        use_semantic = config.method == ChunkMethod.SEMANTIC_DP
+
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id,
+            CodingFeature.review_prompt.isnot(None),
+            CodingFeature.review_prompt != ""
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
+
+        records: List[IngestionRecord] = []
+        for feature in features:
+            content = feature.review_prompt
+            if not content or not content.strip():
+                continue
+
+            feature_title = feature.name or f"功能 {feature.feature_number}"
+
+            if use_semantic:
+                # 使用语义分块
+                try:
+                    review_records = await self.splitter.split_content_semantic_async(
+                        content=content,
+                        data_type=CodingDataType.REVIEW_PROMPT,
+                        source_id=str(feature.id),
+                        project_id=project_id,
+                        embedding_func=self._get_sentence_embeddings,
+                        config=config,
+                        feature_number=feature.feature_number,
+                        parent_title=feature_title
+                    )
+                    records.extend(review_records)
+                except Exception as e:
+                    logger.warning(
+                        "审查Prompt语义分块失败，降级为传统分块: feature=%d error=%s",
+                        feature.feature_number, str(e)
+                    )
+                    # 降级为传统分块
+                    review_records = self.splitter.split_review_prompt(
+                        content=content,
+                        feature_number=feature.feature_number,
+                        feature_title=feature_title,
+                        source_id=str(feature.id),
+                        project_id=project_id
+                    )
+                    records.extend(review_records)
+            else:
+                # 使用传统分块
+                review_records = self.splitter.split_review_prompt(
+                    content=content,
+                    feature_number=feature.feature_number,
+                    feature_title=feature_title,
+                    source_id=str(feature.id),
+                    project_id=project_id
+                )
+                records.extend(review_records)
+
+        return records
+
+    async def _get_sentence_embeddings(self, sentences: List[str]) -> List[List[float]]:
+        """获取句子列表的嵌入向量
+
+        为语义分块器提供的嵌入函数，批量获取句子的嵌入向量。
+
+        Args:
+            sentences: 句子列表
+
+        Returns:
+            嵌入向量列表（numpy数组形式）
+        """
+        import numpy as np
+
+        embeddings = []
+        for sentence in sentences:
+            try:
+                embedding = await self.llm_service.get_embedding(
+                    sentence,
+                    user_id=self.user_id
+                )
+                if embedding:
+                    embeddings.append(embedding)
+                else:
+                    # 返回零向量作为占位
+                    embeddings.append([0.0] * 1536)  # 默认维度
+            except Exception as e:
+                logger.warning("获取句子嵌入失败: %s", str(e))
+                embeddings.append([0.0] * 1536)
+
+        return np.array(embeddings)
 
     # ==================== 私有方法：各类型入库 ====================
 
@@ -1133,6 +1355,40 @@ class CodingProjectIngestionService:
         result.total_records = len(records)
         return await self._ingest_records(records, result, project_id)
 
+    async def _ingest_review_prompts(self, project_id: str) -> IngestionResult:
+        """入库审查/测试Prompt"""
+        result = IngestionResult(success=True, data_type=CodingDataType.REVIEW_PROMPT)
+
+        # 审查Prompt直接存储在 coding_features.review_prompt 字段
+        stmt = select(CodingFeature).where(
+            CodingFeature.project_id == project_id,
+            CodingFeature.review_prompt.isnot(None),
+            CodingFeature.review_prompt != ""
+        ).order_by(CodingFeature.feature_number)
+        features = (await self.session.execute(stmt)).scalars().all()
+
+        if not features:
+            return result
+
+        records: List[IngestionRecord] = []
+        for feature in features:
+            content = feature.review_prompt
+            if not content or not content.strip():
+                continue
+
+            # 审查Prompt使用与功能Prompt相同的分割逻辑
+            review_records = self.splitter.split_review_prompt(
+                content=content,
+                feature_number=feature.feature_number,
+                feature_title=feature.name or f"功能 {feature.feature_number}",
+                source_id=str(feature.id),
+                project_id=project_id
+            )
+            records.extend(review_records)
+
+        result.total_records = len(records)
+        return await self._ingest_records(records, result, project_id)
+
     # ==================== 私有方法：辅助函数 ====================
 
     async def _get_blueprint(self, project_id: str) -> Optional[CodingBlueprint]:
@@ -1231,6 +1487,16 @@ class CodingProjectIngestionService:
             stmt = select(func.count()).select_from(CodingFeature).where(
                 CodingFeature.project_id == project_id,
                 CodingFeature.selected_version_id.isnot(None)
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar() or 0
+
+        elif data_type == CodingDataType.REVIEW_PROMPT:
+            # 审查Prompt检查有review_prompt内容的功能数
+            stmt = select(func.count()).select_from(CodingFeature).where(
+                CodingFeature.project_id == project_id,
+                CodingFeature.review_prompt.isnot(None),
+                CodingFeature.review_prompt != ""
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
@@ -1437,6 +1703,15 @@ class CodingProjectIngestionService:
             from_mod = metadata.get("from_module", "")
             to_mod = metadata.get("to_module", "")
             return (0, f"{from_mod} -> {to_mod}" if from_mod and to_mod else "模块依赖")
+
+        elif data_type == CodingDataType.REVIEW_PROMPT:
+            # 测试Prompt: T{feature_number} - {parent_title}
+            num = metadata.get("feature_number", 0)
+            title = metadata.get("parent_title", "")
+            section = metadata.get("section_title", "")
+            if section:
+                title = f"{title} > {section}" if title else section
+            return (num, title or f"测试{num}")
 
         # 默认
         return (0, CodingDataType.get_display_name(data_type.value))

@@ -204,3 +204,35 @@
 - `shell_command` @ `/mnt/e/code/AFN`: `rg -n "chapter_version_id" frontend/api/client/image_mixin.py`、`nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '380,660p'` 等命令确认前端仍未传递版本ID；`nl -ba backend/app/services/image_generation/service.py | sed -n '600,660p'` 与 `nl -ba backend/app/api/routers/image_generation.py | sed -n '670,700p'` 对比生成结果返回的 URL 与实际路由，定位 `/api/images` 死链
 - `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题13（图片生成响应中的 URL 仍指向不存在的 `/api/images/...` 路由）
 - `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“图片 URL 缺陷复查”阶段未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: 执行 `sequential-thinking`、`shrimp-task-manager`（命令依旧缺失，记录最新一轮无法使用强制思考工具）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "TODO"`，`rg -n "source_version"` 等命令快速扫描潜在线索；`sed -n '230,270p' frontend/windows/writing_desk/workspace/chapter_display.py`、`nl -ba backend/app/schemas/novel.py | sed -n '150,220p'`，核实章节 Schema 未暴露 `selected_version_id`
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "prefetch_adjacent" frontend/utils/chapter_cache.py`、`sed -n '200,260p' frontend/utils/chapter_cache.py`；`sed -n '1,200p' frontend/api/manager.py`、`sed -n '1,200p' frontend/api/client/core.py`、`sed -n '1,200p' frontend/utils/async_worker.py`，确认单例 API 客户端在多个线程中共享同一个 `requests.Session`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题14（章节接口缺少 `selected_version_id`）与问题15（单例 Session 跨线程复用导致潜在崩溃）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“章节版本ID缺失”与“API 客户端线程安全”两项静态审查均未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `sequential-thinking`（命令缺失，记录工具仍不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `shrimp-task-manager`（命令缺失，记录规划工具仍不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `sed -n '1,200p' docs/BUG_REPORT.md`、`nl -ba docs/BUG_REPORT.md`，回顾现有缺陷列表
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/api/routers/writer/manga_prompt_v2.py | sed -n '80,140p'`，确认 `GenerateResponse` 返回 `dialogue_language`
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '20,200p'`、`sed -n '500,620p'`、`sed -n '780,880p'`、`sed -n '1000,1120p'`，核查 `_prepareMangaData` 未传播语言字段以及生成/预览路径的取值方式
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '700,760p'`，验证 `_onGenerateAllImages` 在主线程同步请求 `_prepareMangaData` 与 `get_queue_config`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题16（dialogue_language 丢失）与问题17（批量生成阻塞 UI）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录本轮静态审查未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `sequential-thinking`（命令缺失，继续记录工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `shrimp-task-manager`（命令缺失，继续记录规划工具不可用）
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "dialogue_language" backend/app/repositories/manga_prompt_repository.py`、`rg -n "source_version_id" backend/app -g"*.py"`，检索漫画提示词持久化相关字段
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba backend/app/services/manga_prompt/core/service.py | sed -n '300,460p'`、`nl -ba backend/app/repositories/manga_prompt_repository.py | sed -n '240,340p'`，定位 `_save_result` 与 `save_result` 未传递 `source_version_id`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题18（漫画分镜无法记录 source_version_id）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“漫画 source_version 追踪缺失”静态审查未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "_on_generate_pdf_clicked" -n frontend/windows/writing_desk`（无匹配）确认漫画 PDF 按钮未实现回调
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/panels/manga/pdf_tab.py | sed -n '80,200p'` 审查按钮绑定与回调实现
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题19（漫画 PDF 按钮无回调导致功能不可用）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“漫画 PDF 按钮无回调”静态审查未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "_on_generate_pdf_clicked" frontend/windows/writing_desk/panels/manga/pdf_tab.py`，确认 mixin 已包含回调实现，撤销上一条误判
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "_onGenerateMangaPrompt" -n frontend/windows/writing_desk/workspace/manga_handlers.py`，检查生成按钮的同步逻辑
+- `shell_command` @ `/mnt/e/code/AFN`: `nl -ba frontend/windows/writing_desk/workspace/manga_handlers.py | sed -n '280,340p'`，定位在 UI 线程内同步调用 `get_manga_prompts` 与 `get_manga_prompt_progress`
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题19（生成漫画分镜按钮在主线程同步请求导致卡死）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录“生成漫画分镜前阻塞 UI”未执行测试
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "_toolbar_btn_stack" frontend/windows/writing_desk/panels/manga/toolbar.py`，阅读工具栏按钮共享状态的实现
+- `shell_command` @ `/mnt/e/code/AFN`: `rg -n "has_content" frontend/windows/writing_desk/panels/manga/toolbar.py`，确认一键生成按钮只在有分镜时创建且共用与生成按钮同一个 stack
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `docs/BUG_REPORT.md`，新增问题20（漫画工具栏按钮状态错乱）
+- `apply_patch` @ `/mnt/e/code/AFN`: 更新 `.codex/testing.md`，记录工具栏按钮状态问题未执行测试

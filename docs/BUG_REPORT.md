@@ -99,3 +99,45 @@
 - **问题**：`ChapterSchema` 仅包含 `selected_version`（版本索引）与 `versions`（纯文本列表），序列化时根本没有输出 `chapter.selected_version_id` 或每个版本的数据库 ID。写作台在 `displayChapter` 中试图读取 `chapter_data['selected_version_id']` 来缓存当前版本并传递给漫画图片/PDF 接口，但该字段永远不存在，只能得到 `None`。结果前端即使补齐了 `chapter_version_id` 参数，也没有任何来源可以获取有效 ID，所有需要“按正文版本过滤”的接口都无法工作（Bug #2/#3/#9/#10/#11/#13 都依赖这一字段）。
 - **建议**：在 `ChapterSchema` 中增加 `selected_version_id`（以及版本列表的 `version_ids` 或 `versions: List[Dict]`），序列化时直接写入 `chapter.selected_version_id`，使前端能拿到真实 ID 并在生成图片、导出 PDF、清理旧图等场景中传入。必要时为每个版本附带 `version_id` 与元数据，避免只剩文本内容。
 - **验证情况**：✅ `ChapterSchema`（`backend/app/schemas/novel.py:164-172`）只有 `selected_version` 整数索引，没有任何 ID 字段；`NovelSerializer.build_chapter_schema`（`serializers/novel_serializer.py:332-382`）也只计算 `selected_version_idx` 并返回，不曾把 `chapter.selected_version_id` 放入响应。写作台 `displayChapter`（`chapter_display.py:234-252`）调用 `chapter_data.get('selected_version_id')` 时恒为 `None`，证实当前 API 无法提供章节版本 ID。
+
+## 15. API 客户端以单例方式在多个线程共享 `requests.Session`，容易引发并发崩溃
+
+- **位置**：`frontend/api/manager.py:19-63`、`frontend/api/client/core.py:35-93`、`frontend/utils/async_worker.py:1-190`、`frontend/utils/chapter_cache.py:205-260`
+- **问题**：`APIClientManager` 全局只创建一个 `AFNAPIClient` 实例，而 `AFNAPIClient` 在构造函数里创建单个 `requests.Session` 并在整个应用生命周期内复用。写作台所有 API 调用都会通过 `AsyncAPIWorker`（QThread）或 `ChapterCache.prefetch_adjacent`（plain `threading.Thread`）在后台线程执行，但这些线程全部直接调用同一个 `AFNAPIClient` 实例。`requests` 官方文档明确说明 `Session` 不是线程安全对象，禁止在多个线程中并发复用，否则其内部连接池/状态机会被竞争，实际运行中会间歇性抛出 `RuntimeError: dictionary changed size`, `Session is closed`、随机 4xx/5xx 等，造成章节加载、漫画生成等请求偶发失败。
+- **建议**：为每个后台线程使用独立的 Session。可以把 `AFNAPIClient` 改成线程局部（thread-local）单例，或在 `AsyncAPIWorker`/缓存预取中显式创建新的 `AFNAPIClient`，至少也要用线程锁串行化 `self.session.request`。最理想的做法是让 API 管理器返回“轻量 proxy”对象，每个线程内部惰性创建 Session 并在退出时关闭。
+- **验证情况**：✅ `APIClientManager.get_client()`（`frontend/api/manager.py:25-61`）始终返回同一个 `AFNAPIClient`；该客户端在 `core.py:65-105` 中只创建一次 `requests.Session`。`AsyncAPIWorker.run()`（`frontend/utils/async_worker.py:78-172`）把传入的 `self.func`（通常是 `client.get_chapter`、`generate_scene_image` 等）放到 QThread 内执行；`ChapterCache.prefetch_adjacent`（`frontend/utils/chapter_cache.py:205-260`）甚至用 `threading.Thread` 直接调用 `self.api_client.get_chapter`。所有这些线程都会同时读写同一个 `requests.Session`，完全违反了 requests 的线程安全约束，解释了现有应用经常出现“偶尔卡死/请求报错”的现象。
+
+## 16. 漫画图片生成/预览从未传递 `dialogue_language`
+
+- **位置**：`backend/app/api/routers/writer/manga_prompt_v2.py:95-108`、`frontend/windows/writing_desk/workspace/manga_handlers.py:24-134`、`frontend/windows/writing_desk/workspace/manga_handlers.py:500-575/780-875/1007-1045`
+- **问题**：后端 `GenerateResponse` 已提供 `dialogue_language` 字段并在生图服务里用于追加“只生成某语言文字”的提示，但 `_prepareMangaData` 只把 `style/pages/panels` 等字段写入 `manga_data`，完全没有缓存 `dialogue_language`。后续 `_onGenerateImage`、`_processNextBatchImage`、`_onPreviewPrompt` 都调用 `panel.get('dialogue_language', '')` 再传给 `generate_scene_image` / `preview_image_prompt`，因为面板字典里不存在该字段，三个调用点永远传入 `None`。结果无论用户在面板生成时选择中文/日文/英文，生图请求都收不到语言约束，生成的对白、音效依旧可能混用默认语言。
+- **建议**：在 `_prepareMangaData` 中将 `result.get('dialogue_language')` 保存到 `manga_data` 并同步写入每个 `panel`（或在生成图片时回退到 `manga_data` 上的配置），再由 `_onGenerateImage`/批量生成/提示词预览统一传给 API。必要时也应把语言设置展示在 UI 上，避免用户误以为设置已生效。
+- **验证情况**：✅ `GenerateResponse` 在 `manga_prompt_v2.py:95-105` 明确包含 `dialogue_language`；`_prepareMangaData`（`manga_handlers.py:24-82`）仅拷贝 `pages`/`panels` 等字段，没有任何语言字段；`_onGenerateImage`、`_processNextBatchImage`、`_onPreviewPrompt`（分别位于 `manga_handlers.py:500-575`、`780-875`、`1007-1045`）都尝试使用 `panel['dialogue_language']`，但面板数据里从未填充该键，导致每次请求都以默认值 `None` 调用后端，语言约束形同虚设。
+
+## 17. “一键生成所有图片”按钮在主线程同步请求所有漫画数据，UI 容易长时间卡死
+
+- **位置**：`frontend/windows/writing_desk/workspace/manga_handlers.py:24-134`、`frontend/windows/writing_desk/workspace/manga_handlers.py:700-754`
+- **问题**：一键生成按钮 `_onGenerateAllImages` 在进入并发生成前，会直接在主线程调用 `_prepareMangaData` 和 `self.api_client.get_queue_config()`。`_prepareMangaData` 内部依次同步请求 `get_manga_prompts`、`get_manga_prompt_progress`、`get_chapter_images`、`get_latest_chapter_manga_pdf` 并遍历磁盘路径，这些调用都通过全局 `requests.Session` 访问网络。若后端运行在远程服务器或章节数据较大，主线程会被阻塞数秒，整个 PyQt 应用在这段时间无法响应（无法移动窗口、切换 Tab）。
+- **建议**：像 `_loadMangaDataAsync` 一样使用 `AsyncWorker` 在后台线程获取面板/图片/PDF数据，并在回调中启动批量生成；`queue_config` 也应通过异步任务获取或在启动时缓存，避免在 UI 线程里发起任何网络请求。
+- **验证情况**：✅ `_onGenerateAllImages`（`manga_handlers.py:700-754`）直接调用 `_prepareMangaData` 并紧接着访问 `self.api_client.get_queue_config()`，这两个方法内部均使用同步 `requests`；`_prepareMangaData` 的实现（`manga_handlers.py:24-134`）包含多次 `self.api_client.*` 调用和磁盘遍历，没有任何异步保护，说明点击按钮时 UI 必定会被阻塞直到全部网络请求返回。
+
+## 18. 漫画分镜结果永远不会记录基于哪个正文版本
+
+- **位置**：`backend/app/services/manga_prompt/core/service.py:420-454`、`backend/app/repositories/manga_prompt_repository.py:82-150`、`backend/app/models/novel.py:394-400`
+- **问题**：数据库模型 `ChapterMangaPrompt.source_version_id` 用来追踪“分镜基于哪一个章节版本”，但 `_save_result` 只调用 `manga_prompt_repo.save_result(chapter_id, result_data, analysis_data)`，而该方法内部也只是把 `result_data` 拆成 `scenes/panels` 后调用 `upsert(...)`，完全没有传递任何版本 ID。`result.to_dict()` 也不包含 `source_version_id` 字段，所以 `upsert()` 的 `source_version_id` 参数始终使用默认值 `None`。用户在选择章节版本后生成的漫画，与正文版本的关联立即丢失，后续即使切换版本或重新生成也无法判断哪些分镜属于旧版本，更无法在删除/导出时做针对性筛选。
+- **建议**：在 `_save_result` 中读取 `chapter.selected_version_id` 并显式传给 `save_result`/`upsert`；必要时也在 API 返回数据中附加 `source_version_id`，让前端知道当前分镜对应哪一版正文。
+- **验证情况**：✅ `_save_result`（`service.py:420-454`）只是把 `result.to_dict()` 传入 `save_result`，完全没有 `source_version_id` 参数；`MangaPromptRepository.save_result` 的签名也没有该字段，导致 `upsert(... source_version_id=...)` 永远使用默认值 `None`。查看数据库模型（`app/models/novel.py:394-400`）确认字段存在却没有任何写入路径。
+
+## 19. 漫画分镜生成按钮在点击前会同步调用多次 REST 接口，UI 直接卡死
+
+- **位置**：`frontend/windows/writing_desk/workspace/manga_handlers.py:293-327`
+- **问题**：点击“生成漫画分镜”后，`_onGenerateMangaPrompt` 先在主线程同步调用 `self.api_client.get_manga_prompts(...)` 检查是否已有数据；若该调用抛出异常又会继续同步调用 `self.api_client.get_manga_prompt_progress(...)` 获取断点信息。这两个请求都通过全局 `requests.Session` 直接在 UI 线程执行，过程中没有任何加载提示或线程切换。一旦后端部署在远程、网络延时较大或章节包含大量分镜，这两个阻塞调用就会让整个写作台 UI 停止响应数秒，用户甚至误以为程序崩溃，点击按钮没有即时反馈。
+- **建议**：与实际生成任务一样，检查现有分镜/断点的逻辑也应放在 `AsyncWorker` 中执行，或复用后台加载的缓存数据，至少不要在 UI 线程里直接发起长耗时 HTTP 请求。
+- **验证情况**：✅ `_onGenerateMangaPrompt`（`manga_handlers.py:293-327`）在启动 `AsyncWorker` 之前，使用 `self.api_client.get_manga_prompts` 和 `self.api_client.get_manga_prompt_progress` 直接进行网络请求。这些方法内部基于 `requests` 同步阻塞，整段代码既没有包裹在任何线程里，也没有 loading 提示，证明点击生成按钮时 UI 会被阻塞直到两个请求返回。
+
+## 20. 一键生成按钮与工具栏“生成漫画”按钮共享同一 `_toolbar_btn_stack`，刷新时按钮状态错乱
+
+- **位置**：`frontend/windows/writing_desk/panels/manga/toolbar.py:36-150`、`frontend/windows/writing_desk/panels/manga/toolbar.py:551-667`
+- **问题**：`ToolbarMixin._init_toolbar_state` 里只有一个 `_toolbar_btn_stack` 和 `_generate_all_btn_stack`，但 `_create_toolbar` 把“一键生成图片”的 `QStackedWidget` 也追加到 `self._toolbar_btn_stack` 中，导致 `set_toolbar_loading` 等方法在切换“生成漫画分镜”按钮状态时同时切换一键按钮索引。进一步地，`set_generate_all_loading/success/error` 又直接访问 `_generate_all_btn_stack`，但生成按钮和一键按钮共用 `CircularSpinner` 等实例，导致在刷新面板或重新构建 Tab 时按钮状态无法恢复（生成按钮可能永久显示加载状态，或一键按钮消失）。实际运行中切换章节或重新加载漫画 Tab 会随机出现两个按钮互相覆盖、无法点击等问题。
+- **建议**：为“生成漫画分镜”与“一键生成图片”各自维护独立的 `QStackedWidget` 和 spinner/label，避免共用 `_toolbar_btn_stack`；或将一键按钮放在单独容器里而不是插入同一个 stack。
+- **验证情况**：✅ `_create_toolbar`（`toolbar.py:280-340`）在 `btn_row` 中把 `self._toolbar_btn_stack` 添加一次后，又在 `has_content` 分支中把 `self._generate_all_btn_stack` 插入 `btn_row`，但该 stack 直接与 `_toolbar_btn_stack` 共享 `_generate_all_btn` 等状态；`set_toolbar_loading` 只操作 `_toolbar_btn_stack`，却没有保护一键按钮的 stack，说明两个按钮状态相互影响。

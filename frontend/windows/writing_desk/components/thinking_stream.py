@@ -248,26 +248,26 @@ class ThinkingBlock(ThemeAwareFrame):
         if self.icon_label:
             self.icon_label.setText(icon)
             self.icon_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(13)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {color};
             """)
 
         # 内容样式
         content_style = f"""
             font-family: {ui_font};
-            font-size: {sp(13)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_PRIMARY};
-            line-height: 1.5;
+            line-height: {theme_manager.LINE_HEIGHT_NORMAL};
         """
 
         # 预览样式（稍微暗淡）
         preview_style = f"""
             font-family: {ui_font};
-            font-size: {sp(13)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_SECONDARY};
-            line-height: 1.5;
+            line-height: {theme_manager.LINE_HEIGHT_NORMAL};
         """
 
         if self.content_label:
@@ -281,7 +281,7 @@ class ThinkingBlock(ThemeAwareFrame):
         if self.time_label:
             self.time_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(10)}px;
+                font-size: {theme_manager.FONT_SIZE_XS};
                 color: {theme_manager.TEXT_TERTIARY};
             """)
 
@@ -290,8 +290,8 @@ class ThinkingBlock(ThemeAwareFrame):
             self.toggle_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(12)}px;
-                    font-weight: bold;
+                    font-size: {theme_manager.FONT_SIZE_SM};
+                    font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                     color: {theme_manager.TEXT_SECONDARY};
                     background-color: transparent;
                     border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -308,9 +308,9 @@ class ThinkingBlock(ThemeAwareFrame):
             for label in self.details_container.findChildren(QLabel, "detail_label"):
                 label.setStyleSheet(f"""
                     font-family: {ui_font};
-                    font-size: {sp(12)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.TEXT_SECONDARY};
-                    line-height: 1.4;
+                    line-height: {theme_manager.LINE_HEIGHT_TIGHT};
                 """)
 
         # 整体容器样式 - 简洁风格，不使用左边框
@@ -462,24 +462,24 @@ class ThinkingStreamView(ThemeAwareWidget):
         # 状态指示器 - 使用等宽字体确保对齐
         if self.status_indicator:
             self.status_indicator.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(13)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.PRIMARY};
             """)
 
         if self.header_label:
             self.header_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(14)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_BASE};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_PRIMARY};
             """)
 
         btn_style = f"""
             QPushButton {{
                 font-family: {ui_font};
-                font-size: {sp(11)}px;
+                font-size: {theme_manager.FONT_SIZE_XS};
                 color: {theme_manager.TEXT_SECONDARY};
                 background-color: transparent;
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -501,9 +501,9 @@ class ThinkingStreamView(ThemeAwareWidget):
 
         if self.stats_high_label:
             self.stats_high_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.ERROR};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {error_bg};
@@ -512,9 +512,9 @@ class ThinkingStreamView(ThemeAwareWidget):
 
         if self.stats_medium_label:
             self.stats_medium_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.WARNING};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {warning_bg};
@@ -523,9 +523,9 @@ class ThinkingStreamView(ThemeAwareWidget):
 
         if self.stats_low_label:
             self.stats_low_label.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {theme_manager.TEXT_TERTIARY};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {theme_manager.BG_TERTIARY};
@@ -551,7 +551,7 @@ class ThinkingStreamView(ThemeAwareWidget):
         if self.current_paragraph_label:
             self.current_paragraph_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
                 padding: {dp(6)}px {dp(10)}px;
                 background-color: {theme_manager.BG_SECONDARY};
@@ -668,9 +668,9 @@ class ThinkingStreamView(ThemeAwareWidget):
         if self.status_indicator:
             self.status_indicator.setText(icon)
             self.status_indicator.setStyleSheet(f"""
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: {sp(13)}px;
-                font-weight: bold;
+                font-family: {theme_manager.FONT_CODE};
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {color};
             """)
 

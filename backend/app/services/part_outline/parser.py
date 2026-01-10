@@ -40,18 +40,69 @@ class PartOutlineParser:
         try:
             return json.loads(text)
         except json.JSONDecodeError as exc:
+            # 检测是否是截断问题
+            is_truncated = self._detect_truncation(text)
+
             logger.error(
-                "解析%sJSON失败: %s\n位置: 行%d 列%d\n内容预览: %s",
+                "解析%sJSON失败: %s\n位置: 行%d 列%d\n是否截断: %s\n内容预览: %s",
                 context,
                 exc.msg,
                 exc.lineno,
                 exc.colno,
+                is_truncated,
                 text[:500] if text else "空"
             )
-            raise JSONParseError(
-                context,
-                f"JSON格式错误: {exc.msg} (行{exc.lineno} 列{exc.colno})"
-            ) from exc
+
+            if is_truncated:
+                raise JSONParseError(
+                    context,
+                    "LLM输出被截断，请在设置中增加 max_tokens 或使用输出能力更强的模型"
+                ) from exc
+            else:
+                raise JSONParseError(
+                    context,
+                    f"JSON格式错误: {exc.msg} (行{exc.lineno} 列{exc.colno})"
+                ) from exc
+
+    def _detect_truncation(self, text: str) -> bool:
+        """
+        检测JSON是否被截断
+
+        通过检查括号是否匹配来判断
+        """
+        if not text:
+            return False
+
+        # 统计括号
+        brace_count = 0  # {}
+        bracket_count = 0  # []
+        in_string = False
+        escape_next = False
+
+        for char in text:
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+            elif char == '[':
+                bracket_count += 1
+            elif char == ']':
+                bracket_count -= 1
+
+        # 如果括号不匹配，说明被截断
+        return brace_count != 0 or bracket_count != 0 or in_string
 
     def parse_multiple_parts(self, response: str) -> List[Dict]:
         """

@@ -101,17 +101,30 @@ class ContentOptimizationWorkflow:
 
             # 确定要分析的段落
             if request.scope == AnalysisScope.SELECTED and request.selected_paragraphs:
-                paragraphs_to_analyze = [
-                    all_paragraphs[idx]
-                    for idx in request.selected_paragraphs
-                    if idx < len(all_paragraphs)
-                ]
+                # 过滤无效索引（负数或超出范围）
+                valid_indices = []
+                invalid_indices = []
+                for idx in request.selected_paragraphs:
+                    if 0 <= idx < len(all_paragraphs):
+                        valid_indices.append(idx)
+                    else:
+                        invalid_indices.append(idx)
+
+                if invalid_indices:
+                    logger.warning(
+                        "发现无效的段落索引: %s (总段落数: %d)",
+                        invalid_indices, len(all_paragraphs)
+                    )
+
+                paragraphs_to_analyze = [all_paragraphs[idx] for idx in valid_indices]
             else:
                 paragraphs_to_analyze = all_paragraphs
 
             if not paragraphs_to_analyze:
                 yield sse_event(OptimizationEventType.ERROR, {
-                    "message": "没有选中任何有效段落"
+                    "message": "没有有效的段落可以分析",
+                    "total_paragraphs": len(all_paragraphs),
+                    "selected_count": len(request.selected_paragraphs) if request.selected_paragraphs else 0,
                 })
                 return
 
@@ -146,6 +159,7 @@ class ContentOptimizationWorkflow:
                 project_id=project_id,
                 chapter_number=chapter_number,
                 total_chapters=context.total_chapters,
+                paragraph_analyzer=paragraph_analyzer,  # 用于内容更新时重新分段
             )
 
             # 阶段4: 运行Agent

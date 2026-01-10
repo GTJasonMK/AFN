@@ -32,12 +32,10 @@ class ModeControlMixin:
                 return OptimizationMode.REVIEW
             elif checked_id == 1:
                 return OptimizationMode.AUTO
-            elif checked_id == 2:
-                return OptimizationMode.PLAN
         return OptimizationMode.REVIEW
 
     def _resume_backend_analysis(self: "OptimizationContent"):
-        """通知后端继续分析"""
+        """通知后端继续分析，并发送当前编辑器内容"""
         from api.client import AFNAPIClient
 
         if not self.session_id:
@@ -46,10 +44,17 @@ class ModeControlMixin:
 
         self.current_suggestion_card = None
 
-        # 调用后端 continue API
+        # 获取当前编辑器内容（实时同步）
+        current_content = self.get_current_content()
+        if current_content:
+            logger.info("继续分析，发送新内容，长度: %d", len(current_content))
+        else:
+            logger.warning("继续分析，未能获取当前内容（将使用旧内容）")
+
+        # 调用后端 continue API，传入当前内容
         try:
             client = AFNAPIClient()
-            result = client.continue_optimization_session(self.session_id)
+            result = client.continue_optimization_session(self.session_id, content=current_content)
             logger.info("继续分析: %s", result)
         except Exception as e:
             logger.error("调用 continue API 失败: %s", e)
@@ -103,8 +108,6 @@ class ModeControlMixin:
         # 更新UI
         if self.continue_btn:
             self.continue_btn.setVisible(False)
-        if self.apply_plan_btn:
-            self.apply_plan_btn.setVisible(False)
 
         # 更新思考流状态
         if hasattr(self, 'thinking_stream') and self.thinking_stream:
@@ -112,6 +115,7 @@ class ModeControlMixin:
             self.thinking_stream.add_progress("已停止分析")
 
         self._update_status("已停止")
+
         logger.info("优化已停止")
 
 

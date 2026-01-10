@@ -170,6 +170,9 @@ class WritingDesk(
         self.assistant_panel.suggestion_ignored.connect(self.onSuggestionIgnored)
         self.assistant_panel.suggestion_preview_requested.connect(self.onSuggestionPreviewRequested)
 
+        # 设置内容提供者：让优化面板能获取编辑器的实时内容
+        self.assistant_panel.set_content_provider(self.workspace.get_current_content)
+
     def toggleAssistant(self, show: bool):
         """切换RAG助手显示状态"""
         self.assistant_panel.setVisible(show)

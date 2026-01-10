@@ -123,21 +123,32 @@ class OptimizationMixin:
             timeout=TimeoutConfig.READ_QUICK
         )
 
-    def continue_optimization_session(self, session_id: str) -> Dict[str, Any]:
+    def continue_optimization_session(
+        self,
+        session_id: str,
+        content: str = None
+    ) -> Dict[str, Any]:
         """
         继续暂停的优化会话
 
-        在Review模式下，用户处理完建议后调用此方法让后端继续分析。
+        在Review/Auto模式下，用户处理完建议后调用此方法让后端继续分析。
+        传入当前编辑器内容，确保后端使用最新数据继续分析。
 
         Args:
             session_id: 会话ID（从workflow_start事件获取）
+            content: 当前编辑器的最新内容（可选，用于实时同步）
 
         Returns:
             操作结果: {"success": bool, "message": str}
         """
+        payload = {}
+        if content is not None:
+            payload["content"] = content
+
         return self._request(
             'POST',
             f'/api/writer/optimization-sessions/{session_id}/continue',
+            payload if payload else None,
         )
 
     def cancel_optimization_session(self, session_id: str) -> Dict[str, Any]:

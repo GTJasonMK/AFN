@@ -3,14 +3,23 @@
 
 按格式智能分割长内容，保留来源追踪信息。
 支持Markdown标题分割、Q&A对话合并、按段落分割等功能。
+支持可配置的分块策略。
 """
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .data_types import NovelDataType
+from .chunk_strategy import (
+    NovelChunkMethod,
+    NovelChunkConfig,
+    get_novel_strategy_manager,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,7 +56,7 @@ class NovelIngestionRecord:
 
 
 class NovelContentSplitter:
-    """小说内容分割器 - 按格式智能分割长内容"""
+    """小说内容分割器 - 按格式智能分割长内容，支持策略配置"""
 
     # 最小chunk长度，太短的内容不分割
     MIN_CHUNK_LENGTH = 80
@@ -57,6 +66,373 @@ class NovelContentSplitter:
     OVERLAP_LENGTH = 100
     # 长字段阈值，超过此长度的字段需要分割
     LONG_FIELD_THRESHOLD = 300
+
+    def __init__(self, config: Optional[NovelChunkConfig] = None):
+        """
+        初始化分割器
+
+        Args:
+            config: 分块配置（可选，用于设置默认参数）
+        """
+        self._default_config = config
+
+    # ==================== 核心分割方法（基于策略配置） ====================
+
+    def split_content(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: Optional[NovelChunkConfig] = None,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """
+        根据策略配置分割内容
+
+        这是主入口方法，根据配置的分块方法调用对应的分割逻辑。
+
+        Args:
+            content: 要分割的内容
+            data_type: 数据类型
+            source_id: 来源ID
+            config: 分块配置（可选，默认从全局策略管理器获取）
+            chapter_number: 章节编号（可选）
+            **extra_metadata: 额外元数据
+
+        Returns:
+            入库记录列表
+        """
+        if not content or not content.strip():
+            return []
+
+        # 获取配置
+        if config is None:
+            config = get_novel_strategy_manager().get_config(data_type)
+
+        # 根据分块方法调用对应处理
+        method = config.method
+
+        if method == NovelChunkMethod.WHOLE:
+            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        elif method == NovelChunkMethod.MARKDOWN_HEADER:
+            return self._split_markdown(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        elif method == NovelChunkMethod.PARAGRAPH:
+            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        elif method == NovelChunkMethod.PARAGRAPH_NO_OVERLAP:
+            return self._split_paragraph(content, data_type, source_id, config, chapter_number, with_overlap=False, **extra_metadata)
+
+        elif method == NovelChunkMethod.FIXED_LENGTH:
+            return self._split_fixed_length(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        elif method == NovelChunkMethod.SIMPLE:
+            return self._split_simple(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        elif method == NovelChunkMethod.SEMANTIC_DP:
+            # 语义分块需要异步调用，这里返回降级结果
+            # 实际使用时应调用 split_content_semantic_async
+            logger.warning("SEMANTIC_DP方法在同步调用中不可用，降级为段落分割")
+            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        else:
+            # 默认使用简单分割
+            return self._split_simple(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+    def _split_whole(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: NovelChunkConfig,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """整体入库，不分割"""
+        content = content.strip()
+
+        # 添加上下文前缀（如果配置了）
+        if config.add_context_prefix and extra_metadata.get('parent_title'):
+            content = f"[{extra_metadata['parent_title']}]\n\n{content}"
+
+        return [NovelIngestionRecord(
+            content=content,
+            data_type=data_type,
+            source_id=source_id,
+            chapter_number=chapter_number,
+            metadata={
+                'section_index': 0,
+                'total_sections': 1,
+                **extra_metadata
+            }
+        )]
+
+    def _split_markdown(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: NovelChunkConfig,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """按Markdown标题分割"""
+        sections = self.split_by_markdown_headers(
+            content,
+            min_level=config.md_min_level,
+            max_level=config.md_max_level
+        )
+
+        # 如果没有标题或内容太短，整体入库
+        if not sections or len(content) < config.min_chunk_length:
+            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        records = []
+        total_sections = len(sections)
+
+        for section in sections:
+            section_content = f"## {section.title}\n\n{section.content}" if section.title else section.content
+
+            # 添加上下文前缀
+            if config.add_context_prefix and extra_metadata.get('parent_title'):
+                section_content = f"[{extra_metadata['parent_title']}]\n\n{section_content}"
+
+            records.append(NovelIngestionRecord(
+                content=section_content,
+                data_type=data_type,
+                source_id=source_id,
+                chapter_number=chapter_number,
+                metadata={
+                    'section_title': section.title,
+                    'section_index': section.index,
+                    'total_sections': total_sections,
+                    **extra_metadata
+                }
+            ))
+
+        return records
+
+    def _split_paragraph(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: NovelChunkConfig,
+        chapter_number: Optional[int] = None,
+        with_overlap: bool = True,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """按段落分割"""
+        # 使用配置中的参数
+        use_overlap = with_overlap and config.with_overlap
+        paragraphs = self.split_by_paragraphs(
+            content,
+            min_length=config.min_chunk_length,
+            max_length=config.max_chunk_length,
+            with_overlap=use_overlap
+        )
+
+        if not paragraphs:
+            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        records = []
+        total_sections = len(paragraphs)
+
+        for idx, para in enumerate(paragraphs):
+            para_content = para
+
+            # 添加上下文前缀
+            if config.add_context_prefix and extra_metadata.get('parent_title'):
+                para_content = f"[{extra_metadata['parent_title']}]\n\n{para_content}"
+
+            records.append(NovelIngestionRecord(
+                content=para_content,
+                data_type=data_type,
+                source_id=source_id,
+                chapter_number=chapter_number,
+                metadata={
+                    'section_index': idx,
+                    'total_sections': total_sections,
+                    **extra_metadata
+                }
+            ))
+
+        return records
+
+    def _split_fixed_length(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: NovelChunkConfig,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """按固定长度分割"""
+        chunk_size = config.max_chunk_length
+        overlap = config.overlap_length if config.with_overlap else 0
+        content = content.strip()
+
+        if len(content) <= chunk_size:
+            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+        chunks = []
+        start = 0
+        while start < len(content):
+            end = start + chunk_size
+            chunk = content[start:end]
+
+            # 尝试在句子边界截断
+            if end < len(content):
+                last_sentence_end = max(
+                    chunk.rfind('。'),
+                    chunk.rfind('？'),
+                    chunk.rfind('！'),
+                    chunk.rfind('.'),
+                    chunk.rfind('?'),
+                    chunk.rfind('!')
+                )
+                if last_sentence_end > chunk_size * 0.5:
+                    chunk = chunk[:last_sentence_end + 1]
+                    end = start + last_sentence_end + 1
+
+            chunks.append(chunk.strip())
+            start = end - overlap if end < len(content) else end
+
+        records = []
+        for idx, chunk in enumerate(chunks):
+            chunk_content = chunk
+
+            # 添加上下文前缀
+            if config.add_context_prefix and extra_metadata.get('parent_title'):
+                chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
+
+            records.append(NovelIngestionRecord(
+                content=chunk_content,
+                data_type=data_type,
+                source_id=source_id,
+                chapter_number=chapter_number,
+                metadata={
+                    'section_index': idx,
+                    'total_sections': len(chunks),
+                    **extra_metadata
+                }
+            ))
+
+        return records
+
+    def _split_simple(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        config: NovelChunkConfig,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """简单分割（整体作为一条记录）"""
+        return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+
+    # ==================== 语义分块方法（异步） ====================
+
+    async def split_content_semantic_async(
+        self,
+        content: str,
+        data_type: NovelDataType,
+        source_id: str,
+        embedding_func: Callable[[List[str]], Any],
+        config: Optional[NovelChunkConfig] = None,
+        chapter_number: Optional[int] = None,
+        **extra_metadata
+    ) -> List['NovelIngestionRecord']:
+        """
+        使用语义动态规划进行分块（异步）
+
+        基于句子嵌入和DP算法找到最优切分点，
+        最大化块内语义相关度，最小化块间相关度。
+
+        Args:
+            content: 要分割的内容
+            data_type: 数据类型
+            source_id: 来源ID
+            embedding_func: 异步嵌入函数，接受句子列表返回嵌入矩阵
+            config: 分块配置
+            chapter_number: 章节编号
+            **extra_metadata: 额外元数据
+
+        Returns:
+            入库记录列表
+        """
+        if not content or not content.strip():
+            return []
+
+        # 获取配置
+        if config is None:
+            config = get_novel_strategy_manager().get_config(data_type)
+
+        try:
+            # 延迟导入语义分块器，避免循环依赖
+            from ..rag_common.semantic_chunker import (
+                SemanticChunker,
+                SemanticChunkConfig,
+            )
+
+            # 构建语义分块配置
+            semantic_config = SemanticChunkConfig(
+                gate_threshold=config.semantic_gate_threshold,
+                alpha=config.semantic_alpha,
+                gamma=config.semantic_gamma,
+                min_chunk_sentences=config.semantic_min_sentences,
+                max_chunk_sentences=config.semantic_max_sentences,
+                min_chunk_chars=config.min_chunk_length,
+                max_chunk_chars=config.max_chunk_length,
+                with_overlap=config.with_overlap,
+                overlap_sentences=1 if config.with_overlap else 0,
+            )
+
+            # 创建语义分块器并执行分块
+            chunker = SemanticChunker(config=semantic_config)
+            chunk_results = await chunker.chunk_text_async(
+                text=content,
+                embedding_func=embedding_func,
+                config=semantic_config
+            )
+
+            # 转换为NovelIngestionRecord
+            records = []
+            for idx, chunk in enumerate(chunk_results):
+                chunk_content = chunk.content
+
+                # 添加上下文前缀
+                if config.add_context_prefix and extra_metadata.get('parent_title'):
+                    chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
+
+                records.append(NovelIngestionRecord(
+                    content=chunk_content,
+                    data_type=data_type,
+                    source_id=source_id,
+                    chapter_number=chapter_number,
+                    metadata={
+                        'section_index': idx,
+                        'total_sections': len(chunk_results),
+                        'sentence_count': chunk.sentence_count,
+                        'density_score': chunk.density_score,
+                        'semantic_chunked': True,
+                        **extra_metadata
+                    }
+                ))
+
+            return records
+
+        except Exception as e:
+            logger.warning("语义分块失败: %s，降级为段落分割", str(e))
+            return self._split_paragraph(
+                content, data_type, source_id, config, chapter_number, **extra_metadata
+            )
+
+    # ==================== 原有方法（保持向后兼容） ====================
 
     def split_by_markdown_headers(
         self,

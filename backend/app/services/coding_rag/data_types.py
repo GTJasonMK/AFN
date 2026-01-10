@@ -1,7 +1,7 @@
 """
 编程项目RAG数据类型定义
 
-定义10种需要入库的数据类型及其检索权重。
+定义11种需要入库的数据类型及其检索权重。
 """
 
 from enum import Enum
@@ -20,7 +20,8 @@ class CodingDataType(str, Enum):
     MODULE = "module"                     # 模块定义
     FEATURE_OUTLINE = "feature_outline"   # 功能大纲
     DEPENDENCY = "dependency"             # 依赖关系
-    FEATURE_PROMPT = "feature_prompt"     # 功能Prompt
+    FEATURE_PROMPT = "feature_prompt"     # 功能实现Prompt
+    REVIEW_PROMPT = "review_prompt"       # 功能审查/测试Prompt
 
     @classmethod
     def get_weight(cls, data_type: str) -> float:
@@ -43,7 +44,8 @@ class CodingDataType(str, Enum):
             cls.SYSTEM.value: 0.85,           # 系统划分
             cls.MODULE.value: 0.8,            # 模块定义
             cls.FEATURE_OUTLINE.value: 0.75,  # 功能大纲
-            cls.FEATURE_PROMPT.value: 0.7,    # 功能Prompt
+            cls.FEATURE_PROMPT.value: 0.7,    # 功能实现Prompt
+            cls.REVIEW_PROMPT.value: 0.65,    # 功能审查/测试Prompt
             cls.DEPENDENCY.value: 0.6,        # 依赖关系
             cls.CHALLENGE.value: 0.5,         # 技术挑战
             cls.INSPIRATION.value: 0.4,       # 灵感对话权重较低
@@ -72,6 +74,7 @@ class CodingDataType(str, Enum):
             cls.FEATURE_OUTLINE.value: "功能大纲",
             cls.DEPENDENCY.value: "依赖关系",
             cls.FEATURE_PROMPT.value: "功能Prompt",
+            cls.REVIEW_PROMPT.value: "测试Prompt",
         }
         return names.get(data_type, data_type)
 
@@ -81,14 +84,8 @@ class CodingDataType(str, Enum):
         获取数据类型对应的数据库表名
 
         【重要设计说明】
-        编程项目复用了小说系统的数据库表结构，以减少代码重复：
-        - novel_conversations: 存储灵感对话（编程需求分析对话）
-        - novel_blueprints: 存储架构蓝图（full_synopsis=架构描述, world_setting=技术栈等）
-        - part_outlines: 存储系统划分（title=系统名, summary=描述, theme=职责, key_events=技术要求）
-        - blueprint_characters: 存储模块定义（name=模块名, identity=类型, personality=描述, goals=接口, abilities=依赖）
-        - chapter_outlines: 存储功能大纲
-        - blueprint_relationships: 存储模块依赖关系
-        - chapters: 存储功能Prompt内容
+        编程项目使用独立的数据库表：
+        - coding_features: 存储功能Prompt和审查Prompt
 
         Args:
             data_type: 数据类型字符串
@@ -106,7 +103,8 @@ class CodingDataType(str, Enum):
             cls.MODULE.value: "blueprint_characters",
             cls.FEATURE_OUTLINE.value: "chapter_outlines",
             cls.DEPENDENCY.value: "blueprint_relationships",
-            cls.FEATURE_PROMPT.value: "chapters",
+            cls.FEATURE_PROMPT.value: "coding_features",
+            cls.REVIEW_PROMPT.value: "coding_features",
         }
         return tables.get(data_type, "unknown")
 

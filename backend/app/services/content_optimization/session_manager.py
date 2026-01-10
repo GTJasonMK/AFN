@@ -33,9 +33,28 @@ class OptimizationSession:
     current_paragraph: int = 0
     total_paragraphs: int = 0
 
+    # 内容更新支持：当用户处理完建议后，前端会发送最新编辑器内容
+    # 后端在 resume 时使用此内容更新 AgentState
+    pending_content: Optional[str] = None  # 待更新的内容
+    has_pending_content: bool = False  # 是否有待更新的内容
+
     def __post_init__(self):
         # 初始状态为"未暂停"，即可以继续执行
         self.pause_event.set()
+
+    def set_pending_content(self, content: str):
+        """设置待更新的内容（前端发送的最新编辑器内容）"""
+        self.pending_content = content
+        self.has_pending_content = True
+
+    def consume_pending_content(self) -> Optional[str]:
+        """获取并清除待更新的内容"""
+        if self.has_pending_content:
+            content = self.pending_content
+            self.pending_content = None
+            self.has_pending_content = False
+            return content
+        return None
 
 
 class OptimizationSessionManager:
@@ -112,12 +131,13 @@ class OptimizationSessionManager:
         logger.info("暂停会话: %s", session_id)
         return True
 
-    def resume_session(self, session_id: str) -> bool:
+    def resume_session(self, session_id: str, content: Optional[str] = None) -> bool:
         """
         继续会话
 
         Args:
             session_id: 会话ID
+            content: 前端发送的最新编辑器内容（可选）
 
         Returns:
             是否成功继续
@@ -126,6 +146,11 @@ class OptimizationSessionManager:
         if not session:
             logger.warning("尝试继续不存在的会话: %s", session_id)
             return False
+
+        # 如果有新内容，保存到会话中供 Agent 获取
+        if content is not None:
+            session.set_pending_content(content)
+            logger.info("会话 %s 收到新内容，长度: %d", session_id, len(content))
 
         if not session.is_paused:
             logger.debug("会话未处于暂停状态: %s", session_id)
@@ -170,6 +195,31 @@ class OptimizationSessionManager:
         if session_id in self._sessions:
             del self._sessions[session_id]
             logger.info("移除会话: %s", session_id)
+
+    def update_progress(
+        self,
+        session_id: str,
+        current_paragraph: int,
+        total_paragraphs: int,
+    ) -> bool:
+        """
+        更新会话的段落进度
+
+        Args:
+            session_id: 会话ID
+            current_paragraph: 当前段落索引
+            total_paragraphs: 总段落数
+
+        Returns:
+            是否成功更新
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            return False
+
+        session.current_paragraph = current_paragraph
+        session.total_paragraphs = total_paragraphs
+        return True
 
     async def wait_if_paused(
         self,

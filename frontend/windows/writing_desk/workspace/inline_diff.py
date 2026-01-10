@@ -7,6 +7,10 @@
 - 建议产生时立即在正文中预览（直接替换原文为新文本，高亮显示）
 - 不显示浮动确认面板
 - 通过侧边栏卡片确认/撤销
+
+实时内容同步（v3）：
+- 移除快照机制，后端每次继续分析都会收到最新内容
+- 前端直接在当前内容中匹配原文位置
 """
 
 import time
@@ -43,8 +47,8 @@ class InlineDiffMixin:
         """
         预览建议 - 直接替换原文为新文本（高亮显示）
 
-        新模式：建议产生时立即调用，在正文中显示预览效果。
-        用户通过侧边栏确认或撤销。
+        实时同步模式：直接在当前编辑器内容中查找原文。
+        后端每次分析都基于最新内容，所以不需要快照匹配。
 
         Args:
             suggestion: 建议数据
@@ -70,12 +74,10 @@ class InlineDiffMixin:
             logger.warning("previewSuggestion: 原文或建议文本为空")
             return None
 
-        # 获取当前正文内容
+        # 直接在当前编辑器内容中查找（实时同步模式）
         current_content = self.content_text.toPlainText()
-        logger.info("previewSuggestion: 当前正文长度=%d", len(current_content))
-
-        # 查找原文位置
         start_pos = current_content.find(original_text)
+
         if start_pos == -1:
             # 尝试模糊匹配（去除首尾空白）
             trimmed_original = original_text.strip()
@@ -94,7 +96,7 @@ class InlineDiffMixin:
         # 生成预览ID
         preview_id = self._generate_preview_id(suggestion)
 
-        # 保存预览信息（在替换前保存原文位置）
+        # 保存预览信息
         self._suggestion_previews[preview_id] = {
             "start_pos": start_pos,
             "original_text": original_text,
@@ -454,7 +456,7 @@ class InlineDiffMixin:
         hint_label = QLabel("修改预览")
         hint_label.setStyleSheet(f"""
             font-family: {theme_manager.ui_font()};
-            font-size: {sp(12)}px;
+            font-size: {theme_manager.FONT_SIZE_SM};
             color: {theme_manager.TEXT_SECONDARY};
         """)
         layout.addWidget(hint_label)
@@ -466,7 +468,7 @@ class InlineDiffMixin:
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
                 font-family: {theme_manager.ui_font()};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.ERROR};
                 background-color: transparent;
                 border: 1px solid {theme_manager.ERROR};
@@ -485,7 +487,7 @@ class InlineDiffMixin:
         confirm_btn.setStyleSheet(f"""
             QPushButton {{
                 font-family: {theme_manager.ui_font()};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.BUTTON_TEXT};
                 background-color: {theme_manager.SUCCESS};
                 border: 1px solid {theme_manager.SUCCESS};

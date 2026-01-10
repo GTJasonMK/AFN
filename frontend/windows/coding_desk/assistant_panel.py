@@ -1,9 +1,7 @@
 """
 CodingDesk 助手面板
 
-支持两种模式：
-1. RAG检索 - 查询项目相关上下文（功能描述、模块信息等）
-2. Prompt优化 - 分析当前Prompt并提供改进建议（基于LLM Agent）
+提供RAG检索功能，查询项目相关上下文（功能描述、模块信息等）
 """
 
 import logging
@@ -11,15 +9,14 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QTextEdit, QStackedWidget, QScrollArea, QSpinBox, QFrame,
+    QWidget, QTextEdit, QScrollArea, QSpinBox, QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt
 
 from components.base.theme_aware_widget import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
-from utils.sse_worker import SSEWorker
 from utils.message_service import MessageService
 from api.manager import APIClientManager
 
@@ -52,25 +49,16 @@ class RAGResultCard(ThemeAwareFrame):
         chapter_num = self.data.get('chapter_number', 0)
         data_type = self.data.get('data_type', '')
 
-        # 调试日志：追踪RAG结果卡片接收到的数据
-        logger.info(
-            "RAGResultCard接收数据: source='%s' chapter_num=%s data_type='%s' data_keys=%s",
-            source, chapter_num, data_type, list(self.data.keys())
-        )
-
         # 根据数据类型生成合适的来源显示
         if source:
-            # 后端已经设置了有意义的chapter_title
             source_text = source[:25] + "..." if len(source) > 25 else source
-            logger.info("使用source字段: '%s' -> '%s'", source, source_text)
         elif chapter_num:
-            # 根据数据类型选择前缀
             type_prefix = {
                 'feature_prompt': 'F',
                 'feature_outline': 'FO',
                 'system': 'S',
                 'module': 'M',
-                'inspiration': 'R',  # Round
+                'inspiration': 'R',
                 'architecture': 'A',
                 'tech_stack': 'T',
                 'requirement': 'Req',
@@ -78,9 +66,7 @@ class RAGResultCard(ThemeAwareFrame):
                 'dependency': 'D',
             }.get(data_type, 'F')
             source_text = f"{type_prefix}{chapter_num}"
-            logger.info("回退到chapter_num: prefix='%s' data_type='%s' -> '%s'", type_prefix, data_type, source_text)
         else:
-            # 使用数据类型的显示名称
             type_names = {
                 'inspiration': '灵感对话',
                 'architecture': '架构设计',
@@ -99,7 +85,7 @@ class RAGResultCard(ThemeAwareFrame):
         source_label.setObjectName("source_label")
         header_layout.addWidget(source_label)
 
-        # 数据类型标签（如果有）
+        # 数据类型标签
         if data_type:
             type_names = {
                 'inspiration': '对话',
@@ -175,29 +161,16 @@ class RAGResultCard(ThemeAwareFrame):
 
 
 class CodingAssistantPanel(ThemeAwareFrame):
-    """编程项目助手面板 - RAG检索和Prompt优化（主题感知）"""
-
-    # 信号
-    optimizationApplied = pyqtSignal(str)  # 优化后的内容
+    """编程项目助手面板 - RAG检索（主题感知）"""
 
     def __init__(self, parent=None):
-        # 初始化所有组件引用（ThemeAwareFrame要求）
+        # 初始化所有组件引用
         self.api_client = APIClientManager.get_client()
         self.project_id = None
-        self.current_feature_index = None  # 当前功能索引（0-based）
-        self.current_mode = "rag"  # "rag" 或 "optimize"
-        self.current_prompt = ""  # 当前要优化的Prompt
         self.is_loading = False
         self._worker = None
-        self._sse_worker = None  # SSE Worker
         self._result_widgets = []
         # UI组件引用
-        self.mode_container = None
-        self.rag_btn = None
-        self.optimize_btn = None
-        self.content_stack = None
-        self.rag_content = None
-        self.optimize_content = None
         self.sync_btn = None
         self.rebuild_btn = None
         self.topk_spinner = None
@@ -205,13 +178,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
         self.search_btn = None
         self.rag_results = None
         self.rag_results_layout = None
-        self.prompt_display = None
-        self.analyze_btn = None
-        self.apply_btn = None
-        self.optimize_results = None
-        self.optimize_results_layout = None
-        self.suggestion_label = None
-        self.suggestion_display = None
         super().__init__(parent)
         self.setupUI()
 
@@ -224,28 +190,18 @@ class CodingAssistantPanel(ThemeAwareFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 模式切换
-        self.mode_container = QWidget()
-        self.mode_container.setFixedHeight(dp(48))
-        mode_layout = QHBoxLayout(self.mode_container)
-        mode_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
-        mode_layout.setSpacing(dp(8))
+        # 头部
+        header = QWidget()
+        header.setFixedHeight(dp(48))
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
 
-        self.rag_btn = QPushButton("RAG检索")
-        self.rag_btn.setCheckable(True)
-        self.rag_btn.setChecked(True)
-        self.rag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rag_btn.clicked.connect(lambda: self._switch_mode("rag"))
-        mode_layout.addWidget(self.rag_btn)
+        title_label = QLabel("RAG检索")
+        title_label.setObjectName("panel_title")
+        header_layout.addWidget(title_label)
 
-        self.optimize_btn = QPushButton("Prompt优化")
-        self.optimize_btn.setCheckable(True)
-        self.optimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.optimize_btn.clicked.connect(lambda: self._switch_mode("optimize"))
-        mode_layout.addWidget(self.optimize_btn)
-
-        mode_layout.addStretch()
-        layout.addWidget(self.mode_container)
+        header_layout.addStretch()
+        layout.addWidget(header)
 
         # 分割线
         divider = QFrame()
@@ -254,18 +210,9 @@ class CodingAssistantPanel(ThemeAwareFrame):
         divider.setStyleSheet(f"background-color: {theme_manager.BORDER_LIGHT};")
         layout.addWidget(divider)
 
-        # 内容堆栈
-        self.content_stack = QStackedWidget()
-
-        # RAG模式
-        self.rag_content = self._create_rag_content()
-        self.content_stack.addWidget(self.rag_content)
-
-        # 优化模式
-        self.optimize_content = self._create_optimize_content()
-        self.content_stack.addWidget(self.optimize_content)
-
-        layout.addWidget(self.content_stack, 1)
+        # RAG内容
+        rag_content = self._create_rag_content()
+        layout.addWidget(rag_content, 1)
 
     def _create_rag_content(self) -> QWidget:
         """创建RAG检索内容"""
@@ -274,53 +221,40 @@ class CodingAssistantPanel(ThemeAwareFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 头部
-        header = QWidget()
-        header.setFixedHeight(dp(44))
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(dp(12), 0, dp(12), 0)
+        # 工具栏
+        toolbar = QWidget()
+        toolbar.setFixedHeight(dp(44))
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(dp(12), 0, dp(12), 0)
 
-        title_label = QLabel("上下文检索")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
+        toolbar_layout.addStretch()
 
-        header_layout.addStretch()
-
-        # 入库按钮区域
-        btn_container = QWidget()
-        btn_layout = QHBoxLayout(btn_container)
-        btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(dp(6))
-
-        # 智能同步按钮（合并了检查状态和入库功能）
+        # 入库按钮
         self.sync_btn = QPushButton("同步RAG")
         self.sync_btn.setObjectName("sync_btn")
         self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sync_btn.setToolTip("智能同步：检查完整性，仅入库缺失的数据类型")
         self.sync_btn.clicked.connect(self._on_sync_rag)
-        btn_layout.addWidget(self.sync_btn)
+        toolbar_layout.addWidget(self.sync_btn)
 
-        # 强制重建按钮
         self.rebuild_btn = QPushButton("重建")
         self.rebuild_btn.setObjectName("rebuild_btn")
         self.rebuild_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rebuild_btn.setToolTip("强制重建：重新入库所有数据（用于修复来源信息）")
+        self.rebuild_btn.setToolTip("强制重建：重新入库所有数据")
         self.rebuild_btn.clicked.connect(self._on_force_rebuild)
-        btn_layout.addWidget(self.rebuild_btn)
-
-        header_layout.addWidget(btn_container)
+        toolbar_layout.addWidget(self.rebuild_btn)
 
         topk_label = QLabel("数量:")
         topk_label.setObjectName("topk_label")
-        header_layout.addWidget(topk_label)
+        toolbar_layout.addWidget(topk_label)
 
         self.topk_spinner = QSpinBox()
         self.topk_spinner.setRange(1, 20)
         self.topk_spinner.setValue(5)
         self.topk_spinner.setFixedWidth(dp(50))
-        header_layout.addWidget(self.topk_spinner)
+        toolbar_layout.addWidget(self.topk_spinner)
 
-        layout.addWidget(header)
+        layout.addWidget(toolbar)
 
         # 输入区域
         input_container = QWidget()
@@ -364,146 +298,18 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
         return container
 
-    def _create_optimize_content(self) -> QWidget:
-        """创建Prompt优化内容"""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # 头部
-        header = QWidget()
-        header.setFixedHeight(dp(44))
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(dp(12), 0, dp(12), 0)
-
-        title_label = QLabel("Prompt优化")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
-
-        header_layout.addStretch()
-        layout.addWidget(header)
-
-        # 当前Prompt显示
-        prompt_container = QWidget()
-        prompt_layout = QVBoxLayout(prompt_container)
-        prompt_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
-        prompt_layout.setSpacing(dp(8))
-
-        prompt_label = QLabel("当前Prompt:")
-        prompt_label.setObjectName("prompt_label")
-        prompt_layout.addWidget(prompt_label)
-
-        self.prompt_display = QTextEdit()
-        self.prompt_display.setObjectName("prompt_display")
-        self.prompt_display.setReadOnly(True)
-        self.prompt_display.setPlaceholderText("生成功能后，Prompt将显示在这里...")
-        self.prompt_display.setMinimumHeight(dp(150))
-        prompt_layout.addWidget(self.prompt_display, 1)
-
-        # 优化按钮
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(dp(8))
-
-        self.analyze_btn = QPushButton("分析优化")
-        self.analyze_btn.setObjectName("analyze_btn")
-        self.analyze_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.analyze_btn.clicked.connect(self._on_analyze)
-        btn_layout.addWidget(self.analyze_btn)
-
-        self.apply_btn = QPushButton("应用建议")
-        self.apply_btn.setObjectName("apply_btn")
-        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.apply_btn.setEnabled(False)
-        self.apply_btn.clicked.connect(self._on_apply)
-        btn_layout.addWidget(self.apply_btn)
-
-        prompt_layout.addLayout(btn_layout)
-        layout.addWidget(prompt_container)
-
-        # 优化建议区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            {theme_manager.scrollbar()}
-        """)
-
-        self.optimize_results = QWidget()
-        self.optimize_results.setStyleSheet("background: transparent;")
-        self.optimize_results_layout = QVBoxLayout(self.optimize_results)
-        self.optimize_results_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(12))
-        self.optimize_results_layout.setSpacing(dp(8))
-
-        # 建议显示区域
-        self.suggestion_label = QLabel("优化建议:")
-        self.suggestion_label.setObjectName("suggestion_title")
-        self.suggestion_label.setVisible(False)
-        self.optimize_results_layout.addWidget(self.suggestion_label)
-
-        self.suggestion_display = QTextEdit()
-        self.suggestion_display.setObjectName("suggestion_display")
-        self.suggestion_display.setReadOnly(True)
-        self.suggestion_display.setVisible(False)
-        self.optimize_results_layout.addWidget(self.suggestion_display)
-
-        self.optimize_results_layout.addStretch()
-
-        scroll.setWidget(self.optimize_results)
-        layout.addWidget(scroll, 1)
-
-        return container
-
-    def _switch_mode(self, mode: str):
-        """切换模式"""
-        if self.current_mode == mode:
-            return
-
-        self.current_mode = mode
-        self.rag_btn.setChecked(mode == "rag")
-        self.optimize_btn.setChecked(mode == "optimize")
-        self.content_stack.setCurrentIndex(0 if mode == "rag" else 1)
-
     def setProjectId(self, project_id: str):
         """设置项目ID"""
-        logger.info("CodingAssistantPanel.setProjectId 被调用: project_id=%s", project_id)
+        logger.info("CodingAssistantPanel.setProjectId: project_id=%s", project_id)
         self.project_id = project_id
 
-    def setFeatureIndex(self, feature_index: int):
-        """设置当前功能索引（0-based）"""
-        logger.info("CodingAssistantPanel.setFeatureIndex 被调用: feature_index=%s", feature_index)
-        self.current_feature_index = feature_index
-
-    def setPromptContent(self, content: str, feature_index: int = None):
-        """设置要优化的Prompt内容
-
-        Args:
-            content: Prompt内容
-            feature_index: 功能索引（0-based），如果提供则更新当前功能索引
-        """
-        self.current_prompt = content
-        if feature_index is not None:
-            self.current_feature_index = feature_index
-        self.prompt_display.setPlainText(content)
-        # 清空之前的建议
-        self.suggestion_display.clear()
-        self.suggestion_label.setVisible(False)
-        self.suggestion_display.setVisible(False)
-        self.apply_btn.setEnabled(False)
-
     def _on_sync_rag(self):
-        """智能同步RAG数据（检查完整性并入库缺失数据）"""
-        logger.info("=== _on_sync_rag 被调用 === project_id=%s", self.project_id)
-
+        """智能同步RAG数据"""
         if not self.project_id:
-            logger.warning("project_id 为空，显示警告")
             MessageService.show_warning(self, "项目未加载")
             return
 
         if self.is_loading:
-            logger.warning("正在加载中，跳过")
             return
 
         self.is_loading = True
@@ -513,24 +319,17 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
         self._cleanup_worker()
 
-        logger.info("创建 AsyncAPIWorker 调用 ingest_all_rag_data (force=False)")
-
-        # 调用智能入库API（默认只入库不完整的类型）
         self._worker = AsyncAPIWorker(
             self.api_client.ingest_all_rag_data,
             self.project_id,
-            False  # force=False，智能模式
+            False  # force=False
         )
         self._worker.success.connect(self._on_sync_success)
         self._worker.error.connect(self._on_sync_error)
         self._worker.start()
 
-        logger.info("AsyncAPIWorker 已启动")
-
     def _on_sync_success(self, response: dict):
         """同步成功"""
-        logger.info("=== _on_sync_success 被调用 === response=%s", response)
-
         self.is_loading = False
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("同步RAG")
@@ -542,7 +341,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
         failed = response.get('failed', 0)
 
         if is_complete:
-            # 入库前已完整，无需操作
             MessageService.show_success(self, "RAG数据已完整，无需同步")
         elif failed == 0:
             if added > 0:
@@ -557,8 +355,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
     def _on_sync_error(self, error_msg: str):
         """同步失败"""
-        logger.error("=== _on_sync_error 被调用 === error=%s", error_msg)
-
         self.is_loading = False
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("同步RAG")
@@ -566,16 +362,12 @@ class CodingAssistantPanel(ThemeAwareFrame):
         MessageService.show_error(self, f"同步失败：{error_msg}")
 
     def _on_force_rebuild(self):
-        """强制重建RAG数据（重新入库所有类型）"""
-        logger.info("=== _on_force_rebuild 被调用 === project_id=%s", self.project_id)
-
+        """强制重建RAG数据"""
         if not self.project_id:
-            logger.warning("project_id 为空，显示警告")
             MessageService.show_warning(self, "项目未加载")
             return
 
         if self.is_loading:
-            logger.warning("正在加载中，跳过")
             return
 
         self.is_loading = True
@@ -585,24 +377,17 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
         self._cleanup_worker()
 
-        logger.info("创建 AsyncAPIWorker 调用 ingest_all_rag_data (force=True)")
-
-        # 调用强制入库API
         self._worker = AsyncAPIWorker(
             self.api_client.ingest_all_rag_data,
             self.project_id,
-            True  # force=True，强制重建
+            True  # force=True
         )
         self._worker.success.connect(self._on_rebuild_success)
         self._worker.error.connect(self._on_rebuild_error)
         self._worker.start()
 
-        logger.info("AsyncAPIWorker 已启动")
-
     def _on_rebuild_success(self, response: dict):
         """重建成功"""
-        logger.info("=== _on_rebuild_success 被调用 === response=%s", response)
-
         self.is_loading = False
         self.rebuild_btn.setEnabled(True)
         self.rebuild_btn.setText("重建")
@@ -618,8 +403,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
     def _on_rebuild_error(self, error_msg: str):
         """重建失败"""
-        logger.error("=== _on_rebuild_error 被调用 === error=%s", error_msg)
-
         self.is_loading = False
         self.rebuild_btn.setEnabled(True)
         self.rebuild_btn.setText("重建")
@@ -667,23 +450,10 @@ class CodingAssistantPanel(ThemeAwareFrame):
         chunks = response.get('chunks', [])
         summaries = response.get('summaries', [])
 
-        # 调试日志：追踪API响应
-        logger.info("RAG检索成功: chunks数量=%d, summaries数量=%d", len(chunks), len(summaries))
-        if chunks:
-            sample = chunks[0]
-            logger.info(
-                "RAG首条chunk样本: source='%s' chapter_number=%s data_type='%s' keys=%s",
-                sample.get('source', '(无)'),
-                sample.get('chapter_number', '(无)'),
-                sample.get('data_type', '(无)'),
-                list(sample.keys())
-            )
-
         if not chunks and not summaries:
             self._add_rag_message("未找到相关内容", "尝试使用不同的关键词进行检索")
             return
 
-        # 显示结果
         if chunks:
             self._add_rag_section("相关片段", chunks, "chunk")
         if summaries:
@@ -698,7 +468,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
     def _add_rag_section(self, title: str, results: list, result_type: str):
         """添加RAG结果分组"""
-        # 标题
         title_label = QLabel(f"{title} ({len(results)})")
         title_label.setObjectName("result_section_title")
         title_label.setStyleSheet(f"""
@@ -710,8 +479,7 @@ class CodingAssistantPanel(ThemeAwareFrame):
         self.rag_results_layout.insertWidget(self.rag_results_layout.count() - 1, title_label)
         self._result_widgets.append(title_label)
 
-        # 结果卡片
-        for data in results[:10]:  # 限制显示数量
+        for data in results[:10]:
             card = RAGResultCard(result_type, data, self.rag_results)
             self.rag_results_layout.insertWidget(self.rag_results_layout.count() - 1, card)
             self._result_widgets.append(card)
@@ -752,193 +520,6 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 pass
         self._result_widgets.clear()
 
-    def _on_analyze(self):
-        """分析优化Prompt（调用后端Agent优化API）"""
-        if not self.current_prompt:
-            MessageService.show_warning(self, "没有可优化的Prompt")
-            return
-
-        if not self.project_id:
-            MessageService.show_warning(self, "项目未加载")
-            return
-
-        if self.current_feature_index is None:
-            MessageService.show_warning(self, "请先选择一个功能")
-            return
-
-        if self.is_loading:
-            return
-
-        self.is_loading = True
-        self.analyze_btn.setEnabled(False)
-        self.analyze_btn.setText("分析中...")
-
-        # 显示分析提示
-        self.suggestion_label.setVisible(True)
-        self.suggestion_display.setVisible(True)
-        self.suggestion_display.setPlainText("正在连接AI Agent进行Prompt优化分析...")
-
-        # 清理旧的SSE Worker
-        self._cleanup_sse_worker()
-
-        # 创建SSE Worker调用后端优化API
-        url = f"{self.api_client.base_url}/api/coding/{self.project_id}/optimization/start"
-        payload = {
-            "feature_index": self.current_feature_index,
-            "mode": "auto",  # 自动模式
-            "prompt_type": "implementation",  # 实现Prompt
-        }
-
-        logger.info(
-            "启动Prompt优化SSE: project_id=%s feature_index=%s",
-            self.project_id, self.current_feature_index
-        )
-
-        self._sse_worker = SSEWorker(url, payload)
-        self._sse_worker.token_received.connect(self._on_optimization_token)
-        self._sse_worker.progress_received.connect(self._on_optimization_progress)
-        self._sse_worker.complete.connect(self._on_optimization_complete)
-        self._sse_worker.error.connect(self._on_optimization_error)
-        self._sse_worker.start()
-
-    def _on_optimization_token(self, token: str):
-        """处理优化流式文本"""
-        # 追加到建议显示区域
-        current_text = self.suggestion_display.toPlainText()
-        if current_text.startswith("正在连接"):
-            # 清除初始提示
-            self.suggestion_display.setPlainText(token)
-        else:
-            self.suggestion_display.insertPlainText(token)
-
-    def _on_optimization_progress(self, data: dict):
-        """处理优化进度"""
-        event_type = data.get('event_type', '')
-        message = data.get('message', '')
-
-        if event_type == 'workflow_start':
-            feature_name = data.get('feature_name', '')
-            prompt_type_name = data.get('prompt_type_name', '实现')
-            self.suggestion_display.setPlainText(
-                f"开始优化: {feature_name} ({prompt_type_name}Prompt)\n"
-                f"维度: {', '.join(data.get('dimension_names', []))}\n\n"
-            )
-        elif event_type == 'thinking':
-            # Agent思考过程
-            thought = data.get('thought', message)
-            if thought:
-                self.suggestion_display.append(f"[思考] {thought}\n")
-        elif event_type == 'action':
-            # Agent执行动作
-            action = data.get('action', message)
-            if action:
-                self.suggestion_display.append(f"[动作] {action}\n")
-        elif event_type == 'observation':
-            # 动作结果
-            observation = data.get('observation', message)
-            if observation:
-                # 截断过长的观察结果
-                if len(observation) > 500:
-                    observation = observation[:500] + "..."
-                self.suggestion_display.append(f"[结果] {observation}\n")
-        elif event_type == 'suggestion':
-            # 优化建议
-            suggestion = data.get('suggestion', '')
-            dimension = data.get('dimension', '')
-            score = data.get('score', 0)
-            if suggestion:
-                self.suggestion_display.append(
-                    f"\n=== 优化建议 ({dimension}) [评分: {score}/100] ===\n"
-                    f"{suggestion}\n"
-                )
-                self.apply_btn.setEnabled(True)
-
-    def _on_optimization_complete(self, data: dict):
-        """处理优化完成"""
-        self.is_loading = False
-        self.analyze_btn.setEnabled(True)
-        self.analyze_btn.setText("分析优化")
-
-        # 显示完成信息
-        total_score = data.get('total_score', 0)
-        suggestion_count = data.get('suggestion_count', 0)
-
-        self.suggestion_display.append(
-            f"\n{'='*40}\n"
-            f"优化分析完成！\n"
-            f"总体评分: {total_score}/100\n"
-            f"建议数量: {suggestion_count}\n"
-        )
-
-        if suggestion_count > 0:
-            self.apply_btn.setEnabled(True)
-            MessageService.show_success(self, f"优化分析完成，发现 {suggestion_count} 条建议")
-        else:
-            MessageService.show_info(self, "Prompt质量良好，无需优化")
-
-        self._cleanup_sse_worker()
-
-    def _on_optimization_error(self, error_msg: str):
-        """处理优化错误"""
-        self.is_loading = False
-        self.analyze_btn.setEnabled(True)
-        self.analyze_btn.setText("分析优化")
-
-        self.suggestion_display.append(f"\n[错误] {error_msg}\n")
-        MessageService.show_error(self, f"优化分析失败: {error_msg}")
-
-        self._cleanup_sse_worker()
-
-    def _cleanup_sse_worker(self):
-        """清理SSE Worker"""
-        if self._sse_worker is not None:
-            try:
-                self._sse_worker.stop()
-                self._sse_worker.deleteLater()
-            except RuntimeError:
-                pass
-            finally:
-                self._sse_worker = None
-
-    def _generate_suggestions(self):
-        """生成优化建议（备用规则方法，当后端不可用时使用）"""
-        self.is_loading = False
-        self.analyze_btn.setEnabled(True)
-        self.analyze_btn.setText("分析优化")
-
-        # 生成基于规则的建议
-        suggestions = []
-        prompt = self.current_prompt
-
-        if len(prompt) < 200:
-            suggestions.append("- Prompt内容较短，建议补充更多功能描述和实现细节")
-
-        if "错误处理" not in prompt and "error" not in prompt.lower():
-            suggestions.append("- 建议添加错误处理相关的描述")
-
-        if "参数" not in prompt and "parameter" not in prompt.lower():
-            suggestions.append("- 建议明确输入参数的类型和校验规则")
-
-        if "返回" not in prompt and "return" not in prompt.lower():
-            suggestions.append("- 建议明确返回值的类型和格式")
-
-        if "依赖" not in prompt and "dependency" not in prompt.lower():
-            suggestions.append("- 建议说明该功能的依赖模块")
-
-        if not suggestions:
-            suggestions.append("- Prompt结构完整，内容清晰")
-            suggestions.append("- 可以考虑添加更多边界条件说明")
-            suggestions.append("- 可以补充性能相关的注意事项")
-
-        self.suggestion_display.setPlainText("\n".join(suggestions))
-        self.apply_btn.setEnabled(True)
-
-    def _on_apply(self):
-        """应用优化建议"""
-        # 这里可以实现自动应用建议的逻辑
-        # 目前只是提示用户手动修改
-        MessageService.show_info(self, "请根据建议手动优化Prompt内容")
-
     def _cleanup_worker(self):
         """清理异步Worker"""
         if self._worker is None:
@@ -961,12 +542,12 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;
             }}
-            QLabel#section_title {{
+            QLabel#panel_title {{
                 color: {theme_manager.TEXT_PRIMARY};
                 font-size: {dp(14)}px;
                 font-weight: 600;
             }}
-            QLabel#topk_label, QLabel#prompt_label {{
+            QLabel#topk_label {{
                 color: {theme_manager.TEXT_SECONDARY};
                 font-size: {dp(12)}px;
             }}
@@ -977,7 +558,7 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 border-radius: {dp(4)}px;
                 padding: {dp(2)}px;
             }}
-            QTextEdit#rag_input, QTextEdit#prompt_display {{
+            QTextEdit#rag_input {{
                 color: {theme_manager.TEXT_PRIMARY};
                 background-color: {theme_manager.BG_PRIMARY};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -985,20 +566,7 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 padding: {dp(8)}px;
                 font-size: {dp(12)}px;
             }}
-            QTextEdit#suggestion_display {{
-                color: {theme_manager.TEXT_PRIMARY};
-                background-color: {theme_manager.BG_TERTIARY};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px;
-                font-size: {dp(12)}px;
-            }}
-            QLabel#suggestion_title {{
-                color: {theme_manager.PRIMARY};
-                font-size: {dp(13)}px;
-                font-weight: bold;
-            }}
-            QPushButton#search_btn, QPushButton#analyze_btn {{
+            QPushButton#search_btn {{
                 background-color: {theme_manager.PRIMARY};
                 color: white;
                 border: none;
@@ -1006,24 +574,10 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 padding: {dp(8)}px {dp(16)}px;
                 font-size: {dp(12)}px;
             }}
-            QPushButton#search_btn:hover, QPushButton#analyze_btn:hover {{
+            QPushButton#search_btn:hover {{
                 background-color: {theme_manager.PRIMARY_DARK};
             }}
-            QPushButton#search_btn:disabled, QPushButton#analyze_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-            QPushButton#apply_btn {{
-                background-color: {theme_manager.SUCCESS};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(8)}px {dp(16)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#apply_btn:hover {{
-                background-color: {theme_manager.SUCCESS}dd;
-            }}
-            QPushButton#apply_btn:disabled {{
+            QPushButton#search_btn:disabled {{
                 background-color: {theme_manager.TEXT_TERTIARY};
             }}
             QPushButton#sync_btn {{
@@ -1056,32 +610,9 @@ class CodingAssistantPanel(ThemeAwareFrame):
             }}
         """)
 
-        # 模式切换按钮样式
-        mode_btn_style = f"""
-            QPushButton {{
-                color: {theme_manager.TEXT_SECONDARY};
-                background-color: transparent;
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton:hover {{
-                background-color: {theme_manager.BG_TERTIARY};
-            }}
-            QPushButton:checked {{
-                color: white;
-                background-color: {theme_manager.PRIMARY};
-                border-color: {theme_manager.PRIMARY};
-            }}
-        """
-        self.rag_btn.setStyleSheet(mode_btn_style)
-        self.optimize_btn.setStyleSheet(mode_btn_style)
-
     def cleanup(self):
         """清理资源"""
         self._cleanup_worker()
-        self._cleanup_sse_worker()
         self._clear_rag_results()
 
 

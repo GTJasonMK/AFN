@@ -447,6 +447,16 @@ class AssistantPanel(TransparencyAwareMixin, ThemeAwareFrame):
             self.optimization_content.set_chapter(chapter_number, content)
         # 不自动切换模式，让用户手动选择
 
+    def set_content_provider(self, provider):
+        """
+        设置内容提供者回调（转发给优化内容组件）
+
+        Args:
+            provider: 无参数函数，返回当前编辑器内容字符串
+        """
+        if self.optimization_content:
+            self.optimization_content.set_content_provider(provider)
+
     def _on_suggestion_applied(self, suggestion: dict):
         """处理建议被应用 - 转发给上层确认预览"""
         self.suggestion_applied.emit(suggestion)

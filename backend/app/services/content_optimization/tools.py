@@ -206,7 +206,7 @@ TOOL_DEFINITIONS: Dict[ToolName, ToolDefinition] = {
 
     ToolName.NEXT_PARAGRAPH: ToolDefinition(
         name=ToolName.NEXT_PARAGRAPH,
-        description="完成当前段落分析，移动到下一段。",
+        description="跳过当前段落，直接移动到下一段（不标记为完成）。通常应使用 finish_analysis 来完成并前进。此工具仅用于需要跳过某段落的特殊情况。",
         parameters={},
         required_params=[],
         returns="下一段的内容和索引，如果没有更多段落则返回None",
@@ -214,12 +214,19 @@ TOOL_DEFINITIONS: Dict[ToolName, ToolDefinition] = {
 
     ToolName.FINISH_ANALYSIS: ToolDefinition(
         name=ToolName.FINISH_ANALYSIS,
-        description="完成当前段落的分析，准备处理下一段。当认为当前段落已充分分析时调用。",
+        description="""完成当前段落的分析并自动移动到下一段。这是段落切换的标准方式。
+
+调用此工具后：
+1. 当前段落被标记为分析完成
+2. 自动移动到下一段（无需再调用 next_paragraph）
+3. 返回新段落的预览内容
+
+如果当前是最后一段，会提示调用 complete_workflow 结束整个分析。""",
         parameters={
             "summary": "当前段落分析总结",
         },
         required_params=[],
-        returns="确认完成",
+        returns="完成确认，包含新段落的预览（如果有）",
     ),
 
     ToolName.COMPLETE_WORKFLOW: ToolDefinition(

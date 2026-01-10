@@ -12,7 +12,6 @@ from .feature_generation import router as feature_generation_router
 from .hierarchy import router as hierarchy_router
 from .rag import router as rag_router
 from .inspiration import router as inspiration_router
-from .optimization import router as optimization_router
 
 router = APIRouter()
 
@@ -22,4 +21,3 @@ router.include_router(hierarchy_router, tags=["coding-hierarchy"])
 router.include_router(feature_generation_router, tags=["coding-features"])
 router.include_router(rag_router, tags=["coding-rag"])
 router.include_router(inspiration_router, tags=["coding-inspiration"])
-router.include_router(optimization_router, tags=["coding-optimization"])

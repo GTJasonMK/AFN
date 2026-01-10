@@ -193,7 +193,7 @@ class SuggestionCard(ThemeAwareFrame):
 
         add_format = QTextCharFormat()
         add_format.setForeground(QColor(theme_manager.SUCCESS))
-        add_format.setFontWeight(600)
+        add_format.setFontWeight(int(theme_manager.FONT_WEIGHT_SEMIBOLD))
 
         normal_format = QTextCharFormat()
         normal_format.setForeground(QColor(theme_manager.TEXT_PRIMARY))
@@ -289,8 +289,8 @@ class SuggestionCard(ThemeAwareFrame):
             self.priority_label.setText(f"[{priority_name}]")
             self.priority_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {priority_color};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {priority_bg};
@@ -302,7 +302,7 @@ class SuggestionCard(ThemeAwareFrame):
             self.category_label.setText(category_name)
             self.category_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
                 padding: {dp(2)}px {dp(6)}px;
                 background-color: {theme_manager.BG_SECONDARY};
@@ -314,7 +314,7 @@ class SuggestionCard(ThemeAwareFrame):
             self.paragraph_label.setText(f"第 {paragraph_index + 1} 段")
             self.paragraph_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
             """)
 
@@ -324,8 +324,8 @@ class SuggestionCard(ThemeAwareFrame):
             self.toggle_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(14)}px;
-                    font-weight: bold;
+                    font-size: {theme_manager.FONT_SIZE_BASE};
+                    font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                     color: {theme_manager.TEXT_SECONDARY};
                     background-color: transparent;
                     border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -340,8 +340,8 @@ class SuggestionCard(ThemeAwareFrame):
         if self.diff_label:
             self.diff_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
-                font-weight: 600;
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
                 color: {theme_manager.TEXT_SECONDARY};
             """)
 
@@ -349,7 +349,7 @@ class SuggestionCard(ThemeAwareFrame):
             self.diff_view.setStyleSheet(f"""
                 QTextEdit {{
                     font-family: {ui_font};
-                    font-size: {sp(13)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.TEXT_PRIMARY};
                     background-color: {theme_manager.BG_SECONDARY};
                     border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -361,8 +361,8 @@ class SuggestionCard(ThemeAwareFrame):
         # 设置标签样式
         label_style = f"""
             font-family: {ui_font};
-            font-size: {sp(12)}px;
-            font-weight: 600;
+            font-size: {theme_manager.FONT_SIZE_SM};
+            font-weight: {theme_manager.FONT_WEIGHT_SEMIBOLD};
             color: {theme_manager.TEXT_SECONDARY};
         """
         if self.original_label:
@@ -374,7 +374,7 @@ class SuggestionCard(ThemeAwareFrame):
         text_style = f"""
             QTextEdit {{
                 font-family: {ui_font};
-                font-size: {sp(13)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_PRIMARY};
                 background-color: {theme_manager.BG_SECONDARY};
                 border: 1px solid {theme_manager.BORDER_LIGHT};
@@ -391,7 +391,7 @@ class SuggestionCard(ThemeAwareFrame):
         if self.reason_label:
             self.reason_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(12)}px;
+                font-size: {theme_manager.FONT_SIZE_SM};
                 color: {theme_manager.TEXT_SECONDARY};
                 font-style: italic;
             """)
@@ -401,7 +401,7 @@ class SuggestionCard(ThemeAwareFrame):
             self.ignore_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {ui_font};
-                    font-size: {sp(12)}px;
+                    font-size: {theme_manager.FONT_SIZE_SM};
                     color: {theme_manager.TEXT_SECONDARY};
                     background-color: transparent;
                     border: 1px solid {theme_manager.BORDER_DEFAULT};
@@ -424,8 +424,8 @@ class SuggestionCard(ThemeAwareFrame):
         if self.status_label:
             self.status_label.setStyleSheet(f"""
                 font-family: {ui_font};
-                font-size: {sp(13)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 padding: {dp(8)}px;
             """)
 
@@ -475,8 +475,8 @@ class SuggestionCard(ThemeAwareFrame):
             self.status_label.setText(status_text)
             self.status_label.setStyleSheet(f"""
                 font-family: {theme_manager.ui_font()};
-                font-size: {sp(13)}px;
-                font-weight: bold;
+                font-size: {theme_manager.FONT_SIZE_SM};
+                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
                 color: {color};
                 padding: {dp(8)}px;
             """)

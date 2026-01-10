@@ -27,7 +27,6 @@ class SuggestionHandlerMixin:
     - 处理新建议
     - 应用/忽略建议
     - 批量应用建议
-    - 计划模式建议收集
     - 预览信号发送（新模式）
     """
 
@@ -74,13 +73,6 @@ class SuggestionHandlerMixin:
             # 后端会发送 workflow_paused 事件来更新UI状态
             self.current_suggestion_card = card
 
-        elif self.optimization_mode == OptimizationMode.PLAN:
-            # 计划模式：收集建议，分析完成后让用户选择
-            self.plan_mode_suggestions.append({
-                "suggestion": suggestion,
-                "card": card
-            })
-
     def _on_suggestion_applied(self: "OptimizationContent", suggestion: dict):
         """建议被应用 - 确认预览"""
         from .models import OptimizationMode
@@ -126,24 +118,6 @@ class SuggestionHandlerMixin:
                 if isinstance(card, SuggestionCard) and card.is_high_priority():
                     if not card.is_applied and not card.is_ignored:
                         card._on_apply()
-
-    def _apply_plan_suggestions(self: "OptimizationContent"):
-        """计划模式：应用选中的建议并通知后端完成工作流"""
-        applied_count = 0
-        for item in self.plan_mode_suggestions:
-            card = item.get("card")
-            if card and not card.is_applied and not card.is_ignored:
-                card._on_apply()
-                applied_count += 1
-
-        self._update_status(f"已应用 {applied_count} 条建议")
-
-        # 隐藏应用按钮
-        if self.apply_plan_btn:
-            self.apply_plan_btn.setVisible(False)
-
-        # 通知后端完成工作流
-        self._resume_backend_analysis()
 
 
 __all__ = [

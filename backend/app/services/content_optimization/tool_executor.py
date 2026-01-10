@@ -20,17 +20,23 @@ logger = logging.getLogger(__name__)
 class AgentState:
     """Agent状态，跟踪分析过程中的信息"""
 
+    # 缓存大小限制
+    MAX_ANALYSIS_CACHE = 50  # 只保留最近50段的分析结果
+    MAX_CHARACTER_STATES = 30  # 只保留最近30个角色的状态
+
     def __init__(
         self,
         paragraphs: List[str],
         project_id: str,
         chapter_number: int,
         total_chapters: int = 0,
+        paragraph_analyzer: Optional["ParagraphAnalyzer"] = None,
     ):
         self.paragraphs = paragraphs
         self.project_id = project_id
         self.chapter_number = chapter_number
         self.total_chapters = total_chapters
+        self.paragraph_analyzer = paragraph_analyzer  # 用于内容更新时重新分段
 
         # 当前段落索引
         self.current_index = 0
@@ -41,17 +47,142 @@ class AgentState:
         # 观察记录
         self.observations: List[Dict[str, Any]] = []
 
-        # 段落分析缓存
+        # 段落分析缓存（带LRU清理）
         self.paragraph_analyses: Dict[int, Dict[str, Any]] = {}
+        self._analysis_access_order: List[int] = []  # 追踪访问顺序
 
-        # 角色状态缓存
+        # 角色状态缓存（带LRU清理）
         self.character_states: Dict[str, Dict[str, Any]] = {}
+        self._character_access_order: List[str] = []  # 追踪访问顺序
 
         # 是否完成
         self.is_complete = False
 
         # 分析总结
         self.summary = ""
+
+    def update_content(self, new_content: str) -> bool:
+        """
+        更新分析内容（当用户在前端应用了建议后）
+
+        此方法在 Agent 从暂停状态恢复时调用，用于同步前端编辑器的最新内容。
+        它会重新分段并尝试定位到当前分析位置。
+
+        Args:
+            new_content: 前端发送的最新编辑器内容
+
+        Returns:
+            是否成功更新
+        """
+        if not self.paragraph_analyzer:
+            logger.warning("无法更新内容：paragraph_analyzer 未设置")
+            return False
+
+        # 保存当前段落的特征（用于重新定位）
+        old_paragraph = self.current_paragraph
+        old_index = self.current_index
+
+        # 重新分段
+        new_paragraphs = self.paragraph_analyzer.split_paragraphs(new_content)
+        if not new_paragraphs:
+            logger.warning("更新内容失败：分段结果为空")
+            return False
+
+        # 更新段落列表
+        self.paragraphs = new_paragraphs
+
+        # 重新定位当前段落
+        new_index = self._relocate_paragraph(old_paragraph, old_index)
+        self.current_index = new_index
+
+        # 清除已分析段落的缓存（内容已变化，缓存失效）
+        self.paragraph_analyses.clear()
+        self._analysis_access_order.clear()
+
+        logger.info(
+            "内容已更新: 旧段落数=%d, 新段落数=%d, 旧索引=%d, 新索引=%d",
+            old_index + 1 if old_paragraph else 0,
+            len(new_paragraphs),
+            old_index,
+            new_index,
+        )
+
+        return True
+
+    def _relocate_paragraph(self, old_paragraph: Optional[str], old_index: int) -> int:
+        """
+        在新内容中重新定位段落位置
+
+        策略：
+        1. 如果旧段落文本在新段落中存在，使用该位置
+        2. 否则使用旧索引（但不超过新段落数）
+        3. 如果旧索引也超出范围，从最后一段继续
+
+        Args:
+            old_paragraph: 旧的当前段落文本
+            old_index: 旧的段落索引
+
+        Returns:
+            新的段落索引
+        """
+        if not old_paragraph:
+            return min(old_index, len(self.paragraphs) - 1)
+
+        # 尝试精确匹配
+        for i, para in enumerate(self.paragraphs):
+            if para == old_paragraph:
+                return i
+
+        # 尝试部分匹配（前100字符）
+        old_prefix = old_paragraph[:100] if len(old_paragraph) > 100 else old_paragraph
+        for i, para in enumerate(self.paragraphs):
+            if para.startswith(old_prefix):
+                return i
+
+        # 回退到旧索引（但不超过范围）
+        return min(old_index, len(self.paragraphs) - 1)
+
+    def cache_paragraph_analysis(self, index: int, analysis: Dict[str, Any]):
+        """缓存段落分析结果（带LRU清理）"""
+        # 如果已存在，先从访问顺序中移除
+        if index in self._analysis_access_order:
+            self._analysis_access_order.remove(index)
+
+        # 添加到缓存和访问顺序末尾
+        self.paragraph_analyses[index] = analysis
+        self._analysis_access_order.append(index)
+
+        # 超出限制时清理最早访问的条目
+        while len(self._analysis_access_order) > self.MAX_ANALYSIS_CACHE:
+            old_index = self._analysis_access_order.pop(0)
+            if old_index in self.paragraph_analyses:
+                del self.paragraph_analyses[old_index]
+
+    def get_paragraph_analysis(self, index: int) -> Optional[Dict[str, Any]]:
+        """获取段落分析结果（更新访问顺序）"""
+        if index in self.paragraph_analyses:
+            # 更新访问顺序
+            if index in self._analysis_access_order:
+                self._analysis_access_order.remove(index)
+            self._analysis_access_order.append(index)
+            return self.paragraph_analyses[index]
+        return None
+
+    def cache_character_state(self, name: str, state: Dict[str, Any]):
+        """缓存角色状态（带LRU清理）"""
+        # 如果已存在，先从访问顺序中移除
+        if name in self._character_access_order:
+            self._character_access_order.remove(name)
+
+        # 添加到缓存和访问顺序末尾
+        self.character_states[name] = state
+        self._character_access_order.append(name)
+
+        # 超出限制时清理最早访问的条目
+        while len(self._character_access_order) > self.MAX_CHARACTER_STATES:
+            old_name = self._character_access_order.pop(0)
+            if old_name in self.character_states:
+                del self.character_states[old_name]
 
     @property
     def current_paragraph(self) -> Optional[str]:
@@ -208,34 +339,39 @@ class ToolExecutor:
                 and self.embedding_service
                 and state.total_chapters > 0
             ):
-                # 将文本查询转换为向量
-                query_embedding = await self.embedding_service.get_embedding(full_query)
+                try:
+                    # 将文本查询转换为向量
+                    query_embedding = await self.embedding_service.get_embedding(full_query)
 
-                # 使用时序感知检索
-                chunks = await self.temporal_retriever.retrieve_chunks_with_temporal(
-                    project_id=state.project_id,
-                    query_embedding=query_embedding,
-                    target_chapter=state.chapter_number,
-                    total_chapters=state.total_chapters,
-                    top_k=top_k,
-                )
+                    # 使用时序感知检索
+                    chunks = await self.temporal_retriever.retrieve_chunks_with_temporal(
+                        project_id=state.project_id,
+                        query_embedding=query_embedding,
+                        target_chapter=state.chapter_number,
+                        total_chapters=state.total_chapters,
+                        top_k=top_k,
+                    )
 
-                results = []
-                for chunk in chunks:
-                    results.append({
-                        "chapter_number": chunk.chapter_number,
-                        "content": chunk.content[:300] if chunk.content else "",
-                        "score": chunk.score,
-                        "temporal_score": chunk.metadata.get("_temporal_score", 0) if chunk.metadata else 0,
-                    })
+                    results = []
+                    for chunk in chunks:
+                        results.append({
+                            "chapter_number": chunk.chapter_number,
+                            "content": chunk.content[:300] if chunk.content else "",
+                            "score": chunk.score,
+                            "temporal_score": chunk.metadata.get("_temporal_score", 0) if chunk.metadata else 0,
+                        })
 
-                return {
-                    "success": True,
-                    "query": query,
-                    "results_count": len(results),
-                    "results": results,
-                    "retrieval_mode": "temporal_aware",
-                }
+                    return {
+                        "success": True,
+                        "query": query,
+                        "results_count": len(results),
+                        "results": results,
+                        "retrieval_mode": "temporal_aware",
+                    }
+
+                except Exception as e:
+                    # 时序检索失败，记录并回退到简单检索
+                    logger.warning("时序感知检索失败，回退到简单检索: %s", e)
 
             # 回退到简单相似度检索
             chunks = await self.vector_store.similarity_search(
@@ -278,6 +414,10 @@ class ToolExecutor:
 
         # 检查缓存
         if character_name in state.character_states:
+            # 更新访问顺序
+            if character_name in state._character_access_order:
+                state._character_access_order.remove(character_name)
+            state._character_access_order.append(character_name)
             return state.character_states[character_name]
 
         # 从索引中查询
@@ -305,7 +445,8 @@ class ToolExecutor:
                     "emotional_state": record.emotional_state,
                     "relationships_snapshot": record.relationships_snapshot,
                 }
-                state.character_states[character_name] = char_state
+                # 使用新的缓存方法
+                state.cache_character_state(character_name, char_state)
                 return char_state
 
         return {
@@ -402,11 +543,19 @@ class ToolExecutor:
         """分析当前段落"""
         paragraph = state.current_paragraph
         if not paragraph:
-            return {"error": "没有当前段落"}
+            return {
+                "error": "没有当前段落",
+                "current_paragraph_index": state.current_index,
+                "total_paragraphs": len(state.paragraphs),
+            }
 
-        # 检查缓存
-        if state.current_index in state.paragraph_analyses:
-            return state.paragraph_analyses[state.current_index]
+        # 检查缓存（使用新的缓存方法）
+        cached = state.get_paragraph_analysis(state.current_index)
+        if cached:
+            # 添加位置信息到缓存结果
+            cached["current_paragraph_index"] = state.current_index
+            cached["total_paragraphs"] = len(state.paragraphs)
+            return cached
 
         # 使用段落分析器（同步方法）
         analysis = self.paragraph_analyzer.analyze_paragraph(
@@ -416,18 +565,21 @@ class ToolExecutor:
         )
 
         # 转换为字典格式
+        # 注意：提供完整段落文本（full_text），供Agent在生成建议时精确匹配原文
         result = {
-            "index": analysis.index,
+            "current_paragraph_index": state.current_index,
+            "total_paragraphs": len(state.paragraphs),
             "characters": analysis.characters,
             "scene": analysis.scene,
             "time_marker": analysis.time_marker,
             "emotion_tone": analysis.emotion_tone,
             "key_actions": analysis.key_actions,
             "text_preview": paragraph[:200] + "..." if len(paragraph) > 200 else paragraph,
+            "full_text": paragraph,  # 完整段落文本，用于生成建议时精确匹配
         }
 
-        # 缓存结果
-        state.paragraph_analyses[state.current_index] = result
+        # 缓存结果（使用新的缓存方法）
+        state.cache_paragraph_analysis(state.current_index, result)
         return result
 
     async def _handle_check_coherence(
@@ -441,7 +593,10 @@ class ToolExecutor:
         prev_paragraph = state.previous_paragraph
 
         if not paragraph:
-            return {"error": "没有当前段落"}
+            return {
+                "error": "没有当前段落",
+                "current_paragraph_index": state.current_index,
+            }
 
         issues = []
 
@@ -463,7 +618,7 @@ class ToolExecutor:
 
         return {
             "focus": focus,
-            "paragraph_index": state.current_index,
+            "current_paragraph_index": state.current_index,
             "issues_found": len(issues),
             "issues": issues,
             "needs_deeper_check": len(issues) > 0 or focus != "general",
@@ -479,7 +634,10 @@ class ToolExecutor:
         paragraph = state.current_paragraph
 
         if not paragraph:
-            return {"error": "没有当前段落"}
+            return {
+                "error": "没有当前段落",
+                "current_paragraph_index": state.current_index,
+            }
 
         # 获取角色状态
         char_state = await self._handle_get_character_state(
@@ -508,6 +666,7 @@ class ToolExecutor:
 
         return {
             "character_name": character_name,
+            "current_paragraph_index": state.current_index,
             "previous_state": char_state if char_state.get("found") else None,
             "issues_found": len(issues),
             "issues": issues,
@@ -523,32 +682,40 @@ class ToolExecutor:
         prev_paragraph = state.previous_paragraph
 
         if not paragraph:
-            return {"error": "没有当前段落"}
+            return {
+                "error": "没有当前段落",
+                "current_paragraph_index": state.current_index,
+            }
 
         issues = []
 
-        # 时间标记词
-        time_markers = {
-            "morning": ["清晨", "早晨", "早上", "黎明", "拂晓"],
-            "noon": ["中午", "正午", "午时"],
-            "afternoon": ["下午", "午后"],
-            "evening": ["傍晚", "黄昏", "日暮"],
-            "night": ["夜晚", "深夜", "半夜", "子夜", "午夜", "入夜"],
+        # 时间标记词 - 使用反向映射提高查询效率
+        time_marker_map = {
+            # morning
+            "清晨": "morning", "早晨": "morning", "早上": "morning",
+            "黎明": "morning", "拂晓": "morning",
+            # noon
+            "中午": "noon", "正午": "noon", "午时": "noon",
+            # afternoon
+            "下午": "afternoon", "午后": "afternoon",
+            # evening
+            "傍晚": "evening", "黄昏": "evening", "日暮": "evening",
+            # night
+            "夜晚": "night", "深夜": "night", "半夜": "night",
+            "子夜": "night", "午夜": "night", "入夜": "night",
         }
 
-        current_time = None
-        prev_time = None
+        def find_time_marker(text: str) -> Optional[str]:
+            """在文本中查找第一个时间标记"""
+            if not text:
+                return None
+            for marker, period in time_marker_map.items():
+                if marker in text:
+                    return period
+            return None
 
-        for period, markers in time_markers.items():
-            for marker in markers:
-                if marker in paragraph:
-                    current_time = period
-                    break
-            if prev_paragraph:
-                for marker in markers:
-                    if marker in prev_paragraph:
-                        prev_time = period
-                        break
+        current_time = find_time_marker(paragraph)
+        prev_time = find_time_marker(prev_paragraph) if prev_paragraph else None
 
         # 检查时间跳跃是否合理
         time_order = ["morning", "noon", "afternoon", "evening", "night"]
@@ -566,6 +733,7 @@ class ToolExecutor:
                     })
 
         return {
+            "current_paragraph_index": state.current_index,
             "current_time_marker": current_time,
             "previous_time_marker": prev_time,
             "issues_found": len(issues),
@@ -587,16 +755,30 @@ class ToolExecutor:
 
         paragraph = state.current_paragraph
         if not paragraph:
-            return {"error": "没有当前段落"}
+            return {
+                "error": "没有当前段落",
+                "current_paragraph_index": state.current_index,
+            }
 
         # 解析检查维度（统一使用字符串格式）
         dimensions_param = params.get("dimensions", ["coherence"])
         if isinstance(dimensions_param, str):
-            dimensions_param = [d.strip() for d in dimensions_param.split(",")]
+            # 支持中文和英文逗号，并过滤空字符串
+            normalized = dimensions_param.replace("，", ",")
+            dimensions_param = [d.strip() for d in normalized.split(",") if d.strip()]
+        elif not isinstance(dimensions_param, list):
+            # 处理其他类型
+            logger.warning("未预期的维度参数类型: %s，使用默认值", type(dimensions_param))
+            dimensions_param = ["coherence"]
 
         # 验证维度有效性
         valid_dimensions = {"coherence", "character", "foreshadow", "timeline", "style", "scene"}
         dimensions = [d for d in dimensions_param if d in valid_dimensions]
+
+        # 记录被过滤的无效维度
+        invalid_dims = [d for d in dimensions_param if d and d not in valid_dimensions]
+        if invalid_dims:
+            logger.warning("忽略无效的检查维度: %s", invalid_dims)
 
         if not dimensions:
             dimensions = ["coherence"]
@@ -667,6 +849,7 @@ class ToolExecutor:
 
             return {
                 "success": True,
+                "current_paragraph_index": state.current_index,
                 "dimensions_checked": dimensions,  # 已经是字符串列表
                 "issues_found": len(issues),
                 "issues": issues,
@@ -708,12 +891,35 @@ class ToolExecutor:
         state: AgentState,
     ) -> Dict[str, Any]:
         """生成修改建议"""
+        original_text = params.get("original_text", "")
+        suggested_text = params.get("suggested_text", "")
+
+        # 验证 original_text 必须存在于当前段落中
+        current_paragraph = state.current_paragraph or ""
+        if original_text and original_text not in current_paragraph:
+            # 尝试去除首尾空白后再匹配
+            trimmed_original = original_text.strip()
+            if trimmed_original not in current_paragraph:
+                logger.warning(
+                    "generate_suggestion: original_text 不存在于当前段落中。"
+                    "original_text前50字: %s, 当前段落前100字: %s",
+                    original_text[:50],
+                    current_paragraph[:100],
+                )
+                return {
+                    "recorded": False,
+                    "error": "original_text 必须是当前段落中实际存在的文本片段。"
+                             "请从 analyze_paragraph 返回的 full_text 中精确复制需要修改的文本。",
+                    "current_paragraph_index": state.current_index,
+                    "hint": f"当前段落内容前200字: {current_paragraph[:200]}...",
+                }
+
         suggestion = {
             "paragraph_index": state.current_index,
             "category": params.get("issue_type", "coherence"),
             "issue_description": params.get("issue_description", ""),
-            "original_text": params.get("original_text", ""),
-            "suggested_text": params.get("suggested_text", ""),
+            "original_text": original_text,
+            "suggested_text": suggested_text,
             "reason": params.get("reason", ""),
             "priority": params.get("priority", "medium"),
         }
@@ -722,6 +928,7 @@ class ToolExecutor:
 
         return {
             "recorded": True,
+            "current_paragraph_index": state.current_index,
             "suggestion_index": len(state.suggestions) - 1,
             "message": "建议已记录",
         }
@@ -742,6 +949,7 @@ class ToolExecutor:
 
         return {
             "recorded": True,
+            "current_paragraph_index": state.current_index,
             "observation_index": len(state.observations) - 1,
         }
 
@@ -772,15 +980,34 @@ class ToolExecutor:
         params: Dict[str, Any],
         state: AgentState,
     ) -> Dict[str, Any]:
-        """完成当前段落分析"""
+        """完成当前段落分析并自动移动到下一段"""
         summary = params.get("summary", "")
+        finished_index = state.current_index
+        suggestions_count = len([s for s in state.suggestions if s["paragraph_index"] == finished_index])
 
-        return {
-            "paragraph_index": state.current_index,
-            "summary": summary,
-            "suggestions_count": len([s for s in state.suggestions if s["paragraph_index"] == state.current_index]),
-            "has_more": state.has_more_paragraphs(),
-        }
+        # 自动移动到下一段
+        has_more = state.has_more_paragraphs()
+        if has_more:
+            state.move_to_next()
+            return {
+                "finished_paragraph_index": finished_index,
+                "summary": summary,
+                "suggestions_count": suggestions_count,
+                "moved_to_next": True,
+                "current_paragraph_index": state.current_index,
+                "current_paragraph_preview": state.current_paragraph[:200] + "..." if state.current_paragraph and len(state.current_paragraph) > 200 else state.current_paragraph,
+                "remaining_paragraphs": len(state.paragraphs) - state.current_index - 1,
+                "message": f"第{finished_index + 1}段分析完成，已自动移动到第{state.current_index + 1}段",
+            }
+        else:
+            return {
+                "finished_paragraph_index": finished_index,
+                "summary": summary,
+                "suggestions_count": suggestions_count,
+                "moved_to_next": False,
+                "is_last_paragraph": True,
+                "message": f"第{finished_index + 1}段分析完成，这是最后一段，请调用 complete_workflow 结束分析",
+            }
 
     async def _handle_complete_workflow(
         self,

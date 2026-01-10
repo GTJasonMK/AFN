@@ -86,7 +86,9 @@ def ensure_storage_dir():
     # 设置数据库路径
     db_path = STORAGE_DIR / 'afn.db'
     os.environ['DATABASE_URL'] = f"sqlite+aiosqlite:///{db_path}"
-    os.environ['VECTOR_DB_PATH'] = str(STORAGE_DIR / 'vectors.db')
+    # 设置向量库路径（使用 file: 前缀表示本地文件）
+    vector_db_path = STORAGE_DIR / 'vectors.db'
+    os.environ['VECTOR_DB_URL'] = f"file:{vector_db_path}"
 
     # 设置安全密钥（桌面版使用固定密钥）
     os.environ['SECRET_KEY'] = 'afn-desktop-secret-key-2024'

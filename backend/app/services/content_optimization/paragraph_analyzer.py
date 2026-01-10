@@ -30,17 +30,18 @@ class ParagraphAnalyzer:
         """
         self.known_characters = known_characters or []
 
-    def split_paragraphs(self, content: str) -> List[str]:
+    def split_paragraphs(self, content: str, merge_short: bool = False) -> List[str]:
         """
         将正文分割为段落
 
         分割策略：
         1. 按换行符分割
-        2. 合并过短的段落
-        3. 拆分过长的段落
+        2. 拆分过长的段落
+        3. 可选：合并过短的段落（默认不合并，保持与用户视觉一致）
 
         Args:
             content: 正文内容
+            merge_short: 是否合并短段落（默认False，保持与用户视觉分段一致）
 
         Returns:
             段落列表
@@ -65,16 +66,22 @@ class ParagraphAnalyzer:
             else:
                 paragraphs.append(p)
 
-        # 合并过短的段落
-        merged_paragraphs = self._merge_short_paragraphs(paragraphs)
+        # 可选：合并过短的段落
+        # 默认不合并，因为短段落（如时间标记"凌晨两点"）可能是有意义的独立段落
+        # 合并会导致系统分段与用户在编辑器中看到的视觉分段不一致
+        if merge_short:
+            final_paragraphs = self._merge_short_paragraphs(paragraphs)
+        else:
+            final_paragraphs = paragraphs
 
         logger.info(
-            "段落分割完成: 原始%d段 -> 最终%d段",
+            "段落分割完成: 原始%d段 -> 最终%d段 (合并短段落: %s)",
             len(raw_paragraphs),
-            len(merged_paragraphs)
+            len(final_paragraphs),
+            merge_short
         )
 
-        return merged_paragraphs
+        return final_paragraphs
 
     def _split_long_paragraph(self, paragraph: str) -> List[str]:
         """
