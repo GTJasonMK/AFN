@@ -284,7 +284,10 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                 self.blueprint_card.setStyle("自由创作模式")
                 self.blueprint_card.setSummary("可直接创建章节开始写作，无需生成蓝图和大纲")
 
-            # 加载主角立绘
+            # 设置章节进度
+            self._update_chapter_progress()
+
+            # 加载主角立绘和信息
             self._load_protagonist_portrait()
 
         # 根据项目类型调整按钮显示
@@ -307,6 +310,27 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
 
         # 填充章节列表
         self._populate_chapters(chapter_outlines)
+
+    def _update_chapter_progress(self):
+        """更新章节进度显示"""
+        if not self.project or not self.blueprint_card:
+            return
+
+        # 获取总章节数（从大纲或实际章节中取最大值）
+        blueprint = self._get_blueprint()
+        chapter_outlines = blueprint.get('chapter_outline', []) if blueprint else []
+        project_chapters = self.project.get('chapters', [])
+
+        total_chapters = max(len(chapter_outlines), len(project_chapters))
+
+        # 计算已完成章节数（有选中版本或状态为successful的章节）
+        completed = 0
+        for ch in project_chapters:
+            # 后端状态是 'successful' 而不是 'completed'
+            if ch.get('selected_version_id') or ch.get('generation_status') == 'successful':
+                completed += 1
+
+        self.blueprint_card.setProgress(completed, total_chapters)
 
     def _populate_chapters(self, chapter_outlines):
         """填充章节列表（分批加载，避免UI卡顿）
@@ -766,7 +790,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         self.generating_chapter = None
 
     def _load_protagonist_portrait(self):
-        """加载主角立绘"""
+        """加载主角立绘和信息"""
         if not self.project or not self.blueprint_card:
             logger.debug("无法加载立绘：project或blueprint_card不存在")
             return
@@ -776,9 +800,13 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             logger.debug("无法加载立绘：project_id不存在")
             return
 
-        # 使用辅助函数提取主角名称
+        # 使用辅助函数提取主角名称和身份
         protagonist_name = extract_protagonist_name(self.project) or "主角"
-        logger.info(f"尝试加载主角立绘: {protagonist_name}")
+        protagonist_identity = self._extract_protagonist_identity()
+        logger.info(f"尝试加载主角立绘: {protagonist_name}, 身份: {protagonist_identity}")
+
+        # 加载主角档案同步状态
+        self._load_protagonist_sync_status(project_id, protagonist_name)
 
         # 尝试获取主角立绘
         try:
@@ -798,7 +826,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                             # 构建完整URL并加载图片
                             image_url = self.api_client.get_portrait_image_url(image_path)
                             logger.info(f"找到主角立绘，URL: {image_url}")
-                            self._load_portrait_image(image_url, protagonist_name)
+                            self._load_portrait_image(image_url, protagonist_name, protagonist_identity)
                             return
 
                 # 如果没有找到主角的，使用第一个立绘
@@ -808,23 +836,70 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                 if image_path:
                     image_url = self.api_client.get_portrait_image_url(image_path)
                     logger.info(f"未找到主角立绘，使用第一个立绘: {char_name}, URL: {image_url}")
-                    self._load_portrait_image(image_url, char_name)
+                    self._load_portrait_image(image_url, char_name, protagonist_identity)
                     return
 
             # 没有立绘，显示占位符
             logger.info("没有激活的立绘，显示占位符")
-            self.blueprint_card.setPortraitPlaceholder(protagonist_name)
+            self.blueprint_card.setPortraitPlaceholder(protagonist_name, protagonist_identity)
 
         except Exception as e:
             logger.warning(f"加载主角立绘失败: {e}")
-            self.blueprint_card.setPortraitPlaceholder(protagonist_name)
+            self.blueprint_card.setPortraitPlaceholder(protagonist_name, protagonist_identity)
 
-    def _load_portrait_image(self, image_url: str, name: str):
+    def _extract_protagonist_identity(self) -> str:
+        """从蓝图中提取主角身份"""
+        blueprint = self._get_blueprint()
+        if not blueprint:
+            return ""
+
+        characters = blueprint.get('characters', [])
+        for char in characters:
+            # 检查是否是主角
+            identity = char.get('identity', '')
+            if '主角' in identity:
+                return identity
+            if char.get('is_protagonist') or char.get('role') == 'protagonist':
+                return identity
+
+        return ""
+
+    def _load_protagonist_sync_status(self, project_id: str, protagonist_name: str):
+        """加载主角档案同步状态 - 简化逻辑"""
+        try:
+            profiles = self.api_client.get_protagonist_profiles(project_id)
+
+            if not profiles:
+                # 没有任何档案
+                logger.info("没有主角档案，显示'尚未创建档案'")
+                self.blueprint_card.setSyncStatus(-1)
+                return
+
+            # 优先查找匹配的角色
+            for profile in profiles:
+                if profile.get('character_name') == protagonist_name:
+                    synced_chapter = profile.get('last_synced_chapter', 0)
+                    logger.info(f"找到匹配档案: {protagonist_name}, 同步章节: {synced_chapter}")
+                    self.blueprint_card.setSyncStatus(synced_chapter)
+                    return
+
+            # 没有匹配的，使用第一个档案
+            first_profile = profiles[0]
+            synced_chapter = first_profile.get('last_synced_chapter', 0)
+            logger.info(f"使用第一个档案: {first_profile.get('character_name')}, 同步章节: {synced_chapter}")
+            self.blueprint_card.setSyncStatus(synced_chapter)
+
+        except Exception as e:
+            logger.warning(f"加载主角同步状态失败: {e}")
+            self.blueprint_card.setSyncStatus(-1)
+
+    def _load_portrait_image(self, image_url: str, name: str, identity: str = ""):
         """从URL异步加载立绘图片
 
         Args:
             image_url: 图片URL
             name: 角色名称
+            identity: 角色身份
         """
         from PyQt6.QtGui import QPixmap
 
@@ -841,16 +916,16 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
                 pixmap.loadFromData(image_data)
                 if not pixmap.isNull():
                     logger.info(f"立绘图片加载成功: {name}, 尺寸: {pixmap.width()}x{pixmap.height()}")
-                    self.blueprint_card.setPortrait(pixmap, name)
+                    self.blueprint_card.setPortrait(pixmap, name, identity)
                     return
                 else:
                     logger.warning("加载的图片数据无效（QPixmap为空）")
             # 加载失败，显示占位符
-            self.blueprint_card.setPortraitPlaceholder(name)
+            self.blueprint_card.setPortraitPlaceholder(name, identity)
 
         def on_error(error):
             logger.warning(f"加载立绘图片失败: {error}")
-            self.blueprint_card.setPortraitPlaceholder(name)
+            self.blueprint_card.setPortraitPlaceholder(name, identity)
 
         logger.debug(f"开始异步加载立绘图片: {image_url}")
         self._portrait_worker = AsyncWorker(do_fetch)

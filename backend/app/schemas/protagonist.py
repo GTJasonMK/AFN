@@ -352,3 +352,16 @@ class RollbackResponse(BaseModel):
     success: bool
     target_chapter: int
     message: str
+
+
+# ============== 冲突检测相关 Schemas ==============
+
+class ProfileConflictCheck(BaseModel):
+    """档案冲突检测响应"""
+    has_conflict: bool = Field(..., description="是否存在冲突")
+    last_synced_chapter: int = Field(..., description="档案最后同步的章节号")
+    max_available_chapter: int = Field(..., description="当前最大可用章节号")
+    available_snapshot_chapters: List[int] = Field(
+        default_factory=list,
+        description="可回滚的快照章节列表（<= max_available_chapter）"
+    )

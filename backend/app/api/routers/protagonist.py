@@ -41,6 +41,8 @@ from ...schemas.protagonist import (
     AttributeDiff,
     RollbackRequest,
     RollbackResponse,
+    # 冲突检测
+    ProfileConflictCheck,
 )
 from ...schemas.user import UserInDB
 from ...services.protagonist_profile import (
@@ -299,6 +301,43 @@ async def request_attribute_deletion(
 
 # ============== 章节同步 ==============
 
+@router.get("/{project_id}/protagonist-profiles/{name}/conflict-check", response_model=ProfileConflictCheck)
+async def check_profile_conflict(
+    project_id: str = Path(..., description="项目ID"),
+    name: str = Path(..., description="角色名称"),
+    _: NovelProject = Depends(verify_project_exists),
+    profile_service: ProtagonistProfileService = Depends(get_profile_service),
+    session: AsyncSession = Depends(get_session),
+) -> ProfileConflictCheck:
+    """检测档案状态与章节的冲突
+
+    当用户删除章节后，可能导致档案的last_synced_chapter大于实际最大章节数，
+    此时需要回滚档案状态到有效的章节。
+    """
+    profile = await profile_service.get_profile(project_id, name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    # 获取最大章节数
+    chapter_repo = ChapterRepository(session)
+    chapters = await chapter_repo.list_by_project(project_id)
+    max_chapter = max([c.chapter_number for c in chapters], default=0)
+
+    # 获取可回滚的快照列表（仅保留 <= max_chapter 的）
+    snapshots = await profile_service.get_all_snapshots(profile.id)
+    available_snapshots = sorted([
+        s.chapter_number for s in snapshots
+        if s.chapter_number <= max_chapter
+    ])
+
+    return ProfileConflictCheck(
+        has_conflict=profile.last_synced_chapter > max_chapter,
+        last_synced_chapter=profile.last_synced_chapter,
+        max_available_chapter=max_chapter,
+        available_snapshot_chapters=available_snapshots
+    )
+
+
 @router.post("/{project_id}/protagonist-profiles/{name}/sync", response_model=SyncResult)
 async def sync_from_chapter(
     project_id: str = Path(..., description="项目ID"),
@@ -314,6 +353,21 @@ async def sync_from_chapter(
     profile = await profile_service.get_profile(project_id, name)
     if not profile:
         raise HTTPException(status_code=404, detail=f"角色 {name} 的档案不存在")
+
+    # 检查是否重复同步已同步的章节
+    if data.chapter_number <= profile.last_synced_chapter:
+        raise HTTPException(
+            status_code=400,
+            detail=f"第 {data.chapter_number} 章已同步，请选择第 {profile.last_synced_chapter + 1} 章或之后的章节"
+        )
+
+    # 检查是否跳跃同步（必须按顺序同步）
+    expected_chapter = profile.last_synced_chapter + 1
+    if data.chapter_number != expected_chapter:
+        raise HTTPException(
+            status_code=400,
+            detail=f"必须按顺序同步章节，下一个待同步章节是第 {expected_chapter} 章"
+        )
 
     # 获取章节内容
     chapter_repo = ChapterRepository(session)

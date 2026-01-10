@@ -446,3 +446,89 @@ class ProtagonistMixin:
             data,
             timeout=TimeoutConfig.READ_NORMAL
         )
+
+    # ==================== 冲突检测与回滚 ====================
+
+    def check_protagonist_profile_conflict(
+        self,
+        project_id: str,
+        character_name: str,
+    ) -> Dict[str, Any]:
+        """
+        检测档案状态与章节的冲突
+
+        当用户删除章节后，可能导致档案的last_synced_chapter大于实际最大章节数，
+        此API用于检测这种冲突并提供可回滚的快照列表。
+
+        Args:
+            project_id: 项目ID
+            character_name: 角色名称
+
+        Returns:
+            冲突检测结果，包含：
+            - has_conflict: 是否存在冲突
+            - last_synced_chapter: 档案最后同步的章节号
+            - max_available_chapter: 当前最大可用章节号
+            - available_snapshot_chapters: 可回滚的快照章节列表
+        """
+        return self._request(
+            'GET',
+            f'/api/novels/{project_id}/protagonist-profiles/{character_name}/conflict-check'
+        )
+
+    def rollback_protagonist_profile(
+        self,
+        project_id: str,
+        character_name: str,
+        target_chapter: int,
+    ) -> Dict[str, Any]:
+        """
+        回滚档案到指定章节的状态
+
+        Args:
+            project_id: 项目ID
+            character_name: 角色名称
+            target_chapter: 目标章节号
+
+        Returns:
+            回滚结果，包含 success, target_chapter, message
+        """
+        data = {
+            'target_chapter': target_chapter,
+        }
+        return self._request(
+            'POST',
+            f'/api/novels/{project_id}/protagonist-profiles/{character_name}/rollback',
+            data
+        )
+
+    def get_protagonist_snapshots(
+        self,
+        project_id: str,
+        character_name: str,
+        start_chapter: Optional[int] = None,
+        end_chapter: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        获取档案的所有快照列表
+
+        Args:
+            project_id: 项目ID
+            character_name: 角色名称
+            start_chapter: 起始章节（可选）
+            end_chapter: 结束章节（可选）
+
+        Returns:
+            快照列表，包含 profile_id, character_name, total_snapshots, snapshots
+        """
+        params = {}
+        if start_chapter is not None:
+            params['start_chapter'] = start_chapter
+        if end_chapter is not None:
+            params['end_chapter'] = end_chapter
+
+        return self._request(
+            'GET',
+            f'/api/novels/{project_id}/protagonist-profiles/{character_name}/snapshots',
+            params=params
+        )

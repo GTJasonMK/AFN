@@ -11,13 +11,13 @@ from typing import Dict, List, Any, Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QScrollArea, QWidget, QStackedWidget, QSizePolicy, QGraphicsDropShadowEffect,
-    QMessageBox, QSpinBox, QGridLayout
+    QScrollArea, QWidget, QStackedWidget, QSizePolicy, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPixmap, QFont, QPainter, QBrush, QPen
 
 from components.base import ThemeAwareWidget
+from components.dialogs import ConfirmDialog, AlertDialog
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
@@ -352,6 +352,7 @@ class ProtagonistProfileDialog(QDialog):
         self.api_client = APIClientManager.get_client()
         self._portrait_worker = None
         self._sync_worker = None
+        self._rollback_worker = None
 
         self.profile_data = None
         self.has_profile = False
@@ -364,8 +365,10 @@ class ProtagonistProfileDialog(QDialog):
         self.tab_buttons = []
         self.create_btn = None
         self.sync_btn = None
-        self.chapter_spin = None
+        self.sync_all_btn = None
+        self.next_chapter_label = None
         self.sync_widget = None
+        self.conflict_btn = None
 
         self.setWindowTitle("主角档案")
         self.setMinimumSize(dp(600), dp(700))
@@ -441,17 +444,10 @@ class ProtagonistProfileDialog(QDialog):
         sync_layout.setContentsMargins(0, 0, 0, 0)
         sync_layout.setSpacing(dp(8))
 
-        sync_label = QLabel("同步章节")
-        sync_label.setObjectName("sync_label")
-        sync_layout.addWidget(sync_label)
-
-        self.chapter_spin = QSpinBox()
-        self.chapter_spin.setObjectName("chapter_spin")
-        self.chapter_spin.setMinimum(1)
-        self.chapter_spin.setMaximum(max(1, self.total_chapters))
-        self.chapter_spin.setValue(1)
-        self.chapter_spin.setFixedWidth(dp(70))
-        sync_layout.addWidget(self.chapter_spin)
+        # 下一章节标签（只读显示）
+        self.next_chapter_label = QLabel("第 ? 章")
+        self.next_chapter_label.setObjectName("next_chapter_label")
+        sync_layout.addWidget(self.next_chapter_label)
 
         self.sync_btn = QPushButton("同步")
         self.sync_btn.setObjectName("sync_btn")
@@ -459,8 +455,23 @@ class ProtagonistProfileDialog(QDialog):
         self.sync_btn.clicked.connect(self._on_sync_chapter)
         sync_layout.addWidget(self.sync_btn)
 
+        # 一键同步按钮
+        self.sync_all_btn = QPushButton("一键同步全部")
+        self.sync_all_btn.setObjectName("sync_all_btn")
+        self.sync_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sync_all_btn.clicked.connect(self._on_sync_all_chapters)
+        sync_layout.addWidget(self.sync_all_btn)
+
         self.sync_widget.setVisible(False)
         action_layout.addWidget(self.sync_widget)
+
+        # 冲突解决按钮（当存在冲突时显示）
+        self.conflict_btn = QPushButton("解决冲突")
+        self.conflict_btn.setObjectName("conflict_btn")
+        self.conflict_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.conflict_btn.clicked.connect(self._on_resolve_conflict)
+        self.conflict_btn.setVisible(False)
+        action_layout.addWidget(self.conflict_btn)
 
         action_layout.addStretch()
         header_layout.addLayout(action_layout)
@@ -668,46 +679,15 @@ class ProtagonistProfileDialog(QDialog):
         if self.sync_widget:
             self.sync_widget.setStyleSheet("background: transparent;")
 
-        if sync_label := self.findChild(QLabel, "sync_label"):
-            sync_label.setStyleSheet(f"""
+        # 下一章节标签样式
+        if self.next_chapter_label:
+            self.next_chapter_label.setStyleSheet(f"""
                 background: transparent;
                 border: none;
                 font-family: {ui_font};
                 font-size: {sp(13)}px;
-                color: {header_secondary};
-            """)
-
-        if self.chapter_spin:
-            self.chapter_spin.setStyleSheet(f"""
-                QSpinBox {{
-                    background-color: rgba(255,255,255,0.15);
-                    border: 1px solid rgba(255,255,255,0.3);
-                    border-radius: {dp(6)}px;
-                    font-family: {ui_font};
-                    font-size: {sp(13)}px;
-                    color: {header_text};
-                    padding: {dp(4)}px {dp(8)}px;
-                    padding-right: {dp(20)}px;
-                }}
-                QSpinBox::up-button, QSpinBox::down-button {{
-                    background: transparent;
-                    border: none;
-                    width: {dp(16)}px;
-                }}
-                QSpinBox::up-arrow {{
-                    image: none;
-                    border-left: 4px solid transparent;
-                    border-right: 4px solid transparent;
-                    border-bottom: 5px solid {header_secondary};
-                    width: 0; height: 0;
-                }}
-                QSpinBox::down-arrow {{
-                    image: none;
-                    border-left: 4px solid transparent;
-                    border-right: 4px solid transparent;
-                    border-top: 5px solid {header_secondary};
-                    width: 0; height: 0;
-                }}
+                font-weight: 600;
+                color: {header_text};
             """)
 
         if self.sync_btn:
@@ -728,6 +708,46 @@ class ProtagonistProfileDialog(QDialog):
                 QPushButton:disabled {{
                     background-color: rgba(255,255,255,0.1);
                     color: rgba(255,255,255,0.5);
+                }}
+            """)
+
+        # 一键同步按钮样式（绿色强调）
+        if self.sync_all_btn:
+            self.sync_all_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: rgba(76,175,80,0.8);
+                    border: none;
+                    border-radius: {dp(6)}px;
+                    font-family: {ui_font};
+                    font-size: {sp(12)}px;
+                    font-weight: 600;
+                    color: #FFFFFF;
+                    padding: {dp(6)}px {dp(14)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(76,175,80,1.0);
+                }}
+                QPushButton:disabled {{
+                    background-color: rgba(76,175,80,0.4);
+                    color: rgba(255,255,255,0.6);
+                }}
+            """)
+
+        # 冲突解决按钮样式（橙色警告风格）
+        if self.conflict_btn:
+            self.conflict_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: rgba(255,152,0,0.8);
+                    border: none;
+                    border-radius: {dp(6)}px;
+                    font-family: {ui_font};
+                    font-size: {sp(12)}px;
+                    font-weight: 600;
+                    color: #FFFFFF;
+                    padding: {dp(6)}px {dp(14)}px;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(255,152,0,1.0);
                 }}
             """)
 
@@ -800,15 +820,48 @@ class ProtagonistProfileDialog(QDialog):
                 self.create_btn.setVisible(False)
             if self.sync_widget:
                 self.sync_widget.setVisible(True)
-            if self.chapter_spin and self.profile_data:
+            if self.profile_data:
                 last_synced = self.profile_data.get('last_synced_chapter', 0)
-                next_chapter = min(last_synced + 1, self.total_chapters) if last_synced > 0 else 1
-                self.chapter_spin.setValue(next_chapter)
+                next_chapter = last_synced + 1
+                has_conflict = last_synced > self.total_chapters
+                remaining_chapters = self.total_chapters - last_synced
+
+                # 更新下一章节标签
+                if self.next_chapter_label:
+                    self.next_chapter_label.setText(f"第 {next_chapter} 章")
+
+                if next_chapter > self.total_chapters:
+                    # 所有章节都已同步或存在冲突
+                    if self.sync_btn:
+                        self.sync_btn.setEnabled(False)
+                        if has_conflict:
+                            self.sync_btn.setText("状态冲突")
+                        else:
+                            self.sync_btn.setText("已全部同步")
+                    if self.sync_all_btn:
+                        self.sync_all_btn.setVisible(False)
+                    if self.next_chapter_label:
+                        self.next_chapter_label.setText("已完成")
+                else:
+                    # 还有章节可同步
+                    if self.sync_btn:
+                        self.sync_btn.setEnabled(True)
+                        self.sync_btn.setText("同步")
+                    if self.sync_all_btn:
+                        # 如果剩余超过1章才显示一键同步
+                        self.sync_all_btn.setVisible(remaining_chapters > 1)
+                        self.sync_all_btn.setText(f"一键同步剩余 {remaining_chapters} 章")
+
+                # 显示/隐藏冲突解决按钮
+                if self.conflict_btn:
+                    self.conflict_btn.setVisible(has_conflict)
         else:
             if self.create_btn:
                 self.create_btn.setVisible(True)
             if self.sync_widget:
                 self.sync_widget.setVisible(False)
+            if self.conflict_btn:
+                self.conflict_btn.setVisible(False)
 
     def _on_create_profile(self):
         from .protagonist_create_dialog import ProtagonistCreateDialog
@@ -826,13 +879,26 @@ class ProtagonistProfileDialog(QDialog):
         self.profileUpdated.emit()
 
     def _on_sync_chapter(self):
+        """同步下一章节"""
         if not self.profile_data:
             return
 
-        chapter_number = self.chapter_spin.value() if self.chapter_spin else 1
+        # 使用档案数据计算下一章节号
+        last_synced = self.profile_data.get('last_synced_chapter', 0)
+        chapter_number = last_synced + 1
         character_name = self.profile_data.get('character_name')
 
         if not character_name:
+            return
+
+        # 检查是否超出总章节数
+        if chapter_number > self.total_chapters:
+            AlertDialog(
+                parent=self,
+                title="无法同步",
+                message="所有章节已同步完成",
+                dialog_type="info"
+            ).exec()
             return
 
         if self.sync_btn:
@@ -849,10 +915,12 @@ class ProtagonistProfileDialog(QDialog):
         def on_success(result):
             changes = result.get('changes_applied', 0)
             behaviors = result.get('behaviors_recorded', 0)
-            QMessageBox.information(
-                self, "同步完成",
-                f"第 {chapter_number} 章同步完成\n属性变更: {changes}\n行为记录: {behaviors}"
-            )
+            AlertDialog(
+                parent=self,
+                title="同步完成",
+                message=f"第 {chapter_number} 章同步完成\n属性变更: {changes}\n行为记录: {behaviors}",
+                dialog_type="success"
+            ).exec()
             self._load_profile()
             self.profileUpdated.emit()
             if self.sync_btn:
@@ -861,10 +929,113 @@ class ProtagonistProfileDialog(QDialog):
 
         def on_error(error):
             logger.error(f"同步失败: {error}")
-            QMessageBox.critical(self, "同步失败", f"同步失败:\n{error}")
+            AlertDialog(
+                parent=self,
+                title="同步失败",
+                message=f"同步失败:\n{error}",
+                dialog_type="error"
+            ).exec()
             if self.sync_btn:
                 self.sync_btn.setEnabled(True)
                 self.sync_btn.setText("同步")
+
+        self._sync_worker = AsyncWorker(do_sync)
+        self._sync_worker.success.connect(on_success)
+        self._sync_worker.error.connect(on_error)
+        self._sync_worker.start()
+
+    def _on_sync_all_chapters(self):
+        """一键同步所有剩余章节"""
+        if not self.profile_data:
+            return
+
+        last_synced = self.profile_data.get('last_synced_chapter', 0)
+        character_name = self.profile_data.get('character_name')
+        remaining = self.total_chapters - last_synced
+
+        if not character_name:
+            return
+
+        if remaining <= 0:
+            AlertDialog(
+                parent=self,
+                title="无法同步",
+                message="所有章节已同步完成",
+                dialog_type="info"
+            ).exec()
+            return
+
+        # 确认对话框
+        dialog = ConfirmDialog(
+            parent=self,
+            title="一键同步",
+            message=f"将同步第 {last_synced + 1} 章到第 {self.total_chapters} 章，共 {remaining} 章。\n\n"
+                    f"这可能需要较长时间，是否继续？",
+            confirm_text="开始同步",
+            cancel_text="取消",
+            dialog_type="info"
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # 禁用同步按钮
+        if self.sync_btn:
+            self.sync_btn.setEnabled(False)
+        if self.sync_all_btn:
+            self.sync_all_btn.setEnabled(False)
+            self.sync_all_btn.setText("同步中...")
+
+        self._sync_all_remaining(character_name, last_synced + 1)
+
+    def _sync_all_remaining(self, character_name: str, current_chapter: int):
+        """递归同步剩余章节"""
+        if current_chapter > self.total_chapters:
+            # 全部同步完成
+            AlertDialog(
+                parent=self,
+                title="同步完成",
+                message="所有章节已同步完成",
+                dialog_type="success"
+            ).exec()
+            self._load_profile()
+            self.profileUpdated.emit()
+            if self.sync_btn:
+                self.sync_btn.setEnabled(True)
+            if self.sync_all_btn:
+                self.sync_all_btn.setEnabled(True)
+            return
+
+        # 更新进度显示
+        if self.sync_all_btn:
+            remaining = self.total_chapters - current_chapter + 1
+            self.sync_all_btn.setText(f"同步中 ({current_chapter}/{self.total_chapters})...")
+
+        def do_sync():
+            return self.api_client.sync_protagonist_from_chapter(
+                project_id=self.project_id,
+                character_name=character_name,
+                chapter_number=current_chapter
+            )
+
+        def on_success(result):
+            # 继续同步下一章
+            self._sync_all_remaining(character_name, current_chapter + 1)
+
+        def on_error(error):
+            logger.error(f"批量同步失败于第 {current_chapter} 章: {error}")
+            AlertDialog(
+                parent=self,
+                title="同步中断",
+                message=f"第 {current_chapter} 章同步失败:\n{error}\n\n已同步至第 {current_chapter - 1} 章",
+                dialog_type="error"
+            ).exec()
+            self._load_profile()
+            self.profileUpdated.emit()
+            if self.sync_btn:
+                self.sync_btn.setEnabled(True)
+            if self.sync_all_btn:
+                self.sync_all_btn.setEnabled(True)
 
         self._sync_worker = AsyncWorker(do_sync)
         self._sync_worker.success.connect(on_success)
@@ -1051,6 +1222,114 @@ class ProtagonistProfileDialog(QDialog):
         self._portrait_worker.success.connect(on_success)
         self._portrait_worker.error.connect(on_error)
         self._portrait_worker.start()
+
+    def _on_resolve_conflict(self):
+        """处理冲突解决按钮点击 - 弹出对话框让用户选择回滚到哪个章节"""
+        if not self.profile_data:
+            return
+
+        character_name = self.profile_data.get('character_name')
+        if not character_name:
+            return
+
+        last_synced = self.profile_data.get('last_synced_chapter', 0)
+
+        try:
+            # 获取冲突检测信息
+            conflict_info = self.api_client.check_protagonist_profile_conflict(
+                self.project_id, character_name
+            )
+
+            available_snapshots = conflict_info.get('available_snapshot_chapters', [])
+            max_chapter = conflict_info.get('max_available_chapter', 0)
+
+            if not available_snapshots:
+                # 没有可回滚的快照，只能回滚到初始状态
+                dialog = ConfirmDialog(
+                    parent=self,
+                    title="解决冲突",
+                    message=f"当前档案同步到第 {last_synced} 章，但项目只有 {max_chapter} 章。\n\n"
+                            f"没有可用的快照，是否重置档案同步状态到第 0 章？\n"
+                            f"（这不会删除已记录的属性，只是重置同步进度）",
+                    confirm_text="重置",
+                    cancel_text="取消",
+                    dialog_type="warning"
+                )
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    self._do_rollback(character_name, 0)
+            else:
+                # 有可用快照，让用户选择
+                latest_snapshot = max(available_snapshots)
+                dialog = ConfirmDialog(
+                    parent=self,
+                    title="解决冲突",
+                    message=f"当前档案同步到第 {last_synced} 章，但项目只有 {max_chapter} 章。\n\n"
+                            f"是否回滚到第 {latest_snapshot} 章的状态？\n"
+                            f"（这将恢复到该章节同步时的属性状态）",
+                    confirm_text="回滚",
+                    cancel_text="取消",
+                    dialog_type="warning"
+                )
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    self._do_rollback(character_name, latest_snapshot)
+
+        except Exception as e:
+            logger.error(f"检测冲突失败: {e}")
+            AlertDialog(
+                parent=self,
+                title="错误",
+                message=f"检测冲突状态失败: {e}",
+                dialog_type="error"
+            ).exec()
+
+    def _do_rollback(self, character_name: str, target_chapter: int):
+        """执行回滚操作"""
+        if self.conflict_btn:
+            self.conflict_btn.setEnabled(False)
+            self.conflict_btn.setText("回滚中...")
+
+        def do_rollback():
+            return self.api_client.rollback_protagonist_profile(
+                self.project_id, character_name, target_chapter
+            )
+
+        def on_success(result):
+            if result.get('success'):
+                AlertDialog(
+                    parent=self,
+                    title="成功",
+                    message=f"已成功回滚到第 {target_chapter} 章的状态",
+                    dialog_type="success"
+                ).exec()
+                self._load_profile()  # 重新加载档案
+                self.profileUpdated.emit()
+            else:
+                AlertDialog(
+                    parent=self,
+                    title="失败",
+                    message=result.get('message', '回滚失败'),
+                    dialog_type="warning"
+                ).exec()
+            if self.conflict_btn:
+                self.conflict_btn.setEnabled(True)
+                self.conflict_btn.setText("解决冲突")
+
+        def on_error(error):
+            logger.error(f"回滚失败: {error}")
+            AlertDialog(
+                parent=self,
+                title="错误",
+                message=f"回滚失败: {error}",
+                dialog_type="error"
+            ).exec()
+            if self.conflict_btn:
+                self.conflict_btn.setEnabled(True)
+                self.conflict_btn.setText("解决冲突")
+
+        self._rollback_worker = AsyncWorker(do_rollback)
+        self._rollback_worker.success.connect(on_success)
+        self._rollback_worker.error.connect(on_error)
+        self._rollback_worker.start()
 
     def __del__(self):
         try:

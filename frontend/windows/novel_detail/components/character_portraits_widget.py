@@ -360,6 +360,8 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         # 工作线程（支持多个并行生成）
         self._loading_worker = None
         self._generate_workers: Dict[str, Any] = {}  # character_name -> worker
+        self._generate_worker = None  # 批量生成工作线程
+        self._generating_character = None  # 当前正在生成的角色
 
         super().__init__(parent)
         self.setupUI()
