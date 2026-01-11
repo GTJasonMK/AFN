@@ -1,38 +1,127 @@
 """
 漫画详细信息Tab
 
-显示漫画分镜生成过程中的详细分析结果：
-- 角色分析：角色外观、性格、关系
-- 事件列表：事件类型、参与者、重要性
-- 对话提取：对话内容、说话人、情绪
-- 场景信息：地点、时间、氛围
-- 情绪曲线：章节情绪变化轨迹
-- 页面规划：节奏分配、高潮页码
+展示各个生成步骤的提取结果，以可读格式呈现：
+- 步骤1：信息提取（角色、事件、对话、场景、物品）
+- 步骤2：页面规划（页数分配、事件分布）
 """
 
+import json
 from typing import Dict, Any, List
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
-    QFrame, QGridLayout, QGroupBox,
+    QFrame, QTextEdit, QPushButton, QSizePolicy, QGridLayout,
 )
 from PyQt6.QtCore import Qt
 
-from themes.theme_manager import theme_manager
+from themes.book_theme_styler import BookThemeStyler
 from utils.dpi_utils import dp, sp
+
+
+class CollapsibleSection(QFrame):
+    """可折叠的区域"""
+
+    def __init__(self, title: str, styler: BookThemeStyler = None, parent=None):
+        super().__init__(parent)
+        self._is_expanded = True
+        self._title = title
+        self._content_widget = None
+        self._toggle_btn = None
+        self._styler = styler or BookThemeStyler()
+        self._setup_ui()
+
+    def _setup_ui(self):
+        s = self._styler
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {s.bg_secondary};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(6)}px;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 标题栏
+        header = QFrame()
+        header.setStyleSheet(f"""
+            QFrame {{
+                background: {s.bg_card};
+                border: none;
+                border-radius: {dp(6)}px {dp(6)}px 0 0;
+                padding: {dp(8)}px {dp(12)}px;
+            }}
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
+        header_layout.setSpacing(dp(8))
+
+        # 折叠按钮
+        self._toggle_btn = QPushButton("v")
+        self._toggle_btn.setFixedSize(dp(20), dp(20))
+        self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_secondary};
+            }}
+            QPushButton:hover {{
+                color: {s.accent_color};
+            }}
+        """)
+        self._toggle_btn.clicked.connect(self._toggle)
+        header_layout.addWidget(self._toggle_btn)
+
+        # 标题
+        title_label = QLabel(self._title)
+        title_label.setStyleSheet(f"""
+            font-family: {s.serif_font};
+            font-size: {sp(14)}px;
+            font-weight: bold;
+            color: {s.text_primary};
+            background: transparent;
+            border: none;
+        """)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+
+        layout.addWidget(header)
+
+        # 内容区域
+        self._content_widget = QWidget()
+        self._content_widget.setStyleSheet("background: transparent; border: none;")
+        self._content_layout = QVBoxLayout(self._content_widget)
+        self._content_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(12))
+        self._content_layout.setSpacing(dp(8))
+        layout.addWidget(self._content_widget)
+
+        # 让header可点击
+        header.mousePressEvent = lambda e: self._toggle()
+
+    def _toggle(self):
+        self._is_expanded = not self._is_expanded
+        self._content_widget.setVisible(self._is_expanded)
+        self._toggle_btn.setText("v" if self._is_expanded else ">")
+
+    def add_content(self, widget: QWidget):
+        self._content_layout.addWidget(widget)
+
+    def set_expanded(self, expanded: bool):
+        self._is_expanded = expanded
+        self._content_widget.setVisible(expanded)
+        self._toggle_btn.setText("v" if expanded else ">")
 
 
 class DetailsTabMixin:
     """详细信息Tab的Mixin"""
 
     def _create_details_tab(self, manga_data: dict) -> QWidget:
-        """创建详细信息标签页
-
-        Args:
-            manga_data: 漫画数据，包含 analysis_data 字段
-
-        Returns:
-            详细信息Tab的Widget
-        """
+        """创建详细信息标签页"""
         s = self._styler
 
         # 创建滚动区域
@@ -68,14 +157,14 @@ class DetailsTabMixin:
         """)
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
-        layout.setSpacing(dp(16))
+        layout.setSpacing(dp(12))
 
         # 获取分析数据
         analysis_data = manga_data.get('analysis_data')
 
         if not analysis_data:
             # 无分析数据时显示提示
-            empty_label = QLabel("暂无详细信息\n\n重新生成漫画分镜后将显示分析结果")
+            empty_label = QLabel("暂无详细信息\n\n生成漫画分镜后将显示各步骤的提取结果")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
@@ -90,563 +179,655 @@ class DetailsTabMixin:
             chapter_info = analysis_data.get('chapter_info', {})
             page_plan = analysis_data.get('page_plan', {})
 
-            # 1. 章节概述
+            # ==================== 步骤1：信息提取 ====================
             if chapter_info:
-                summary_group = self._create_summary_section(chapter_info)
-                layout.addWidget(summary_group)
+                extraction_section = CollapsibleSection("步骤1: 信息提取", styler=s)
+                extraction_section.set_expanded(True)
 
-            # 2. 角色信息
-            characters = chapter_info.get('characters', {})
-            if characters:
-                char_group = self._create_characters_section(characters)
-                layout.addWidget(char_group)
+                # 1.0 章节摘要
+                summary = chapter_info.get('chapter_summary', '')
+                if summary:
+                    summary_widget = self._create_summary_widget(summary)
+                    extraction_section.add_content(summary_widget)
 
-            # 3. 事件列表
-            events = chapter_info.get('events', [])
-            if events:
-                events_group = self._create_events_section(events)
-                layout.addWidget(events_group)
+                # 1.1 角色信息
+                characters = chapter_info.get('characters', {})
+                if characters:
+                    char_widget = self._create_characters_widget(characters)
+                    extraction_section.add_content(char_widget)
 
-            # 4. 场景信息
-            scenes = chapter_info.get('scenes', [])
-            if scenes:
-                scenes_group = self._create_scenes_section(scenes)
-                layout.addWidget(scenes_group)
+                # 1.2 事件列表
+                events = chapter_info.get('events', [])
+                if events:
+                    events_widget = self._create_events_widget(events)
+                    extraction_section.add_content(events_widget)
 
-            # 5. 情绪曲线
-            mood_progression = chapter_info.get('mood_progression', [])
-            if mood_progression:
-                mood_group = self._create_mood_section(mood_progression)
-                layout.addWidget(mood_group)
+                # 1.3 对话列表
+                dialogues = chapter_info.get('dialogues', [])
+                if dialogues:
+                    dialogues_widget = self._create_dialogues_widget(dialogues)
+                    extraction_section.add_content(dialogues_widget)
 
-            # 6. 页面规划
+                # 1.4 场景列表
+                scenes = chapter_info.get('scenes', [])
+                if scenes:
+                    scenes_widget = self._create_scenes_widget(scenes)
+                    extraction_section.add_content(scenes_widget)
+
+                # 1.5 物品列表
+                items = chapter_info.get('items', [])
+                if items:
+                    items_widget = self._create_items_widget(items)
+                    extraction_section.add_content(items_widget)
+
+                # 1.6 情绪曲线
+                mood = chapter_info.get('mood_progression', [])
+                climax = chapter_info.get('climax_event_indices', [])
+                if mood or climax:
+                    mood_widget = self._create_mood_widget(mood, climax)
+                    extraction_section.add_content(mood_widget)
+
+                layout.addWidget(extraction_section)
+
+            # ==================== 步骤2：页面规划 ====================
             if page_plan:
-                plan_group = self._create_page_plan_section(page_plan)
-                layout.addWidget(plan_group)
+                planning_section = CollapsibleSection("步骤2: 页面规划", styler=s)
+                planning_section.set_expanded(True)
 
+                pages = page_plan.get('pages', [])
+                if pages:
+                    pages_widget = self._create_pages_plan_widget(pages)
+                    planning_section.add_content(pages_widget)
+
+                layout.addWidget(planning_section)
+
+            # ==================== 原始JSON（默认折叠） ====================
+            raw_section = CollapsibleSection("原始数据 (JSON)", styler=s)
+            raw_section.set_expanded(False)
+
+            raw_text = self._create_json_text_edit(analysis_data)
+            raw_section.add_content(raw_text)
+
+            layout.addWidget(raw_section)
             layout.addStretch()
 
         scroll_area.setWidget(content_widget)
         return scroll_area
 
-    def _create_group_box(self, title: str) -> QGroupBox:
-        """创建统一样式的分组框"""
+    def _create_summary_widget(self, summary: str) -> QFrame:
+        """创建章节摘要展示"""
         s = self._styler
+        frame = self._create_section_frame("章节摘要")
+        layout = frame.layout()
 
-        group = QGroupBox(title)
-        group.setStyleSheet(f"""
-            QGroupBox {{
-                font-family: {s.serif_font};
-                font-size: {sp(14)}px;
-                font-weight: bold;
-                color: {s.text_primary};
-                border: 1px solid {s.border_light};
-                border-radius: {dp(8)}px;
-                margin-top: {dp(12)}px;
-                padding-top: {dp(8)}px;
-                background: {s.bg_secondary};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: {dp(12)}px;
-                padding: 0 {dp(4)}px;
-            }}
+        label = QLabel(summary)
+        label.setWordWrap(True)
+        label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.text_primary};
+            background: transparent;
+            border: none;
+            line-height: 1.6;
         """)
-        return group
+        layout.addWidget(label)
+        return frame
 
-    def _create_summary_section(self, chapter_info: dict) -> QGroupBox:
-        """创建章节概述区域"""
+    def _create_characters_widget(self, characters: dict) -> QFrame:
+        """创建角色信息展示"""
         s = self._styler
+        frame = self._create_section_frame(f"角色信息 ({len(characters)})")
+        layout = frame.layout()
 
-        group = self._create_group_box("章节概述")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(8))
-
-        # 章节摘要
-        summary = chapter_info.get('chapter_summary', '')
-        if summary:
-            summary_label = QLabel(summary)
-            summary_label.setWordWrap(True)
-            summary_label.setStyleSheet(f"""
-                font-family: {s.serif_font};
-                font-size: {sp(13)}px;
-                color: {s.text_primary};
-                line-height: 1.6;
-            """)
-            layout.addWidget(summary_label)
-
-        # 统计信息
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(dp(24))
-
-        stats = [
-            ("角色", len(chapter_info.get('characters', {}))),
-            ("事件", len(chapter_info.get('events', []))),
-            ("对话", len(chapter_info.get('dialogues', []))),
-            ("场景", len(chapter_info.get('scenes', []))),
-            ("物品", len(chapter_info.get('items', []))),
-        ]
-
-        for label, count in stats:
-            stat_widget = QWidget()
-            stat_layout = QVBoxLayout(stat_widget)
-            stat_layout.setContentsMargins(0, 0, 0, 0)
-            stat_layout.setSpacing(dp(2))
-
-            count_label = QLabel(str(count))
-            count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            count_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(18)}px;
-                font-weight: bold;
-                color: {s.accent_color};
-            """)
-            stat_layout.addWidget(count_label)
-
-            name_label = QLabel(label)
-            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            name_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.text_secondary};
-            """)
-            stat_layout.addWidget(name_label)
-
-            stats_layout.addWidget(stat_widget)
-
-        stats_layout.addStretch()
-        layout.addLayout(stats_layout)
-
-        return group
-
-    def _create_characters_section(self, characters: dict) -> QGroupBox:
-        """创建角色信息区域"""
-        s = self._styler
-
-        group = self._create_group_box(f"角色分析 ({len(characters)})")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(12))
-
-        for name, char in characters.items():
+        for name, char_data in characters.items():
             char_frame = QFrame()
             char_frame.setStyleSheet(f"""
                 QFrame {{
-                    background: {s.bg_primary};
+                    background: {s.bg_card};
                     border: 1px solid {s.border_light};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px;
+                    border-radius: {dp(4)}px;
+                    margin-bottom: {dp(4)}px;
                 }}
             """)
             char_layout = QVBoxLayout(char_frame)
-            char_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+            char_layout.setContentsMargins(dp(10), dp(8), dp(10), dp(8))
             char_layout.setSpacing(dp(4))
 
-            # 角色名和角色定位
-            header_layout = QHBoxLayout()
+            # 角色名
             name_label = QLabel(name)
             name_label.setStyleSheet(f"""
-                font-family: {s.serif_font};
-                font-size: {sp(14)}px;
-                font-weight: bold;
-                color: {s.text_primary};
-            """)
-            header_layout.addWidget(name_label)
-
-            role = char.get('role', 'minor')
-            role_map = {
-                'protagonist': '主角',
-                'antagonist': '反派',
-                'supporting': '配角',
-                'minor': '次要',
-                'background': '背景',
-            }
-            role_text = role_map.get(role, role)
-            role_label = QLabel(role_text)
-            role_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.text_secondary};
-                background: {s.border_light};
-                padding: {dp(2)}px {dp(6)}px;
-                border-radius: {dp(4)}px;
+                font-size: {sp(13)}px;
+                font-weight: bold;
+                color: {s.accent_color};
+                background: transparent;
+                border: none;
             """)
-            header_layout.addWidget(role_label)
-            header_layout.addStretch()
-            char_layout.addLayout(header_layout)
+            char_layout.addWidget(name_label)
 
-            # 外观描述
-            appearance_zh = char.get('appearance_zh', '') or char.get('appearance', '')
-            if appearance_zh:
-                app_label = QLabel(f"外观: {appearance_zh}")
+            # 外貌描述
+            if isinstance(char_data, dict):
+                appearance = char_data.get('appearance', '')
+                role = char_data.get('role', '')
+                if role:
+                    role_label = QLabel(f"[{role}]")
+                    role_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(11)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    char_layout.addWidget(role_label)
+                if appearance:
+                    app_label = QLabel(appearance)
+                    app_label.setWordWrap(True)
+                    app_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(11)}px;
+                        color: {s.text_primary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    char_layout.addWidget(app_label)
+            elif isinstance(char_data, str):
+                app_label = QLabel(char_data)
                 app_label.setWordWrap(True)
                 app_label.setStyleSheet(f"""
                     font-family: {s.ui_font};
-                    font-size: {sp(12)}px;
-                    color: {s.text_secondary};
+                    font-size: {sp(11)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
                 """)
                 char_layout.addWidget(app_label)
 
-            # 性格
-            personality = char.get('personality', '')
-            if personality:
-                pers_label = QLabel(f"性格: {personality}")
-                pers_label.setWordWrap(True)
-                pers_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(12)}px;
-                    color: {s.text_secondary};
-                """)
-                char_layout.addWidget(pers_label)
-
             layout.addWidget(char_frame)
+        return frame
 
-        return group
-
-    def _create_events_section(self, events: List[dict]) -> QGroupBox:
-        """创建事件列表区域"""
+    def _create_events_widget(self, events: list) -> QFrame:
+        """创建事件列表展示"""
         s = self._styler
+        frame = self._create_section_frame(f"事件列表 ({len(events)})")
+        layout = frame.layout()
 
-        group = self._create_group_box(f"事件列表 ({len(events)})")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(8))
-
-        # 事件类型翻译
-        type_map = {
-            'dialogue': '对话',
-            'action': '动作',
-            'reaction': '反应',
-            'transition': '过渡',
-            'revelation': '揭示',
-            'conflict': '冲突',
-            'resolution': '解决',
-            'description': '描述',
-            'internal': '内心',
-        }
-
-        # 重要性颜色
-        importance_colors = {
-            'critical': s.error,
-            'high': s.warning,
-            'normal': s.text_primary,
-            'low': s.text_secondary,
-        }
-
-        for i, event in enumerate(events[:20]):  # 最多显示20个
+        for i, event in enumerate(events):
             event_frame = QFrame()
             event_frame.setStyleSheet(f"""
                 QFrame {{
-                    background: {s.bg_primary};
-                    border-left: 3px solid {importance_colors.get(event.get('importance', 'normal'), s.text_primary)};
-                    padding: {dp(4)}px {dp(8)}px;
+                    background: {s.bg_card};
+                    border-left: 3px solid {s.accent_color};
+                    border-radius: 0;
+                    margin-bottom: {dp(4)}px;
+                    padding-left: {dp(8)}px;
                 }}
             """)
             event_layout = QHBoxLayout(event_frame)
-            event_layout.setContentsMargins(dp(8), dp(4), dp(8), dp(4))
+            event_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
             event_layout.setSpacing(dp(8))
 
-            # 事件序号
-            index_label = QLabel(f"#{event.get('index', i+1)}")
-            index_label.setStyleSheet(f"""
+            # 序号
+            num_label = QLabel(f"{i+1}")
+            num_label.setFixedWidth(dp(24))
+            num_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            num_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
                 font-size: {sp(11)}px;
-                color: {s.text_secondary};
-                min-width: {dp(30)}px;
-            """)
-            event_layout.addWidget(index_label)
-
-            # 事件类型
-            event_type = type_map.get(event.get('type', 'description'), event.get('type', ''))
-            type_label = QLabel(event_type)
-            type_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
+                font-weight: bold;
                 color: {s.accent_color};
-                background: {s.primary_pale};
-                padding: {dp(1)}px {dp(4)}px;
-                border-radius: {dp(3)}px;
-                min-width: {dp(40)}px;
+                background: {s.bg_secondary};
+                border-radius: {dp(12)}px;
+                padding: {dp(2)}px;
             """)
-            type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            event_layout.addWidget(type_label)
+            event_layout.addWidget(num_label)
 
             # 事件描述
-            desc = event.get('description', '')
-            desc_label = QLabel(desc[:80] + "..." if len(desc) > 80 else desc)
+            if isinstance(event, dict):
+                desc = event.get('description', str(event))
+                importance = event.get('importance', '')
+                text = desc
+                if importance:
+                    text = f"[{importance}] {desc}"
+            else:
+                text = str(event)
+
+            desc_label = QLabel(text)
+            desc_label.setWordWrap(True)
             desc_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
-                font-size: {sp(12)}px;
+                font-size: {sp(11)}px;
                 color: {s.text_primary};
+                background: transparent;
+                border: none;
             """)
-            event_layout.addWidget(desc_label, stretch=1)
-
-            # 高潮标记
-            if event.get('is_climax'):
-                climax_label = QLabel("高潮")
-                climax_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: white;
-                    background: {s.error};
-                    padding: {dp(1)}px {dp(4)}px;
-                    border-radius: {dp(3)}px;
-                """)
-                event_layout.addWidget(climax_label)
+            event_layout.addWidget(desc_label, 1)
 
             layout.addWidget(event_frame)
+        return frame
 
-        if len(events) > 20:
-            more_label = QLabel(f"... 还有 {len(events) - 20} 个事件")
-            more_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.text_secondary};
-                padding: {dp(8)}px;
-            """)
-            more_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(more_label)
-
-        return group
-
-    def _create_scenes_section(self, scenes: List[dict]) -> QGroupBox:
-        """创建场景信息区域"""
+    def _create_dialogues_widget(self, dialogues: list) -> QFrame:
+        """创建对话列表展示"""
         s = self._styler
+        frame = self._create_section_frame(f"对话列表 ({len(dialogues)})")
+        layout = frame.layout()
 
-        group = self._create_group_box(f"场景信息 ({len(scenes)})")
-        layout = QGridLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(8))
+        for dialogue in dialogues:
+            dlg_frame = QFrame()
+            dlg_frame.setStyleSheet(f"""
+                QFrame {{
+                    background: {s.bg_card};
+                    border: 1px solid {s.border_light};
+                    border-radius: {dp(4)}px;
+                    margin-bottom: {dp(4)}px;
+                }}
+            """)
+            dlg_layout = QVBoxLayout(dlg_frame)
+            dlg_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+            dlg_layout.setSpacing(dp(2))
+
+            if isinstance(dialogue, dict):
+                speaker = dialogue.get('speaker', '???')
+                content = dialogue.get('content', '')
+                emotion = dialogue.get('emotion', '')
+
+                # 说话者
+                speaker_text = f"{speaker}"
+                if emotion:
+                    speaker_text += f" ({emotion})"
+                speaker_label = QLabel(speaker_text)
+                speaker_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(11)}px;
+                    font-weight: bold;
+                    color: {s.accent_color};
+                    background: transparent;
+                    border: none;
+                """)
+                dlg_layout.addWidget(speaker_label)
+
+                # 内容
+                content_label = QLabel(f'"{content}"')
+                content_label.setWordWrap(True)
+                content_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(11)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
+                    font-style: italic;
+                """)
+                dlg_layout.addWidget(content_label)
+            else:
+                label = QLabel(str(dialogue))
+                label.setWordWrap(True)
+                label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(11)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
+                """)
+                dlg_layout.addWidget(label)
+
+            layout.addWidget(dlg_frame)
+        return frame
+
+    def _create_scenes_widget(self, scenes: list) -> QFrame:
+        """创建场景列表展示"""
+        s = self._styler
+        frame = self._create_section_frame(f"场景列表 ({len(scenes)})")
+        layout = frame.layout()
 
         for i, scene in enumerate(scenes):
-            col = i % 2
-            row = i // 2
-
             scene_frame = QFrame()
             scene_frame.setStyleSheet(f"""
                 QFrame {{
-                    background: {s.bg_primary};
+                    background: {s.bg_card};
                     border: 1px solid {s.border_light};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px;
+                    border-radius: {dp(4)}px;
+                    margin-bottom: {dp(4)}px;
                 }}
             """)
             scene_layout = QVBoxLayout(scene_frame)
-            scene_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-            scene_layout.setSpacing(dp(4))
+            scene_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+            scene_layout.setSpacing(dp(2))
 
-            # 场景地点
-            location = scene.get('location', '未知地点')
-            location_label = QLabel(f"#{scene.get('index', i+1)} {location}")
-            location_label.setStyleSheet(f"""
-                font-family: {s.serif_font};
-                font-size: {sp(13)}px;
-                font-weight: bold;
-                color: {s.text_primary};
-            """)
-            scene_layout.addWidget(location_label)
+            if isinstance(scene, dict):
+                location = scene.get('location', f'场景 {i+1}')
+                description = scene.get('description', '')
+                time = scene.get('time', '')
+                atmosphere = scene.get('atmosphere', '')
 
-            # 场景属性
-            attrs = []
-            time_of_day = scene.get('time_of_day', '')
-            if time_of_day:
-                time_map = {
-                    'morning': '早晨', 'afternoon': '下午', 'evening': '傍晚',
-                    'night': '夜晚', 'dawn': '黎明', 'dusk': '黄昏', 'day': '白天'
-                }
-                attrs.append(time_map.get(time_of_day, time_of_day))
+                # 场景名/位置
+                header_text = location
+                if time:
+                    header_text += f" - {time}"
+                header_label = QLabel(header_text)
+                header_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(12)}px;
+                    font-weight: bold;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
+                """)
+                scene_layout.addWidget(header_label)
 
-            indoor_outdoor = scene.get('indoor_outdoor', '')
-            if indoor_outdoor:
-                attrs.append('室内' if indoor_outdoor == 'indoor' else '室外')
+                # 描述
+                if description:
+                    desc_label = QLabel(description)
+                    desc_label.setWordWrap(True)
+                    desc_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(11)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    scene_layout.addWidget(desc_label)
 
-            atmosphere = scene.get('atmosphere', '')
-            if atmosphere:
-                attrs.append(atmosphere)
-
-            if attrs:
-                attr_label = QLabel(" | ".join(attrs))
-                attr_label.setStyleSheet(f"""
+                # 氛围
+                if atmosphere:
+                    atm_label = QLabel(f"氛围: {atmosphere}")
+                    atm_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                        font-style: italic;
+                    """)
+                    scene_layout.addWidget(atm_label)
+            else:
+                label = QLabel(str(scene))
+                label.setWordWrap(True)
+                label.setStyleSheet(f"""
                     font-family: {s.ui_font};
                     font-size: {sp(11)}px;
-                    color: {s.text_secondary};
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
                 """)
-                scene_layout.addWidget(attr_label)
+                scene_layout.addWidget(label)
 
-            layout.addWidget(scene_frame, row, col)
+            layout.addWidget(scene_frame)
+        return frame
 
-        return group
-
-    def _create_mood_section(self, mood_progression: List[str]) -> QGroupBox:
-        """创建情绪曲线区域"""
+    def _create_items_widget(self, items: list) -> QFrame:
+        """创建物品列表展示"""
         s = self._styler
+        frame = self._create_section_frame(f"物品列表 ({len(items)})")
+        layout = frame.layout()
 
-        group = self._create_group_box("情绪曲线")
-        layout = QHBoxLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(4))
+        # 使用网格布局，每行2个
+        grid = QGridLayout()
+        grid.setSpacing(dp(6))
 
-        for i, mood in enumerate(mood_progression):
-            mood_label = QLabel(mood)
+        for i, item in enumerate(items):
+            item_label = QLabel()
+            if isinstance(item, dict):
+                name = item.get('name', '未知物品')
+                desc = item.get('description', '')
+                text = f"- {name}"
+                if desc:
+                    text += f": {desc}"
+            else:
+                text = f"- {item}"
+
+            item_label.setText(text)
+            item_label.setWordWrap(True)
+            item_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(11)}px;
+                color: {s.text_primary};
+                background: {s.bg_card};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(3)}px;
+                padding: {dp(4)}px {dp(8)}px;
+            """)
+            grid.addWidget(item_label, i // 2, i % 2)
+
+        layout.addLayout(grid)
+        return frame
+
+    def _create_mood_widget(self, mood: list, climax: list) -> QFrame:
+        """创建情绪曲线展示"""
+        s = self._styler
+        frame = self._create_section_frame("情绪与节奏")
+        layout = frame.layout()
+
+        if mood:
+            mood_text = " -> ".join(mood)
+            mood_label = QLabel(f"情绪曲线: {mood_text}")
+            mood_label.setWordWrap(True)
             mood_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
                 font-size: {sp(11)}px;
                 color: {s.text_primary};
-                background: {s.primary_pale};
-                padding: {dp(4)}px {dp(8)}px;
-                border-radius: {dp(4)}px;
+                background: transparent;
+                border: none;
             """)
             layout.addWidget(mood_label)
 
-            # 添加箭头（除了最后一个）
-            if i < len(mood_progression) - 1:
-                arrow_label = QLabel("->")
-                arrow_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(11)}px;
-                    color: {s.text_secondary};
-                """)
-                layout.addWidget(arrow_label)
+        if climax:
+            climax_text = ", ".join([f"事件{i+1}" for i in climax])
+            climax_label = QLabel(f"高潮事件: {climax_text}")
+            climax_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(11)}px;
+                color: {s.accent_color};
+                background: transparent;
+                border: none;
+            """)
+            layout.addWidget(climax_label)
 
-        layout.addStretch()
-        return group
+        return frame
 
-    def _create_page_plan_section(self, page_plan: dict) -> QGroupBox:
-        """创建页面规划区域"""
+    def _create_pages_plan_widget(self, pages: list) -> QFrame:
+        """创建页面规划展示（紧凑网格布局）"""
         s = self._styler
+        frame = self._create_section_frame(f"页面分配 ({len(pages)} 页)")
+        layout = frame.layout()
 
-        total_pages = page_plan.get('total_pages', 0)
-        climax_pages = page_plan.get('climax_pages', [])
-        pacing_notes = page_plan.get('pacing_notes', '')
+        # 使用网格布局，每行3个页面卡片
+        grid = QGridLayout()
+        grid.setSpacing(dp(6))
+        grid.setContentsMargins(0, 0, 0, 0)
 
-        group = self._create_group_box(f"页面规划 ({total_pages}页)")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(dp(12), dp(16), dp(12), dp(12))
-        layout.setSpacing(dp(12))
+        columns = 3  # 每行3个
 
-        # 节奏说明
-        if pacing_notes:
-            notes_label = QLabel(pacing_notes)
-            notes_label.setWordWrap(True)
-            notes_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(12)}px;
-                color: {s.text_secondary};
-                font-style: italic;
+        for i, page in enumerate(pages):
+            page_frame = QFrame()
+            page_frame.setStyleSheet(f"""
+                QFrame {{
+                    background: {s.bg_card};
+                    border: 1px solid {s.border_light};
+                    border-radius: {dp(4)}px;
+                }}
             """)
-            layout.addWidget(notes_label)
+            page_layout = QVBoxLayout(page_frame)
+            page_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
+            page_layout.setSpacing(dp(2))
 
-        # 高潮页码
-        if climax_pages:
-            climax_layout = QHBoxLayout()
-            climax_title = QLabel("高潮页码:")
-            climax_title.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(12)}px;
-                color: {s.text_primary};
-            """)
-            climax_layout.addWidget(climax_title)
+            if isinstance(page, dict):
+                page_num = page.get('page_number', '?')
+                event_indices = page.get('event_indices', [])
+                panel_count = page.get('suggested_panel_count', 0)
+                pacing = page.get('pacing', '')
+                focus = page.get('focus', '')
 
-            for page_num in climax_pages:
+                # 第一行：页码 + 画格数
+                header_layout = QHBoxLayout()
+                header_layout.setSpacing(dp(4))
+                header_layout.setContentsMargins(0, 0, 0, 0)
+
                 page_label = QLabel(f"P{page_num}")
                 page_label.setStyleSheet(f"""
                     font-family: {s.ui_font};
-                    font-size: {sp(11)}px;
-                    color: white;
-                    background: {s.error};
-                    padding: {dp(2)}px {dp(8)}px;
-                    border-radius: {dp(4)}px;
-                """)
-                climax_layout.addWidget(page_label)
-
-            climax_layout.addStretch()
-            layout.addLayout(climax_layout)
-
-        # 页面规划列表
-        pages = page_plan.get('pages', [])
-        if pages:
-            pages_grid = QGridLayout()
-            pages_grid.setSpacing(dp(8))
-
-            role_map = {
-                'opening': '开场',
-                'setup': '铺垫',
-                'rising': '上升',
-                'climax': '高潮',
-                'falling': '下降',
-                'resolution': '收尾',
-                'transition': '过渡',
-            }
-
-            pacing_map = {
-                'slow': '慢',
-                'medium': '中',
-                'fast': '快',
-                'explosive': '爆发',
-            }
-
-            for i, page in enumerate(pages[:12]):  # 最多显示12页
-                col = i % 4
-                row = i // 4
-
-                page_frame = QFrame()
-                role = page.get('role', 'setup')
-                is_climax = page.get('page_number') in climax_pages
-
-                bg_color = s.error if is_climax else s.bg_primary
-                border_color = s.error if is_climax else s.border_light
-
-                page_frame.setStyleSheet(f"""
-                    QFrame {{
-                        background: {bg_color if is_climax else s.bg_primary};
-                        border: 1px solid {border_color};
-                        border-radius: {dp(4)}px;
-                        padding: {dp(4)}px;
-                    }}
-                """)
-                page_layout = QVBoxLayout(page_frame)
-                page_layout.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
-                page_layout.setSpacing(dp(2))
-
-                # 页码
-                page_num_label = QLabel(f"P{page.get('page_number', i+1)}")
-                page_num_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                text_color = 'white' if is_climax else s.text_primary
-                page_num_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
                     font-size: {sp(12)}px;
                     font-weight: bold;
-                    color: {text_color};
+                    color: {s.accent_color};
+                    background: transparent;
+                    border: none;
                 """)
-                page_layout.addWidget(page_num_label)
+                header_layout.addWidget(page_label)
 
-                # 角色和节奏
-                role_text = role_map.get(role, role)
-                pacing = pacing_map.get(page.get('pacing', 'medium'), '')
-                info_label = QLabel(f"{role_text}/{pacing}")
-                info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                info_color = 'rgba(255,255,255,0.8)' if is_climax else s.text_secondary
-                info_label.setStyleSheet(f"""
+                if panel_count:
+                    panel_badge = QLabel(f"{panel_count}格")
+                    panel_badge.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(9)}px;
+                        color: {s.button_text};
+                        background: {s.accent_color};
+                        border-radius: {dp(6)}px;
+                        padding: {dp(1)}px {dp(4)}px;
+                    """)
+                    header_layout.addWidget(panel_badge)
+
+                if pacing:
+                    pacing_label = QLabel(pacing)
+                    pacing_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(9)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    header_layout.addWidget(pacing_label)
+
+                header_layout.addStretch()
+                page_layout.addLayout(header_layout)
+
+                # 第二行：事件索引（紧凑显示）
+                if event_indices:
+                    events_text = "E:" + ",".join([str(i+1) for i in event_indices])
+                    events_label = QLabel(events_text)
+                    events_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    page_layout.addWidget(events_label)
+
+                # 第三行：焦点（截断显示）
+                if focus:
+                    # 截断过长的焦点文本
+                    display_focus = focus[:20] + "..." if len(focus) > 20 else focus
+                    focus_label = QLabel(display_focus)
+                    focus_label.setToolTip(focus)  # 完整内容显示在提示框
+                    focus_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.text_primary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    page_layout.addWidget(focus_label)
+            else:
+                label = QLabel(str(page)[:30])
+                label.setStyleSheet(f"""
                     font-family: {s.ui_font};
-                    font-size: {sp(9)}px;
-                    color: {info_color};
+                    font-size: {sp(10)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
                 """)
-                page_layout.addWidget(info_label)
+                page_layout.addWidget(label)
 
-                pages_grid.addWidget(page_frame, row, col)
+            # 添加到网格
+            row = i // columns
+            col = i % columns
+            grid.addWidget(page_frame, row, col)
 
-            layout.addLayout(pages_grid)
+        layout.addLayout(grid)
+        return frame
 
-            if len(pages) > 12:
-                more_label = QLabel(f"... 还有 {len(pages) - 12} 页")
-                more_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(11)}px;
-                    color: {s.text_secondary};
-                """)
-                more_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                layout.addWidget(more_label)
+    def _create_section_frame(self, title: str) -> QFrame:
+        """创建通用的区块Frame"""
+        s = self._styler
 
-        return group
+        frame = QFrame()
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background: {s.bg_primary};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(4)}px;
+            }}
+        """)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(dp(10), dp(8), dp(10), dp(10))
+        layout.setSpacing(dp(6))
+
+        # 标题
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            font-weight: bold;
+            color: {s.accent_color};
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid {s.border_light};
+            padding-bottom: {dp(4)}px;
+            margin-bottom: {dp(4)}px;
+        """)
+        layout.addWidget(title_label)
+
+        return frame
+
+    def _create_json_text_edit(self, data: Any, max_height: int = None) -> QTextEdit:
+        """创建JSON文本展示控件"""
+        s = self._styler
+
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+
+        # 格式化JSON
+        try:
+            json_str = json.dumps(data, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            json_str = str(data)
+
+        text_edit.setPlainText(json_str)
+
+        # 样式
+        text_edit.setStyleSheet(f"""
+            QTextEdit {{
+                background: {s.bg_card};
+                color: {s.text_primary};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: {sp(11)}px;
+                line-height: 1.4;
+            }}
+            QScrollBar:vertical {{
+                width: {dp(6)}px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {s.border_light};
+                border-radius: {dp(3)}px;
+                min-height: {dp(20)}px;
+            }}
+        """)
+
+        # 根据内容动态调整高度
+        line_count = json_str.count('\n') + 1
+        line_height = sp(11) * 1.4
+        content_height = int(line_count * line_height + dp(20))
+
+        if max_height:
+            content_height = min(content_height, max_height)
+        else:
+            content_height = min(content_height, dp(400))
+
+        text_edit.setMinimumHeight(dp(100))
+        text_edit.setMaximumHeight(content_height)
+        text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        return text_edit

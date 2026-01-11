@@ -41,6 +41,7 @@ class CheckpointManager:
         checkpoint_data: dict,
         style: str,
         source_version_id: Optional[int],
+        analysis_data: Optional[dict] = None,
     ):
         """
         保存断点并提交事务
@@ -52,6 +53,7 @@ class CheckpointManager:
             checkpoint_data: 断点数据（包含 chapter_info, page_plan, storyboard）
             style: 漫画风格
             source_version_id: 源版本ID
+            analysis_data: 分析数据（用于详细信息Tab展示）
         """
         await self.manga_prompt_repo.save_checkpoint(
             chapter_id=chapter_id,
@@ -60,6 +62,7 @@ class CheckpointManager:
             checkpoint_data=checkpoint_data,
             style=style,
             source_version_id=source_version_id,
+            analysis_data=analysis_data,
         )
         await self.session.commit()
 

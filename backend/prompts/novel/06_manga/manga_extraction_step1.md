@@ -14,8 +14,7 @@ tags: manga, extraction, characters, events
 ### 1. 角色信息 (characters)
 为每个出场角色提取：
 - name: 角色名（中文）
-- appearance: 外观描述（英文，详细描述发型、服装、体型、年龄特征）
-- appearance_zh: 外观描述（中文）
+- appearance: 外观描述（中文，详细描述发型、服装、体型、年龄特征，用于漫画绘制）
 - personality: 性格特点（简短）
 - role: protagonist/antagonist/supporting/minor/background
 - gender: male/female/unknown
@@ -26,7 +25,6 @@ tags: manga, extraction, characters, events
 - index: 事件序号（从0开始）
 - type: dialogue/action/reaction/transition/revelation/conflict/resolution/description/internal
 - description: 事件描述（中文，简洁）
-- description_en: 事件描述（英文）
 - participants: 参与角色列表
 - importance: low/normal/high/critical
 - is_climax: 是否是高潮点（true/false）
@@ -38,8 +36,7 @@ tags: manga, extraction, characters, events
   "characters": {{
     "角色名": {{
       "name": "角色名",
-      "appearance": "English appearance...",
-      "appearance_zh": "中文外观...",
+      "appearance": "中文外观描述，详细描述发型、服装、体型、年龄特征",
       "personality": "性格",
       "role": "protagonist",
       "gender": "male",
@@ -51,7 +48,6 @@ tags: manga, extraction, characters, events
       "index": 0,
       "type": "dialogue",
       "description": "事件描述",
-      "description_en": "Event description",
       "participants": ["角色1", "角色2"],
       "importance": "normal",
       "is_climax": false

@@ -132,8 +132,7 @@ class ImportanceLevel(str, Enum):
 class CharacterInfo:
     """角色信息"""
     name: str
-    appearance: str                 # 英文外观描述（用于AI绘图）
-    appearance_zh: str = ""         # 中文外观描述（用于理解）
+    appearance: str = ""            # 外观描述（中文）
     personality: str = ""           # 性格特点
     role: CharacterRole = CharacterRole.MINOR
     first_appearance_event: int = 0 # 首次出现的事件索引
@@ -146,7 +145,6 @@ class CharacterInfo:
         return {
             "name": self.name,
             "appearance": self.appearance,
-            "appearance_zh": self.appearance_zh,
             "personality": self.personality,
             "role": self.role.value,
             "first_appearance_event": self.first_appearance_event,
@@ -161,7 +159,6 @@ class CharacterInfo:
         return cls(
             name=data.get("name", ""),
             appearance=data.get("appearance", ""),
-            appearance_zh=data.get("appearance_zh", ""),
             personality=data.get("personality", ""),
             role=CharacterRole.from_string(data.get("role", "minor")),
             first_appearance_event=data.get("first_appearance_event", 0),
@@ -219,7 +216,6 @@ class SceneInfo:
     """场景信息"""
     index: int                      # 场景索引
     location: str                   # 地点
-    location_en: str = ""           # 英文地点描述
     time_of_day: str = "day"        # 时间: morning/afternoon/evening/night/dawn/dusk
     atmosphere: str = ""            # 氛围
     weather: Optional[str] = None   # 天气
@@ -233,7 +229,6 @@ class SceneInfo:
         return {
             "index": self.index,
             "location": self.location,
-            "location_en": self.location_en,
             "time_of_day": self.time_of_day,
             "atmosphere": self.atmosphere,
             "weather": self.weather,
@@ -249,7 +244,6 @@ class SceneInfo:
         return cls(
             index=data.get("index", 0),
             location=data.get("location", ""),
-            location_en=data.get("location_en", ""),
             time_of_day=data.get("time_of_day", "day"),
             atmosphere=data.get("atmosphere", ""),
             weather=data.get("weather"),
@@ -266,7 +260,6 @@ class EventInfo:
     index: int                      # 事件索引
     type: EventType                 # 事件类型
     description: str                # 事件描述
-    description_en: str = ""        # 英文描述
     participants: List[str] = field(default_factory=list)  # 参与角色
     scene_index: int = 0            # 所属场景索引
     importance: ImportanceLevel = ImportanceLevel.NORMAL
@@ -282,7 +275,6 @@ class EventInfo:
             "index": self.index,
             "type": self.type.value,
             "description": self.description,
-            "description_en": self.description_en,
             "participants": self.participants,
             "scene_index": self.scene_index,
             "importance": self.importance.value,
@@ -300,7 +292,6 @@ class EventInfo:
             index=data.get("index", 0),
             type=EventType.from_string(data.get("type", "description")),
             description=data.get("description", ""),
-            description_en=data.get("description_en", ""),
             participants=data.get("participants", []),
             scene_index=data.get("scene_index", 0),
             importance=ImportanceLevel.from_string(data.get("importance", "normal")),
@@ -316,9 +307,7 @@ class EventInfo:
 class ItemInfo:
     """物品信息"""
     name: str                       # 物品名
-    name_en: str = ""               # 英文名
     description: str = ""           # 描述
-    description_en: str = ""        # 英文描述（用于绘图）
     importance: str = "prop"        # prop/key_item/mcguffin
     first_appearance_event: int = 0 # 首次出现的事件索引
     visual_features: str = ""       # 视觉特征
@@ -327,9 +316,7 @@ class ItemInfo:
         """转换为字典"""
         return {
             "name": self.name,
-            "name_en": self.name_en,
             "description": self.description,
-            "description_en": self.description_en,
             "importance": self.importance,
             "first_appearance_event": self.first_appearance_event,
             "visual_features": self.visual_features,
@@ -340,9 +327,7 @@ class ItemInfo:
         """从字典创建"""
         return cls(
             name=data.get("name", ""),
-            name_en=data.get("name_en", ""),
             description=data.get("description", ""),
-            description_en=data.get("description_en", ""),
             importance=data.get("importance", "prop"),
             first_appearance_event=data.get("first_appearance_event", 0),
             visual_features=data.get("visual_features", ""),
@@ -358,7 +343,6 @@ class ChapterInfo:
     events: List[EventInfo] = field(default_factory=list)
     items: List[ItemInfo] = field(default_factory=list)
     chapter_summary: str = ""           # 章节摘要
-    chapter_summary_en: str = ""        # 英文摘要
     mood_progression: List[str] = field(default_factory=list)  # 情绪变化轨迹
     climax_event_indices: List[int] = field(default_factory=list)  # 高潮事件索引
     total_estimated_pages: int = 0      # 预估页数
@@ -372,7 +356,6 @@ class ChapterInfo:
             "events": [e.to_dict() for e in self.events],
             "items": [i.to_dict() for i in self.items],
             "chapter_summary": self.chapter_summary,
-            "chapter_summary_en": self.chapter_summary_en,
             "mood_progression": self.mood_progression,
             "climax_event_indices": self.climax_event_indices,
             "total_estimated_pages": self.total_estimated_pages,
@@ -396,7 +379,6 @@ class ChapterInfo:
             events=[EventInfo.from_dict(e) for e in data.get("events", [])],
             items=[ItemInfo.from_dict(i) for i in data.get("items", [])],
             chapter_summary=data.get("chapter_summary", ""),
-            chapter_summary_en=data.get("chapter_summary_en", ""),
             mood_progression=data.get("mood_progression", []),
             climax_event_indices=data.get("climax_event_indices", []),
             total_estimated_pages=data.get("total_estimated_pages", 0),

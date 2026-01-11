@@ -26,9 +26,10 @@ class MangaMixin:
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
         force_restart: bool = False,
+        start_from_stage: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        生成章节的漫画分镜（支持断点续传）
+        生成章节的漫画分镜（支持断点续传和指定起始阶段）
 
         基于页面驱动的4步流水线：
         1. 信息提取 - 提取角色、对话、事件、场景
@@ -48,6 +49,7 @@ class MangaMixin:
             use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
             force_restart: 是否强制从头开始，忽略断点
+            start_from_stage: 指定从哪个阶段开始 (extraction/planning/storyboard/prompt_building)
 
         Returns:
             漫画分镜结果，包含：
@@ -68,6 +70,10 @@ class MangaMixin:
             'auto_generate_portraits': auto_generate_portraits,
             'force_restart': force_restart,
         }
+
+        # 只有指定了起始阶段才添加到请求中
+        if start_from_stage:
+            payload['start_from_stage'] = start_from_stage
 
         return self._request(
             'POST',
@@ -135,7 +141,7 @@ class MangaMixin:
 
         Returns:
             进度信息，包含：
-            - status: 状态 (pending/extracting/expanding/completed)
+            - status: 状态 (pending/extracting/expanding/completed/cancelled)
             - stage: 当前阶段
             - current: 当前进度
             - total: 总数
@@ -145,6 +151,30 @@ class MangaMixin:
         return self._request(
             'GET',
             f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/progress',
+        )
+
+    def cancel_manga_prompt_generation(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ) -> Dict[str, Any]:
+        """
+        取消漫画分镜生成
+
+        将生成状态设置为 cancelled，正在进行的生成任务会在下次检查点时停止。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+
+        Returns:
+            取消结果，包含：
+            - success: 是否成功
+            - message: 结果消息
+        """
+        return self._request(
+            'POST',
+            f'/api/writer/novels/{project_id}/chapters/{chapter_number}/manga-prompts/cancel',
         )
 
     def preview_image_prompt(

@@ -2,6 +2,7 @@
 分镜设计器
 
 为每个页面设计详细的分镜。
+简化版：使用简单的横框/竖框布局。
 """
 
 import json
@@ -19,7 +20,10 @@ from .models import (
     PanelDesign,
     StoryboardResult,
     DialogueBubble,
-    SoundEffect,
+    PanelShape,
+    ShotType,
+    WidthRatio,
+    AspectRatio,
 )
 from .prompts import PROMPT_NAME, STORYBOARD_DESIGN_PROMPT, STORYBOARD_SYSTEM_PROMPT
 
@@ -32,13 +36,12 @@ logger = logging.getLogger(__name__)
 
 class StoryboardDesigner:
     """
-    分镜设计器
+    分镜设计器（简化版）
 
-    为每个页面设计详细的分镜：
-    - 确定每格的镜头类型和大小
-    - 分配对话和音效
+    为每个页面设计简单的分镜布局：
+    - 使用横框/竖框/方框组合
+    - 分配对话
     - 描述视觉内容
-    - 生成英文描述用于AI绘图
     """
 
     def __init__(
@@ -177,7 +180,6 @@ class StoryboardDesigner:
             pages=pages,
             total_pages=total_pages,
             total_panels=total_panels,
-            style_notes="",
         )
 
     async def design_all_pages_with_checkpoint(
@@ -259,7 +261,6 @@ class StoryboardDesigner:
             pages=pages,
             total_pages=total_pages,
             total_panels=total_panels,
-            style_notes="",
         )
 
         return result, designed_data
@@ -307,11 +308,7 @@ class StoryboardDesigner:
                     "index": event.index,
                     "type": event.type.value,
                     "description": event.description,
-                    "description_en": event.description_en,
                     "participants": event.participants,
-                    "importance": event.importance.value,
-                    "is_climax": event.is_climax,
-                    "emotional_tone": event.emotion_tone,
                 })
 
         # 收集页面相关的对话
@@ -321,8 +318,6 @@ class StoryboardDesigner:
                 dialogues_data.append({
                     "speaker": dialogue.speaker,
                     "content": dialogue.content,
-                    "emotion": dialogue.emotion.value,
-                    "is_internal": dialogue.is_internal,
                 })
 
         # 收集页面出场角色信息
@@ -331,32 +326,22 @@ class StoryboardDesigner:
             char_info = chapter_info.characters.get(char_name)
             if char_info:
                 characters_data[char_name] = {
-                    "role": char_info.role.value,
                     "appearance": char_info.appearance,
-                    "appearance_zh": char_info.appearance_zh,
-                    "personality": char_info.personality,
                 }
 
-        # 收集页面相关的场景信息（根据事件所属场景）
+        # 收集页面相关的场景信息
         scene_indices = set()
         for idx in page_plan.event_indices:
             event = chapter_info.get_event_by_index(idx)
             if event:
                 scene_indices.add(event.scene_index)
 
-        scenes_data = []
+        scene_context = ""
         for scene_idx in scene_indices:
             if scene_idx < len(chapter_info.scenes):
                 scene = chapter_info.scenes[scene_idx]
-                scenes_data.append({
-                    "location": scene.location,
-                    "location_en": scene.location_en,
-                    "time_of_day": scene.time_of_day,
-                    "atmosphere": scene.atmosphere,
-                    "lighting": scene.lighting,
-                    "weather": scene.weather,
-                    "indoor_outdoor": scene.indoor_outdoor,
-                })
+                scene_context = f"场景: {scene.location}, 时间: {scene.time_of_day}"
+                break
 
         # 上一格信息
         prev_panel_str = "无（本章第一页）"
@@ -366,26 +351,21 @@ class StoryboardDesigner:
         # 计算分镜数量范围
         suggested = page_plan.suggested_panel_count
         min_panels = max(2, suggested - 1)
-        max_panels = min(7, suggested + 2)
+        max_panels = min(6, suggested + 1)
 
-        # 构建场景上下文字符串
-        scene_context = ""
-        if scenes_data:
-            scene = scenes_data[0]  # 通常一页主要在一个场景
-            scene_context = (
-                f"场景: {scene.get('location', '')} ({scene.get('location_en', '')}), "
-                f"时间: {scene.get('time_of_day', 'day')}, "
-                f"光线: {scene.get('lighting', 'natural')}, "
-                f"氛围: {scene.get('atmosphere', '')}"
-            )
-            if scene.get('weather'):
-                scene_context += f", 天气: {scene['weather']}"
+        # 推断页面角色和节奏（简化版不使用，提供默认值兼容完整版提示词模板）
+        page_role = "standard"
+        pacing = "medium"
+        if page_plan.has_action:
+            page_role = "action"
+            pacing = "fast"
+        elif page_plan.has_dialogue:
+            page_role = "dialogue"
+            pacing = "slow"
 
         return prompt_template.format(
             page_number=page_plan.page_number,
             total_pages=total_pages,
-            page_role=page_plan.role.value,
-            pacing=page_plan.pacing.value,
             events_json=json.dumps(events_data, ensure_ascii=False, indent=2),
             dialogues_json=json.dumps(dialogues_data, ensure_ascii=False, indent=2),
             characters_json=json.dumps(characters_data, ensure_ascii=False, indent=2),
@@ -393,7 +373,9 @@ class StoryboardDesigner:
             previous_panel=prev_panel_str,
             min_panels=min_panels,
             max_panels=max_panels,
-            scene_context=scene_context,  # 新增场景上下文
+            scene_context=scene_context,
+            page_role=page_role,
+            pacing=pacing,
         )
 
     async def _get_system_prompt(self) -> str:
@@ -403,39 +385,25 @@ class StoryboardDesigner:
     def _parse_storyboard(self, data: dict, page_number: int) -> PageStoryboard:
         """解析LLM返回的分镜设计（简化版）"""
         panels = []
-        panels_data = data.get("panels") or []  # 确保不是 None
+        panels_data = data.get("panels") or []
 
         for p in panels_data:
             if not isinstance(p, dict):
                 continue
 
-            # 解析对话（确保不是 None）
-            dialogues_data = p.get("dialogues") or []
-            dialogues = [
-                DialogueBubble.from_dict(d) for d in dialogues_data
-                if isinstance(d, dict)
-            ]
-
-            # 解析音效（确保不是 None）
-            sound_effects_data = p.get("sound_effects") or []
-            sound_effects = [
-                SoundEffect.from_dict(s) for s in sound_effects_data
-                if isinstance(s, dict)
-            ]
-
-            # from_dict 会自动根据 importance 设置 layout_slot 和 aspect_ratio
             panel = PanelDesign.from_dict(p)
-            panel.dialogues = dialogues
-            panel.sound_effects = sound_effects
             panels.append(panel)
+
+        # 解析间隙配置（如果LLM返回了的话，否则使用默认值）
+        gutter_h = data.get("gutter_horizontal", 8)
+        gutter_v = data.get("gutter_vertical", 8)
 
         return PageStoryboard(
             page_number=page_number,
             panels=panels,
-            page_purpose=data.get("page_purpose") or "",
-            reading_flow=data.get("reading_flow") or "left_to_right",
-            visual_rhythm=data.get("visual_rhythm") or "",
             layout_description=data.get("layout_description") or "",
+            gutter_horizontal=gutter_h,
+            gutter_vertical=gutter_v,
         )
 
     def _fallback_design(
@@ -446,22 +414,6 @@ class StoryboardDesigner:
         """回退设计（LLM失败时使用）- 简化版"""
         panels = []
         panel_count = page_plan.suggested_panel_count
-
-        # 重要性到布局槽位和宽高比的映射
-        importance_to_slot = {
-            "hero": "full_row",
-            "major": "half_row",
-            "standard": "third_row",
-            "minor": "quarter_row",
-            "micro": "quarter_row",
-        }
-        importance_to_aspect = {
-            "hero": "16:9",
-            "major": "4:3",
-            "standard": "1:1",
-            "minor": "1:1",
-            "micro": "1:1",
-        }
 
         # 收集页面的对话
         all_dialogues = []
@@ -478,25 +430,24 @@ class StoryboardDesigner:
         # 分配对话到各格
         dialogues_per_panel = max(1, len(all_dialogues) // panel_count) if all_dialogues else 0
 
+        # 简单行布局：每2个画格一行
+        current_row = 1
+        panels_in_current_row = 0
+
         for i in range(panel_count):
-            # 确定镜头类型（交替使用）
-            shot_types = ["medium", "close_up", "long", "over_shoulder"]
+            # 确定镜头类型和形状（交替使用）
+            shot_types = ["medium", "close_up", "long"]
+            shapes = ["horizontal", "vertical", "square"]
+            aspect_ratios = ["4:3", "1:1", "16:9"]  # 与shapes对应
             shot_type = shot_types[i % len(shot_types)]
+            shape = shapes[i % len(shapes)]
+            aspect_ratio = aspect_ratios[i % len(aspect_ratios)]
 
-            # 确定大小和重要性（简化版）
-            if i == 0 and page_plan.role.value == "opening":
-                size = "large"
-                importance = "major"
-            elif page_plan.role.value == "climax" and i == panel_count // 2:
-                size = "large"
-                importance = "major"
-            else:
-                size = "medium"
-                importance = "standard"
-
-            # 根据重要性计算布局槽位和宽高比
-            layout_slot = importance_to_slot.get(importance, "third_row")
-            aspect_ratio = importance_to_aspect.get(importance, "4:3")
+            # 计算行号：每2个画格一行
+            if panels_in_current_row >= 2:
+                current_row += 1
+                panels_in_current_row = 0
+            panels_in_current_row += 1
 
             # 分配对话
             panel_dialogues = []
@@ -507,44 +458,33 @@ class StoryboardDesigner:
                     panel_dialogues.append(DialogueBubble(
                         speaker=d.speaker,
                         content=d.content,
-                        bubble_type="normal",
-                        position="top_right",
-                        emotion=d.emotion.value,
                     ))
 
             # 生成描述
             event_desc = events[min(i, len(events) - 1)].description if events else page_plan.content_summary
-            event_desc_en = events[min(i, len(events) - 1)].description_en if events else ""
-
-            # 构建基础英文描述（回退时比较简单）
-            base_en = event_desc_en[:200] if event_desc_en else f"Scene from page {page_plan.page_number}"
-            visual_en = f"manga style, black and white, {shot_type} shot, {base_en}"
 
             panel = PanelDesign(
                 panel_id=i + 1,
-                importance=importance,
-                layout_slot=layout_slot,
-                aspect_ratio=aspect_ratio,
-                visual_description=event_desc[:100],
-                visual_description_en=visual_en,
+                row_id=current_row,
+                row_span=1,  # 回退设计不使用跨行
+                shape=PanelShape.from_string(shape),
+                shot_type=ShotType.from_string(shot_type),
+                width_ratio=WidthRatio.HALF,  # 默认半宽，两个并排
+                aspect_ratio=AspectRatio.from_string(aspect_ratio),
+                visual_description=event_desc[:200],
                 characters=page_plan.key_characters[:3],
                 dialogues=panel_dialogues,
                 event_indices=page_plan.event_indices[:1] if page_plan.event_indices else [],
             )
-            # 设置枚举值
-            from .models import PanelSize, ShotType
-            panel.size = PanelSize.from_string(size)
-            panel.shot_type = ShotType.from_string(shot_type)
 
             panels.append(panel)
 
         return PageStoryboard(
             page_number=page_plan.page_number,
             panels=panels,
-            page_purpose=page_plan.content_summary,
-            reading_flow="left_to_right",
-            visual_rhythm="fallback: standard rhythm",
-            layout_description="fallback: grid layout",
+            layout_description="fallback: 每行2格并排布局",
+            gutter_horizontal=8,
+            gutter_vertical=8,
         )
 
 __all__ = [

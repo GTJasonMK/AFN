@@ -7,7 +7,7 @@
 
 from typing import Optional
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox, QCheckBox
+    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox, QCheckBox, QMenu
 )
 from PyQt6.QtCore import Qt
 
@@ -31,6 +31,7 @@ class ToolbarMixin:
         self._toolbar_generate_btn: Optional[QPushButton] = None
         self._toolbar_spinner: Optional[CircularSpinner] = None
         self._toolbar_loading_label: Optional[QLabel] = None
+        self._toolbar_stop_btn: Optional[QPushButton] = None  # 停止按钮
         self._sub_tab_widget = None
         self._restore_timer = None  # 恢复状态的定时器
         # 一键生成所有图片相关状态
@@ -38,6 +39,7 @@ class ToolbarMixin:
         self._generate_all_btn_stack: Optional[QStackedWidget] = None
         self._generate_all_spinner: Optional[CircularSpinner] = None
         self._generate_all_progress_label: Optional[QLabel] = None
+        self._generate_all_stop_btn: Optional[QPushButton] = None  # 批量生成停止按钮
         self._generate_all_restore_timer = None
 
     def _create_toolbar(self, has_content: bool, can_resume: bool = False, resume_progress: dict = None) -> QFrame:
@@ -60,13 +62,12 @@ class ToolbarMixin:
                 background-color: {s.bg_card};
                 border: 1px solid {s.border_light};
                 border-radius: {dp(6)}px;
-                padding: {dp(6)}px;
             }}
         """)
 
         # 使用垂直布局，分两行显示
         main_layout = QVBoxLayout(toolbar)
-        main_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
+        main_layout.setContentsMargins(dp(12), dp(10), dp(12), dp(12))
         main_layout.setSpacing(dp(10))
 
         # ==================== 第一行：配置选项 ====================
@@ -85,7 +86,7 @@ class ToolbarMixin:
         self._style_combo = QComboBox()
         self._style_combo.addItems(["漫画", "动漫", "美漫", "条漫"])
         self._style_combo.setStyleSheet(self._get_combo_style())
-        self._style_combo.setFixedWidth(dp(72))
+        self._style_combo.setMinimumWidth(dp(80))
         config_row.addWidget(self._style_combo)
 
         # 语言选择
@@ -100,7 +101,7 @@ class ToolbarMixin:
         self._language_combo = QComboBox()
         self._language_combo.addItems(["中文", "日语", "英语", "韩语"])
         self._language_combo.setStyleSheet(self._get_combo_style())
-        self._language_combo.setFixedWidth(dp(68))
+        self._language_combo.setMinimumWidth(dp(76))
         self._language_combo.setToolTip("对话、旁白和音效的语言")
         config_row.addWidget(self._language_combo)
 
@@ -117,7 +118,7 @@ class ToolbarMixin:
         self._min_pages_spin.setRange(3, 20)
         self._min_pages_spin.setValue(8)
         self._min_pages_spin.setStyleSheet(self._get_spin_style())
-        self._min_pages_spin.setFixedWidth(dp(50))
+        self._min_pages_spin.setMinimumWidth(dp(56))
         self._min_pages_spin.setToolTip("最少页数")
         config_row.addWidget(self._min_pages_spin)
 
@@ -133,7 +134,7 @@ class ToolbarMixin:
         self._max_pages_spin.setRange(5, 30)
         self._max_pages_spin.setValue(15)
         self._max_pages_spin.setStyleSheet(self._get_spin_style())
-        self._max_pages_spin.setFixedWidth(dp(50))
+        self._max_pages_spin.setMinimumWidth(dp(56))
         self._max_pages_spin.setToolTip("最多页数")
         config_row.addWidget(self._max_pages_spin)
 
@@ -206,9 +207,9 @@ class ToolbarMixin:
 
         # ==================== 第二行：操作按钮 ====================
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(dp(12))
+        btn_row.setSpacing(dp(8))
 
-        # 生成按钮容器
+        # 生成按钮容器（XS按钮需要足够空间）
         self._toolbar_btn_stack = QStackedWidget()
         self._toolbar_btn_stack.setFixedHeight(dp(32))
 
@@ -217,25 +218,45 @@ class ToolbarMixin:
         btn_container.setStyleSheet("background: transparent;")
         btn_layout = QHBoxLayout(btn_container)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(dp(8))
+        btn_layout.setSpacing(dp(6))
 
         if has_content:
-            # 已有内容：显示重新生成按钮
-            self._toolbar_generate_btn = QPushButton("重新生成漫画分镜")
+            # 已有内容：显示重新生成按钮（带下拉菜单）
+            self._toolbar_generate_btn = QPushButton("重新生成")
             self._toolbar_generate_btn.setObjectName("manga_regenerate_btn")
-            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('XS'))
             self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._toolbar_generate_btn.setMinimumWidth(dp(90))
-            self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
+
+            # 创建下拉菜单
+            regenerate_menu = QMenu(self._toolbar_generate_btn)
+            regenerate_menu.setStyleSheet(self._get_menu_style())
+
+            # 菜单项
+            action_full = regenerate_menu.addAction("完整重新生成")
+            action_full.setToolTip("从头开始，重新提取信息、规划、分镜")
+            action_full.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="extraction"))
+
+            action_planning = regenerate_menu.addAction("从规划开始 (保留信息提取)")
+            action_planning.setToolTip("保留已提取的角色、对话等信息，重新规划页面")
+            action_planning.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="planning"))
+
+            action_storyboard = regenerate_menu.addAction("从分镜开始 (保留规划)")
+            action_storyboard.setToolTip("保留页面规划，只重新设计分镜布局")
+            action_storyboard.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="storyboard"))
+
+            action_prompt = regenerate_menu.addAction("仅重新构建提示词")
+            action_prompt.setToolTip("保留分镜设计，只重新生成提示词文本")
+            action_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="prompt_building"))
+
+            self._toolbar_generate_btn.setMenu(regenerate_menu)
             btn_layout.addWidget(self._toolbar_generate_btn)
         elif can_resume:
             # 有断点：显示两个按钮 - 从头生成 和 继续生成
             # 从头生成按钮
             restart_btn = QPushButton("从头生成")
             restart_btn.setObjectName("manga_restart_btn")
-            restart_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+            restart_btn.setStyleSheet(ButtonStyles.secondary('XS'))
             restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            restart_btn.setMinimumWidth(dp(80))
             restart_btn.setToolTip("忽略断点，重新开始生成漫画分镜")
             restart_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
             btn_layout.addWidget(restart_btn)
@@ -258,29 +279,26 @@ class ToolbarMixin:
 
             self._toolbar_generate_btn = QPushButton(btn_text)
             self._toolbar_generate_btn.setObjectName("manga_resume_btn")
-            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.warning('SM'))
+            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.warning('XS'))
             self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._toolbar_generate_btn.setMinimumWidth(dp(90))
             self._toolbar_generate_btn.setToolTip("从上次中断的位置继续生成")
             self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=False))
             btn_layout.addWidget(self._toolbar_generate_btn)
         else:
             # 无内容：显示生成分镜按钮
-            self._toolbar_generate_btn = QPushButton("生成漫画分镜")
+            self._toolbar_generate_btn = QPushButton("生成分镜")
             self._toolbar_generate_btn.setObjectName("manga_generate_btn")
-            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
+            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('XS'))
             self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._toolbar_generate_btn.setMinimumWidth(dp(90))
             self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=False))
             btn_layout.addWidget(self._toolbar_generate_btn)
 
         # 删除按钮（仅当有内容时显示）
         if has_content:
-            delete_btn = QPushButton("删除分镜")
+            delete_btn = QPushButton("删除")
             delete_btn.setObjectName("manga_delete_btn")
             delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            delete_btn.setStyleSheet(ButtonStyles.danger('SM'))
-            delete_btn.setMinimumWidth(dp(80))
+            delete_btn.setStyleSheet(ButtonStyles.danger('XS'))
             if self._on_delete:
                 delete_btn.clicked.connect(self._on_delete)
             btn_layout.addWidget(delete_btn)
@@ -291,20 +309,30 @@ class ToolbarMixin:
         loading_container = QWidget()
         loading_container.setStyleSheet("background: transparent;")
         loading_layout = QHBoxLayout(loading_container)
-        loading_layout.setContentsMargins(dp(8), 0, dp(8), 0)
-        loading_layout.setSpacing(dp(8))
+        loading_layout.setContentsMargins(dp(6), 0, dp(6), 0)
+        loading_layout.setSpacing(dp(6))
 
-        self._toolbar_spinner = CircularSpinner(size=dp(20), color=s.accent_color, auto_start=False)
+        self._toolbar_spinner = CircularSpinner(size=dp(16), color=s.accent_color, auto_start=False)
         loading_layout.addWidget(self._toolbar_spinner)
 
         self._toolbar_loading_label = QLabel("生成中...")
         self._toolbar_loading_label.setStyleSheet(f"""
             font-family: {s.ui_font};
-            font-size: {sp(12)}px;
+            font-size: {sp(11)}px;
             color: {s.accent_color};
             font-weight: 500;
         """)
         loading_layout.addWidget(self._toolbar_loading_label)
+
+        # 停止按钮
+        self._toolbar_stop_btn = QPushButton("停止")
+        self._toolbar_stop_btn.setObjectName("manga_stop_btn")
+        self._toolbar_stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toolbar_stop_btn.setStyleSheet(ButtonStyles.danger('XS'))
+        self._toolbar_stop_btn.setFixedWidth(dp(50))
+        self._toolbar_stop_btn.clicked.connect(self._on_stop_generate_clicked)
+        loading_layout.addWidget(self._toolbar_stop_btn)
+
         loading_layout.addStretch()
 
         self._toolbar_btn_stack.addWidget(loading_container)
@@ -323,13 +351,13 @@ class ToolbarMixin:
             gen_all_btn_layout = QHBoxLayout(gen_all_btn_container)
             gen_all_btn_layout.setContentsMargins(0, 0, 0, 0)
 
-            self._generate_all_btn = QPushButton("一键生成图片")
+            self._generate_all_btn = QPushButton("生成全部图片")
             self._generate_all_btn.setObjectName("generate_all_images_btn")
             self._generate_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._generate_all_btn.setStyleSheet(ButtonStyles.secondary('SM'))
-            self._generate_all_btn.setMinimumWidth(dp(100))
+            self._generate_all_btn.setStyleSheet(ButtonStyles.secondary('XS'))
             self._generate_all_btn.clicked.connect(self._on_generate_all_clicked)
             gen_all_btn_layout.addWidget(self._generate_all_btn)
+            gen_all_btn_layout.addStretch()  # 防止按钮被拉伸
 
             self._generate_all_btn_stack.addWidget(gen_all_btn_container)
 
@@ -337,10 +365,10 @@ class ToolbarMixin:
             gen_all_progress_container = QWidget()
             gen_all_progress_container.setStyleSheet("background: transparent;")
             gen_all_progress_layout = QHBoxLayout(gen_all_progress_container)
-            gen_all_progress_layout.setContentsMargins(dp(8), 0, dp(8), 0)
-            gen_all_progress_layout.setSpacing(dp(6))
+            gen_all_progress_layout.setContentsMargins(dp(6), 0, dp(6), 0)
+            gen_all_progress_layout.setSpacing(dp(4))
 
-            self._generate_all_spinner = CircularSpinner(size=dp(18), color=s.accent_color, auto_start=False)
+            self._generate_all_spinner = CircularSpinner(size=dp(14), color=s.accent_color, auto_start=False)
             gen_all_progress_layout.addWidget(self._generate_all_spinner)
 
             self._generate_all_progress_label = QLabel("生成中 0/0")
@@ -351,14 +379,23 @@ class ToolbarMixin:
                 font-weight: 500;
             """)
             gen_all_progress_layout.addWidget(self._generate_all_progress_label)
+
+            # 批量生成停止按钮
+            self._generate_all_stop_btn = QPushButton("停止")
+            self._generate_all_stop_btn.setObjectName("generate_all_stop_btn")
+            self._generate_all_stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._generate_all_stop_btn.setStyleSheet(ButtonStyles.danger('XS'))
+            self._generate_all_stop_btn.setFixedWidth(dp(50))
+            self._generate_all_stop_btn.clicked.connect(self._on_stop_generate_all_clicked)
+            gen_all_progress_layout.addWidget(self._generate_all_stop_btn)
+
             gen_all_progress_layout.addStretch()
 
             self._generate_all_btn_stack.addWidget(gen_all_progress_container)
             self._generate_all_btn_stack.setCurrentIndex(0)
 
-            btn_row.addWidget(self._generate_all_btn_stack)
+            btn_row.addWidget(self._generate_all_btn_stack, stretch=1)  # 让这个容器占用剩余空间
 
-        btn_row.addStretch()
         main_layout.addLayout(btn_row)
 
         return toolbar
@@ -412,11 +449,40 @@ class ToolbarMixin:
             }}
         """
 
-    def _on_generate_clicked(self, force_restart: bool = False):
+    def _get_menu_style(self) -> str:
+        """获取下拉菜单统一样式"""
+        s = self._styler
+        return f"""
+            QMenu {{
+                background-color: {s.bg_card};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(4)}px;
+                padding: {dp(4)}px;
+            }}
+            QMenu::item {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_primary};
+                padding: {dp(6)}px {dp(12)}px;
+                border-radius: {dp(3)}px;
+            }}
+            QMenu::item:selected {{
+                background-color: {s.accent_color};
+                color: {s.button_text};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {s.border_light};
+                margin: {dp(4)}px {dp(8)}px;
+            }}
+        """
+
+    def _on_generate_clicked(self, force_restart: bool = False, start_from_stage: Optional[str] = None):
         """生成按钮点击处理
 
         Args:
             force_restart: 是否强制从头开始，忽略断点
+            start_from_stage: 指定从哪个阶段开始（extraction/planning/storyboard/prompt_building）
         """
         if self._on_generate and self._style_combo and self._min_pages_spin and self._max_pages_spin:
             style_map = {
@@ -446,7 +512,7 @@ class ToolbarMixin:
 
             self._on_generate(
                 style, min_pages, max_pages, language,
-                use_portraits, auto_generate_portraits, force_restart
+                use_portraits, auto_generate_portraits, force_restart, start_from_stage
             )
 
     # ==================== 工具栏加载状态控制 ====================
@@ -554,6 +620,16 @@ class ToolbarMixin:
         """一键生成所有图片按钮点击处理"""
         if hasattr(self, '_on_generate_all_images') and self._on_generate_all_images:
             self._on_generate_all_images()
+
+    def _on_stop_generate_clicked(self):
+        """停止生成分镜按钮点击处理"""
+        if hasattr(self, '_on_stop_generate') and self._on_stop_generate:
+            self._on_stop_generate()
+
+    def _on_stop_generate_all_clicked(self):
+        """停止批量生成图片按钮点击处理"""
+        if hasattr(self, '_on_stop_generate_all') and self._on_stop_generate_all:
+            self._on_stop_generate_all()
 
     def set_generate_all_loading(self, loading: bool, current: int = 0, total: int = 0):
         """设置一键生成的加载状态

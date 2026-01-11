@@ -81,7 +81,7 @@ class PdfTabMixin:
 
         toolbar_layout.addStretch()
 
-        # 按钮容器（支持加载状态切换）
+        # 按钮容器（XS按钮需要足够空间）
         self._pdf_btn_stack = QStackedWidget()
         self._pdf_btn_stack.setFixedHeight(dp(32))
 
@@ -90,12 +90,12 @@ class PdfTabMixin:
         btn_container.setStyleSheet("background: transparent;")
         btn_layout = QHBoxLayout(btn_container)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(dp(8))
+        btn_layout.setSpacing(dp(6))
 
         # 生成/刷新PDF按钮
         self._pdf_generate_btn = QPushButton("生成PDF" if not pdf_info or not pdf_info.get('success') else "刷新PDF")
         self._pdf_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._pdf_generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
+        self._pdf_generate_btn.setStyleSheet(ButtonStyles.primary('XS'))
         self._pdf_generate_btn.clicked.connect(self._on_generate_pdf_clicked)
         btn_layout.addWidget(self._pdf_generate_btn)
 
@@ -103,7 +103,7 @@ class PdfTabMixin:
         if pdf_info and pdf_info.get('success') and pdf_info.get('file_name'):
             download_btn = QPushButton("下载")
             download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            download_btn.setStyleSheet(ButtonStyles.secondary('SM'))
+            download_btn.setStyleSheet(ButtonStyles.secondary('XS'))
             download_btn.clicked.connect(
                 lambda: self._on_download_pdf(pdf_info.get('file_name')) if self._on_download_pdf else None
             )
@@ -115,16 +115,16 @@ class PdfTabMixin:
         loading_container = QWidget()
         loading_container.setStyleSheet("background: transparent;")
         loading_layout = QHBoxLayout(loading_container)
-        loading_layout.setContentsMargins(dp(8), 0, dp(8), 0)
-        loading_layout.setSpacing(dp(8))
+        loading_layout.setContentsMargins(dp(6), 0, dp(6), 0)
+        loading_layout.setSpacing(dp(6))
 
-        self._pdf_spinner = CircularSpinner(size=dp(20), color=s.accent_color, auto_start=False)
+        self._pdf_spinner = CircularSpinner(size=dp(16), color=s.accent_color, auto_start=False)
         loading_layout.addWidget(self._pdf_spinner)
 
         self._pdf_loading_label = QLabel("生成中...")
         self._pdf_loading_label.setStyleSheet(f"""
             font-family: {s.ui_font};
-            font-size: {sp(12)}px;
+            font-size: {sp(11)}px;
             color: {s.accent_color};
             font-weight: 500;
         """)
@@ -268,8 +268,10 @@ class PdfTabMixin:
         使用PyMuPDF将PDF页面渲染为缩略图显示，便于快速浏览整体布局。
         采用紧凑的网格布局，每行显示多个页面缩略图。
 
+        通过API下载PDF文件以支持远程/容器部署环境。
+
         Args:
-            pdf_path: PDF文件路径
+            pdf_path: PDF文件路径（后端路径，仅用于获取文件名）
 
         Returns:
             滚动区域Widget
@@ -305,8 +307,38 @@ class PdfTabMixin:
         # 尝试加载PDF
         try:
             import fitz  # PyMuPDF
+            import os
+            import requests
+            import tempfile
 
-            doc = fitz.open(pdf_path)
+            # 从路径中提取文件名
+            file_name = os.path.basename(pdf_path)
+
+            # 通过API下载PDF文件（支持远程/容器环境）
+            # 构建下载URL - 使用 builder 的 api_base_url
+            api_base_url = getattr(self, '_api_base_url', 'http://127.0.0.1:8123')
+            download_url = f"{api_base_url}/api/image-generation/export/download/{file_name}"
+
+            pdf_data = None
+            if download_url:
+                try:
+                    response = requests.get(download_url, timeout=30)
+                    if response.status_code == 200:
+                        pdf_data = response.content
+                except requests.RequestException:
+                    # API下载失败，尝试本地路径
+                    pass
+
+            # 如果API下载失败，尝试本地文件（开发环境向后兼容）
+            if pdf_data is None:
+                if os.path.exists(pdf_path):
+                    with open(pdf_path, 'rb') as f:
+                        pdf_data = f.read()
+                else:
+                    raise FileNotFoundError(f"PDF文件不存在: {pdf_path}")
+
+            # 从内存打开PDF
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
             page_count = len(doc)
 
             # 页面标题

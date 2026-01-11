@@ -38,7 +38,7 @@ class MangaPanelBuilder(
 
     def __init__(
         self,
-        on_generate: Optional[Callable[[str, int, int, str, bool, bool, bool], None]] = None,
+        on_generate: Optional[Callable[[str, int, int, str, bool, bool, bool, Optional[str]], None]] = None,
         on_copy_prompt: Optional[Callable[[str], None]] = None,
         on_edit_scene: Optional[Callable[[int, dict], None]] = None,
         on_delete: Optional[Callable[[], None]] = None,
@@ -49,11 +49,14 @@ class MangaPanelBuilder(
         on_download_pdf: Optional[Callable[[str], None]] = None,
         on_generate_all_images: Optional[Callable[[], None]] = None,
         on_preview_prompt: Optional[Callable[[dict], None]] = None,
+        on_stop_generate: Optional[Callable[[], None]] = None,
+        on_stop_generate_all: Optional[Callable[[], None]] = None,
+        api_base_url: str = "http://127.0.0.1:8123",
     ):
         """初始化构建器
 
         Args:
-            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少场景数, 最多场景数, 语言, 是否使用角色立绘, 是否自动生成缺失立绘, 是否使用动态布局)
+            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少页数, 最多页数, 语言, 是否使用角色立绘, 是否自动生成缺失立绘, 是否强制重启, 起始阶段)
             on_copy_prompt: 复制提示词回调函数，参数为提示词内容
             on_edit_scene: 编辑场景回调函数，参数为(场景ID, 更新数据)
             on_delete: 删除漫画分镜回调函数
@@ -64,6 +67,9 @@ class MangaPanelBuilder(
             on_download_pdf: 下载PDF回调函数，参数为文件名
             on_generate_all_images: 一键生成所有图片回调函数
             on_preview_prompt: 预览实际提示词回调函数，参数为画格完整数据字典
+            on_stop_generate: 停止生成分镜回调函数
+            on_stop_generate_all: 停止批量生成图片回调函数
+            api_base_url: 后端API基础URL，用于构造下载链接
         """
         super().__init__()
         self._on_generate = on_generate
@@ -77,6 +83,9 @@ class MangaPanelBuilder(
         self._on_download_pdf = on_download_pdf
         self._on_generate_all_images = on_generate_all_images
         self._on_preview_prompt = on_preview_prompt
+        self._on_stop_generate = on_stop_generate
+        self._on_stop_generate_all = on_stop_generate_all
+        self._api_base_url = api_base_url
 
         # 画格加载状态记录
         self._panel_loading_states: Dict[str, bool] = {}
@@ -157,7 +166,16 @@ class MangaPanelBuilder(
 
         # Tab 1: 分镜提示词
         prompt_tab = self._create_prompt_tab(manga_data, has_content, panels, parent)
-        tab_label = f"分镜 ({total_pages}页/{total_panels}格)" if has_content else "分镜"
+        # 构建标签文本，显示生成状态
+        is_complete = manga_data.get('is_complete', True)
+        completed_pages = manga_data.get('completed_pages_count', 0)
+        if has_content:
+            if is_complete:
+                tab_label = f"分镜 ({total_pages}页/{total_panels}格)"
+            else:
+                tab_label = f"分镜 ({completed_pages}/{total_pages}页 生成中...)"
+        else:
+            tab_label = "分镜"
         self._sub_tab_widget.addTab(prompt_tab, tab_label)
 
         # Tab 2: 漫画预览 (PDF)
@@ -249,6 +267,34 @@ class MangaPanelBuilder(
             # 创建新的图片标签页（Bug 33 修复: 传递pdf_info）
             images_tab = self._create_images_tab(images, pdf_info)
             self._sub_tab_widget.insertTab(1, images_tab, f"图片 ({len(images)})")
+
+    def update_details_tab(self, analysis_data: Dict[str, Any]):
+        """更新详细信息标签页（实时更新，不重建整个漫画Tab）
+
+        Args:
+            analysis_data: 分析数据，包含 chapter_info 和 page_plan
+        """
+        if not self._sub_tab_widget or self._sub_tab_widget.count() < 3:
+            return
+
+        # 保存当前选中的Tab索引
+        current_index = self._sub_tab_widget.currentIndex()
+
+        # 移除旧的详细信息Tab（索引2）
+        old_details_tab = self._sub_tab_widget.widget(2)
+        if old_details_tab:
+            self._sub_tab_widget.removeTab(2)
+            old_details_tab.deleteLater()
+
+        # 创建新的详细信息Tab
+        manga_data = {'analysis_data': analysis_data}
+        new_details_tab = self._create_details_tab(manga_data)
+        has_analysis = analysis_data is not None
+        details_label = "详细信息" if has_analysis else "详细信息"
+        self._sub_tab_widget.insertTab(2, new_details_tab, details_label)
+
+        # 恢复之前选中的Tab索引
+        self._sub_tab_widget.setCurrentIndex(current_index)
 
     # ==================== 画格加载状态控制 ====================
 

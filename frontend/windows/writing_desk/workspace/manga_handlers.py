@@ -11,6 +11,7 @@ import subprocess
 import platform
 
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
 
 from utils.async_worker import AsyncWorker
 from utils.message_service import MessageService
@@ -39,6 +40,7 @@ class MangaHandlersMixin:
             'total_pages': 0,
             'total_panels': 0,
             'style': '',
+            'dialogue_language': 'chinese',  # 对话/音效语言
             'images': [],            # 已生成的图片列表
             'pdf_info': {},          # PDF信息
             # 断点续传信息
@@ -46,6 +48,9 @@ class MangaHandlersMixin:
             'resume_progress': None,
             # 分析数据（详细信息Tab使用）
             'analysis_data': None,
+            # 增量生成状态
+            'is_complete': True,
+            'completed_pages_count': 0,
         }
 
         # 尝试从API获取已保存的漫画分镜
@@ -60,8 +65,14 @@ class MangaHandlersMixin:
                     manga_data['total_pages'] = result.get('total_pages', 0)
                     manga_data['total_panels'] = result.get('total_panels', 0)
                     manga_data['style'] = result.get('style', '')
+                    # 保存对话语言设置
+                    dialogue_language = result.get('dialogue_language', 'chinese')
+                    manga_data['dialogue_language'] = dialogue_language
                     # 获取分析数据（详细信息Tab显示）
                     manga_data['analysis_data'] = result.get('analysis_data')
+                    # 增量生成状态
+                    manga_data['is_complete'] = result.get('is_complete', True)
+                    manga_data['completed_pages_count'] = result.get('completed_pages_count', 0)
 
                     # 后端返回 pages，前端需要 scenes
                     # 将 page_number 转换为 scene_id
@@ -73,11 +84,14 @@ class MangaHandlersMixin:
                         scenes.append(scene)
                     manga_data['scenes'] = scenes
 
-                    # 为每个 panel 添加 scene_id（使用 page_number）
+                    # 为每个 panel 添加 scene_id 和 dialogue_language
                     panels = result.get('panels', [])
                     for panel in panels:
                         if 'scene_id' not in panel:
                             panel['scene_id'] = panel.get('page_number', 0)
+                        # 确保每个panel都有dialogue_language字段
+                        if 'dialogue_language' not in panel:
+                            panel['dialogue_language'] = dialogue_language
                     manga_data['panels'] = panels
             except Exception as e:
                 # 如果获取失败，记录错误并保持默认空状态
@@ -240,17 +254,24 @@ class MangaHandlersMixin:
             if not isinstance(images, list):
                 images = []
 
-            # 转换图片路径为本地绝对路径
+            # 为每个图片添加可用的路径
             for img in images:
                 file_path = img.get('file_path', '')
+                url = img.get('url', '')  # 后端返回的相对URL
+
+                # 构造完整的HTTP URL（用于远程部署）
+                if url:
+                    img['http_url'] = f"{self.api_client.base_url}{url}"
+
+                # 构造本地路径（用于单机部署，性能更好）
                 if file_path:
-                    # Bug 18 修复: 构建完整的本地路径
-                    # 文件路径: frontend/windows/writing_desk/workspace/manga_handlers.py
-                    # 需要5层dirname才能回到项目根目录: workspace -> writing_desk -> windows -> frontend -> 根目录
-                    # 图片存储在 backend/storage/generated_images/{project_id}/chapter_{n}/
                     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
                     local_path = os.path.join(base_dir, 'backend', 'storage', 'generated_images', file_path)
-                    img['local_path'] = local_path
+                    # 只有文件存在时才使用本地路径，否则回退到HTTP URL
+                    if os.path.exists(local_path):
+                        img['local_path'] = local_path
+                    elif url:
+                        img['local_path'] = img['http_url']
 
             return images
         except Exception:
@@ -265,6 +286,7 @@ class MangaHandlersMixin:
         use_portraits: bool = True,
         auto_generate_portraits: bool = True,
         force_restart: bool = False,
+        start_from_stage: str = None,
     ):
         """
         生成漫画分镜回调
@@ -277,8 +299,9 @@ class MangaHandlersMixin:
             use_portraits: 是否使用角色立绘作为参考图
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
             force_restart: 是否强制从头开始，忽略断点
+            start_from_stage: 指定从哪个阶段开始 (extraction/planning/storyboard/prompt_building)
         """
-        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_pages={min_pages}, max_pages={max_pages}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}, force_restart={force_restart}")
+        logger.info(f"_onGenerateMangaPrompt called: style={style}, min_pages={min_pages}, max_pages={max_pages}, language={language}, use_portraits={use_portraits}, auto_generate_portraits={auto_generate_portraits}, force_restart={force_restart}, start_from_stage={start_from_stage}")
 
         if not self.project_id or not self.current_chapter:
             MessageService.show_warning(self, "请先选择章节")
@@ -290,44 +313,25 @@ class MangaHandlersMixin:
             MessageService.show_info(self, "正在生成中，请稍候...")
             return
 
-        # 检查是否已有完成的分镜数据
-        try:
-            existing = self.api_client.get_manga_prompts(
-                self.project_id, self.current_chapter
-            )
-            if existing and existing.get('total_panels', 0) > 0:
-                # 已有分镜数据，询问用户（只有从头开始时才需要确认）
-                if force_restart:
-                    if not MessageService.confirm(
-                        self,
-                        "当前章节已有分镜数据，重新生成将覆盖现有数据。",
-                        "确定要重新生成吗？"
-                    ):
-                        return
-        except Exception:
-            # 获取失败，检查是否有未完成的断点
-            if not force_restart:
-                # 只有继续生成时才显示断点信息
-                try:
-                    progress = self.api_client.get_manga_prompt_progress(
-                        self.project_id, self.current_chapter
-                    )
-                    if progress and progress.get('can_resume', False):
-                        stage_label = progress.get('stage_label', '处理中')
-                        current = progress.get('current', 0)
-                        total = progress.get('total', 0)
-                        progress_text = f"({current}/{total})" if total > 0 else ""
+        # 使用缓存数据检查是否已有分镜（避免同步API调用导致UI卡顿）
+        # _cached_manga_data 在 _loadMangaDataAsync 成功后会被设置
+        cached_data = getattr(self, '_cached_manga_data', None)
+        has_existing_content = cached_data and cached_data.get('has_manga_prompt', False)
 
-                        # 有未完成的断点，提示用户
-                        MessageService.show_info(
-                            self,
-                            f"从断点继续生成（{stage_label} {progress_text}）..."
-                        )
-                except Exception:
-                    pass
+        # 只有强制从头开始且有现有内容时才需要确认
+        if force_restart and has_existing_content:
+            if not MessageService.confirm(
+                self,
+                "当前章节已有分镜数据，重新生成将覆盖现有数据。",
+                "确定要重新生成吗？"
+            ):
+                return
 
         # 设置生成标志，记录正在生成的章节号，防止异步加载覆盖UI状态
         self._manga_generating_chapter = self.current_chapter
+        # 清除上一次的进度记录，用于检测变化
+        self._manga_last_progress_stage = None
+        self._manga_last_progress_current = -1
 
         # 显示加载动画
         loading_text = "正在从头生成漫画分镜..." if force_restart else "正在生成漫画分镜..."
@@ -346,9 +350,12 @@ class MangaHandlersMixin:
                 use_portraits=use_portraits,
                 auto_generate_portraits=auto_generate_portraits,
                 force_restart=force_restart,
+                start_from_stage=start_from_stage,
             )
 
         def on_success(result):
+            # 停止进度轮询
+            self._stopMangaProgressPolling()
             # 清除生成标志
             self._manga_generating_chapter = None
             # 显示成功状态
@@ -361,6 +368,8 @@ class MangaHandlersMixin:
             self._loadMangaDataAsync()
 
         def on_error(error):
+            # 停止进度轮询
+            self._stopMangaProgressPolling()
             # 清除生成标志
             self._manga_generating_chapter = None
             # 显示错误状态
@@ -376,6 +385,166 @@ class MangaHandlersMixin:
 
         # 保存worker引用防止被垃圾回收
         self._manga_worker = worker
+
+        # 启动进度轮询定时器（每2秒查询一次进度）
+        self._startMangaProgressPolling()
+
+    def _startMangaProgressPolling(self):
+        """启动漫画生成进度轮询"""
+        # 停止之前可能存在的定时器
+        self._stopMangaProgressPolling()
+
+        # 创建新的定时器
+        self._manga_progress_timer = QTimer()
+        self._manga_progress_timer.timeout.connect(self._pollMangaProgress)
+        self._manga_progress_timer.start(2000)  # 每2秒轮询一次
+        logger.info("启动漫画生成进度轮询")
+
+    def _stopMangaProgressPolling(self):
+        """停止漫画生成进度轮询"""
+        if hasattr(self, '_manga_progress_timer') and self._manga_progress_timer:
+            self._manga_progress_timer.stop()
+            self._manga_progress_timer = None
+            logger.info("停止漫画生成进度轮询")
+
+        # 停止进度查询的worker
+        if hasattr(self, '_manga_progress_worker') and self._manga_progress_worker:
+            self._manga_progress_worker = None
+
+    def _onStopMangaGenerate(self):
+        """停止漫画分镜生成回调"""
+        if not self.project_id or not self._manga_generating_chapter:
+            logger.warning("没有正在进行的漫画生成任务")
+            return
+
+        logger.info(f"用户请求停止漫画生成: chapter={self._manga_generating_chapter}")
+
+        def do_cancel():
+            return self.api_client.cancel_manga_prompt_generation(
+                self.project_id, self._manga_generating_chapter
+            )
+
+        def on_success(result):
+            if result.get('success', False):
+                # 停止进度轮询
+                self._stopMangaProgressPolling()
+                # 清除生成标志
+                self._manga_generating_chapter = None
+                # 更新UI状态
+                if self._manga_builder:
+                    self._manga_builder.set_toolbar_error("已停止生成")
+                MessageService.show_info(self, "已停止漫画分镜生成")
+                # 刷新漫画面板数据
+                self._loadMangaDataAsync()
+            else:
+                message = result.get('message', '取消失败')
+                MessageService.show_warning(self, message)
+
+        def on_error(error):
+            MessageService.show_error(self, f"停止生成失败: {error}")
+
+        worker = AsyncWorker(do_cancel)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用
+        self._manga_cancel_worker = worker
+
+    def _pollMangaProgress(self):
+        """轮询漫画生成进度并更新UI"""
+        # 检查是否仍在生成中
+        if not getattr(self, '_manga_generating_chapter', None):
+            self._stopMangaProgressPolling()
+            return
+
+        # 防止重复请求：如果上一次查询还未完成，跳过本次
+        if getattr(self, '_manga_progress_polling', False):
+            return
+
+        self._manga_progress_polling = True
+
+        def do_poll():
+            return self.api_client.get_manga_prompt_progress(
+                self.project_id, self._manga_generating_chapter
+            )
+
+        def on_success(progress):
+            self._manga_progress_polling = False
+
+            if not progress:
+                return
+
+            # 根据进度状态更新UI
+            status = progress.get('status', '')
+            stage = progress.get('stage', '')
+            stage_label = progress.get('stage_label', '')
+            current = progress.get('current', 0)
+            total = progress.get('total', 0)
+            message = progress.get('message', '')
+            analysis_data = progress.get('analysis_data')
+
+            # 构建进度消息
+            if status == 'completed':
+                # 如果已完成，停止轮询（正常情况下on_success会先执行）
+                return
+
+            # 检测阶段变化或进度变化，实时更新详细信息Tab
+            last_stage = getattr(self, '_manga_last_progress_stage', None)
+            last_current = getattr(self, '_manga_last_progress_current', -1)
+
+            # 阶段变化或storyboard阶段进度变化时更新
+            should_update = False
+            if stage != last_stage:
+                should_update = True
+                self._manga_last_progress_stage = stage
+            elif stage == 'storyboard' and current != last_current:
+                # storyboard阶段每完成一页都更新
+                should_update = True
+
+            self._manga_last_progress_current = current
+
+            if should_update and analysis_data and self._manga_builder:
+                try:
+                    self._manga_builder.update_details_tab(analysis_data)
+                    logger.info(f"进度更新 stage={stage} current={current}，已更新详细信息Tab")
+                except Exception as e:
+                    logger.warning(f"更新详细信息Tab失败: {e}")
+
+            # 根据阶段构建合适的进度消息
+            if total > 0:
+                if stage == 'storyboard':
+                    # 分镜设计阶段显示页数
+                    progress_msg = f"{stage_label}: {current}/{total} 页"
+                elif stage == 'extracting':
+                    # 提取阶段显示步骤数
+                    progress_msg = f"{stage_label}: {current}/{total}"
+                else:
+                    # 其他阶段
+                    progress_msg = f"{stage_label}: {current}/{total}"
+            elif stage_label:
+                progress_msg = f"{stage_label}..."
+            elif message:
+                progress_msg = message
+            else:
+                progress_msg = "正在生成漫画分镜..."
+
+            # 更新工具栏加载标签
+            if self._manga_builder:
+                self._manga_builder.set_toolbar_loading(True, progress_msg)
+
+        def on_error(error):
+            self._manga_progress_polling = False
+            # 进度查询失败不影响主流程，只记录日志
+            logger.warning(f"漫画生成进度查询失败: {error}")
+
+        worker = AsyncWorker(do_poll)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        worker.start()
+
+        # 保存worker引用
+        self._manga_progress_worker = worker
 
     def _onCopyPrompt(self, prompt: str):
         """
@@ -426,7 +595,7 @@ class MangaHandlersMixin:
         Args:
             panel: 完整的画格数据字典，包含:
                 - panel_id: 画格ID (格式: scene{n}_page{n}_panel{n})
-                - prompt_en: 正面提示词
+                - prompt: 正面提示词
                 - negative_prompt: 负面提示词
                 - aspect_ratio: 宽高比 (如 "16:9", "4:3", "1:1" 等)
                 - reference_image_paths: 参考图片路径列表 (角色立绘等)
@@ -452,7 +621,7 @@ class MangaHandlersMixin:
 
         # 从画格数据中提取所有字段
         panel_id = panel.get('panel_id', '')
-        prompt = panel.get('prompt_en', '')
+        prompt = panel.get('prompt', '')
         negative_prompt = panel.get('negative_prompt', '')
         aspect_ratio = panel.get('aspect_ratio', '16:9')
         reference_image_paths = panel.get('reference_image_paths', [])
@@ -540,6 +709,11 @@ class MangaHandlersMixin:
         # 准备参考图路径
         ref_paths = reference_image_paths if reference_image_paths else []
 
+        # 获取当前章节版本ID（用于版本追踪）
+        chapter_version_id = None
+        if hasattr(self, 'current_chapter_data') and self.current_chapter_data:
+            chapter_version_id = self.current_chapter_data.get('selected_version_id')
+
         def do_generate():
             return self.api_client.generate_scene_image(
                 project_id=self.project_id,
@@ -550,6 +724,7 @@ class MangaHandlersMixin:
                 panel_id=panel_id,
                 aspect_ratio=aspect_ratio,
                 reference_image_paths=ref_paths if ref_paths else None,
+                chapter_version_id=chapter_version_id,
                 # 漫画元数据 - 对话相关
                 dialogue=dialogue if dialogue else None,
                 dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
@@ -631,10 +806,16 @@ class MangaHandlersMixin:
         if self._manga_builder:
             self._manga_builder.set_pdf_loading(True, "正在生成PDF...")
 
+        # 获取当前章节版本ID（用于过滤特定版本的图片）
+        chapter_version_id = None
+        if hasattr(self, 'current_chapter_data') and self.current_chapter_data:
+            chapter_version_id = self.current_chapter_data.get('selected_version_id')
+
         def do_generate():
             return self.api_client.generate_chapter_manga_pdf(
                 self.project_id,
                 self.current_chapter,
+                chapter_version_id=chapter_version_id,
             )
 
         def on_success(result):
@@ -712,7 +893,7 @@ class MangaHandlersMixin:
         # 过滤出未生成图片的画格
         panels_to_generate = [
             p for p in panels
-            if not p.get('has_image', False) and p.get('prompt_en')
+            if not p.get('has_image', False) and p.get('prompt')
         ]
 
         if not panels_to_generate:
@@ -745,6 +926,7 @@ class MangaHandlersMixin:
         self._batch_generate_max_concurrent = max_concurrent
         self._batch_generate_active = 0  # 当前活跃的任务数
         self._batch_image_workers = []   # 保存所有活跃的worker引用
+        self._batch_generate_stopped = False  # 停止标志
 
         # 启动初始并发任务
         initial_count = min(max_concurrent, len(self._batch_generate_queue))
@@ -753,8 +935,46 @@ class MangaHandlersMixin:
             logger.info(f"启动第 {i + 1} 个初始任务")
             self._processNextBatchImage()
 
+    def _onStopGenerateAllImages(self):
+        """停止批量生成图片回调"""
+        if not hasattr(self, '_batch_generate_queue') or not self._batch_generate_queue:
+            if not getattr(self, '_batch_generate_active', 0):
+                logger.warning("没有正在进行的批量图片生成任务")
+                return
+
+        logger.info("用户请求停止批量图片生成")
+
+        # 设置停止标志
+        self._batch_generate_stopped = True
+
+        # 清空待处理队列
+        remaining = len(getattr(self, '_batch_generate_queue', []))
+        self._batch_generate_queue = []
+
+        # 等待当前活跃任务完成（不能强制终止已发送的请求）
+        active = getattr(self, '_batch_generate_active', 0)
+
+        # 更新UI状态
+        if self._manga_builder:
+            if active > 0:
+                self._manga_builder.set_generate_all_error(f"正在停止...({active}个任务执行中)")
+            else:
+                self._manga_builder.set_generate_all_error("已停止")
+
+        MessageService.show_info(
+            self,
+            f"已停止批量生成，跳过 {remaining} 个画格，{active} 个任务正在完成中"
+        )
+
     def _processNextBatchImage(self):
         """处理批量生成队列中的下一个画格（支持并发）"""
+        # 检查是否已停止
+        if getattr(self, '_batch_generate_stopped', False):
+            # 如果所有活跃任务都完成了，触发完成回调
+            if self._batch_generate_active == 0:
+                self._onBatchGenerateComplete()
+            return
+
         # 检查是否还有任务需要处理
         if not hasattr(self, '_batch_generate_queue') or not self._batch_generate_queue:
             # 队列为空，检查是否所有任务都完成了
@@ -769,7 +989,7 @@ class MangaHandlersMixin:
 
         # 提取画格数据 - 基础字段
         panel_id = panel.get('panel_id', '')
-        prompt_en = panel.get('prompt_en', '')
+        prompt = panel.get('prompt', '')
         negative_prompt = panel.get('negative_prompt', '')
         panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
         ref_paths = panel.get('reference_image_paths', [])
@@ -840,16 +1060,22 @@ class MangaHandlersMixin:
 
         logger.info(f"批量生成图片 {self._batch_generate_current}/{self._batch_generate_total}: {panel_id} (活跃: {self._batch_generate_active})")
 
+        # 获取当前章节版本ID（用于版本追踪）
+        chapter_version_id = None
+        if hasattr(self, 'current_chapter_data') and self.current_chapter_data:
+            chapter_version_id = self.current_chapter_data.get('selected_version_id')
+
         def do_generate():
             return self.api_client.generate_scene_image(
                 project_id=self.project_id,
                 chapter_number=self.current_chapter,
                 scene_id=scene_id,
-                prompt=prompt_en,
+                prompt=prompt,
                 negative_prompt=negative_prompt,
                 panel_id=panel_id,
                 aspect_ratio=panel_aspect_ratio,
                 reference_image_paths=ref_paths if ref_paths else None,
+                chapter_version_id=chapter_version_id,
                 # 漫画元数据 - 对话相关
                 dialogue=dialogue if dialogue else None,
                 dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
@@ -907,11 +1133,17 @@ class MangaHandlersMixin:
         success_count = getattr(self, '_batch_generate_success', 0)
         failed_count = getattr(self, '_batch_generate_failed', 0)
         total = getattr(self, '_batch_generate_total', 0)
+        was_stopped = getattr(self, '_batch_generate_stopped', False)
 
-        logger.info(f"批量生成完成: 成功 {success_count}, 失败 {failed_count}, 总计 {total}")
+        logger.info(f"批量生成完成: 成功 {success_count}, 失败 {failed_count}, 总计 {total}, 停止={was_stopped}")
 
         if self._manga_builder:
-            if failed_count == 0:
+            if was_stopped:
+                # 被用户停止
+                self._manga_builder.set_generate_all_error(f"已停止 ({success_count}成功)")
+                if success_count > 0:
+                    MessageService.show_info(self, f"批量生成已停止: 成功 {success_count} 张")
+            elif failed_count == 0:
                 self._manga_builder.set_generate_all_success(f"完成 {success_count} 张")
                 MessageService.show_success(self, f"成功生成 {success_count} 张图片")
             elif success_count == 0:
@@ -940,7 +1172,7 @@ class MangaHandlersMixin:
 
         Args:
             panel: 完整的画格数据字典，包含:
-                - prompt_en: 原始提示词
+                - prompt: 原始提示词
                 - negative_prompt: 负面提示词
                 - aspect_ratio: 宽高比
                 - dialogue: 对话内容
@@ -960,7 +1192,7 @@ class MangaHandlersMixin:
                 - atmosphere: 氛围描述
                 - key_visual_elements: 关键视觉元素
         """
-        prompt = panel.get('prompt_en', '')
+        prompt = panel.get('prompt', '')
         if not prompt:
             MessageService.show_warning(self, "没有可预览的提示词")
             return

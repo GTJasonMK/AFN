@@ -47,6 +47,14 @@ class GenerateRequest(BaseModel):
     use_portraits: bool = Field(default=True, description="是否使用角色立绘作为参考图")
     auto_generate_portraits: bool = Field(default=True, description="是否自动为缺失立绘的角色生成立绘")
     force_restart: bool = Field(default=False, description="是否强制从头开始，忽略断点")
+    start_from_stage: Optional[str] = Field(
+        default=None,
+        description=(
+            "指定从哪个阶段开始生成，可选值: "
+            "extraction(信息提取), planning(页面规划), storyboard(分镜设计), prompt_building(提示词构建)。"
+            "为None时自动从断点恢复或从头开始"
+        )
+    )
 
 
 class PanelResponse(BaseModel):
@@ -54,32 +62,25 @@ class PanelResponse(BaseModel):
     panel_id: str
     page_number: int
     panel_number: int
-    size: str
-    shape: str
-    shot_type: str
-    aspect_ratio: str
-    prompt_en: str
-    prompt_zh: str
+    shape: str  # horizontal/vertical/square
+    shot_type: str  # long/medium/close_up
+
+    # 排版信息
+    row_id: int = 1  # 起始行号
+    row_span: int = 1  # 跨越行数
+    width_ratio: str = "half"  # full/two_thirds/half/third
+    aspect_ratio: str = "4:3"  # 16:9/4:3/1:1/3:4/9:16
+
+    # 提示词
+    prompt: str
     negative_prompt: str
-    # Bug 36 修复: 添加布局属性
-    importance: str = "standard"
-    layout_slot: str = "third_row"
+
     # 文字元素
     dialogues: List[Dict[str, Any]] = []
-    narration: str = ""
-    sound_effects: List[Dict[str, Any]] = []
+
     # 角色信息
     characters: List[str] = []
-    character_actions: Dict[str, str] = {}
-    character_expressions: Dict[str, str] = {}
-    # 视觉信息
-    focus_point: str = ""
-    lighting: str = ""
-    atmosphere: str = ""
-    background: str = ""
-    motion_lines: bool = False
-    impact_effects: bool = False
-    is_key_panel: bool = False
+
     # 参考图
     reference_image_paths: List[str] = []
 
@@ -89,7 +90,8 @@ class PageResponse(BaseModel):
     page_number: int
     panel_count: int
     layout_description: str = ""
-    reading_flow: str = "right_to_left"
+    gutter_horizontal: int = 8
+    gutter_vertical: int = 8
 
 
 class GenerateResponse(BaseModel):
@@ -105,6 +107,9 @@ class GenerateResponse(BaseModel):
     dialogue_language: str = "chinese"
     # 分析数据（章节信息提取和页面规划结果）
     analysis_data: Optional[Dict[str, Any]] = None
+    # 增量更新状态字段
+    is_complete: bool = True  # 是否已全部完成
+    completed_pages_count: Optional[int] = None  # 已完成的页数（增量生成时使用）
 
 
 # ============================================================
@@ -199,6 +204,7 @@ async def generate_manga_prompts(
             character_portraits=character_portraits,
             auto_generate_portraits=request.auto_generate_portraits,
             resume=not request.force_restart,  # 如果 force_restart=True，则不从断点恢复
+            start_from_stage=request.start_from_stage,  # 指定起始阶段
         )
 
         await session.commit()
@@ -296,12 +302,59 @@ async def delete_manga_prompts(
     return {"success": True, "message": "漫画分镜已删除"}
 
 
+@router.post("/novels/{project_id}/chapters/{chapter_number}/manga-prompts/cancel")
+async def cancel_manga_prompt_generation(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """
+    取消漫画分镜生成
+
+    将生成状态设置为 cancelled，正在进行的生成任务会在下次检查点时停止。
+
+    Args:
+        project_id: 项目ID
+        chapter_number: 章节号
+
+    Returns:
+        取消结果
+    """
+    from ....repositories.manga_prompt_repository import MangaPromptRepository
+
+    chapter_repo = ChapterRepository(session)
+    chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
+
+    if not chapter:
+        return {"success": False, "message": "章节不存在"}
+
+    manga_prompt_repo = MangaPromptRepository(session)
+    manga_prompt = await manga_prompt_repo.get_by_chapter_id(chapter.id)
+
+    if not manga_prompt:
+        return {"success": False, "message": "没有正在进行的生成任务"}
+
+    # 检查当前状态是否为生成中
+    if manga_prompt.generation_status in ("completed", "pending", "cancelled"):
+        return {"success": False, "message": f"当前状态为 {manga_prompt.generation_status}，无法取消"}
+
+    # 设置为取消状态
+    manga_prompt.generation_status = "cancelled"
+    manga_prompt.generation_progress = {
+        "stage": "cancelled",
+        "message": "用户取消生成"
+    }
+    await session.commit()
+
+    logger.info(f"取消漫画分镜生成: project={project_id}, chapter={chapter_number}")
+    return {"success": True, "message": "已发送取消请求"}
+
+
 @router.get("/novels/{project_id}/chapters/{chapter_number}/manga-prompts/progress")
 async def get_manga_prompt_progress(
     project_id: str,
     chapter_number: int,
     session: AsyncSession = Depends(get_session),
-    llm_service: LLMService = Depends(get_llm_service),
 ) -> dict:
     """
     获取漫画分镜生成进度
@@ -313,60 +366,100 @@ async def get_manga_prompt_progress(
     Returns:
         进度信息
     """
-    service = MangaPromptServiceV2(
-        session=session,
-        llm_service=llm_service,
-    )
+    from ....repositories.manga_prompt_repository import MangaPromptRepository
 
-    # 检查是否已完成
-    result = await service.get_result(project_id, chapter_number)
-    if result:
+    # 直接查询数据库获取状态
+    chapter_repo = ChapterRepository(session)
+    chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
+
+    if not chapter:
+        return {
+            "status": "pending",
+            "stage": "pending",
+            "stage_label": "未开始",
+            "current": 0,
+            "total": 0,
+            "message": "章节不存在",
+            "can_resume": False,
+        }
+
+    manga_prompt_repo = MangaPromptRepository(session)
+    manga_prompt = await manga_prompt_repo.get_by_chapter_id(chapter.id)
+
+    if not manga_prompt:
+        return {
+            "status": "pending",
+            "stage": "pending",
+            "stage_label": "未开始",
+            "current": 0,
+            "total": 0,
+            "message": "等待生成",
+            "can_resume": False,
+        }
+
+    status = manga_prompt.generation_status or "pending"
+    progress = manga_prompt.generation_progress or {}
+
+    # 状态标签映射
+    stage_labels = {
+        "pending": "未开始",
+        "extracting": "提取信息中",
+        "planning": "规划页面中",
+        "storyboard": "设计分镜中",
+        "generating": "生成中",
+        "generating_portraits": "生成角色立绘中",
+        "prompt_building": "生成提示词中",
+        "completed": "已完成",
+        "cancelled": "已取消",
+    }
+
+    stage = progress.get("stage", status)
+    stage_label = stage_labels.get(stage, stage_labels.get(status, "处理中"))
+
+    if status == "completed":
         return {
             "status": "completed",
             "stage": "completed",
             "stage_label": "已完成",
-            "current": result.total_panels,
-            "total": result.total_panels,
+            "current": manga_prompt.total_panels or 0,
+            "total": manga_prompt.total_panels or 0,
             "message": "生成完成",
             "can_resume": False,
         }
 
-    # 获取断点信息
-    checkpoint = await service._checkpoint_manager.get_checkpoint(
-        project_id, chapter_number
-    )
-
-    if checkpoint:
-        progress = checkpoint.get("progress", {})
-        status = checkpoint["status"]
-        stage = progress.get("stage", status)
-
-        stage_labels = {
-            "extracting": "提取信息中",
-            "planning": "规划页面中",
-            "storyboard": "设计分镜中",
-            "prompt_building": "生成提示词中",
-        }
-        stage_label = stage_labels.get(stage, "处理中")
-
+    if status == "cancelled":
         return {
-            "status": status,
-            "stage": stage,
-            "stage_label": stage_label,
-            "current": progress.get("current", 0),
-            "total": progress.get("total", 0),
-            "message": progress.get("message", ""),
-            "can_resume": True,
+            "status": "cancelled",
+            "stage": "cancelled",
+            "stage_label": "已取消",
+            "current": 0,
+            "total": 0,
+            "message": "生成已取消",
+            "can_resume": True,  # 允许从断点继续
         }
 
+    if status == "pending":
+        return {
+            "status": "pending",
+            "stage": "pending",
+            "stage_label": "未开始",
+            "current": 0,
+            "total": 0,
+            "message": "等待生成",
+            "can_resume": False,
+        }
+
+    # 中间状态（extracting, planning, storyboard, generating等）
+    # 返回analysis_data供前端实时更新详细信息Tab
     return {
-        "status": "pending",
-        "stage": "pending",
-        "stage_label": "未开始",
-        "current": 0,
-        "total": 0,
-        "message": "等待生成",
-        "can_resume": False,
+        "status": status,
+        "stage": stage,
+        "stage_label": stage_label,
+        "current": progress.get("current", 0),
+        "total": progress.get("total", 0),
+        "message": progress.get("message", ""),
+        "can_resume": True,
+        "analysis_data": manga_prompt.analysis_data,  # 实时返回分析数据
     }
 
 
@@ -382,7 +475,8 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             page_number=page.page_number,
             panel_count=len(page.panels),
             layout_description=page.layout_description,
-            reading_flow=page.reading_flow,
+            gutter_horizontal=page.gutter_horizontal,
+            gutter_vertical=page.gutter_vertical,
         ))
 
     panels = []
@@ -391,29 +485,16 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             panel_id=prompt.panel_id,
             page_number=prompt.page_number,
             panel_number=prompt.panel_number,
-            size=prompt.size,
             shape=prompt.shape,
             shot_type=prompt.shot_type,
+            row_id=prompt.row_id,
+            row_span=prompt.row_span,
+            width_ratio=prompt.width_ratio,
             aspect_ratio=prompt.aspect_ratio,
-            prompt_en=prompt.prompt_en,
-            prompt_zh=prompt.prompt_zh,
+            prompt=prompt.prompt,
             negative_prompt=prompt.negative_prompt,
-            # Bug 36 修复: 传递布局属性
-            importance=prompt.importance,
-            layout_slot=prompt.layout_slot,
             dialogues=prompt.dialogues,
-            narration=prompt.narration,
-            sound_effects=prompt.sound_effects,
             characters=prompt.characters,
-            character_actions=prompt.character_actions,
-            character_expressions=prompt.character_expressions,
-            focus_point=prompt.focus_point,
-            lighting=prompt.lighting,
-            atmosphere=prompt.atmosphere,
-            background=prompt.background,
-            motion_lines=prompt.motion_lines,
-            impact_effects=prompt.impact_effects,
-            is_key_panel=prompt.is_key_panel,
             reference_image_paths=prompt.reference_image_paths or [],
         ))
 
@@ -425,8 +506,10 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
         total_panels=result.total_panels,
         pages=pages,
         panels=panels,
-        # Bug 24 修复: 传递对话语言
         dialogue_language=result.dialogue_language,
+        # 从完整结果转换时，总是已完成状态
+        is_complete=True,
+        completed_pages_count=result.total_pages,
     )
 
 
@@ -441,7 +524,8 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
             page_number=page_data.get("page_number", 0),
             panel_count=len(page_panels),
             layout_description=page_data.get("layout_description", ""),
-            reading_flow=page_data.get("reading_flow", "right_to_left"),
+            gutter_horizontal=page_data.get("gutter_horizontal", 8),
+            gutter_vertical=page_data.get("gutter_vertical", 8),
         ))
         # 收集画格到扁平列表
         all_panels.extend(page_panels)
@@ -452,33 +536,22 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
 
     panels = []
     for p in all_panels:
+        # 兼容旧数据：优先读取 prompt，如果没有则尝试 prompt_en 或 prompt_zh
+        prompt_value = p.get("prompt") or p.get("prompt_en") or p.get("prompt_zh") or ""
         panels.append(PanelResponse(
             panel_id=p.get("panel_id") or "",
             page_number=p.get("page_number") or 0,
             panel_number=p.get("panel_number") or 0,
-            size=p.get("size") or "medium",
-            shape=p.get("shape") or "rectangle",
+            shape=p.get("shape") or "horizontal",
             shot_type=p.get("shot_type") or "medium",
+            row_id=p.get("row_id") or 1,
+            row_span=p.get("row_span") or 1,
+            width_ratio=p.get("width_ratio") or "half",
             aspect_ratio=p.get("aspect_ratio") or "4:3",
-            prompt_en=p.get("prompt_en") or "",
-            prompt_zh=p.get("prompt_zh") or "",
+            prompt=prompt_value,
             negative_prompt=p.get("negative_prompt") or "",
-            # Bug 36 修复: 传递布局属性
-            importance=p.get("importance") or "standard",
-            layout_slot=p.get("layout_slot") or "third_row",
             dialogues=p.get("dialogues") or [],
-            narration=p.get("narration") or "",
-            sound_effects=p.get("sound_effects") or [],
             characters=p.get("characters") or [],
-            character_actions=p.get("character_actions") or {},
-            character_expressions=p.get("character_expressions") or {},
-            focus_point=p.get("focus_point") or "",
-            lighting=p.get("lighting") or "",
-            atmosphere=p.get("atmosphere") or "",
-            background=p.get("background") or "",
-            motion_lines=p.get("motion_lines") or False,
-            impact_effects=p.get("impact_effects") or False,
-            is_key_panel=p.get("is_key_panel") or False,
             reference_image_paths=p.get("reference_image_paths") or [],
         ))
 
@@ -490,8 +563,9 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
         total_panels=data.get("total_panels", 0),
         pages=pages,
         panels=panels,
-        # Bug 24 修复: 传递对话语言
         dialogue_language=data.get("dialogue_language", "chinese"),
-        # 分析数据
         analysis_data=data.get("analysis_data"),
+        # 增量更新状态
+        is_complete=data.get("is_complete", True),
+        completed_pages_count=data.get("completed_pages_count"),
     )

@@ -6,7 +6,7 @@
 核心流程：
 1. 信息提取 - 从章节内容提取结构化信息（角色、对话、事件、场景）
 2. 页面规划 - 全局页面规划，确定页数和事件分配
-3. 分镜设计 - 为每页设计详细分镜
+3. 分镜设计 - 为每页设计分镜（支持排版信息）
 4. 提示词构建 - 生成AI绘图提示词
 
 模块结构：
@@ -40,8 +40,6 @@ from .planning import (
     PagePlanner,
     PagePlanResult,
     PagePlanItem,
-    PacingType,
-    PageRole,
 )
 
 # 分镜设计
@@ -51,10 +49,10 @@ from .storyboard import (
     PageStoryboard,
     PanelDesign,
     DialogueBubble,
-    SoundEffect,
     ShotType,
-    PanelSize,
     PanelShape,
+    WidthRatio,
+    AspectRatio,
 )
 
 # 提示词构建
@@ -83,18 +81,16 @@ __all__ = [
     "PagePlanner",
     "PagePlanResult",
     "PagePlanItem",
-    "PacingType",
-    "PageRole",
     # 分镜设计
     "StoryboardDesigner",
     "StoryboardResult",
     "PageStoryboard",
     "PanelDesign",
     "DialogueBubble",
-    "SoundEffect",
     "ShotType",
-    "PanelSize",
     "PanelShape",
+    "WidthRatio",
+    "AspectRatio",
     # 提示词构建
     "PromptBuilder",
     "MangaPromptResult",

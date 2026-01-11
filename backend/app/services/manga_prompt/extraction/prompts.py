@@ -36,9 +36,8 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 
 ### 1. 角色信息 (characters)
 为每个出场角色提取：
-- name: 角色名（中文）
-- appearance: 外观描述（英文，用于AI绘图，需详细描述发型、服装、体型、年龄特征等）
-- appearance_zh: 外观描述（中文，用于理解）
+- name: 角色名
+- appearance: 外观描述（详细描述发型、服装、体型、年龄特征等）
 - personality: 性格特点（简短描述）
 - role: 角色定位（protagonist=主角 / antagonist=反派 / supporting=重要配角 / minor=次要角色 / background=背景角色）
 - gender: 性别（male/female/unknown）
@@ -58,8 +57,7 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 ### 3. 场景信息 (scenes)
 识别不同的场景/地点：
 - index: 场景序号（从0开始）
-- location: 地点描述（中文）
-- location_en: 地点描述（英文，用于绘图）
+- location: 地点描述
 - time_of_day: 时间（morning/afternoon/evening/night/dawn/dusk）
 - atmosphere: 氛围描述
 - weather: 天气（如有描述）
@@ -72,26 +70,23 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 按时间顺序提取关键事件：
 - index: 事件序号（从0开始）
 - type: 事件类型（dialogue=对话/action=动作/reaction=反应/transition=过渡/revelation=揭示/conflict=冲突/resolution=解决/description=描述/internal=内心活动）
-- description: 事件描述（中文）
-- description_en: 事件描述（英文，用于绘图）
+- description: 事件描述
 - participants: 参与角色列表
 - scene_index: 所属场景索引
 - importance: 重要程度（low/normal/high/critical）
 - dialogue_indices: 关联的对话索引列表
-- action_description: 动作描述（英文，用于绘图）
+- action_description: 动作描述
 - visual_focus: 视觉焦点描述
 - emotion_tone: 情绪基调
 - is_climax: 是否是高潮/关键时刻（true/false）
 
 ### 5. 物品信息 (items)
 识别故事中的重要物品/道具：
-- name: 物品名（中文）
-- name_en: 物品名（英文）
-- description: 描述（中文）
-- description_en: 描述（英文，用于绘图）
+- name: 物品名
+- description: 描述
 - importance: 重要程度（prop=普通道具/key_item=关键物品/mcguffin=麦格芬/情节推动物）
 - first_appearance_event: 首次出现的事件索引
-- visual_features: 视觉特征（英文，用于绘图）
+- visual_features: 视觉特征
 
 ## 输出格式
 
@@ -102,8 +97,7 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
   "characters": {{
     "角色名1": {{
       "name": "角色名1",
-      "appearance": "English appearance description...",
-      "appearance_zh": "中文外观描述...",
+      "appearance": "详细外观描述...",
       "personality": "性格特点",
       "role": "protagonist",
       "gender": "male",
@@ -128,7 +122,6 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
     {{
       "index": 0,
       "location": "地点",
-      "location_en": "Location in English",
       "time_of_day": "day",
       "atmosphere": "氛围描述",
       "weather": null,
@@ -143,30 +136,26 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
       "index": 0,
       "type": "dialogue",
       "description": "事件描述",
-      "description_en": "Event description in English",
       "participants": ["角色名1", "角色名2"],
       "scene_index": 0,
       "importance": "normal",
       "dialogue_indices": [0, 1],
-      "action_description": "Action description for drawing",
-      "visual_focus": "The focus point of this scene",
-      "emotion_tone": "tense",
+      "action_description": "动作描述",
+      "visual_focus": "视觉焦点",
+      "emotion_tone": "紧张",
       "is_climax": false
     }}
   ],
   "items": [
     {{
       "name": "物品名",
-      "name_en": "Item name",
       "description": "物品描述",
-      "description_en": "Item description in English",
       "importance": "prop",
       "first_appearance_event": 0,
-      "visual_features": "Visual features for drawing"
+      "visual_features": "视觉特征"
     }}
   ],
   "chapter_summary": "章节内容的简短摘要（2-3句话）",
-  "chapter_summary_en": "Brief summary in English",
   "mood_progression": ["开始时的情绪", "中间的情绪变化", "结束时的情绪"],
   "climax_event_indices": [5, 6],
   "total_estimated_pages": 10
@@ -175,7 +164,7 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 
 ## 重要提示
 
-1. **外观描述**：角色的 appearance 字段必须是英文，且足够详细，包含发色、发型、眼睛颜色、服装风格、体型、年龄外观等信息
+1. **外观描述**：角色的 appearance 字段需足够详细，包含发色、发型、眼睛颜色、服装风格、体型、年龄外观等信息
 2. **事件粒度**：事件应该是可以在漫画中可视化呈现的最小单元，不要过于宏观或过于琐碎
 3. **对话完整性**：提取所有对话，包括内心独白，保持原文不要改写
 4. **场景连续性**：注意场景之间的转换，不要遗漏过渡场景
@@ -192,7 +181,7 @@ EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧和分镜师助�
 你需要：
 1. 准确理解故事内容和人物关系
 2. 识别适合可视化呈现的关键事件和场景
-3. 为每个角色生成详细的英文外观描述（用于AI绘图）
+3. 为每个角色生成详细的外观描述（用于AI绘图）
 4. 把握故事节奏，识别高潮和转折点
 5. 以结构化的 JSON 格式输出结果
 
@@ -213,9 +202,8 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
 
 ### 1. 角色信息 (characters)
 为每个出场角色提取：
-- name: 角色名（中文）
-- appearance: 外观描述（英文，详细描述发型、服装、体型、年龄特征）
-- appearance_zh: 外观描述（中文）
+- name: 角色名
+- appearance: 外观描述（详细描述发型、服装、体型、年龄特征）
 - personality: 性格特点（简短）
 - role: protagonist/antagonist/supporting/minor/background
 - gender: male/female/unknown
@@ -225,8 +213,7 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
 按时间顺序提取关键事件：
 - index: 事件序号（从0开始）
 - type: dialogue/action/reaction/transition/revelation/conflict/resolution/description/internal
-- description: 事件描述（中文，简洁）
-- description_en: 事件描述（英文）
+- description: 事件描述（简洁）
 - participants: 参与角色列表
 - importance: low/normal/high/critical
 - is_climax: 是否是高潮点（true/false）
@@ -238,8 +225,7 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
   "characters": {{
     "角色名": {{
       "name": "角色名",
-      "appearance": "English appearance...",
-      "appearance_zh": "中文外观...",
+      "appearance": "外观描述...",
       "personality": "性格",
       "role": "protagonist",
       "gender": "male",
@@ -251,7 +237,6 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
       "index": 0,
       "type": "dialogue",
       "description": "事件描述",
-      "description_en": "Event description",
       "participants": ["角色1", "角色2"],
       "importance": "normal",
       "is_climax": false
@@ -323,8 +308,7 @@ STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
 
 识别不同的场景/地点：
 - index: 场景序号（从0开始）
-- location: 地点描述（中文）
-- location_en: 地点描述（英文，用于绘图）
+- location: 地点描述
 - time_of_day: morning/afternoon/evening/night/dawn/dusk
 - atmosphere: 氛围描述
 - weather: 天气描述（可选）
@@ -341,7 +325,6 @@ STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
     {{
       "index": 0,
       "location": "地点",
-      "location_en": "Location in English",
       "time_of_day": "day",
       "atmosphere": "氛围",
       "weather": null,
@@ -370,17 +353,14 @@ STEP4_ITEMS_SUMMARY_PROMPT = """请从以下章节内容中提取物品信息和
 
 ### 1. 物品信息 (items)
 只提取对剧情有影响的物品：
-- name: 物品名（中文）
-- name_en: 物品名（英文）
-- description: 描述（中文）
-- description_en: 描述（英文，用于绘图）
+- name: 物品名
+- description: 描述
 - importance: prop/key_item/mcguffin
 - first_appearance_event: 首次出现的事件索引
-- visual_features: 视觉特征（英文）
+- visual_features: 视觉特征
 
 ### 2. 章节摘要
-- chapter_summary: 章节内容摘要（2-3句话，中文）
-- chapter_summary_en: 英文摘要
+- chapter_summary: 章节内容摘要（2-3句话）
 - mood_progression: 情绪变化轨迹（如["平静", "紧张", "高潮", "释然"]）
 - total_estimated_pages: 预估漫画页数（5-15页）
 
@@ -391,16 +371,13 @@ STEP4_ITEMS_SUMMARY_PROMPT = """请从以下章节内容中提取物品信息和
   "items": [
     {{
       "name": "物品名",
-      "name_en": "Item name",
       "description": "描述",
-      "description_en": "Description",
       "importance": "prop",
       "first_appearance_event": 0,
-      "visual_features": "Visual features"
+      "visual_features": "视觉特征"
     }}
   ],
   "chapter_summary": "章节摘要...",
-  "chapter_summary_en": "Chapter summary...",
   "mood_progression": ["开始情绪", "中间情绪", "结束情绪"],
   "total_estimated_pages": 10
 }}

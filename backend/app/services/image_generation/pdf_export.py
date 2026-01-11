@@ -398,7 +398,6 @@ class PDFExportService:
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             title = request.title or f"第{chapter_number}章"
-            safe_title = "".join(c for c in title if c.isalnum() or c in " _-")
             file_name = f"manga_{project_id}_ch{chapter_number}_{timestamp}.pdf"
             file_path = get_export_dir() / file_name
 
@@ -423,9 +422,11 @@ class PDFExportService:
                     continue
 
                 try:
-                    # 读取图片获取尺寸（异步）
-                    pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
-                    img_width, img_height = pil_img.size
+                    # 读取图片获取尺寸（异步），立即关闭释放资源
+                    def get_image_size(path):
+                        with PILImage.open(path) as img:
+                            return img.size
+                    img_width, img_height = await asyncio.to_thread(get_image_size, str(img_path))
 
                     # 计算图片在页面上的尺寸（保持比例，最大化显示）
                     # 留出边距
@@ -517,13 +518,13 @@ class PDFExportService:
         request: ChapterMangaPDFRequest,
     ) -> ChapterMangaPDFResponse:
         """
-        生成专业排版的漫画PDF（简化版网格布局）
+        生成专业排版的漫画PDF（基于row_id的精确布局）
 
-        使用 layout_slot 进行简单的行布局：
-        - full_row: 独占一行
-        - half_row: 每行最多2个
-        - third_row: 每行最多3个
-        - quarter_row: 每行最多4个
+        使用完整的排版数据进行布局：
+        - row_id: 画格所在行号（从1开始）
+        - row_span: 跨越行数（支持纵向跨行）
+        - width_ratio: 宽度占比（full/two_thirds/half/third）
+        - gutter_horizontal/gutter_vertical: 页面级别的间距配置
 
         Args:
             project_id: 项目ID
@@ -557,6 +558,8 @@ class PDFExportService:
 
             manga_prompt = chapter.manga_prompt
             panels_data = manga_prompt.panels or []
+            # scenes字段存储的是pages数据，包含gutter信息
+            pages_info = manga_prompt.scenes or []
 
             # 如果没有画格数据，回退到简单模式
             if not panels_data:
@@ -624,9 +627,8 @@ class PDFExportService:
             page_size = PAGE_SIZES.get(page_size_name, PAGE_SIZES["A4"])
             page_width, page_height = page_size
 
-            # 边距和间距
+            # 默认边距（PDF边距）
             margin = 10 * mm
-            gap = 3 * mm
 
             # 可用区域
             content_width = page_width - 2 * margin
@@ -636,6 +638,16 @@ class PDFExportService:
             c = canvas.Canvas(str(file_path), pagesize=page_size)
             c.setTitle(f"第{chapter_number}章 漫画")
             c.setAuthor("AFN Novel Writing Assistant")
+
+            # 构建页面gutter信息索引
+            page_gutter_map: Dict[int, Dict[str, int]] = {}
+            for page_info in pages_info:
+                pn = page_info.get("page_number")
+                if pn is not None:
+                    page_gutter_map[pn] = {
+                        "gutter_h": page_info.get("gutter_horizontal", 8),
+                        "gutter_v": page_info.get("gutter_vertical", 8),
+                    }
 
             # 按页码组织画格
             page_panels: Dict[int, List[Dict]] = {}
@@ -652,8 +664,13 @@ class PDFExportService:
                 logger.info("无有效页面数据，使用简单模式")
                 return await self.generate_chapter_manga_pdf(project_id, chapter_number, request)
 
-            # 布局槽位尺寸映射
-            SLOT_SIZES = {
+            # 宽度比例映射（百分比）
+            WIDTH_RATIO_MAP = {
+                "full": 1.0,
+                "two_thirds": 0.667,
+                "half": 0.5,
+                "third": 0.333,
+                # 旧格式兼容
                 "full_row": 1.0,
                 "half_row": 0.5,
                 "third_row": 0.333,
@@ -668,56 +685,69 @@ class PDFExportService:
 
                 logger.debug(f"绘制第 {page_number} 页: {len(panels)} 个画格")
 
+                # 获取页面级别的gutter配置（转换为点单位，约0.35mm/point）
+                gutter_info = page_gutter_map.get(page_number, {"gutter_h": 8, "gutter_v": 8})
+                gap_h = gutter_info["gutter_h"] * 0.35 * mm  # 水平间距（列之间）
+                gap_v = gutter_info["gutter_v"] * 0.35 * mm  # 垂直间距（行之间）
+
                 # 绘制页面背景
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
 
-                # ========== 简单网格布局 ==========
-                # 将画格按 layout_slot 分配到行中
-                rows = []
-                current_row = []
-                current_row_capacity = 0.0
-
+                # ========== 基于row_id的精确布局 ==========
+                # 1. 按row_id分组画格
+                row_panels: Dict[int, List[Dict]] = {}
+                max_row_id = 0
                 for panel in panels:
-                    slot = panel.get("layout_slot", "third_row")
-                    slot_size = SLOT_SIZES.get(slot, 0.333)
+                    row_id = panel.get("row_id", 1)
+                    if row_id not in row_panels:
+                        row_panels[row_id] = []
+                    row_panels[row_id].append(panel)
+                    # 计算最大行号（考虑row_span）
+                    row_span = panel.get("row_span", 1)
+                    max_row_id = max(max_row_id, row_id + row_span - 1)
 
-                    # full_row 独占一行，或当前行装不下
-                    if slot == "full_row" or current_row_capacity + slot_size > 1.02:
-                        if current_row:
-                            rows.append(current_row)
-                        current_row = [panel]
-                        current_row_capacity = slot_size
-                    else:
-                        current_row.append(panel)
-                        current_row_capacity += slot_size
+                if max_row_id == 0:
+                    max_row_id = 1
 
-                if current_row:
-                    rows.append(current_row)
+                # 2. 计算基础行高（均分可用高度）
+                total_rows = max_row_id
+                base_row_height = (content_height - (total_rows - 1) * gap_v) / total_rows
 
-                # 计算每行高度（均分可用高度）
-                row_count = len(rows)
-                if row_count == 0:
-                    continue
-
-                row_height = (content_height - (row_count - 1) * gap) / row_count
-                current_y = page_height - margin  # 从顶部开始
-
-                # 绘制每一行
-                for row in rows:
-                    current_y -= row_height
-                    panel_count = len(row)
-                    if panel_count == 0:
+                # 3. 绘制每一行的画格
+                for row_id in sorted(row_panels.keys()):
+                    row = row_panels[row_id]
+                    if not row:
                         continue
 
-                    # 计算每个画格宽度（均分行宽度）
-                    panel_width = (content_width - (panel_count - 1) * gap) / panel_count
-                    current_x = margin
+                    # 计算该行的顶部y坐标（PDF坐标系y=0在底部）
+                    # row_id从1开始，第1行在最顶部
+                    row_top_y = page_height - margin - (row_id - 1) * (base_row_height + gap_v)
 
+                    # 计算该行所有画格的总宽度比例
+                    total_width_ratio = 0.0
+                    for panel in row:
+                        width_ratio = panel.get("width_ratio") or panel.get("layout_slot", "half")
+                        total_width_ratio += WIDTH_RATIO_MAP.get(width_ratio, 0.5)
+
+                    # 计算每个画格的实际宽度
+                    num_gaps = len(row) - 1
+                    available_width = content_width - num_gaps * gap_h
+
+                    current_x = margin
                     for panel in row:
                         panel_id = panel.get("panel_id", "")
                         panel_number = panel.get("panel_number", 1)
                         is_key = panel.get("is_key_panel", False)
+                        row_span = panel.get("row_span", 1)
+
+                        # 计算画格宽度（按比例分配）
+                        width_ratio = panel.get("width_ratio") or panel.get("layout_slot", "half")
+                        ratio = WIDTH_RATIO_MAP.get(width_ratio, 0.5)
+                        panel_width = available_width * (ratio / total_width_ratio) if total_width_ratio > 0 else available_width / len(row)
+
+                        # 计算画格高度（考虑row_span）
+                        panel_height = base_row_height * row_span + gap_v * (row_span - 1)
 
                         # 获取图片
                         img_record = panel_image_map.get(panel_id)
@@ -726,58 +756,51 @@ class PDFExportService:
                             img_path = get_images_root() / img_record.file_path
                             if await async_exists(img_path):
                                 try:
-                                    # 读取图片
-                                    pil_img = await asyncio.to_thread(PILImage.open, str(img_path))
-                                    img_w, img_h = pil_img.size
+                                    # 读取图片尺寸，立即关闭释放资源
+                                    def get_image_size(path):
+                                        with PILImage.open(path) as img:
+                                            return img.size
+                                    img_w, img_h = await asyncio.to_thread(get_image_size, str(img_path))
 
-                                    # 计算缩放（填满格子，超出部分被裁切）
-                                    # 使用 max 而不是 min，确保图片完全填满格子无留白
-                                    scale = max(panel_width / img_w, row_height / img_h)
+                                    # 计算缩放（保持比例，完整显示图片）
+                                    scale = min(panel_width / img_w, panel_height / img_h)
                                     draw_width = img_w * scale
                                     draw_height = img_h * scale
 
-                                    # 居中偏移（超出部分会被clipPath裁切）
+                                    # 居中偏移
                                     offset_x = (panel_width - draw_width) / 2
-                                    offset_y = (row_height - draw_height) / 2
+                                    offset_y = (panel_height - draw_height) / 2
 
-                                    # 裁剪区域（超出格子的部分会被裁切）
-                                    c.saveState()
-                                    path = c.beginPath()
-                                    path.rect(current_x, current_y, panel_width, row_height)
-                                    c.clipPath(path, stroke=0)
-
-                                    # 绘制图片（填满格子）
+                                    # 绘制图片（居中显示，保持完整）
                                     c.drawImage(
                                         str(img_path),
                                         current_x + offset_x,
-                                        current_y + offset_y,
+                                        row_top_y - panel_height + offset_y,
                                         width=draw_width,
                                         height=draw_height,
                                         preserveAspectRatio=True,
                                     )
 
-                                    c.restoreState()
-
                                 except Exception as e:
                                     logger.warning(f"绘制图片失败: {img_path}, {e}")
                                     # 绘制占位符
                                     c.setFillColorRGB(0.95, 0.95, 0.95)
-                                    c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                                    c.rect(current_x, row_top_y - panel_height, panel_width, panel_height, fill=True, stroke=False)
                             else:
                                 # 图片不存在，绘制占位符
                                 c.setFillColorRGB(0.95, 0.95, 0.95)
-                                c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                                c.rect(current_x, row_top_y - panel_height, panel_width, panel_height, fill=True, stroke=False)
                         else:
                             # 无图片，绘制占位符
                             c.setFillColorRGB(0.95, 0.95, 0.95)
-                            c.rect(current_x, current_y, panel_width, row_height, fill=True)
+                            c.rect(current_x, row_top_y - panel_height, panel_width, panel_height, fill=True, stroke=False)
                             _register_chinese_font()
                             c.setFont(_CHINESE_FONT_NAME, 10)
                             c.setFillColorRGB(0.5, 0.5, 0.5)
                             c.drawCentredString(
                                 current_x + panel_width / 2,
-                                current_y + row_height / 2,
-                                f"Panel {panel_number}"
+                                row_top_y - panel_height / 2,
+                                f"P{page_number}R{row_id}-{panel_number}"
                             )
 
                         # 绘制边框
@@ -787,11 +810,9 @@ class PDFExportService:
                         else:
                             c.setStrokeColorRGB(0.2, 0.2, 0.2)
                             c.setLineWidth(1)
-                        c.rect(current_x, current_y, panel_width, row_height, fill=False, stroke=True)
+                        c.rect(current_x, row_top_y - panel_height, panel_width, panel_height, fill=False, stroke=True)
 
-                        current_x += panel_width + gap
-
-                    current_y -= gap
+                        current_x += panel_width + gap_h
 
                 # 绘制页码
                 _register_chinese_font()
@@ -812,7 +833,7 @@ class PDFExportService:
             # 保存PDF
             c.save()
 
-            logger.info(f"简化网格布局PDF生成完成: {page_count} 页")
+            logger.info(f"专业排版PDF生成完成: {page_count} 页")
 
             return ChapterMangaPDFResponse(
                 success=True,

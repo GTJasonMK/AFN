@@ -141,7 +141,6 @@ class ChapterInfoExtractor:
         )
         items = step4_data.get("items", [])
         chapter_summary = step4_data.get("chapter_summary", "")
-        chapter_summary_en = step4_data.get("chapter_summary_en", "")
         mood_progression = step4_data.get("mood_progression", [])
         total_estimated_pages = step4_data.get("total_estimated_pages", 10)
         logger.info("步骤4完成: %d 物品", len(items))
@@ -155,7 +154,6 @@ class ChapterInfoExtractor:
                 scenes=scenes,
                 items=items,
                 chapter_summary=chapter_summary,
-                chapter_summary_en=chapter_summary_en,
                 mood_progression=mood_progression,
                 climax_event_indices=climax_event_indices,
                 total_estimated_pages=total_estimated_pages,
@@ -273,7 +271,6 @@ class ChapterInfoExtractor:
 
         items = step4_data.get("items", [])
         chapter_summary = step4_data.get("chapter_summary", "")
-        chapter_summary_en = step4_data.get("chapter_summary_en", "")
         mood_progression = step4_data.get("mood_progression", [])
         total_estimated_pages = step4_data.get("total_estimated_pages", 10)
 
@@ -286,7 +283,6 @@ class ChapterInfoExtractor:
                 scenes=scenes,
                 items=items,
                 chapter_summary=chapter_summary,
-                chapter_summary_en=chapter_summary_en,
                 mood_progression=mood_progression,
                 climax_event_indices=climax_event_indices,
                 total_estimated_pages=total_estimated_pages,
@@ -535,7 +531,6 @@ class ChapterInfoExtractor:
         scenes: list,
         items: list,
         chapter_summary: str,
-        chapter_summary_en: str,
         mood_progression: list,
         climax_event_indices: list,
         total_estimated_pages: int,
@@ -580,7 +575,6 @@ class ChapterInfoExtractor:
             events=parsed_events,
             items=parsed_items,
             chapter_summary=chapter_summary,
-            chapter_summary_en=chapter_summary_en,
             mood_progression=mood_progression,
             climax_event_indices=climax_event_indices,
             total_estimated_pages=total_estimated_pages,
@@ -672,7 +666,6 @@ class ChapterInfoExtractor:
             events=events,
             items=items,
             chapter_summary=data.get("chapter_summary", ""),
-            chapter_summary_en=data.get("chapter_summary_en", ""),
             mood_progression=data.get("mood_progression", []),
             climax_event_indices=data.get("climax_event_indices", []),
             total_estimated_pages=data.get("total_estimated_pages", 0),
@@ -697,7 +690,6 @@ class ChapterInfoExtractor:
                 index=i,
                 type=EventType.DESCRIPTION,
                 description=para[:100] + "..." if len(para) > 100 else para,
-                description_en="",
                 participants=[],
                 scene_index=0,
                 importance=ImportanceLevel.NORMAL,
@@ -707,7 +699,6 @@ class ChapterInfoExtractor:
         scenes = [SceneInfo(
             index=0,
             location="未知地点",
-            location_en="Unknown location",
             event_indices=list(range(len(events))),
         )]
 
@@ -718,7 +709,6 @@ class ChapterInfoExtractor:
             events=events,
             items=[],
             chapter_summary="信息提取失败，使用回退模式",
-            chapter_summary_en="Extraction failed, using fallback mode",
             mood_progression=[],
             climax_event_indices=[],
             total_estimated_pages=max(5, len(events) // 2),

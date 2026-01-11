@@ -92,6 +92,9 @@ class WDWorkspace(
             on_download_pdf=self._onDownloadPDF,
             on_generate_all_images=self._onGenerateAllImages,
             on_preview_prompt=self._onPreviewPrompt,
+            on_stop_generate=self._onStopMangaGenerate,
+            on_stop_generate_all=self._onStopGenerateAllImages,
+            api_base_url=self.api_client.base_url,
         )
 
         # 漫画生成状态标志（记录正在生成的章节号，None表示没有生成）

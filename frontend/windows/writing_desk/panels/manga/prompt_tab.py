@@ -8,7 +8,7 @@
 from typing import Dict, Any, List, Optional
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget, QFrame,
-    QPushButton, QScrollArea, QSizePolicy, QStackedWidget
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QGridLayout
 )
 from PyQt6.QtCore import Qt
 
@@ -100,7 +100,9 @@ class PromptTabMixin:
         return tab
 
     def _create_panels_scroll_area(self, manga_data: dict) -> QScrollArea:
-        """创建画格滚动区域
+        """创建画格滚动区域（网格布局）
+
+        按页面分组，每页内按row_id分行，行内按width_ratio比例排列画格。
 
         Args:
             manga_data: 漫画数据
@@ -145,41 +147,474 @@ class PromptTabMixin:
             profile_card = self._create_character_profiles_card(character_profiles)
             content_layout.addWidget(profile_card)
 
-        # 按场景分组显示画格
+        # 获取画格和页面数据
         panels = manga_data.get('panels', [])
-        scenes = manga_data.get('scenes', [])
+        # scenes字段存储的是pages数据（包含gutter信息）
+        pages_info = manga_data.get('scenes', [])
 
-        # 构建场景信息映射
-        scene_info_map = {}
-        for scene in scenes:
-            scene_info_map[scene.get('scene_id')] = scene
+        # 构建页面gutter信息映射
+        page_gutter_map = {}
+        for page_info in pages_info:
+            pn = page_info.get('page_number')
+            if pn is not None:
+                page_gutter_map[pn] = {
+                    'gutter_h': page_info.get('gutter_horizontal', 8),
+                    'gutter_v': page_info.get('gutter_vertical', 8),
+                    'mood': page_info.get('mood', ''),
+                    'layout_description': page_info.get('layout_description', ''),
+                }
 
-        # 按场景分组
-        panels_by_scene = {}
+        # 按页码分组画格
+        panels_by_page: Dict[int, List] = {}
         for panel in panels:
-            scene_id = panel.get('scene_id', 0)
-            if scene_id not in panels_by_scene:
-                panels_by_scene[scene_id] = []
-            panels_by_scene[scene_id].append(panel)
+            page_number = panel.get('page_number', 1)
+            if page_number not in panels_by_page:
+                panels_by_page[page_number] = []
+            panels_by_page[page_number].append(panel)
 
-        # 为每个场景创建卡片组
-        for scene_id in sorted(panels_by_scene.keys()):
-            scene_panels = panels_by_scene[scene_id]
-            scene_info = scene_info_map.get(scene_id, {})
+        # 为每页创建网格布局
+        for page_number in sorted(panels_by_page.keys()):
+            page_panels = panels_by_page[page_number]
+            page_info = page_gutter_map.get(page_number, {})
 
-            # 场景标题
-            scene_header = self._create_scene_header(scene_id, scene_info, len(scene_panels))
-            content_layout.addWidget(scene_header)
+            # 页面标题
+            page_header = self._create_page_header(page_number, page_info, len(page_panels))
+            content_layout.addWidget(page_header)
 
-            # 该场景的画格卡片
-            for panel in scene_panels:
-                panel_card = self._create_panel_card(panel)
-                content_layout.addWidget(panel_card)
+            # 页面网格（按row_id分行排列）
+            page_grid = self._create_page_grid(page_panels, page_info)
+            content_layout.addWidget(page_grid)
 
         content_layout.addStretch()
         scroll_area.setWidget(content_widget)
 
         return scroll_area
+
+    def _create_page_header(self, page_number: int, page_info: dict, panel_count: int) -> QFrame:
+        """创建页面标题
+
+        Args:
+            page_number: 页码
+            page_info: 页面信息（mood, layout_description, gutter等）
+            panel_count: 画格数量
+
+        Returns:
+            页面标题Widget
+        """
+        s = self._styler
+
+        header = QFrame()
+        header.setObjectName(f"page_header_{page_number}")
+        # 使用 bg_secondary 作为背景，确保在所有主题下都有足够对比度
+        header.setStyleSheet(f"""
+            QFrame {{
+                background-color: {s.bg_secondary};
+                border-left: 3px solid {s.accent_color};
+                border-radius: {dp(4)}px;
+            }}
+        """)
+
+        layout = QVBoxLayout(header)
+        layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+        layout.setSpacing(dp(4))
+
+        # 顶部行：页码 + 情感标签 + 画格数
+        top_row = QHBoxLayout()
+        top_row.setSpacing(dp(8))
+
+        # 页码
+        page_label = QLabel(f"第 {page_number} 页")
+        page_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            font-weight: bold;
+            color: {s.accent_color};
+        """)
+        top_row.addWidget(page_label)
+
+        top_row.addStretch()
+
+        # 情感标签
+        mood = page_info.get('mood', '')
+        mood_map = {
+            'calm': '平静', 'tension': '紧张', 'action': '动作',
+            'emotional': '情感', 'mystery': '神秘', 'comedy': '喜剧',
+            'dramatic': '戏剧', 'romantic': '浪漫', 'horror': '恐怖',
+            'flashback': '回忆',
+        }
+        if mood:
+            mood_text = mood_map.get(mood, mood)
+            mood_label = QLabel(mood_text)
+            mood_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(10)}px;
+                color: {s.button_text};
+                background-color: {s.accent_color};
+                padding: {dp(1)}px {dp(6)}px;
+                border-radius: {dp(3)}px;
+            """)
+            top_row.addWidget(mood_label)
+
+        count_label = QLabel(f"{panel_count} 格")
+        count_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(10)}px;
+            color: {s.text_tertiary};
+        """)
+        top_row.addWidget(count_label)
+
+        layout.addLayout(top_row)
+
+        # 布局描述（如果有）
+        layout_desc = page_info.get('layout_description', '')
+        if layout_desc:
+            desc_label = QLabel(layout_desc)
+            desc_label.setWordWrap(True)
+            # 使用 text_primary 确保在所有主题下都清晰可见
+            desc_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(11)}px;
+                color: {s.text_primary};
+            """)
+            layout.addWidget(desc_label)
+
+        return header
+
+    def _create_page_grid(self, panels: List, page_info: dict) -> QFrame:
+        """创建页面网格布局（支持row_span跨行）
+
+        使用QGridLayout实现真正的跨行渲染：
+        - 12列网格系统（类似Bootstrap）
+        - row_span: 画格跨越多行
+        - width_ratio: 映射为列跨度
+
+        Args:
+            panels: 该页的画格列表
+            page_info: 页面信息
+
+        Returns:
+            网格布局Widget
+        """
+        s = self._styler
+
+        # 12列网格系统，支持各种宽度组合
+        GRID_COLUMNS = 12
+        WIDTH_RATIO_COLS = {
+            'full': 12,        # 100%
+            'two_thirds': 8,   # 66.7%
+            'half': 6,         # 50%
+            'third': 4,        # 33.3%
+        }
+
+        container = QFrame()
+        container.setObjectName("page_grid")
+        container.setStyleSheet(f"""
+            QFrame#page_grid {{
+                background-color: {s.bg_card};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(6)}px;
+                padding: {dp(4)}px;
+            }}
+        """)
+
+        gutter_v = page_info.get('gutter_v', 8)
+        gutter_h = page_info.get('gutter_h', 8)
+
+        grid_layout = QGridLayout(container)
+        grid_layout.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        grid_layout.setHorizontalSpacing(dp(gutter_h // 2))
+        grid_layout.setVerticalSpacing(dp(gutter_v // 2))
+
+        # 按row_id分组画格，计算最大行数
+        rows_map: Dict[int, List] = {}
+        max_row = 0
+        for panel in panels:
+            row_id = panel.get('row_id', 1)
+            row_span = panel.get('row_span', 1)
+            if row_id not in rows_map:
+                rows_map[row_id] = []
+            rows_map[row_id].append(panel)
+            max_row = max(max_row, row_id + row_span - 1)
+
+        if max_row == 0:
+            max_row = 1
+
+        # 占用矩阵：跟踪哪些单元格已被跨行画格占用
+        occupied = [[False] * GRID_COLUMNS for _ in range(max_row)]
+
+        # 按行号顺序处理画格
+        for row_id in sorted(rows_map.keys()):
+            row_panels = rows_map[row_id]
+
+            for panel in row_panels:
+                width_ratio = panel.get('width_ratio', 'half')
+                row_span = panel.get('row_span', 1)
+                col_span = WIDTH_RATIO_COLS.get(width_ratio, 6)
+
+                # 找到第一个可用的列位置（考虑之前跨行画格的占用）
+                col = 0
+                while col + col_span <= GRID_COLUMNS:
+                    can_place = True
+                    for r in range(row_span):
+                        row_idx = row_id - 1 + r
+                        if row_idx >= max_row:
+                            continue
+                        for c in range(col_span):
+                            if occupied[row_idx][col + c]:
+                                can_place = False
+                                break
+                        if not can_place:
+                            break
+                    if can_place:
+                        break
+                    col += 1
+
+                # 如果找不到足够空间，跳过（不应该发生在合理的布局中）
+                if col + col_span > GRID_COLUMNS:
+                    continue
+
+                # 标记占用的单元格
+                for r in range(row_span):
+                    row_idx = row_id - 1 + r
+                    if row_idx < max_row:
+                        for c in range(col_span):
+                            occupied[row_idx][col + c] = True
+
+                # 创建画格卡片并添加到网格
+                panel_card = self._create_panel_card_compact(panel)
+                grid_layout.addWidget(panel_card, row_id - 1, col, row_span, col_span)
+
+        # 设置列拉伸因子，使列宽度均匀分配
+        for i in range(GRID_COLUMNS):
+            grid_layout.setColumnStretch(i, 1)
+
+        # 设置行拉伸因子，使行高度均匀分配
+        for i in range(max_row):
+            grid_layout.setRowStretch(i, 1)
+
+        return container
+
+    def _create_panel_card_compact(self, panel: dict) -> QFrame:
+        """创建紧凑版画格卡片（用于网格布局）
+
+        Args:
+            panel: 画格数据
+
+        Returns:
+            画格卡片Widget
+        """
+        s = self._styler
+
+        panel_id = panel.get('panel_id', '')
+        page_number = panel.get('page_number', 0)
+        panel_number = panel.get('panel_number', 1)
+        row_id = panel.get('row_id', 1)
+        row_span = panel.get('row_span', 1)
+        width_ratio = panel.get('width_ratio', 'half')
+        is_key_panel = panel.get('is_key_panel', False)
+        aspect_ratio = panel.get('aspect_ratio', '1:1')
+
+        card = QFrame()
+        card.setObjectName(f"panel_compact_{panel_id}")
+
+        # 关键画格使用强调边框
+        border_color = s.accent_color if is_key_panel else s.border_light
+        border_width = 2 if is_key_panel else 1
+        card.setStyleSheet(f"""
+            QFrame#panel_compact_{panel_id} {{
+                background-color: {s.bg_secondary};
+                border: {border_width}px solid {border_color};
+                border-radius: {dp(4)}px;
+            }}
+        """)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
+        layout.setSpacing(dp(4))
+
+        # 顶部行：位置标签 + 宽度比例 + 关键标记
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(dp(4))
+
+        # 位置标签: P{page}R{row}-{panel}
+        pos_label = QLabel(f"P{page_number}R{row_id}-{panel_number}")
+        pos_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(9)}px;
+            color: {s.text_tertiary};
+            background-color: {s.bg_card};
+            padding: {dp(1)}px {dp(4)}px;
+            border-radius: {dp(2)}px;
+        """)
+        header_layout.addWidget(pos_label)
+
+        # 宽度比例标签
+        width_labels = {'full': '100%', 'two_thirds': '2/3', 'half': '1/2', 'third': '1/3'}
+        width_text = width_labels.get(width_ratio, width_ratio)
+        if row_span > 1:
+            width_text += f" x{row_span}行"
+        width_label = QLabel(width_text)
+        width_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(9)}px;
+            color: {s.accent_color};
+        """)
+        header_layout.addWidget(width_label)
+
+        # 宽高比
+        ratio_label = QLabel(aspect_ratio)
+        ratio_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(9)}px;
+            color: {s.text_tertiary};
+        """)
+        header_layout.addWidget(ratio_label)
+
+        header_layout.addStretch()
+
+        # 关键画格标记
+        if is_key_panel:
+            key_label = QLabel("KEY")
+            key_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(8)}px;
+                color: {s.button_text};
+                background-color: {s.accent_color};
+                padding: {dp(1)}px {dp(3)}px;
+                border-radius: {dp(2)}px;
+            """)
+            header_layout.addWidget(key_label)
+
+        layout.addLayout(header_layout)
+
+        # 中文描述（截断显示）
+        prompt = panel.get('prompt', '')
+        if prompt:
+            max_len = 60
+            display_text = prompt[:max_len] + '...' if len(prompt) > max_len else prompt
+            zh_label = QLabel(display_text)
+            zh_label.setWordWrap(True)
+            zh_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(10)}px;
+                color: {s.text_primary};
+            """)
+            layout.addWidget(zh_label)
+
+        # 底部：对话/旁白简要信息 + 生成按钮
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(dp(4))
+
+        # 对话/旁白指示器
+        dialogue = panel.get('dialogue', '')
+        narration = panel.get('narration', '')
+        if dialogue:
+            dial_indicator = QLabel("对话")
+            dial_indicator.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(8)}px;
+                color: {s.text_secondary};
+                background-color: {s.bg_card};
+                padding: {dp(1)}px {dp(3)}px;
+                border-radius: {dp(2)}px;
+            """)
+            bottom_layout.addWidget(dial_indicator)
+        if narration:
+            narr_indicator = QLabel("旁白")
+            narr_indicator.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(8)}px;
+                color: {s.text_tertiary};
+                background-color: {s.bg_card};
+                padding: {dp(1)}px {dp(3)}px;
+                border-radius: {dp(2)}px;
+            """)
+            bottom_layout.addWidget(narr_indicator)
+
+        bottom_layout.addStretch()
+
+        # 查看提示词按钮
+        view_btn = QPushButton("查看")
+        view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        view_btn.setStyleSheet(ButtonStyles.text('XS'))
+        view_btn.setToolTip("查看完整提示词")
+        if hasattr(self, '_on_preview_prompt') and self._on_preview_prompt:
+            view_btn.clicked.connect(
+                lambda checked, p=panel: self._on_preview_prompt(p)
+            )
+        bottom_layout.addWidget(view_btn)
+
+        # 检查是否已生成图片
+        has_image = panel.get('has_image', False)
+
+        # 使用 QStackedWidget 切换按钮和加载状态
+        btn_stack = QStackedWidget()
+        btn_stack.setFixedHeight(dp(32))  # XS按钮需要足够空间
+
+        # 状态0: 生成/重新生成按钮
+        btn_container = QWidget()
+        btn_container.setStyleSheet("background: transparent;")
+        btn_inner_layout = QHBoxLayout(btn_container)
+        btn_inner_layout.setContentsMargins(0, 0, 0, 0)
+        btn_inner_layout.setSpacing(dp(4))
+
+        if has_image:
+            generated_label = QLabel("OK")
+            generated_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(9)}px;
+                color: {s.success};
+                font-weight: bold;
+            """)
+            btn_inner_layout.addWidget(generated_label)
+
+        generate_btn = QPushButton("生成" if not has_image else "重生成")
+        generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        generate_btn.setStyleSheet(ButtonStyles.text('XS') if has_image else ButtonStyles.primary('XS'))
+        if self._on_generate_image:
+            generate_btn.clicked.connect(
+                lambda checked, p=panel: self._on_generate_image(p)
+            )
+        btn_inner_layout.addWidget(generate_btn)
+
+        btn_stack.addWidget(btn_container)
+
+        # 状态1: 加载中状态
+        loading_container = QWidget()
+        loading_container.setStyleSheet("background: transparent;")
+        loading_inner_layout = QHBoxLayout(loading_container)
+        loading_inner_layout.setContentsMargins(0, 0, 0, 0)
+        loading_inner_layout.setSpacing(dp(4))
+
+        spinner = CircularSpinner(size=dp(14), color=s.accent_color, auto_start=False)
+        loading_inner_layout.addWidget(spinner)
+
+        loading_label = QLabel("...")
+        loading_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(9)}px;
+            color: {s.accent_color};
+        """)
+        loading_inner_layout.addWidget(loading_label)
+        loading_inner_layout.addStretch()
+
+        btn_stack.addWidget(loading_container)
+        btn_stack.setCurrentIndex(0)
+
+        bottom_layout.addWidget(btn_stack)
+
+        # 保存加载状态引用
+        self._panel_card_states[panel_id] = {
+            'btn_stack': btn_stack,
+            'spinner': spinner,
+            'loading_label': loading_label,
+            'generate_btn': generate_btn,
+            'has_image': has_image,
+        }
+
+        layout.addLayout(bottom_layout)
+
+        return card
 
     def _create_stats_card(self, total_pages: int, total_panels: int, style: str) -> QFrame:
         """创建统计信息卡片"""
@@ -220,509 +655,6 @@ class PromptTabMixin:
         layout.addWidget(panels_widget)
 
         layout.addStretch()
-
-        return card
-
-    def _create_scene_header(self, scene_id: int, scene_info: dict, panel_count: int) -> QFrame:
-        """创建场景标题"""
-        s = self._styler
-
-        header = QFrame()
-        header.setObjectName(f"scene_header_{scene_id}")
-        header.setStyleSheet(f"""
-            QFrame {{
-                background-color: {s.accent_color}15;
-                border-left: 3px solid {s.accent_color};
-                border-radius: {dp(4)}px;
-            }}
-        """)
-
-        layout = QVBoxLayout(header)
-        layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
-        layout.setSpacing(dp(4))
-
-        # 顶部行：场景号 + 情感标签 + 画格数
-        top_row = QHBoxLayout()
-        top_row.setSpacing(dp(8))
-
-        # 页码
-        scene_label = QLabel(f"第 {scene_id} 页")
-        scene_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(12)}px;
-            font-weight: bold;
-            color: {s.accent_color};
-        """)
-        top_row.addWidget(scene_label)
-
-        top_row.addStretch()
-
-        # 情感标签
-        mood = scene_info.get('mood', '')
-        mood_map = {
-            'calm': '平静',
-            'tension': '紧张',
-            'action': '动作',
-            'emotional': '情感',
-            'mystery': '神秘',
-            'comedy': '喜剧',
-            'dramatic': '戏剧',
-            'romantic': '浪漫',
-            'horror': '恐怖',
-            'flashback': '回忆',
-        }
-        if mood:
-            mood_text = mood_map.get(mood, mood)
-            mood_label = QLabel(mood_text)
-            mood_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.button_text};
-                background-color: {s.accent_color};
-                padding: {dp(1)}px {dp(6)}px;
-                border-radius: {dp(3)}px;
-            """)
-            top_row.addWidget(mood_label)
-
-        count_label = QLabel(f"{panel_count} 格")
-        count_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(10)}px;
-            color: {s.text_tertiary};
-        """)
-        top_row.addWidget(count_label)
-
-        layout.addLayout(top_row)
-
-        # 场景摘要（单独一行，自动换行）
-        summary = scene_info.get('scene_summary', '')
-        if summary:
-            summary_label = QLabel(summary)
-            summary_label.setWordWrap(True)
-            summary_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.text_secondary};
-            """)
-            layout.addWidget(summary_label)
-
-        return header
-
-    def _create_panel_card(self, panel: dict) -> QFrame:
-        """创建画格卡片"""
-        s = self._styler
-
-        panel_id = panel.get('panel_id', '')
-        page_number = panel.get('page_number', 0)
-        slot_id = panel.get('slot_id', 0)
-        is_key_panel = panel.get('is_key_panel', False)
-
-        card = QFrame()
-        card.setObjectName(f"panel_card_{panel_id}")
-
-        border_color = s.accent_color if is_key_panel else s.border_light
-        card.setStyleSheet(f"""
-            QFrame#panel_card_{panel_id} {{
-                background-color: {s.bg_card};
-                border: 1px solid {border_color};
-                border-radius: {dp(6)}px;
-                margin-left: {dp(12)}px;
-            }}
-        """)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
-        layout.setSpacing(dp(8))
-
-        # 顶部行：画格信息
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(dp(8))
-
-        # 页码和槽位
-        pos_label = QLabel(f"P{page_number}-{slot_id}")
-        pos_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(10)}px;
-            color: {s.text_tertiary};
-            background-color: {s.bg_secondary};
-            padding: {dp(1)}px {dp(6)}px;
-            border-radius: {dp(3)}px;
-        """)
-        header_layout.addWidget(pos_label)
-
-        # 比例
-        aspect_ratio = panel.get('aspect_ratio', '1:1')
-        ratio_label = QLabel(aspect_ratio)
-        ratio_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(10)}px;
-            color: {s.text_tertiary};
-        """)
-        header_layout.addWidget(ratio_label)
-
-        # 构图和角度（限制长度，避免溢出）
-        composition = panel.get('composition', '')
-        camera_angle = panel.get('camera_angle', '')
-        if composition or camera_angle:
-            comp_text = f"{composition} / {camera_angle}" if composition and camera_angle else (composition or camera_angle)
-            # 限制长度防止溢出
-            if len(comp_text) > 20:
-                comp_text = comp_text[:18] + '...'
-            comp_label = QLabel(comp_text)
-            comp_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.text_secondary};
-            """)
-            header_layout.addWidget(comp_label)
-
-        # 关键画格标记
-        if is_key_panel:
-            key_label = QLabel("关键")
-            key_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(9)}px;
-                color: {s.button_text};
-                background-color: {s.accent_color};
-                padding: {dp(1)}px {dp(4)}px;
-                border-radius: {dp(2)}px;
-            """)
-            header_layout.addWidget(key_label)
-
-        header_layout.addStretch()
-
-        layout.addLayout(header_layout)
-
-        # 中文描述
-        prompt_zh = panel.get('prompt_zh', '')
-        if prompt_zh:
-            zh_label = QLabel(prompt_zh)
-            zh_label.setWordWrap(True)
-            zh_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.text_primary};
-                line-height: 1.4;
-            """)
-            layout.addWidget(zh_label)
-
-        # 英文提示词（可折叠或默认隐藏）
-        prompt_en = panel.get('prompt_en', '')
-        if prompt_en:
-            en_container = QFrame()
-            en_container.setStyleSheet(f"""
-                background-color: {s.bg_secondary};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px;
-            """)
-            en_layout = QVBoxLayout(en_container)
-            en_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
-            en_layout.setSpacing(dp(4))
-
-            en_header = QHBoxLayout()
-            en_title = QLabel("Prompt")
-            en_title.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.text_tertiary};
-            """)
-            en_header.addWidget(en_title)
-            en_header.addStretch()
-
-            # 预览实际提示词按钮
-            preview_btn = QPushButton("预览")
-            preview_btn.setFixedSize(dp(40), dp(20))
-            preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            preview_btn.setStyleSheet(ButtonStyles.text('XS'))
-            preview_btn.setToolTip("查看发送给生图模型的实际提示词")
-            if self._on_preview_prompt:
-                # 传递完整的画格数据（包含对话、旁白、音效等元数据）
-                preview_btn.clicked.connect(
-                    lambda checked, p=panel: self._on_preview_prompt(p)
-                )
-            en_header.addWidget(preview_btn)
-
-            # 复制按钮
-            copy_btn = QPushButton("复制")
-            copy_btn.setFixedSize(dp(40), dp(20))
-            copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            copy_btn.setStyleSheet(ButtonStyles.text('XS'))
-            if self._on_copy_prompt:
-                copy_btn.clicked.connect(lambda checked, p=prompt_en: self._on_copy_prompt(p))
-            en_header.addWidget(copy_btn)
-
-            en_layout.addLayout(en_header)
-
-            en_label = QLabel(prompt_en[:200] + ('...' if len(prompt_en) > 200 else ''))
-            en_label.setWordWrap(True)
-            en_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.text_secondary};
-            """)
-            en_layout.addWidget(en_label)
-
-            layout.addWidget(en_container)
-
-        # 对话和旁白
-        dialogue = panel.get('dialogue', '')
-        dialogue_speaker = panel.get('dialogue_speaker', '')
-        dialogue_bubble_type = panel.get('dialogue_bubble_type', 'normal')
-        dialogue_emotion = panel.get('dialogue_emotion', '')
-        narration = panel.get('narration', '')
-        sound_effects = panel.get('sound_effects', [])
-        sound_effect_details = panel.get('sound_effect_details', [])
-
-        # 文字元素区域
-        if dialogue or narration or sound_effects or sound_effect_details:
-            text_container = QFrame()
-            text_container.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {s.bg_secondary};
-                    border-radius: {dp(4)}px;
-                    border-left: 2px solid {s.accent_color}60;
-                }}
-            """)
-            text_layout = QVBoxLayout(text_container)
-            text_layout.setContentsMargins(dp(10), dp(8), dp(10), dp(8))
-            text_layout.setSpacing(dp(6))
-
-            # 对话显示（带气泡类型和情绪标签）
-            if dialogue:
-                dial_row = QHBoxLayout()
-                dial_row.setSpacing(dp(6))
-
-                # 气泡类型标签
-                bubble_map = {
-                    'normal': ('对话', s.text_secondary),
-                    'shout': ('大喊', s.error),
-                    'whisper': ('低语', s.text_tertiary),
-                    'thought': ('心理', s.accent_color),
-                    'narration': ('叙述', s.text_secondary),
-                    'electronic': ('电子', s.accent_color),
-                }
-                bubble_info = bubble_map.get(dialogue_bubble_type, ('对话', s.text_secondary))
-                bubble_label = QLabel(bubble_info[0])
-                bubble_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(9)}px;
-                    color: {s.button_text};
-                    background-color: {bubble_info[1]};
-                    padding: {dp(1)}px {dp(4)}px;
-                    border-radius: {dp(2)}px;
-                """)
-                dial_row.addWidget(bubble_label)
-
-                # 情绪标签（如果有）
-                if dialogue_emotion:
-                    emotion_label = QLabel(dialogue_emotion)
-                    emotion_label.setStyleSheet(f"""
-                        font-family: {s.ui_font};
-                        font-size: {sp(9)}px;
-                        color: {s.text_tertiary};
-                        background-color: {s.bg_card};
-                        padding: {dp(1)}px {dp(4)}px;
-                        border-radius: {dp(2)}px;
-                        border: 1px solid {s.border_light};
-                    """)
-                    dial_row.addWidget(emotion_label)
-
-                dial_row.addStretch()
-                text_layout.addLayout(dial_row)
-
-                # 对话内容
-                speaker_text = f"{dialogue_speaker}: " if dialogue_speaker else ""
-                dial_content = QLabel(f"{speaker_text}\"{dialogue}\"")
-                dial_content.setWordWrap(True)
-                dial_content.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(11)}px;
-                    color: {s.text_primary};
-                    font-style: italic;
-                """)
-                text_layout.addWidget(dial_content)
-
-            # 旁白显示
-            if narration:
-                narr_row = QHBoxLayout()
-                narr_row.setSpacing(dp(6))
-
-                narr_tag = QLabel("旁白")
-                narr_tag.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(9)}px;
-                    color: {s.button_text};
-                    background-color: {s.text_tertiary};
-                    padding: {dp(1)}px {dp(4)}px;
-                    border-radius: {dp(2)}px;
-                """)
-                narr_row.addWidget(narr_tag)
-                narr_row.addStretch()
-                text_layout.addLayout(narr_row)
-
-                narr_content = QLabel(f"[{narration}]")
-                narr_content.setWordWrap(True)
-                narr_content.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: {s.text_secondary};
-                """)
-                text_layout.addWidget(narr_content)
-
-            # 音效显示（优先显示详细信息）
-            # sound_effect_details 和 sound_effects 都可能是字典列表
-            sfx_to_show = sound_effect_details if sound_effect_details else sound_effects
-            if sfx_to_show:
-                sfx_row = QHBoxLayout()
-                sfx_row.setSpacing(dp(6))
-
-                sfx_tag = QLabel("音效")
-                sfx_tag.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(9)}px;
-                    color: {s.button_text};
-                    background-color: {s.warning if hasattr(s, 'warning') else s.accent_color};
-                    padding: {dp(1)}px {dp(4)}px;
-                    border-radius: {dp(2)}px;
-                """)
-                sfx_row.addWidget(sfx_tag)
-
-                # 显示音效内容
-                for sfx_item in sfx_to_show[:3]:  # 最多显示3个
-                    # 确保 sfx_text 始终是字符串
-                    if isinstance(sfx_item, dict):
-                        sfx_text = sfx_item.get('text', '')
-                        if not isinstance(sfx_text, str):
-                            sfx_text = str(sfx_text) if sfx_text else ''
-                        sfx_type = sfx_item.get('type', '')
-                        sfx_intensity = sfx_item.get('intensity', '')
-                    elif isinstance(sfx_item, str):
-                        sfx_text = sfx_item
-                        sfx_type = ''
-                        sfx_intensity = ''
-                    else:
-                        sfx_text = str(sfx_item) if sfx_item else ''
-                        sfx_type = ''
-                        sfx_intensity = ''
-
-                    if not sfx_text:
-                        continue
-
-                    # 根据强度设置样式
-                    intensity_style = {
-                        'large': f"font-weight: bold; font-size: {sp(12)}px;",
-                        'medium': f"font-size: {sp(11)}px;",
-                        'small': f"font-size: {sp(9)}px; color: {s.text_tertiary};",
-                    }.get(sfx_intensity, f"font-size: {sp(10)}px;")
-
-                    sfx_label = QLabel(sfx_text)
-                    sfx_label.setStyleSheet(f"""
-                        font-family: {s.ui_font};
-                        {intensity_style}
-                        color: {s.text_primary};
-                        background-color: {s.bg_card};
-                        padding: {dp(2)}px {dp(6)}px;
-                        border-radius: {dp(3)}px;
-                        border: 1px solid {s.border_light};
-                    """)
-                    sfx_row.addWidget(sfx_label)
-
-                sfx_row.addStretch()
-                text_layout.addLayout(sfx_row)
-
-            layout.addWidget(text_container)
-
-        # 底部：生成图片按钮（带加载状态）
-        footer_layout = QHBoxLayout()
-        footer_layout.addStretch()
-
-        # 检查是否已生成图片
-        has_image = panel.get('has_image', False)
-        image_count = panel.get('image_count', 0)
-
-        # 使用 QStackedWidget 切换按钮和加载状态
-        btn_stack = QStackedWidget()
-        btn_stack.setFixedHeight(dp(32))
-
-        # 状态0: 生成/重新生成按钮
-        btn_container = QWidget()
-        btn_container.setStyleSheet("background: transparent;")
-        btn_inner_layout = QHBoxLayout(btn_container)
-        btn_inner_layout.setContentsMargins(0, 0, 0, 0)
-        btn_inner_layout.setSpacing(dp(8))
-
-        if has_image:
-            # 已生成状态：显示"已生成"标签 + 重新生成按钮
-            generated_label = QLabel(f"已生成 ({image_count}张)")
-            generated_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.success};
-                font-weight: 500;
-            """)
-            btn_inner_layout.addWidget(generated_label)
-
-            regenerate_btn = QPushButton("重新生成")
-            regenerate_btn.setFixedHeight(dp(26))
-            regenerate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            regenerate_btn.setStyleSheet(ButtonStyles.secondary('SM'))
-            if self._on_generate_image:
-                # 传递完整的画格数据
-                regenerate_btn.clicked.connect(
-                    lambda checked, p=panel: self._on_generate_image(p)
-                )
-            btn_inner_layout.addWidget(regenerate_btn)
-            generate_btn = regenerate_btn  # 保存引用用于状态控制
-        else:
-            # 未生成状态：显示"生成图片"按钮
-            generate_btn = QPushButton("生成图片")
-            generate_btn.setFixedHeight(dp(26))
-            generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            generate_btn.setStyleSheet(ButtonStyles.primary('SM'))
-            if self._on_generate_image:
-                # 传递完整的画格数据
-                generate_btn.clicked.connect(
-                    lambda checked, p=panel: self._on_generate_image(p)
-                )
-            btn_inner_layout.addWidget(generate_btn)
-
-        btn_stack.addWidget(btn_container)
-
-        # 状态1: 加载中状态
-        loading_container = QWidget()
-        loading_container.setStyleSheet("background: transparent;")
-        loading_inner_layout = QHBoxLayout(loading_container)
-        loading_inner_layout.setContentsMargins(0, 0, 0, 0)
-        loading_inner_layout.setSpacing(dp(6))
-
-        spinner = CircularSpinner(size=dp(18), color=s.accent_color, auto_start=False)
-        loading_inner_layout.addWidget(spinner)
-
-        loading_label = QLabel("正在生成...")
-        loading_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(11)}px;
-            color: {s.accent_color};
-            font-weight: 500;
-        """)
-        loading_inner_layout.addWidget(loading_label)
-        loading_inner_layout.addStretch()
-
-        btn_stack.addWidget(loading_container)
-        btn_stack.setCurrentIndex(0)
-
-        footer_layout.addWidget(btn_stack)
-
-        # 保存加载状态引用，用于外部控制
-        self._panel_card_states[panel_id] = {
-            'btn_stack': btn_stack,
-            'spinner': spinner,
-            'loading_label': loading_label,
-            'generate_btn': generate_btn,
-            'has_image': has_image,
-        }
-
-        layout.addLayout(footer_layout)
 
         return card
 
@@ -821,7 +753,7 @@ class PromptTabMixin:
 
             # 复制按钮
             copy_btn = QPushButton("复制")
-            copy_btn.setFixedSize(dp(45), dp(22))
+            copy_btn.setMinimumWidth(dp(48))
             copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             copy_btn.setStyleSheet(ButtonStyles.text('XS'))
             if description and self._on_copy_prompt:

@@ -2,6 +2,7 @@
 页面规划器
 
 基于章节信息进行全局页面规划。
+简化版：移除复杂的节奏和角色概念。
 """
 
 import json
@@ -13,7 +14,7 @@ from app.services.llm_wrappers import call_llm_json, LLMProfile
 from app.utils.json_utils import parse_llm_json_safe
 
 from ..extraction import ChapterInfo
-from .models import PagePlanResult, PagePlanItem, PacingType, PageRole
+from .models import PagePlanResult, PagePlanItem
 from .prompts import PROMPT_NAME, PAGE_PLANNING_PROMPT, PLANNING_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
@@ -25,13 +26,11 @@ logger = logging.getLogger(__name__)
 
 class PagePlanner:
     """
-    全局页面规划器
+    全局页面规划器（简化版）
 
     基于提取的章节信息，规划整章的页面结构：
     - 确定总页数
     - 分配事件到各页面
-    - 控制叙事节奏
-    - 识别高潮页面
     """
 
     def __init__(
@@ -117,9 +116,8 @@ class PagePlanner:
         try:
             result = self._parse_plan_result(data, chapter_info)
             logger.info(
-                "页面规划完成: %d 页, 高潮页: %s",
+                "页面规划完成: %d 页",
                 result.total_pages,
-                result.climax_pages,
             )
             return result
         except Exception as e:
@@ -155,8 +153,6 @@ class PagePlanner:
                 "type": event.type.value,
                 "description": event.description,
                 "participants": event.participants,
-                "importance": event.importance.value,
-                "is_climax": event.is_climax,
             })
 
         # 准备场景列表JSON
@@ -165,19 +161,24 @@ class PagePlanner:
             scenes_data.append({
                 "index": scene.index,
                 "location": scene.location,
-                "atmosphere": scene.atmosphere,
                 "event_indices": scene.event_indices,
             })
 
         # 准备角色列表
         characters_list = list(chapter_info.characters.keys())
 
+        # 识别高潮事件索引（类型为 climax 或 conflict 的事件）
+        climax_indices = [
+            event.index for event in chapter_info.events
+            if event.type.value in ("climax", "conflict", "action")
+        ]
+
         return prompt_template.format(
             chapter_summary=chapter_info.chapter_summary,
             events_json=json.dumps(events_data, ensure_ascii=False, indent=2),
             scenes_json=json.dumps(scenes_data, ensure_ascii=False, indent=2),
             characters_json=json.dumps(characters_list, ensure_ascii=False),
-            climax_indices=chapter_info.climax_event_indices,
+            climax_indices=json.dumps(climax_indices, ensure_ascii=False),
             min_pages=min_pages,
             max_pages=max_pages,
         )
@@ -214,15 +215,11 @@ class PagePlanner:
                     page_number=1,
                     event_indices=sorted(missing_events),
                     content_summary="补充内容",
-                    pacing=PacingType.MEDIUM,
-                    role=PageRole.SETUP,
                 ))
 
         return PagePlanResult(
             total_pages=data.get("total_pages", len(pages)),
             pages=pages,
-            pacing_notes=data.get("pacing_notes", ""),
-            climax_pages=data.get("climax_pages", []),
         )
 
     def _simple_plan(
@@ -239,10 +236,6 @@ class PagePlanner:
                 page_number=i + 1,
                 event_indices=[event.index],
                 content_summary=event.description[:50],
-                pacing=PacingType.MEDIUM,
-                role=PageRole.SETUP if i > 0 and i < len(events) - 1 else (
-                    PageRole.OPENING if i == 0 else PageRole.RESOLUTION
-                ),
                 key_characters=event.participants,
                 has_dialogue=len(chapter_info.get_dialogue_by_event(event.index)) > 0,
                 has_action=event.type.value in ("action", "conflict"),
@@ -255,16 +248,12 @@ class PagePlanner:
                 page_number=len(pages) + 1,
                 event_indices=[],
                 content_summary="补充画面",
-                pacing=PacingType.SLOW,
-                role=PageRole.TRANSITION,
                 suggested_panel_count=3,
             ))
 
         return PagePlanResult(
             total_pages=len(pages),
             pages=pages,
-            pacing_notes="简单规划模式",
-            climax_pages=[],
         )
 
     def _fallback_plan(
@@ -293,16 +282,6 @@ class PagePlanner:
 
             # 当前页事件够了，或者到达最后一个事件
             if len(current_events) >= events_per_page or i == len(events) - 1:
-                # 确定页面角色
-                if page_number == 1:
-                    role = PageRole.OPENING
-                elif page_number == target_pages:
-                    role = PageRole.RESOLUTION
-                elif any(events[idx].is_climax for idx in current_events if idx < len(events)):
-                    role = PageRole.CLIMAX
-                else:
-                    role = PageRole.SETUP
-
                 # 收集角色
                 key_chars = []
                 has_dialogue = False
@@ -319,27 +298,18 @@ class PagePlanner:
                     page_number=page_number,
                     event_indices=list(current_events),
                     content_summary=events[current_events[0]].description[:50] if current_events else "",
-                    pacing=PacingType.EXPLOSIVE if role == PageRole.CLIMAX else PacingType.MEDIUM,
-                    role=role,
                     key_characters=list(set(key_chars))[:3],
                     has_dialogue=has_dialogue,
                     has_action=has_action,
-                    suggested_panel_count=4 if role == PageRole.CLIMAX else 5,
+                    suggested_panel_count=4,
                 ))
 
                 current_events = []
                 page_number += 1
 
-        # 识别高潮页
-        climax_pages = [
-            p.page_number for p in pages if p.role == PageRole.CLIMAX
-        ]
-
         return PagePlanResult(
             total_pages=len(pages),
             pages=pages,
-            pacing_notes="回退规划模式：平均分配事件",
-            climax_pages=climax_pages,
         )
 
 

@@ -159,6 +159,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         checkpoint_data: dict,
         style: str = "manga",
         source_version_id: Optional[int] = None,
+        analysis_data: Optional[dict] = None,
     ) -> ChapterMangaPrompt:
         """
         保存生成断点
@@ -170,6 +171,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             checkpoint_data: 断点数据
             style: 漫画风格
             source_version_id: 源版本ID
+            analysis_data: 分析数据（章节信息提取和页面规划结果）
 
         Returns:
             漫画提示词实例
@@ -181,6 +183,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             existing.generation_progress = progress
             existing.checkpoint_data = checkpoint_data
             existing.source_version_id = source_version_id
+            # 保存分析数据（如果提供）
+            if analysis_data is not None:
+                existing.analysis_data = analysis_data
             await self.session.flush()
             return existing
         else:
@@ -191,6 +196,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
                 generation_progress=progress,
                 checkpoint_data=checkpoint_data,
                 source_version_id=source_version_id,
+                analysis_data=analysis_data,
             )
             return await self.add(manga_prompt)
 
@@ -260,6 +266,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         chapter_id: int,
         result_data: dict,
         analysis_data: Optional[dict] = None,
+        is_complete: bool = True,
+        source_version_id: Optional[int] = None,
     ) -> ChapterMangaPrompt:
         """
         保存漫画提示词生成结果
@@ -270,6 +278,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             chapter_id: 章节ID
             result_data: MangaPromptResult.to_dict() 返回的字典
             analysis_data: 分析数据（章节信息提取和页面规划结果）
+            is_complete: 是否已全部完成（False表示增量保存中）
+            source_version_id: 源章节版本ID（用于版本追踪）
 
         Returns:
             漫画提示词实例
@@ -296,6 +306,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
                 "layout_description": page_data.get("layout_description", ""),
                 "reading_flow": page_data.get("reading_flow", "right_to_left"),
                 "panel_count": len(page_data.get("panels", [])),
+                # 保存间隙配置
+                "gutter_horizontal": page_data.get("gutter_horizontal", 8),
+                "gutter_vertical": page_data.get("gutter_vertical", 8),
             }
             scenes.append(scene_info)
 
@@ -303,6 +316,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             for panel_data in page_data.get("panels", []):
                 panel_data["page_number"] = page_number  # 确保页码正确
                 panels.append(panel_data)
+
+        # 根据 is_complete 决定状态
+        generation_status = "completed" if is_complete else "generating"
 
         # 使用 upsert 保存
         return await self.upsert(
@@ -313,7 +329,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             character_profiles=character_profiles,
             scenes=scenes,
             panels=panels,
-            generation_status="completed",
+            source_version_id=source_version_id,
+            generation_status=generation_status,
             dialogue_language=dialogue_language,  # Bug 30 修复: 传递对话语言
             analysis_data=analysis_data,  # 保存分析数据
         )
@@ -323,20 +340,21 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         获取漫画提示词生成结果
 
         返回可以用于 MangaPromptResult.from_dict() 的字典格式。
+        支持获取各种生成状态的数据，包括中间状态（extracting/planning/storyboard）。
 
         Args:
             chapter_id: 章节ID
 
         Returns:
-            结果字典，不存在或未完成返回None
+            结果字典，不存在返回None
         """
         manga_prompt = await self.get_by_chapter_id(chapter_id)
 
         if not manga_prompt:
             return None
 
-        # 只返回已完成的结果
-        if manga_prompt.generation_status != "completed":
+        # 支持所有非 pending 状态（包括 extracting, planning, storyboard, generating, completed）
+        if manga_prompt.generation_status == "pending":
             return None
 
         # 将 scenes 和 panels 转换回 pages 格式
@@ -356,20 +374,31 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
                 "panels": panels_by_page.get(page_number, []),
                 "layout_description": scene.get("layout_description", ""),
                 "reading_flow": scene.get("reading_flow", "right_to_left"),
+                # 恢复间隙配置
+                "gutter_horizontal": scene.get("gutter_horizontal", 8),
+                "gutter_vertical": scene.get("gutter_vertical", 8),
             }
             pages.append(page_data)
 
         # 按页码排序
         pages.sort(key=lambda p: p.get("page_number", 0))
 
+        # 判断是否完成
+        is_complete = manga_prompt.generation_status == "completed"
+        completed_pages_count = len(pages) if pages else 0
+
         return {
             "style": manga_prompt.style,
             "pages": pages,
-            "total_pages": manga_prompt.total_pages,
-            "total_panels": manga_prompt.total_panels,
+            "total_pages": manga_prompt.total_pages or 0,
+            "total_panels": manga_prompt.total_panels or 0,
             "character_profiles": manga_prompt.character_profiles or {},
-            # Bug 30 修复: 返回对话语言
             "dialogue_language": manga_prompt.dialogue_language or "chinese",
             # 分析数据
             "analysis_data": manga_prompt.analysis_data,
+            # 增量状态字段
+            "is_complete": is_complete,
+            "completed_pages_count": completed_pages_count,
+            # 当前生成状态
+            "generation_status": manga_prompt.generation_status,
         }

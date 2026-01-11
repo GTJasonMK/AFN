@@ -27,7 +27,7 @@ class SceneCardMixin:
         """创建单个场景卡片"""
         s = self._styler
         scene_id = scene.get('scene_id', index + 1)
-        prompt_en = scene.get('prompt_en', '')
+        prompt = scene.get('prompt', '')
         negative_prompt = scene.get('negative_prompt', '')
         generated_count = scene.get('generated_count', 0)
 
@@ -90,13 +90,13 @@ class SceneCardMixin:
 
         header_layout.addStretch()
 
-        # 生成图片按钮容器
+        # 生成图片按钮容器（XS按钮需要足够空间）
         btn_stack = QStackedWidget()
-        btn_stack.setFixedHeight(dp(26))
+        btn_stack.setFixedHeight(dp(32))
 
         # 状态0: 生成图片按钮
         generate_img_btn = None
-        if prompt_en and self._on_generate_image and generated_count == 0:
+        if prompt and self._on_generate_image and generated_count == 0:
             generate_img_btn = QPushButton("生成图片")
             generate_img_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             generate_img_btn.setStyleSheet(ButtonStyles.primary('XS'))
@@ -149,9 +149,9 @@ class SceneCardMixin:
         copy_btn = QPushButton("复制")
         copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_btn.setStyleSheet(ButtonStyles.secondary('XS'))
-        if prompt_en and self._on_copy_prompt:
+        if prompt and self._on_copy_prompt:
             copy_btn.clicked.connect(
-                lambda checked, p=prompt_en: self._on_copy_prompt(p)
+                lambda checked, p=prompt: self._on_copy_prompt(p)
             )
         header_layout.addWidget(copy_btn)
 
@@ -185,8 +185,8 @@ class SceneCardMixin:
             layout.addWidget(original_container)
 
         # 英文提示词
-        if prompt_en:
-            prompt_container = self._create_prompt_section(scene_id, prompt_en)
+        if prompt:
+            prompt_container = self._create_prompt_section(scene_id, prompt)
             layout.addWidget(prompt_container)
 
         # 负面提示词
@@ -318,7 +318,7 @@ class SceneCardMixin:
 
         return original_container
 
-    def _create_prompt_section(self, scene_id: int, prompt_en: str) -> QFrame:
+    def _create_prompt_section(self, scene_id: int, prompt: str) -> QFrame:
         """创建提示词区域"""
         s = self._styler
 
@@ -344,7 +344,7 @@ class SceneCardMixin:
         prompt_layout.addWidget(prompt_title)
 
         prompt_text = QTextEdit()
-        prompt_text.setPlainText(prompt_en)
+        prompt_text.setPlainText(prompt)
         prompt_text.setReadOnly(True)
         prompt_text.setMaximumHeight(dp(80))
         prompt_text.setStyleSheet(f"""
@@ -385,7 +385,7 @@ class SceneCardMixin:
         neg_layout.addWidget(neg_label, stretch=1)
 
         copy_neg_btn = QPushButton("复制")
-        copy_neg_btn.setFixedSize(dp(35), dp(18))
+        copy_neg_btn.setMinimumWidth(dp(48))
         copy_neg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_neg_btn.setStyleSheet(ButtonStyles.text('XS'))
         if self._on_copy_prompt:
@@ -446,7 +446,7 @@ class SceneCardMixin:
             """)
 
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(2000, lambda: self._restore_button_state(scene_id))
+        QTimer.singleShot(2000, lambda sid=scene_id: self._restore_button_state(sid))
 
     def set_scene_error(self, scene_id: int, message: str = "生成失败"):
         """设置场景生成失败状态"""
@@ -471,7 +471,7 @@ class SceneCardMixin:
             """)
 
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(3000, lambda: self._restore_button_state(scene_id))
+        QTimer.singleShot(3000, lambda sid=scene_id: self._restore_button_state(sid))
 
     def _restore_button_state(self, scene_id: int):
         """恢复按钮状态"""
