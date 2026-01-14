@@ -16,6 +16,9 @@ __pycache__/
 MANIFEST
 .pyc
 .claude
+.codex
+DevelLog
+docs
 # ================
 # 虚拟环境
 # ================
@@ -156,3 +159,4 @@ backend/alembic/versions/__pycache__/
 CLAUDE.md
 GEMINI.md
 AGENTS.md
+verification.md

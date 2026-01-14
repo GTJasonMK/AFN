@@ -68,7 +68,7 @@ class DPIHelper:
         """
         app = QApplication.instance()
         if not app:
-            logger.warning("QApplication未初始化，使用默认DPI")
+            logger.debug("QApplication未初始化，使用默认DPI")
             return
 
         if widget and widget.window():

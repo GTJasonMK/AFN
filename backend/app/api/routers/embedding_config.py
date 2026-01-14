@@ -43,7 +43,7 @@ async def list_embedding_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> list[EmbeddingConfigRead]:
     """获取用户的所有嵌入模型配置列表。"""
-    logger.info("用户 %s 查询嵌入模型配置列表", desktop_user.id)
+    logger.debug("用户 %s 查询嵌入模型配置列表", desktop_user.id)
     return await service.list_configs(desktop_user.id)
 
 
@@ -57,7 +57,7 @@ async def get_active_config(
     if not config:
         logger.warning("用户 %s 没有激活的嵌入模型配置", desktop_user.id)
         raise ResourceNotFoundError("激活的嵌入模型配置", f"用户 {desktop_user.id}")
-    logger.info("用户 %s 获取激活的嵌入模型配置: %s", desktop_user.id, config.config_name)
+    logger.debug("用户 %s 获取激活的嵌入模型配置: %s", desktop_user.id, config.config_name)
     return config
 
 
@@ -68,7 +68,7 @@ async def get_embedding_config_by_id(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> EmbeddingConfigRead:
     """获取指定ID的嵌入模型配置。"""
-    logger.info("用户 %s 查询嵌入模型配置 ID=%s", desktop_user.id, config_id)
+    logger.debug("用户 %s 查询嵌入模型配置 ID=%s", desktop_user.id, config_id)
     return await service.get_config(config_id, desktop_user.id)
 
 
@@ -138,7 +138,7 @@ async def export_embedding_config(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """导出单个嵌入模型配置。"""
-    logger.info("用户 %s 导出嵌入模型配置 ID=%s", desktop_user.id, config_id)
+    logger.debug("用户 %s 导出嵌入模型配置 ID=%s", desktop_user.id, config_id)
     export_data = await service.export_config(config_id, desktop_user.id)
     return export_data
 
@@ -149,7 +149,7 @@ async def export_all_embedding_configs(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """导出用户的所有嵌入模型配置。"""
-    logger.info("用户 %s 导出所有嵌入模型配置", desktop_user.id)
+    logger.debug("用户 %s 导出所有嵌入模型配置", desktop_user.id)
     export_data = await service.export_all_configs(desktop_user.id)
     return export_data
 

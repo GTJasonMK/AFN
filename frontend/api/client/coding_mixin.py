@@ -2,7 +2,7 @@
 编程项目 Mixin
 
 提供编程项目功能生成相关的API方法。
-支持三层结构：系统(System) -> 模块(Module) -> 功能(Feature)
+支持两层结构：系统(System) -> 模块(Module)
 """
 
 from typing import Any, Dict, List, Optional
@@ -129,7 +129,6 @@ class CodingMixin:
             - responsibilities: 职责列表
             - tech_requirements: 技术要求
             - module_count: 模块数量
-            - feature_count: 功能数量
             - generation_status: 生成状态
             - progress: 进度
         """
@@ -229,7 +228,7 @@ class CodingMixin:
         system_number: int
     ) -> Dict[str, Any]:
         """
-        删除系统（同时删除关联的模块和功能）
+        删除系统（同时删除关联的模块）
 
         Args:
             project_id: 项目ID
@@ -298,7 +297,6 @@ class CodingMixin:
             - description: 模块描述
             - interface: 接口说明
             - dependencies: 依赖模块列表
-            - feature_count: 功能数量
             - generation_status: 生成状态
         """
         params = {}
@@ -411,7 +409,7 @@ class CodingMixin:
         module_number: int
     ) -> Dict[str, Any]:
         """
-        删除模块（同时删除关联的功能）
+        删除模块
 
         Args:
             project_id: 项目ID
@@ -460,380 +458,17 @@ class CodingMixin:
             timeout=180
         )
 
-    # ==================== 功能大纲(Feature Outline) API ====================
-
-    def list_coding_feature_outlines(
-        self,
-        project_id: str,
-        system_number: Optional[int] = None,
-        module_number: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    def get_generate_all_modules_stream_url(self, project_id: str) -> str:
         """
-        获取功能大纲列表
+        获取批量生成所有系统模块的SSE流式URL
 
         Args:
             project_id: 项目ID
-            system_number: 按系统编号过滤（可选）
-            module_number: 按模块编号过滤（可选）
-
-        Returns:
-            功能大纲列表，每个功能包含:
-            - feature_number: 全局功能编号
-            - module_number: 所属模块编号
-            - system_number: 所属系统编号
-            - name: 功能名称
-            - description: 功能描述
-            - inputs: 输入说明
-            - outputs: 输出说明
-            - implementation_notes: 实现要点
-            - priority: 优先级
-        """
-        params = {}
-        if system_number is not None:
-            params['system_number'] = system_number
-        if module_number is not None:
-            params['module_number'] = module_number
-
-        return self._request('GET', f'/api/coding/{project_id}/features/outlines', params=params)
-
-    def get_coding_feature_outline(
-        self,
-        project_id: str,
-        feature_number: int
-    ) -> Dict[str, Any]:
-        """
-        获取指定功能大纲详情
-
-        Args:
-            project_id: 项目ID
-            feature_number: 功能编号
-
-        Returns:
-            功能大纲详情数据
-        """
-        return self._request(
-            'GET',
-            f'/api/coding/{project_id}/features/outlines/{feature_number}'
-        )
-
-    def create_coding_feature_outline(
-        self,
-        project_id: str,
-        system_number: int,
-        module_number: int,
-        name: str,
-        description: str = "",
-        inputs: str = "",
-        outputs: str = "",
-        implementation_notes: str = "",
-        priority: str = "medium"
-    ) -> Dict[str, Any]:
-        """
-        手动创建功能大纲
-
-        Args:
-            project_id: 项目ID
-            system_number: 所属系统编号
-            module_number: 所属模块编号
-            name: 功能名称
-            description: 功能描述
-            inputs: 输入说明
-            outputs: 输出说明
-            implementation_notes: 实现要点
-            priority: 优先级
-
-        Returns:
-            创建的功能大纲数据
-        """
-        payload = {
-            'system_number': system_number,
-            'module_number': module_number,
-            'name': name,
-            'description': description,
-            'inputs': inputs,
-            'outputs': outputs,
-            'implementation_notes': implementation_notes,
-            'priority': priority,
-        }
-        return self._request('POST', f'/api/coding/{project_id}/features/outlines', payload)
-
-    def update_coding_feature_outline(
-        self,
-        project_id: str,
-        feature_number: int,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        inputs: Optional[str] = None,
-        outputs: Optional[str] = None,
-        implementation_notes: Optional[str] = None,
-        priority: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        更新功能大纲
-
-        Args:
-            project_id: 项目ID
-            feature_number: 功能编号
-            name: 功能名称
-            description: 功能描述
-            inputs: 输入说明
-            outputs: 输出说明
-            implementation_notes: 实现要点
-            priority: 优先级
-
-        Returns:
-            更新后的功能大纲数据
-        """
-        payload = {}
-        if name is not None:
-            payload['name'] = name
-        if description is not None:
-            payload['description'] = description
-        if inputs is not None:
-            payload['inputs'] = inputs
-        if outputs is not None:
-            payload['outputs'] = outputs
-        if implementation_notes is not None:
-            payload['implementation_notes'] = implementation_notes
-        if priority is not None:
-            payload['priority'] = priority
-
-        return self._request(
-            'PUT',
-            f'/api/coding/{project_id}/features/outlines/{feature_number}',
-            payload
-        )
-
-    def delete_coding_feature_outline(
-        self,
-        project_id: str,
-        feature_number: int
-    ) -> Dict[str, Any]:
-        """
-        删除功能大纲
-
-        Args:
-            project_id: 项目ID
-            feature_number: 功能编号
-
-        Returns:
-            删除结果
-        """
-        return self._request(
-            'DELETE',
-            f'/api/coding/{project_id}/features/outlines/{feature_number}'
-        )
-
-    def generate_coding_features(
-        self,
-        project_id: str,
-        system_number: int,
-        module_number: int,
-        min_features: int = 2,
-        max_features: int = 6,
-        preference: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        为指定模块生成功能大纲
-
-        Args:
-            project_id: 项目ID
-            system_number: 所属系统编号
-            module_number: 目标模块编号
-            min_features: 最少功能数
-            max_features: 最多功能数
-            preference: 重新生成时的偏好指导（可选）
-
-        Returns:
-            生成的功能大纲列表
-        """
-        payload = {
-            'system_number': system_number,
-            'module_number': module_number,
-            'min_features': min_features,
-            'max_features': max_features,
-        }
-        if preference:
-            payload['preference'] = preference
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/features/generate',
-            payload,
-            timeout=180
-        )
-
-    # ==================== 功能内容(Feature Content) API ====================
-    # 以下为原有的功能内容生成相关方法
-
-    def list_coding_features(self, project_id: str) -> List[Dict[str, Any]]:
-        """
-        获取编程项目的功能列表
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            功能列表，每个功能包含:
-            - index: 功能索引
-            - title: 功能标题
-            - summary: 功能摘要
-            - priority: 优先级
-            - status: 状态
-            - has_content: 是否已生成内容
-            - version_count: 版本数量
-        """
-        return self._request('GET', f'/api/coding/{project_id}/features')
-
-    def get_coding_feature_content(
-        self,
-        project_id: str,
-        feature_index: int
-    ) -> Dict[str, Any]:
-        """
-        获取指定功能的生成内容
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引（从0开始）
-
-        Returns:
-            功能内容数据:
-            - feature_index: 功能索引
-            - title: 功能标题
-            - content: 内容
-            - version_count: 版本数量
-            - selected_version_index: 选中的版本索引
-            - word_count: 字数
-        """
-        return self._request(
-            'GET',
-            f'/api/coding/{project_id}/features/{feature_index}'
-        )
-
-    def get_coding_feature_versions(
-        self,
-        project_id: str,
-        feature_index: int
-    ) -> List[Dict[str, Any]]:
-        """
-        获取指定功能的所有版本
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-
-        Returns:
-            版本列表，每个版本包含:
-            - version_index: 版本索引
-            - content: 内容
-            - created_at: 创建时间
-        """
-        return self._request(
-            'GET',
-            f'/api/coding/{project_id}/features/{feature_index}/versions'
-        )
-
-    def generate_coding_feature(
-        self,
-        project_id: str,
-        feature_index: int,
-        writing_notes: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        生成功能Prompt（同步模式）
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-            writing_notes: 写作指导/额外要求
-
-        Returns:
-            生成结果:
-            - success: 是否成功
-            - feature_index: 功能索引
-            - content: 生成的内容
-            - version_count: 版本数量
-        """
-        payload = {
-            'feature_index': feature_index,
-        }
-        if writing_notes:
-            payload['writing_notes'] = writing_notes
-
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/features/{feature_index}/generate',
-            payload,
-            timeout=300  # 生成可能需要较长时间
-        )
-
-    def get_coding_feature_generate_stream_url(
-        self,
-        project_id: str,
-        feature_index: int
-    ) -> str:
-        """
-        获取功能生成的SSE流式URL
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
 
         Returns:
             SSE流式URL
         """
-        return f"{self.base_url}/api/coding/{project_id}/features/{feature_index}/generate-stream"
-
-    def save_coding_feature_content(
-        self,
-        project_id: str,
-        feature_index: int,
-        content: str
-    ) -> Dict[str, Any]:
-        """
-        保存功能内容
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-            content: 功能内容
-
-        Returns:
-            保存结果:
-            - success: 是否成功
-            - word_count: 字数
-        """
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/features/{feature_index}/save',
-            {'content': content}
-        )
-
-    def select_coding_feature_version(
-        self,
-        project_id: str,
-        feature_index: int,
-        version_index: int
-    ) -> Dict[str, Any]:
-        """
-        选择功能版本
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-            version_index: 版本索引
-
-        Returns:
-            选择结果:
-            - success: 是否成功
-            - selected_version_index: 选中的版本索引
-            - word_count: 字数
-        """
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/features/{feature_index}/select-version',
-            {'version_index': version_index}
-        )
+        return f"{self.base_url}/api/coding/{project_id}/modules/generate-all"
 
     # ==================== 依赖关系(Dependencies) API ====================
 
@@ -1052,50 +687,6 @@ class CodingMixin:
             timeout=300  # 完整入库可能需要较长时间
         )
 
-    # ==================== 审查Prompt API ====================
-
-    def get_review_prompt_generate_stream_url(
-        self,
-        project_id: str,
-        feature_index: int
-    ) -> str:
-        """
-        获取审查Prompt生成的SSE流式URL
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-
-        Returns:
-            SSE流式URL
-        """
-        return f"{self.base_url}/api/coding/{project_id}/features/{feature_index}/review-prompt/generate"
-
-    def save_review_prompt(
-        self,
-        project_id: str,
-        feature_index: int,
-        review_prompt: str
-    ) -> Dict[str, Any]:
-        """
-        保存审查Prompt
-
-        Args:
-            project_id: 项目ID
-            feature_index: 功能索引
-            review_prompt: 审查Prompt内容
-
-        Returns:
-            保存结果:
-            - success: 是否成功
-            - word_count: 字数
-        """
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/features/{feature_index}/review-prompt/save',
-            {'review_prompt': review_prompt}
-        )
-
     # ==================== 需求分析对话 API ====================
 
     def get_coding_inspiration_history(
@@ -1152,4 +743,539 @@ class CodingMixin:
             f'/api/coding/{project_id}/blueprint/generate',
             payload,
             timeout=180
+        )
+
+    # ==================== 目录结构 API ====================
+
+    def get_directory_tree(self, project_id: str) -> Dict[str, Any]:
+        """
+        获取项目的完整目录树
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            目录树数据:
+            - project_id: 项目ID
+            - root_nodes: 根目录节点列表
+            - total_directories: 目录总数
+            - total_files: 文件总数
+        """
+        return self._request('GET', f'/api/coding/{project_id}/directories/tree')
+
+    def generate_directory_structure(
+        self,
+        project_id: str,
+        module_number: int,
+        preference: Optional[str] = None,
+        clear_existing: bool = True
+    ) -> Dict[str, Any]:
+        """
+        为指定模块生成目录结构
+
+        Args:
+            project_id: 项目ID
+            module_number: 模块编号
+            preference: 生成偏好指导
+            clear_existing: 是否清除该模块的现有目录结构
+
+        Returns:
+            生成结果:
+            - module_number: 模块编号
+            - module_name: 模块名称
+            - directories_created: 创建的目录数
+            - files_created: 创建的文件数
+            - root_path: 根目录路径
+            - ai_message: AI消息
+        """
+        payload = {
+            'module_number': module_number,
+            'clear_existing': clear_existing,
+        }
+        if preference:
+            payload['preference'] = preference
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/directories/generate',
+            payload,
+            timeout=180
+        )
+
+    def create_directory(
+        self,
+        project_id: str,
+        name: str,
+        parent_id: Optional[int] = None,
+        node_type: str = "directory",
+        description: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        手动创建目录
+
+        Args:
+            project_id: 项目ID
+            name: 目录名称
+            parent_id: 父目录ID（可选，为空则创建根目录）
+            node_type: 节点类型（directory/package）
+            description: 目录说明
+
+        Returns:
+            创建的目录节点数据
+        """
+        payload = {
+            'name': name,
+            'node_type': node_type,
+        }
+        if parent_id is not None:
+            payload['parent_id'] = parent_id
+        if description:
+            payload['description'] = description
+
+        return self._request('POST', f'/api/coding/{project_id}/directories', payload)
+
+    def update_directory(
+        self,
+        project_id: str,
+        node_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        sort_order: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        更新目录
+
+        Args:
+            project_id: 项目ID
+            node_id: 目录节点ID
+            name: 新名称
+            description: 新描述
+            sort_order: 排序顺序
+
+        Returns:
+            更新后的目录节点数据
+        """
+        payload = {}
+        if name is not None:
+            payload['name'] = name
+        if description is not None:
+            payload['description'] = description
+        if sort_order is not None:
+            payload['sort_order'] = sort_order
+
+        return self._request('PATCH', f'/api/coding/{project_id}/directories/{node_id}', payload)
+
+    def delete_directory(self, project_id: str, node_id: int) -> Dict[str, Any]:
+        """
+        删除目录（级联删除子目录和文件）
+
+        Args:
+            project_id: 项目ID
+            node_id: 目录节点ID
+
+        Returns:
+            删除结果
+        """
+        return self._request('DELETE', f'/api/coding/{project_id}/directories/{node_id}')
+
+    # ==================== 源文件 API ====================
+
+    def list_source_files(
+        self,
+        project_id: str,
+        module_number: Optional[int] = None,
+        directory_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        获取源文件列表
+
+        Args:
+            project_id: 项目ID
+            module_number: 按模块筛选
+            directory_id: 按目录筛选
+
+        Returns:
+            文件列表:
+            - files: 文件列表
+            - total: 总数
+        """
+        params = {}
+        if module_number is not None:
+            params['module_number'] = module_number
+        if directory_id is not None:
+            params['directory_id'] = directory_id
+
+        return self._request('GET', f'/api/coding/{project_id}/files', params=params)
+
+    def get_source_file(self, project_id: str, file_id: int) -> Dict[str, Any]:
+        """
+        获取源文件详情
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+
+        Returns:
+            文件详情（包含内容）
+        """
+        return self._request('GET', f'/api/coding/{project_id}/files/{file_id}')
+
+    def create_source_file(
+        self,
+        project_id: str,
+        directory_id: int,
+        filename: str,
+        file_type: str = "source",
+        language: Optional[str] = None,
+        description: Optional[str] = None,
+        purpose: Optional[str] = None,
+        priority: str = "medium"
+    ) -> Dict[str, Any]:
+        """
+        手动创建源文件
+
+        Args:
+            project_id: 项目ID
+            directory_id: 所属目录ID
+            filename: 文件名
+            file_type: 文件类型（source/config/test/doc）
+            language: 编程语言
+            description: 文件描述
+            purpose: 文件用途
+            priority: 优先级
+
+        Returns:
+            创建的文件数据
+        """
+        payload = {
+            'directory_id': directory_id,
+            'filename': filename,
+            'file_type': file_type,
+            'priority': priority,
+        }
+        if language:
+            payload['language'] = language
+        if description:
+            payload['description'] = description
+        if purpose:
+            payload['purpose'] = purpose
+
+        return self._request('POST', f'/api/coding/{project_id}/files', payload)
+
+    def update_source_file(
+        self,
+        project_id: str,
+        file_id: int,
+        filename: Optional[str] = None,
+        description: Optional[str] = None,
+        purpose: Optional[str] = None,
+        priority: Optional[str] = None,
+        sort_order: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        更新源文件信息
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            filename: 新文件名
+            description: 新描述
+            purpose: 新用途
+            priority: 新优先级
+            sort_order: 排序顺序
+
+        Returns:
+            更新后的文件数据
+        """
+        payload = {}
+        if filename is not None:
+            payload['filename'] = filename
+        if description is not None:
+            payload['description'] = description
+        if purpose is not None:
+            payload['purpose'] = purpose
+        if priority is not None:
+            payload['priority'] = priority
+        if sort_order is not None:
+            payload['sort_order'] = sort_order
+
+        return self._request('PATCH', f'/api/coding/{project_id}/files/{file_id}', payload)
+
+    def delete_source_file(self, project_id: str, file_id: int) -> Dict[str, Any]:
+        """
+        删除源文件
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+
+        Returns:
+            删除结果
+        """
+        return self._request('DELETE', f'/api/coding/{project_id}/files/{file_id}')
+
+    # ==================== 文件Prompt生成 API ====================
+
+    def generate_file_prompt(
+        self,
+        project_id: str,
+        file_id: int,
+        writing_notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        生成文件Prompt（同步模式）
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            writing_notes: 额外的写作指导
+
+        Returns:
+            生成结果:
+            - success: 是否成功
+            - file_id: 文件ID
+            - version_id: 版本ID
+            - content: 生成的内容
+        """
+        payload = {}
+        if writing_notes:
+            payload['writing_notes'] = writing_notes
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/files/{file_id}/generate',
+            payload if payload else None,
+            timeout=300
+        )
+
+    def get_file_prompt_generate_stream_url(
+        self,
+        project_id: str,
+        file_id: int
+    ) -> str:
+        """
+        获取文件Prompt生成的SSE流式URL
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+
+        Returns:
+            SSE流式URL
+        """
+        return f"{self.base_url}/api/coding/{project_id}/files/{file_id}/generate-stream"
+
+    def save_file_prompt(
+        self,
+        project_id: str,
+        file_id: int,
+        content: str,
+        version_label: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        保存文件Prompt内容
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            content: Prompt内容
+            version_label: 版本标签
+
+        Returns:
+            保存结果:
+            - success: 是否成功
+            - version_id: 版本ID
+            - word_count: 字数
+        """
+        payload = {'content': content}
+        if version_label:
+            payload['version_label'] = version_label
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/files/{file_id}/save',
+            payload
+        )
+
+    def get_file_versions(self, project_id: str, file_id: int) -> Dict[str, Any]:
+        """
+        获取文件的所有版本
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+
+        Returns:
+            版本列表:
+            - versions: 版本列表
+            - selected_version_id: 当前选中的版本ID
+        """
+        return self._request('GET', f'/api/coding/{project_id}/files/{file_id}/versions')
+
+    def select_file_version(
+        self,
+        project_id: str,
+        file_id: int,
+        version_id: int
+    ) -> Dict[str, Any]:
+        """
+        选择文件版本
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            version_id: 版本ID
+
+        Returns:
+            选择结果:
+            - success: 是否成功
+            - selected_version_id: 选中的版本ID
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/files/{file_id}/select-version',
+            {'version_id': version_id}
+        )
+
+    # ==================== 审查Prompt API ====================
+
+    def generate_file_review(
+        self,
+        project_id: str,
+        file_id: int,
+        writing_notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        生成文件审查Prompt
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            writing_notes: 额外的写作指导
+
+        Returns:
+            生成结果:
+            - success: 是否成功
+            - file_id: 文件ID
+            - content: 生成的审查内容
+        """
+        payload = {}
+        if writing_notes:
+            payload['writing_notes'] = writing_notes
+
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/files/{file_id}/generate-review',
+            payload if payload else None,
+            timeout=300
+        )
+
+    def save_file_review(
+        self,
+        project_id: str,
+        file_id: int,
+        content: str
+    ) -> Dict[str, Any]:
+        """
+        保存文件审查Prompt
+
+        Args:
+            project_id: 项目ID
+            file_id: 文件ID
+            content: 审查Prompt内容
+
+        Returns:
+            保存结果
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/files/{file_id}/save-review',
+            {'content': content}
+        )
+
+    # ==================== 目录规划Agent API ====================
+
+    def get_directory_plan_agent_url(
+        self,
+        project_id: str,
+    ) -> str:
+        """
+        获取目录规划Agent的SSE流式URL（真正调用LLM）
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            SSE流式URL
+        """
+        return f"{self.base_url}/api/coding/{project_id}/directories/plan-agent"
+
+    def get_directory_agent_state(self, project_id: str) -> dict:
+        """
+        获取目录规划Agent的状态
+
+        用于检查是否有可恢复的暂停状态。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            状态信息:
+            - has_paused_state: 是否有暂停状态
+            - current_phase: 当前阶段
+            - total_directories: 已生成目录数
+            - total_files: 已生成文件数
+            - progress_percent: 进度百分比
+            - progress_message: 进度消息
+            - paused_at: 暂停时间
+        """
+        return self._request(
+            'GET',
+            f'/api/coding/{project_id}/directories/agent-state'
+        )
+
+    def pause_directory_agent(
+        self,
+        project_id: str,
+        reason: str = "用户手动停止"
+    ) -> dict:
+        """
+        暂停目录规划Agent
+
+        保存当前状态以便后续恢复。
+
+        Args:
+            project_id: 项目ID
+            reason: 暂停原因
+
+        Returns:
+            暂停结果:
+            - success: 是否成功
+            - total_directories: 已生成目录数
+            - total_files: 已生成文件数
+            - current_phase: 当前阶段
+        """
+        return self._request(
+            'POST',
+            f'/api/coding/{project_id}/directories/pause-agent',
+            {'reason': reason}
+        )
+
+    def clear_directory_agent_state(self, project_id: str) -> dict:
+        """
+        清除目录规划Agent的状态
+
+        用于放弃暂停的状态，重新开始。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            清除结果:
+            - success: 是否成功
+            - deleted: 是否有状态被删除
+        """
+        return self._request(
+            'DELETE',
+            f'/api/coding/{project_id}/directories/agent-state'
         )

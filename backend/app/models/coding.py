@@ -48,8 +48,18 @@ class CodingProject(Base):
     modules: Mapped[list["CodingModule"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="CodingModule.module_number"
     )
-    features: Mapped[list["CodingFeature"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan", order_by="CodingFeature.feature_number"
+    # 目录结构和源文件（文件驱动Prompt系统）
+    directory_nodes: Mapped[list["CodingDirectoryNode"]] = relationship(
+        "CodingDirectoryNode",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="CodingDirectoryNode.path"
+    )
+    source_files: Mapped[list["CodingSourceFile"]] = relationship(
+        "CodingSourceFile",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="CodingSourceFile.file_path"
     )
 
 
@@ -180,83 +190,3 @@ class CodingModule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project: Mapped[CodingProject] = relationship(back_populates="modules")
-
-
-class CodingFeature(Base):
-    """代码项目功能 - 最终产物
-
-    功能是模块内的具体功能点，如认证模块下的"登录功能"、"注册功能"等。
-    每个功能可以生成对应的实现Prompt。
-    """
-
-    __tablename__ = "coding_features"
-    __table_args__ = (
-        UniqueConstraint('project_id', 'feature_number', name='uq_coding_feature_project_number'),
-        Index('idx_coding_feature_module', 'project_id', 'module_number'),
-        Index('idx_coding_feature_system', 'project_id', 'system_number'),
-    )
-
-    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
-    project_id: Mapped[str] = mapped_column(ForeignKey("coding_projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    feature_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    module_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    system_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    inputs: Mapped[Optional[str]] = mapped_column(Text)
-    outputs: Mapped[Optional[str]] = mapped_column(Text)
-    implementation_notes: Mapped[Optional[str]] = mapped_column(Text)
-    priority: Mapped[str] = mapped_column(String(16), default="medium")
-
-    # 生成状态
-    status: Mapped[str] = mapped_column(String(32), default="not_generated")
-
-    # 生成的实现内容（多版本支持）
-    selected_version_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("coding_feature_versions.id", ondelete="SET NULL"), nullable=True
-    )
-
-    # 审查Prompt
-    review_prompt: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE, nullable=True)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    project: Mapped[CodingProject] = relationship(back_populates="features")
-    versions: Mapped[list["CodingFeatureVersion"]] = relationship(
-        "CodingFeatureVersion",
-        back_populates="feature",
-        cascade="all, delete-orphan",
-        order_by="CodingFeatureVersion.created_at",
-        primaryjoin="CodingFeature.id == CodingFeatureVersion.feature_id",
-        foreign_keys="[CodingFeatureVersion.feature_id]",
-    )
-    selected_version: Mapped[Optional["CodingFeatureVersion"]] = relationship(
-        "CodingFeatureVersion",
-        foreign_keys=[selected_version_id],
-        primaryjoin="CodingFeature.selected_version_id == CodingFeatureVersion.id",
-        post_update=True,
-    )
-
-
-class CodingFeatureVersion(Base):
-    """代码功能生成的不同版本"""
-
-    __tablename__ = "coding_feature_versions"
-    __table_args__ = (
-        Index('idx_coding_feature_version_created', 'feature_id', 'created_at'),
-    )
-
-    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
-    feature_id: Mapped[int] = mapped_column(ForeignKey("coding_features.id", ondelete="CASCADE"), nullable=False, index=True)
-    version_label: Mapped[Optional[str]] = mapped_column(String(64))
-    provider: Mapped[Optional[str]] = mapped_column(String(64))
-    content: Mapped[str] = mapped_column(LONG_TEXT_TYPE, nullable=False)
-    metadata_json: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-    feature: Mapped[CodingFeature] = relationship(
-        "CodingFeature",
-        back_populates="versions",
-        foreign_keys=[feature_id],
-    )

@@ -279,6 +279,79 @@ class ImageMixin:
             timeout=TimeoutConfig.READ_GENERATION
         )
 
+    def generate_page_image(
+        self,
+        project_id: str,
+        chapter_number: int,
+        page_number: int,
+        full_page_prompt: str,
+        negative_prompt: Optional[str] = None,
+        layout_template: str = "",
+        layout_description: str = "",
+        aspect_ratio: str = "3:4",
+        resolution: str = "2K",
+        style: str = "manga",
+        chapter_version_id: Optional[int] = None,
+        reference_image_paths: Optional[List[str]] = None,
+        reference_strength: float = 0.5,
+        panel_summaries: Optional[List[Dict[str, Any]]] = None,
+        dialogue_language: str = "chinese",
+    ) -> Dict[str, Any]:
+        """
+        为整页漫画生成图片
+
+        让AI直接生成带分格布局的整页漫画，包含对话气泡和音效文字。
+        相比逐panel生成，整页生成的画面更统一，布局更自然。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            page_number: 页码
+            full_page_prompt: 整页漫画提示词（由 PromptBuilder.build_page_prompt() 生成）
+            negative_prompt: 负面提示词（可选）
+            layout_template: 布局模板名（如 "3row_1x2x1"）
+            layout_description: 布局描述文本
+            aspect_ratio: 页面宽高比（默认 3:4 漫画页标准比例）
+            resolution: 分辨率（默认 2K，整页建议高分辨率）
+            style: 风格（默认 manga）
+            chapter_version_id: 章节版本ID（可选）
+            reference_image_paths: 角色立绘路径列表（可选）
+            reference_strength: 参考图影响强度
+            panel_summaries: 画格简要信息列表（用于后续处理）
+            dialogue_language: 对话语言（默认 chinese）
+
+        Returns:
+            生成结果，包含图片URL和信息
+        """
+        data = {
+            'full_page_prompt': full_page_prompt,
+            'ratio': aspect_ratio,
+            'resolution': resolution,
+            'style': style,
+            'reference_strength': reference_strength,
+            'dialogue_language': dialogue_language,
+        }
+
+        if negative_prompt:
+            data['negative_prompt'] = negative_prompt
+        if layout_template:
+            data['layout_template'] = layout_template
+        if layout_description:
+            data['layout_description'] = layout_description
+        if chapter_version_id is not None:
+            data['chapter_version_id'] = chapter_version_id
+        if reference_image_paths:
+            data['reference_image_paths'] = reference_image_paths
+        if panel_summaries:
+            data['panel_summaries'] = panel_summaries
+
+        return self._request(
+            'POST',
+            f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/pages/{page_number}/generate',
+            data,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
     def get_scene_images(
         self,
         project_id: str,
@@ -424,6 +497,7 @@ class ImageMixin:
         title: Optional[str] = None,
         page_size: str = "A4",
         include_prompts: bool = False,
+        layout: str = "manga",  # 默认使用漫画分格排版
         # Bug 26 修复: 添加章节版本ID参数
         chapter_version_id: Optional[int] = None,
     ) -> Dict[str, Any]:
@@ -436,6 +510,7 @@ class ImageMixin:
             title: PDF标题
             page_size: 页面大小（A4/A3/Letter）
             include_prompts: 是否包含提示词
+            layout: 布局模式（manga=漫画分格排版, full=一页一图）
             chapter_version_id: 章节版本ID（可选，用于过滤特定版本的图片）
 
         Returns:
@@ -444,6 +519,7 @@ class ImageMixin:
         data = {
             'page_size': page_size,
             'include_prompts': include_prompts,
+            'layout': layout,
         }
         if title:
             data['title'] = title

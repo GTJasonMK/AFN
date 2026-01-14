@@ -27,6 +27,8 @@ class MangaMixin:
         auto_generate_portraits: bool = True,
         force_restart: bool = False,
         start_from_stage: Optional[str] = None,
+        auto_generate_page_images: bool = False,
+        page_prompt_concurrency: int = 5,
     ) -> Dict[str, Any]:
         """
         生成章节的漫画分镜（支持断点续传和指定起始阶段）
@@ -36,6 +38,7 @@ class MangaMixin:
         2. 页面规划 - 全局页数分配和节奏控制
         3. 分镜设计 - 每页画格设计
         4. 提示词构建 - 生成AI绘图提示词
+        5. (可选) 整页图片生成 - 自动生成所有页面的整页漫画图片
 
         如果之前的生成任务中断，会自动从断点继续（除非 force_restart=True）。
 
@@ -50,6 +53,8 @@ class MangaMixin:
             auto_generate_portraits: 是否自动为缺失立绘的角色生成立绘
             force_restart: 是否强制从头开始，忽略断点
             start_from_stage: 指定从哪个阶段开始 (extraction/planning/storyboard/prompt_building)
+            auto_generate_page_images: 是否在分镜生成完成后自动生成所有整页图片
+            page_prompt_concurrency: 整页提示词LLM生成的并发数 (1-20)
 
         Returns:
             漫画分镜结果，包含：
@@ -69,6 +74,8 @@ class MangaMixin:
             'use_portraits': use_portraits,
             'auto_generate_portraits': auto_generate_portraits,
             'force_restart': force_restart,
+            'auto_generate_page_images': auto_generate_page_images,
+            'page_prompt_concurrency': page_prompt_concurrency,
         }
 
         # 只有指定了起始阶段才添加到请求中

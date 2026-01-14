@@ -1,518 +1,452 @@
 """
-CodingDesk 助手面板
+编程项目RAG助手面板
 
-提供RAG检索功能，查询项目相关上下文（功能描述、模块信息等）
+提供项目上下文检索功能，查询功能描述、模块信息、技术栈等。
 """
 
 import logging
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QTextEdit, QScrollArea, QSpinBox, QFrame,
+    QWidget, QVBoxLayout, QScrollArea, QFrame,
+    QLabel, QHBoxLayout, QSpinBox, QSizePolicy,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 
-from components.base.theme_aware_widget import ThemeAwareFrame
+from components.base import ThemeAwareWidget, ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
-from utils.message_service import MessageService
 from api.manager import APIClientManager
+
+# 复用灵感模式的输入组件
+from windows.inspiration_mode.components import ConversationInput
+
 
 logger = logging.getLogger(__name__)
 
 
 class RAGResultCard(ThemeAwareFrame):
-    """RAG检索结果卡片（主题感知）"""
+    """RAG检索结果卡片"""
 
-    def __init__(self, result_type: str, data: dict, parent=None):
-        self.result_type = result_type
+    def __init__(self, data: dict, parent=None):
+        """
+        Args:
+            data: 结果数据，包含 content, score, metadata 等
+        """
         self.data = data
         super().__init__(parent)
         self.setupUI()
 
     def _create_ui_structure(self):
         """创建UI结构"""
-        self.setObjectName("rag_result_card")
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
         layout.setSpacing(dp(6))
 
-        # 头部
+        # 头部：数据类型 + 相似度分数
         header_layout = QHBoxLayout()
         header_layout.setSpacing(dp(8))
 
-        # 来源标签 - 优先使用source（chapter_title），其次使用chapter_number
-        source = self.data.get('source', '')
-        chapter_num = self.data.get('chapter_number', 0)
-        data_type = self.data.get('data_type', '')
-
-        # 根据数据类型生成合适的来源显示
-        if source:
-            source_text = source[:25] + "..." if len(source) > 25 else source
-        elif chapter_num:
-            type_prefix = {
-                'feature_prompt': 'F',
-                'feature_outline': 'FO',
-                'system': 'S',
-                'module': 'M',
-                'inspiration': 'R',
-                'architecture': 'A',
-                'tech_stack': 'T',
-                'requirement': 'Req',
-                'challenge': 'Ch',
-                'dependency': 'D',
-            }.get(data_type, 'F')
-            source_text = f"{type_prefix}{chapter_num}"
-        else:
-            type_names = {
-                'inspiration': '灵感对话',
-                'architecture': '架构设计',
-                'tech_stack': '技术栈',
-                'requirement': '核心需求',
-                'challenge': '技术挑战',
-                'system': '系统划分',
-                'module': '模块定义',
-                'feature_outline': '功能大纲',
-                'dependency': '依赖关系',
-                'feature_prompt': '功能Prompt',
-            }
-            source_text = type_names.get(data_type, data_type or "未知来源")
-
-        source_label = QLabel(source_text)
-        source_label.setObjectName("source_label")
-        header_layout.addWidget(source_label)
-
         # 数据类型标签
-        if data_type:
-            type_names = {
-                'inspiration': '对话',
-                'architecture': '架构',
-                'tech_stack': '技术栈',
-                'requirement': '需求',
-                'challenge': '挑战',
-                'system': '系统',
-                'module': '模块',
-                'feature_outline': '大纲',
-                'dependency': '依赖',
-                'feature_prompt': 'Prompt',
-            }
-            type_text = type_names.get(data_type, data_type)
-            type_label = QLabel(type_text)
-            type_label.setObjectName("type_label")
-            header_layout.addWidget(type_label)
+        data_type = self.data.get('data_type', 'unknown')
+        type_display = self._get_type_display(data_type)
+        self.type_label = QLabel(type_display)
+        self.type_label.setObjectName("type_label")
+        header_layout.addWidget(self.type_label)
+
+        # 来源信息
+        metadata = self.data.get('metadata', {})
+        source_info = self._get_source_info(metadata)
+        if source_info:
+            self.source_label = QLabel(source_info)
+            self.source_label.setObjectName("source_label")
+            self.source_label.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+            header_layout.addWidget(self.source_label)
 
         header_layout.addStretch()
 
         # 相似度分数
         score = self.data.get('score', 0)
-        similarity = max(0, 1 - score) if score < 1 else score
-        score_label = QLabel(f"相似度: {similarity:.1%}")
-        score_label.setObjectName("score_label")
-        header_layout.addWidget(score_label)
+        similarity = max(0, 1 - score) if score <= 1 else score
+        self.score_label = QLabel(f"相似度: {similarity:.1%}")
+        self.score_label.setObjectName("score_label")
+        header_layout.addWidget(self.score_label)
 
         layout.addLayout(header_layout)
 
-        # 内容
-        content = self.data.get('content', '') or self.data.get('summary', '')
-        display_content = content[:500] + "..." if len(content) > 500 else content
+        # 内容区域
+        content = self.data.get('content', '')
+        display_content = content[:600] + "..." if len(content) > 600 else content
 
-        content_label = QLabel(display_content)
-        content_label.setObjectName("content_label")
-        content_label.setWordWrap(True)
-        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(content_label)
+        self.content_label = QLabel(display_content)
+        self.content_label.setObjectName("content_label")
+        self.content_label.setWordWrap(True)
+        self.content_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(self.content_label)
+
+    def _get_type_display(self, data_type: str) -> str:
+        """获取数据类型的显示文本"""
+        type_map = {
+            'blueprint': '蓝图',
+            'system': '系统',
+            'module': '模块',
+            'feature': '功能',
+            'dependency': '依赖',
+            'directory': '目录',
+            'file': '文件',
+            'tech_stack': '技术栈',
+            'requirement': '需求',
+            'risk': '风险',
+            'milestone': '里程碑',
+        }
+        return type_map.get(data_type, data_type)
+
+    def _get_source_info(self, metadata: dict) -> str:
+        """从元数据中提取来源信息"""
+        parts = []
+        if metadata.get('system_name'):
+            parts.append(f"系统: {metadata['system_name']}")
+        if metadata.get('module_name'):
+            parts.append(f"模块: {metadata['module_name']}")
+        if metadata.get('feature_name'):
+            parts.append(f"功能: {metadata['feature_name']}")
+        return " | ".join(parts)
 
     def _apply_theme(self):
-        """应用主题样式"""
+        """应用主题"""
         self.setStyleSheet(f"""
-            QFrame#rag_result_card {{
-                background-color: {theme_manager.BG_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
+            QFrame {{
+                background-color: {theme_manager.book_bg_primary()};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(6)}px;
-            }}
-            QLabel#source_label {{
-                font-size: {dp(11)}px;
-                font-weight: bold;
-                color: {theme_manager.PRIMARY};
-            }}
-            QLabel#type_label {{
-                font-size: {dp(10)}px;
-                color: {theme_manager.TEXT_TERTIARY};
-                background-color: {theme_manager.BG_SECONDARY};
-                padding: {dp(1)}px {dp(4)}px;
-                border-radius: {dp(2)}px;
-            }}
-            QLabel#score_label {{
-                font-size: {dp(10)}px;
-                color: {theme_manager.TEXT_SECONDARY};
-                background-color: {theme_manager.BG_TERTIARY};
-                padding: {dp(2)}px {dp(6)}px;
-                border-radius: {dp(3)}px;
-            }}
-            QLabel#content_label {{
-                font-size: {dp(12)}px;
-                color: {theme_manager.TEXT_PRIMARY};
-                line-height: 1.5;
             }}
         """)
 
+        if hasattr(self, 'type_label'):
+            self.type_label.setStyleSheet(f"""
+                font-size: {dp(12)}px;
+                font-weight: 600;
+                color: {theme_manager.PRIMARY};
+                background-color: {theme_manager.PRIMARY}15;
+                padding: {dp(2)}px {dp(8)}px;
+                border-radius: {dp(3)}px;
+            """)
+
+        if hasattr(self, 'source_label'):
+            self.source_label.setStyleSheet(f"""
+                font-size: {dp(11)}px;
+                color: {theme_manager.TEXT_TERTIARY};
+            """)
+
+        if hasattr(self, 'score_label'):
+            self.score_label.setStyleSheet(f"""
+                font-size: {dp(11)}px;
+                color: {theme_manager.TEXT_SECONDARY};
+                background-color: {theme_manager.book_bg_secondary()};
+                padding: {dp(2)}px {dp(6)}px;
+                border-radius: {dp(3)}px;
+            """)
+
+        if hasattr(self, 'content_label'):
+            self.content_label.setStyleSheet(f"""
+                font-size: {dp(12)}px;
+                color: {theme_manager.TEXT_PRIMARY};
+                line-height: 1.5;
+            """)
+
 
 class CodingAssistantPanel(ThemeAwareFrame):
-    """编程项目助手面板 - RAG检索（主题感知）"""
+    """编程项目RAG助手面板
 
-    def __init__(self, parent=None):
-        # 初始化所有组件引用
+    提供项目上下文检索功能，支持查询：
+    - 功能描述
+    - 模块信息
+    - 系统架构
+    - 技术栈
+    - 依赖关系
+    等项目相关信息
+    """
+
+    def __init__(self, project_id: str, parent=None):
+        self.project_id = project_id
         self.api_client = APIClientManager.get_client()
-        self.project_id = None
+
+        # 状态
         self.is_loading = False
-        self._worker = None
+        self._worker: Optional[AsyncAPIWorker] = None
         self._result_widgets = []
+
         # UI组件引用
-        self.sync_btn = None
-        self.rebuild_btn = None
+        self.header_bar = None
         self.topk_spinner = None
-        self.rag_input = None
-        self.search_btn = None
-        self.rag_results = None
-        self.rag_results_layout = None
+        self.scroll_area = None
+        self.result_content = None
+        self.result_layout = None
+        self.input_container = None
+        self.input_box = None
+
         super().__init__(parent)
         self.setupUI()
 
+        # 初始提示
+        QTimer.singleShot(500, self._show_welcome_message)
+
     def _create_ui_structure(self):
         """创建UI结构"""
-        self.setObjectName("coding_assistant_panel")
-        self.setFixedWidth(dp(320))
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 头部
-        header = QWidget()
-        header.setFixedHeight(dp(48))
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
+        # 标题栏
+        self.header_bar = QWidget()
+        self.header_bar.setFixedHeight(dp(48))
+        header_layout = QHBoxLayout(self.header_bar)
+        header_layout.setContentsMargins(dp(16), 0, dp(16), 0)
 
-        title_label = QLabel("RAG检索")
-        title_label.setObjectName("panel_title")
+        title_label = QLabel("RAG 助手")
+        title_label.setObjectName("assistant_title")
         header_layout.addWidget(title_label)
 
         header_layout.addStretch()
-        layout.addWidget(header)
+
+        # top_k 选择器
+        topk_label = QLabel("返回数量:")
+        topk_label.setObjectName("topk_label")
+        header_layout.addWidget(topk_label)
+
+        self.topk_spinner = QSpinBox()
+        self.topk_spinner.setRange(1, 30)
+        self.topk_spinner.setValue(10)
+        self.topk_spinner.setFixedWidth(dp(60))
+        header_layout.addWidget(self.topk_spinner)
+
+        layout.addWidget(self.header_bar)
 
         # 分割线
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setFixedHeight(1)
-        divider.setStyleSheet(f"background-color: {theme_manager.BORDER_LIGHT};")
+        divider.setObjectName("divider")
         layout.addWidget(divider)
 
-        # RAG内容
-        rag_content = self._create_rag_content()
-        layout.addWidget(rag_content, 1)
+        # 结果显示区域
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-    def _create_rag_content(self) -> QWidget:
-        """创建RAG检索内容"""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self.result_content = QWidget()
+        self.result_layout = QVBoxLayout(self.result_content)
+        self.result_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
+        self.result_layout.setSpacing(dp(12))
+        self.result_layout.addStretch()
 
-        # 工具栏
-        toolbar = QWidget()
-        toolbar.setFixedHeight(dp(44))
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(dp(12), 0, dp(12), 0)
-
-        toolbar_layout.addStretch()
-
-        # 入库按钮
-        self.sync_btn = QPushButton("同步RAG")
-        self.sync_btn.setObjectName("sync_btn")
-        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sync_btn.setToolTip("智能同步：检查完整性，仅入库缺失的数据类型")
-        self.sync_btn.clicked.connect(self._on_sync_rag)
-        toolbar_layout.addWidget(self.sync_btn)
-
-        self.rebuild_btn = QPushButton("重建")
-        self.rebuild_btn.setObjectName("rebuild_btn")
-        self.rebuild_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rebuild_btn.setToolTip("强制重建：重新入库所有数据")
-        self.rebuild_btn.clicked.connect(self._on_force_rebuild)
-        toolbar_layout.addWidget(self.rebuild_btn)
-
-        topk_label = QLabel("数量:")
-        topk_label.setObjectName("topk_label")
-        toolbar_layout.addWidget(topk_label)
-
-        self.topk_spinner = QSpinBox()
-        self.topk_spinner.setRange(1, 20)
-        self.topk_spinner.setValue(5)
-        self.topk_spinner.setFixedWidth(dp(50))
-        toolbar_layout.addWidget(self.topk_spinner)
-
-        layout.addWidget(toolbar)
+        self.scroll_area.setWidget(self.result_content)
+        layout.addWidget(self.scroll_area, stretch=1)
 
         # 输入区域
-        input_container = QWidget()
-        input_layout = QVBoxLayout(input_container)
-        input_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(8))
-        input_layout.setSpacing(dp(8))
+        self.input_container = QWidget()
+        input_layout = QVBoxLayout(self.input_container)
+        input_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
 
-        self.rag_input = QTextEdit()
-        self.rag_input.setObjectName("rag_input")
-        self.rag_input.setPlaceholderText("输入查询内容，检索相关上下文...")
-        self.rag_input.setFixedHeight(dp(80))
-        input_layout.addWidget(self.rag_input)
+        self.input_box = ConversationInput()
+        self.input_box.setPlaceholder("输入查询内容，检索项目相关上下文...")
+        self.input_box.messageSent.connect(self._on_send_query)
 
-        self.search_btn = QPushButton("检索")
-        self.search_btn.setObjectName("search_btn")
-        self.search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.search_btn.clicked.connect(self._on_search)
-        input_layout.addWidget(self.search_btn)
+        input_layout.addWidget(self.input_box)
+        layout.addWidget(self.input_container)
 
-        layout.addWidget(input_container)
+    def _apply_theme(self):
+        """应用主题"""
+        bg_color = theme_manager.book_bg_secondary()
 
-        # 结果区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            {theme_manager.scrollbar()}
+        self.setStyleSheet(f"""
+            CodingAssistantPanel {{
+                background-color: {bg_color};
+                border-left: 1px solid {theme_manager.BORDER_DEFAULT};
+            }}
         """)
 
-        self.rag_results = QWidget()
-        self.rag_results.setStyleSheet("background: transparent;")
-        self.rag_results_layout = QVBoxLayout(self.rag_results)
-        self.rag_results_layout.setContentsMargins(dp(12), dp(8), dp(12), dp(12))
-        self.rag_results_layout.setSpacing(dp(8))
-        self.rag_results_layout.addStretch()
+        # 标题栏
+        if self.header_bar:
+            self.header_bar.setStyleSheet(f"background-color: transparent;")
 
-        scroll.setWidget(self.rag_results)
-        layout.addWidget(scroll, 1)
+            title_label = self.header_bar.findChild(QLabel, "assistant_title")
+            if title_label:
+                title_label.setStyleSheet(f"""
+                    font-size: {dp(14)}px;
+                    font-weight: 600;
+                    color: {theme_manager.TEXT_PRIMARY};
+                """)
 
-        return container
+            topk_label = self.header_bar.findChild(QLabel, "topk_label")
+            if topk_label:
+                topk_label.setStyleSheet(f"""
+                    font-size: {dp(12)}px;
+                    color: {theme_manager.TEXT_SECONDARY};
+                """)
 
-    def setProjectId(self, project_id: str):
-        """设置项目ID"""
-        logger.info("CodingAssistantPanel.setProjectId: project_id=%s", project_id)
-        self.project_id = project_id
+        # top_k spinner
+        if self.topk_spinner:
+            self.topk_spinner.setStyleSheet(f"""
+                QSpinBox {{
+                    font-size: {dp(12)}px;
+                    color: {theme_manager.TEXT_PRIMARY};
+                    background-color: {theme_manager.book_bg_primary()};
+                    border: 1px solid {theme_manager.BORDER_DEFAULT};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(4)}px;
+                }}
+                QSpinBox::up-button, QSpinBox::down-button {{
+                    width: {dp(16)}px;
+                }}
+            """)
 
-    def _on_sync_rag(self):
-        """智能同步RAG数据"""
-        if not self.project_id:
-            MessageService.show_warning(self, "项目未加载")
-            return
+        # 分割线
+        divider = self.findChild(QFrame, "divider")
+        if divider:
+            divider.setStyleSheet(f"background-color: {theme_manager.BORDER_DEFAULT};")
 
-        if self.is_loading:
-            return
+        # 滚动区域
+        if self.scroll_area:
+            self.scroll_area.setStyleSheet(f"""
+                QScrollArea {{
+                    background-color: transparent;
+                    border: none;
+                }}
+                {theme_manager.scrollbar()}
+            """)
 
-        self.is_loading = True
-        self.sync_btn.setEnabled(False)
-        self.sync_btn.setText("同步中...")
-        self.rebuild_btn.setEnabled(False)
+        if self.result_content:
+            self.result_content.setStyleSheet("background-color: transparent;")
 
-        self._cleanup_worker()
+        # 输入区域
+        if self.input_container:
+            self.input_container.setStyleSheet(f"""
+                background-color: {bg_color};
+                border-top: 1px solid {theme_manager.BORDER_DEFAULT};
+            """)
 
-        self._worker = AsyncAPIWorker(
-            self.api_client.ingest_all_rag_data,
-            self.project_id,
-            False  # force=False
+    def _show_welcome_message(self):
+        """显示欢迎信息"""
+        self._clear_results()
+        self._add_info_message(
+            "RAG 助手",
+            "输入查询内容，检索项目相关上下文。\n\n"
+            "可查询内容包括：\n"
+            "- 功能描述和实现要点\n"
+            "- 模块接口和依赖关系\n"
+            "- 系统架构和技术栈\n"
+            "- 需求和风险分析\n\n"
+            "检索结果可帮助生成更准确的文件Prompt。"
         )
-        self._worker.success.connect(self._on_sync_success)
-        self._worker.error.connect(self._on_sync_error)
-        self._worker.start()
 
-    def _on_sync_success(self, response: dict):
-        """同步成功"""
-        self.is_loading = False
-        self.sync_btn.setEnabled(True)
-        self.sync_btn.setText("同步RAG")
-        self.rebuild_btn.setEnabled(True)
-
-        is_complete = response.get('is_complete', False)
-        added = response.get('added', 0)
-        skipped = response.get('skipped', 0)
-        failed = response.get('failed', 0)
-
-        if is_complete:
-            MessageService.show_success(self, "RAG数据已完整，无需同步")
-        elif failed == 0:
-            if added > 0:
-                msg = f"同步完成：新增 {added} 条"
-                if skipped > 0:
-                    msg += f"，跳过 {skipped} 类型"
-                MessageService.show_success(self, msg)
-            else:
-                MessageService.show_success(self, "RAG数据已完整")
-        else:
-            MessageService.show_warning(self, f"同步完成：成功 {added}，失败 {failed}")
-
-    def _on_sync_error(self, error_msg: str):
-        """同步失败"""
-        self.is_loading = False
-        self.sync_btn.setEnabled(True)
-        self.sync_btn.setText("同步RAG")
-        self.rebuild_btn.setEnabled(True)
-        MessageService.show_error(self, f"同步失败：{error_msg}")
-
-    def _on_force_rebuild(self):
-        """强制重建RAG数据"""
-        if not self.project_id:
-            MessageService.show_warning(self, "项目未加载")
+    def _on_send_query(self, text: str):
+        """处理查询请求"""
+        if not text.strip() or self.is_loading:
             return
 
-        if self.is_loading:
-            return
+        # 清空之前的结果
+        self._clear_results()
 
+        # 显示查询文本
+        self._add_query_display(text)
+
+        # 禁用输入
+        self.input_box.setEnabled(False)
         self.is_loading = True
-        self.rebuild_btn.setEnabled(False)
-        self.rebuild_btn.setText("重建中...")
-        self.sync_btn.setEnabled(False)
 
-        self._cleanup_worker()
+        # 显示加载状态
+        self._add_info_message("正在检索...", "正在生成查询向量并检索相关内容...")
 
-        self._worker = AsyncAPIWorker(
-            self.api_client.ingest_all_rag_data,
-            self.project_id,
-            True  # force=True
-        )
-        self._worker.success.connect(self._on_rebuild_success)
-        self._worker.error.connect(self._on_rebuild_error)
-        self._worker.start()
-
-    def _on_rebuild_success(self, response: dict):
-        """重建成功"""
-        self.is_loading = False
-        self.rebuild_btn.setEnabled(True)
-        self.rebuild_btn.setText("重建")
-        self.sync_btn.setEnabled(True)
-
-        added = response.get('added', 0)
-        failed = response.get('failed', 0)
-
-        if failed == 0:
-            MessageService.show_success(self, f"重建完成：更新 {added} 条记录")
-        else:
-            MessageService.show_warning(self, f"重建完成：成功 {added}，失败 {failed}")
-
-    def _on_rebuild_error(self, error_msg: str):
-        """重建失败"""
-        self.is_loading = False
-        self.rebuild_btn.setEnabled(True)
-        self.rebuild_btn.setText("重建")
-        self.sync_btn.setEnabled(True)
-        MessageService.show_error(self, f"重建失败：{error_msg}")
-
-    def _on_search(self):
-        """执行RAG检索"""
-        query = self.rag_input.toPlainText().strip()
-        if not query:
-            MessageService.show_warning(self, "请输入查询内容")
-            return
-
-        if not self.project_id:
-            MessageService.show_warning(self, "项目未加载")
-            return
-
-        if self.is_loading:
-            return
-
-        self._clear_rag_results()
-        self.is_loading = True
-        self.search_btn.setEnabled(False)
-        self.search_btn.setText("检索中...")
-
+        # 异步请求
         self._cleanup_worker()
 
         top_k = self.topk_spinner.value()
         self._worker = AsyncAPIWorker(
             self.api_client.query_coding_rag,
             self.project_id,
-            query,
+            text,
             top_k
         )
-        self._worker.success.connect(self._on_search_success)
-        self._worker.error.connect(self._on_search_error)
+        self._worker.success.connect(self._on_query_success)
+        self._worker.error.connect(self._on_query_error)
         self._worker.start()
 
-    def _on_search_success(self, response: dict):
-        """检索成功"""
+    def _on_query_success(self, response: dict):
+        """处理查询成功"""
+        try:
+            self.is_loading = False
+            self.input_box.setEnabled(True)
+
+            # 移除加载提示，保留查询显示
+            self._clear_results(keep_query=True)
+
+            # 检查是否有提示信息
+            message = response.get('message')
+            if message:
+                self._add_info_message("提示", message)
+
+            # 显示统计信息
+            chunks = response.get('chunks', [])
+            summaries = response.get('summaries', [])
+
+            total = len(chunks) + len(summaries)
+            if total == 0:
+                self._add_info_message("无结果", "未找到相关内容，请尝试其他查询词。")
+                return
+
+            stats_text = f"检索完成: {len(chunks)} 个片段"
+            if summaries:
+                stats_text += f", {len(summaries)} 个摘要"
+            self._add_stats_label(stats_text)
+
+            # 显示检索结果
+            all_results = chunks + summaries
+            # 按相似度排序（score越小越相似）
+            all_results.sort(key=lambda x: x.get('score', 1))
+
+            # 限制显示数量
+            display_results = all_results[:20]
+            for data in display_results:
+                card = RAGResultCard(data, self.result_content)
+                self.result_layout.insertWidget(self.result_layout.count() - 1, card)
+                self._result_widgets.append(card)
+
+            if len(all_results) > 20:
+                self._add_info_message("", f"(仅显示前20个，共{len(all_results)}个)")
+
+            self._scroll_to_top()
+
+            # 设置焦点回输入框
+            if hasattr(self.input_box, 'input_field') and self.input_box.input_field:
+                self.input_box.input_field.setFocus()
+
+        except Exception as e:
+            logger.error("处理RAG查询结果时出错: %s", e, exc_info=True)
+            self._add_info_message("显示错误", f"处理结果时出错: {str(e)}", is_error=True)
+
+    def _on_query_error(self, error_msg: str):
+        """处理查询错误"""
         self.is_loading = False
-        self.search_btn.setEnabled(True)
-        self.search_btn.setText("检索")
+        self.input_box.setEnabled(True)
 
-        chunks = response.get('chunks', [])
-        summaries = response.get('summaries', [])
+        # 移除加载提示
+        self._clear_results(keep_query=True)
 
-        if not chunks and not summaries:
-            self._add_rag_message("未找到相关内容", "尝试使用不同的关键词进行检索")
-            return
+        self._add_info_message("查询失败", error_msg, is_error=True)
 
-        if chunks:
-            self._add_rag_section("相关片段", chunks, "chunk")
-        if summaries:
-            self._add_rag_section("相关摘要", summaries, "summary")
+        if hasattr(self.input_box, 'input_field') and self.input_box.input_field:
+            self.input_box.input_field.setFocus()
 
-    def _on_search_error(self, error_msg: str):
-        """检索失败"""
-        self.is_loading = False
-        self.search_btn.setEnabled(True)
-        self.search_btn.setText("检索")
-        self._add_rag_message("检索失败", error_msg, is_error=True)
-
-    def _add_rag_section(self, title: str, results: list, result_type: str):
-        """添加RAG结果分组"""
-        title_label = QLabel(f"{title} ({len(results)})")
-        title_label.setObjectName("result_section_title")
-        title_label.setStyleSheet(f"""
-            font-size: {dp(13)}px;
-            font-weight: bold;
-            color: {theme_manager.TEXT_PRIMARY};
-            padding: {dp(4)}px 0;
-        """)
-        self.rag_results_layout.insertWidget(self.rag_results_layout.count() - 1, title_label)
-        self._result_widgets.append(title_label)
-
-        for data in results[:10]:
-            card = RAGResultCard(result_type, data, self.rag_results)
-            self.rag_results_layout.insertWidget(self.rag_results_layout.count() - 1, card)
-            self._result_widgets.append(card)
-
-    def _add_rag_message(self, title: str, message: str, is_error: bool = False):
-        """添加RAG消息"""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(4))
-
-        title_label = QLabel(title)
-        title_color = theme_manager.ERROR if is_error else theme_manager.PRIMARY
-        title_label.setStyleSheet(f"""
-            font-size: {dp(13)}px;
-            font-weight: bold;
-            color: {title_color};
-        """)
-        layout.addWidget(title_label)
-
-        msg_label = QLabel(message)
-        msg_label.setWordWrap(True)
-        msg_label.setStyleSheet(f"""
-            font-size: {dp(12)}px;
-            color: {theme_manager.TEXT_SECONDARY};
-        """)
-        layout.addWidget(msg_label)
-
-        self.rag_results_layout.insertWidget(self.rag_results_layout.count() - 1, container)
-        self._result_widgets.append(container)
-
-    def _clear_rag_results(self):
-        """清空RAG结果"""
+    def _clear_results(self, keep_query: bool = False):
+        """清空结果区域"""
+        # 清理结果组件引用
         for widget in self._result_widgets:
             try:
                 widget.deleteLater()
@@ -520,10 +454,109 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 pass
         self._result_widgets.clear()
 
+        # 收集需要删除的widget
+        widgets_to_delete = []
+        query_widget = None
+
+        for i in range(self.result_layout.count() - 1):
+            item = self.result_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is None:
+                continue
+
+            if keep_query and widget.objectName() == "query_display":
+                query_widget = widget
+            else:
+                widgets_to_delete.append(widget)
+
+        for widget in widgets_to_delete:
+            self.result_layout.removeWidget(widget)
+            widget.deleteLater()
+
+        if query_widget:
+            self._result_widgets.append(query_widget)
+
+    def _add_query_display(self, query: str):
+        """显示查询文本"""
+        container = QWidget()
+        container.setObjectName("query_display")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, dp(8))
+        layout.setSpacing(dp(4))
+
+        label = QLabel("查询:")
+        label.setStyleSheet(f"""
+            font-size: {dp(11)}px;
+            color: {theme_manager.TEXT_SECONDARY};
+        """)
+        layout.addWidget(label)
+
+        query_label = QLabel(query)
+        query_label.setWordWrap(True)
+        query_label.setStyleSheet(f"""
+            font-size: {dp(12)}px;
+            color: {theme_manager.TEXT_PRIMARY};
+            background-color: {theme_manager.book_bg_primary()};
+            border: 1px solid {theme_manager.BORDER_DEFAULT};
+            border-radius: {dp(6)}px;
+            padding: {dp(12)}px;
+        """)
+        layout.addWidget(query_label)
+
+        self.result_layout.insertWidget(0, container)
+        self._result_widgets.append(container)
+
+    def _add_info_message(self, title: str, message: str, is_error: bool = False):
+        """添加信息消息"""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(dp(4))
+
+        if title:
+            title_label = QLabel(title)
+            title_color = theme_manager.ERROR if is_error else theme_manager.PRIMARY
+            title_label.setStyleSheet(f"""
+                font-size: {dp(13)}px;
+                font-weight: 600;
+                color: {title_color};
+            """)
+            layout.addWidget(title_label)
+
+        msg_label = QLabel(message)
+        msg_label.setWordWrap(True)
+        msg_label.setStyleSheet(f"""
+            font-size: {dp(12)}px;
+            color: {theme_manager.TEXT_SECONDARY};
+            line-height: 1.6;
+        """)
+        layout.addWidget(msg_label)
+
+        self.result_layout.insertWidget(self.result_layout.count() - 1, container)
+        self._result_widgets.append(container)
+
+    def _add_stats_label(self, text: str):
+        """添加统计标签"""
+        label = QLabel(text)
+        label.setStyleSheet(f"""
+            font-size: {dp(11)}px;
+            color: {theme_manager.TEXT_TERTIARY};
+            padding: {dp(4)}px 0;
+        """)
+        self.result_layout.insertWidget(self.result_layout.count() - 1, label)
+        self._result_widgets.append(label)
+
+    def _scroll_to_top(self):
+        """滚动到顶部"""
+        QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))
+
     def _cleanup_worker(self):
         """清理异步Worker"""
         if self._worker is None:
             return
+
         try:
             if self._worker.isRunning():
                 self._worker.cancel()
@@ -534,86 +567,10 @@ class CodingAssistantPanel(ThemeAwareFrame):
         finally:
             self._worker = None
 
-    def _apply_theme(self):
-        """应用主题样式"""
-        self.setStyleSheet(f"""
-            QFrame#coding_assistant_panel {{
-                background-color: {theme_manager.book_bg_secondary()};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(8)}px;
-            }}
-            QLabel#panel_title {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(14)}px;
-                font-weight: 600;
-            }}
-            QLabel#topk_label {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(12)}px;
-            }}
-            QSpinBox {{
-                color: {theme_manager.TEXT_PRIMARY};
-                background-color: {theme_manager.BG_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(4)}px;
-                padding: {dp(2)}px;
-            }}
-            QTextEdit#rag_input {{
-                color: {theme_manager.TEXT_PRIMARY};
-                background-color: {theme_manager.BG_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#search_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(8)}px {dp(16)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#search_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
-            QPushButton#search_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-            QPushButton#sync_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(11)}px;
-            }}
-            QPushButton#sync_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
-            QPushButton#sync_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-            QPushButton#rebuild_btn {{
-                background-color: {theme_manager.WARNING};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(10)}px;
-                font-size: {dp(11)}px;
-            }}
-            QPushButton#rebuild_btn:hover {{
-                background-color: {theme_manager.WARNING}dd;
-            }}
-            QPushButton#rebuild_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-        """)
-
     def cleanup(self):
         """清理资源"""
         self._cleanup_worker()
-        self._clear_rag_results()
+        self._clear_results()
 
 
 __all__ = ["CodingAssistantPanel"]

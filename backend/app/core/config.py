@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", description="当前环境标识")
     debug: bool = Field(default=True, description="是否开启调试模式")
     logging_level: str = Field(
-        default="INFO",
+        default="DEBUG",
         env="LOGGING_LEVEL",
         description="应用日志级别",
     )
@@ -273,11 +273,27 @@ class Settings(BaseSettings):
         description="编程功能大纲的最大输出tokens",
     )
     llm_max_tokens_coding_prompt: int = Field(
-        default=8192,
+        default=16384,
         ge=1024,
         le=32768,
         env="LLM_MAX_TOKENS_CODING_PROMPT",
         description="编程功能Prompt的最大输出tokens",
+    )
+    llm_max_tokens_coding_directory: int = Field(
+        default=20000,
+        ge=4096,
+        le=32768,
+        env="LLM_MAX_TOKENS_CODING_DIRECTORY",
+        description="目录结构生成的最大输出tokens（大型项目需要较大值）",
+    )
+
+    # -------------------- Agent配置 --------------------
+    agent_context_max_chars: int = Field(
+        default=128000,
+        ge=50000,
+        le=500000,
+        env="AGENT_CONTEXT_MAX_CHARS",
+        description="Agent对话历史最大字符数，超过后触发压缩（基于128k上下文窗口）",
     )
 
     # -------------------- 请求队列配置 --------------------
@@ -477,6 +493,12 @@ def get_settings() -> Settings:
             instance.llm_max_tokens_coding_feature = json_config['llm_max_tokens_coding_feature']
         if 'llm_max_tokens_coding_prompt' in json_config:
             instance.llm_max_tokens_coding_prompt = json_config['llm_max_tokens_coding_prompt']
+        if 'llm_max_tokens_coding_directory' in json_config:
+            instance.llm_max_tokens_coding_directory = json_config['llm_max_tokens_coding_directory']
+
+        # Agent配置
+        if 'agent_context_max_chars' in json_config:
+            instance.agent_context_max_chars = json_config['agent_context_max_chars']
 
     return instance
 

@@ -38,7 +38,7 @@ class MangaPanelBuilder(
 
     def __init__(
         self,
-        on_generate: Optional[Callable[[str, int, int, str, bool, bool, bool, Optional[str]], None]] = None,
+        on_generate: Optional[Callable[[str, int, int, str, bool, bool, bool, Optional[str], bool, int], None]] = None,
         on_copy_prompt: Optional[Callable[[str], None]] = None,
         on_edit_scene: Optional[Callable[[int, dict], None]] = None,
         on_delete: Optional[Callable[[], None]] = None,
@@ -51,12 +51,13 @@ class MangaPanelBuilder(
         on_preview_prompt: Optional[Callable[[dict], None]] = None,
         on_stop_generate: Optional[Callable[[], None]] = None,
         on_stop_generate_all: Optional[Callable[[], None]] = None,
+        on_generate_page_image: Optional[Callable[[dict], None]] = None,
         api_base_url: str = "http://127.0.0.1:8123",
     ):
         """初始化构建器
 
         Args:
-            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少页数, 最多页数, 语言, 是否使用角色立绘, 是否自动生成缺失立绘, 是否强制重启, 起始阶段)
+            on_generate: 生成漫画分镜回调函数，参数为(风格, 最少页数, 最多页数, 语言, 是否使用角色立绘, 是否自动生成缺失立绘, 是否强制重启, 起始阶段, 是否自动生成整页图片, 整页提示词并发数)
             on_copy_prompt: 复制提示词回调函数，参数为提示词内容
             on_edit_scene: 编辑场景回调函数，参数为(场景ID, 更新数据)
             on_delete: 删除漫画分镜回调函数
@@ -69,6 +70,7 @@ class MangaPanelBuilder(
             on_preview_prompt: 预览实际提示词回调函数，参数为画格完整数据字典
             on_stop_generate: 停止生成分镜回调函数
             on_stop_generate_all: 停止批量生成图片回调函数
+            on_generate_page_image: 整页漫画生成回调函数，参数为页面数据字典
             api_base_url: 后端API基础URL，用于构造下载链接
         """
         super().__init__()
@@ -85,10 +87,15 @@ class MangaPanelBuilder(
         self._on_preview_prompt = on_preview_prompt
         self._on_stop_generate = on_stop_generate
         self._on_stop_generate_all = on_stop_generate_all
+        self._on_generate_page_image = on_generate_page_image
         self._api_base_url = api_base_url
 
         # 画格加载状态记录
         self._panel_loading_states: Dict[str, bool] = {}
+        # 画格卡片状态记录（用于单画格生成）
+        self._panel_card_states: Dict[str, dict] = {}
+        # 页面加载状态记录（用于整页生成）
+        self._page_loading_states: Dict[int, dict] = {}
 
         # 初始化各Mixin的状态
         self._init_toolbar_state()
@@ -117,6 +124,15 @@ class MangaPanelBuilder(
         # 如果正在加载，显示加载状态
         if is_loading:
             return self._create_loading_placeholder()
+
+        # 清理旧的状态引用，避免指向已销毁的widgets
+        self._page_loading_states.clear()
+        self._panel_card_states.clear()
+
+        # 重置工具栏生成状态，确保新Tab创建时状态干净
+        # 这可以防止在某些边缘情况下（如生成完成但定时器还没触发时）
+        # 旧的_is_generating=True标志阻止用户操作
+        self._is_generating = False
 
         scenes = manga_data.get('scenes') or []
         panels = manga_data.get('panels') or []
@@ -254,6 +270,16 @@ class MangaPanelBuilder(
             "max_pages": max_pages,
         }
 
+    def is_page_image_mode(self) -> bool:
+        """检查是否启用了整页图片模式
+
+        Returns:
+            True 如果"整页图片"复选框被选中
+        """
+        if self._auto_generate_page_images_checkbox:
+            return self._auto_generate_page_images_checkbox.isChecked()
+        return False
+
     def update_images(self, images: List[Dict[str, Any]], pdf_info: Dict[str, Any] = None):
         """更新图片标签页
 
@@ -274,27 +300,31 @@ class MangaPanelBuilder(
         Args:
             analysis_data: 分析数据，包含 chapter_info 和 page_plan
         """
-        if not self._sub_tab_widget or self._sub_tab_widget.count() < 3:
-            return
+        try:
+            if not self._sub_tab_widget or self._sub_tab_widget.count() < 3:
+                return
 
-        # 保存当前选中的Tab索引
-        current_index = self._sub_tab_widget.currentIndex()
+            # 保存当前选中的Tab索引
+            current_index = self._sub_tab_widget.currentIndex()
 
-        # 移除旧的详细信息Tab（索引2）
-        old_details_tab = self._sub_tab_widget.widget(2)
-        if old_details_tab:
-            self._sub_tab_widget.removeTab(2)
-            old_details_tab.deleteLater()
+            # 移除旧的详细信息Tab（索引2）
+            old_details_tab = self._sub_tab_widget.widget(2)
+            if old_details_tab:
+                self._sub_tab_widget.removeTab(2)
+                old_details_tab.deleteLater()
 
-        # 创建新的详细信息Tab
-        manga_data = {'analysis_data': analysis_data}
-        new_details_tab = self._create_details_tab(manga_data)
-        has_analysis = analysis_data is not None
-        details_label = "详细信息" if has_analysis else "详细信息"
-        self._sub_tab_widget.insertTab(2, new_details_tab, details_label)
+            # 创建新的详细信息Tab
+            manga_data = {'analysis_data': analysis_data}
+            new_details_tab = self._create_details_tab(manga_data)
+            has_analysis = analysis_data is not None
+            details_label = "详细信息" if has_analysis else "详细信息"
+            self._sub_tab_widget.insertTab(2, new_details_tab, details_label)
 
-        # 恢复之前选中的Tab索引
-        self._sub_tab_widget.setCurrentIndex(current_index)
+            # 恢复之前选中的Tab索引
+            self._sub_tab_widget.setCurrentIndex(current_index)
+        except RuntimeError:
+            # 组件已被删除（C++对象已销毁），忽略更新
+            pass
 
     # ==================== 画格加载状态控制 ====================
 
@@ -321,57 +351,60 @@ class MangaPanelBuilder(
             loading: 是否显示加载状态
             message: 加载时显示的消息
         """
-        self._panel_loading_states[panel_id] = loading
+        try:
+            self._panel_loading_states[panel_id] = loading
 
-        # 方式1: 尝试从 _scene_cards 获取（新方式）
-        if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
-            card = self._scene_cards[panel_id]
-            if hasattr(card, 'set_loading'):
-                card.set_loading(loading, message)
+            # 方式1: 尝试从 _scene_cards 获取（新方式）
+            if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
+                card = self._scene_cards[panel_id]
+                if hasattr(card, 'set_loading'):
+                    card.set_loading(loading, message)
+                    return
+
+            # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
+            if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
+                state = self._panel_card_states[panel_id]
+                btn_stack = state.get('btn_stack')
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
+
+                if btn_stack:
+                    if loading:
+                        btn_stack.setCurrentIndex(1)
+                        if loading_label and message:
+                            loading_label.setText(message)
+                        if spinner:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, spinner.start)
+                    else:
+                        btn_stack.setCurrentIndex(0)
+                        if spinner:
+                            spinner.stop()
                 return
 
-        # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
-        if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
-            state = self._panel_card_states[panel_id]
-            btn_stack = state.get('btn_stack')
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
+            # 方式3: 解析scene_id，使用 _scene_loading_states（场景卡片方式）
+            scene_id = self._parse_scene_id_from_panel_id(panel_id)
+            if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
+                state = self._scene_loading_states[scene_id]
+                btn_stack = state.get('btn_stack')
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
 
-            if btn_stack:
-                if loading:
-                    btn_stack.setCurrentIndex(1)
-                    if loading_label and message:
-                        loading_label.setText(message)
-                    if spinner:
-                        from PyQt6.QtCore import QTimer
-                        QTimer.singleShot(50, spinner.start)
-                else:
-                    btn_stack.setCurrentIndex(0)
-                    if spinner:
-                        spinner.stop()
-            return
-
-        # 方式3: 解析scene_id，使用 _scene_loading_states（场景卡片方式）
-        scene_id = self._parse_scene_id_from_panel_id(panel_id)
-        if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
-            # 使用 SceneCardMixin 中的方法
-            state = self._scene_loading_states[scene_id]
-            btn_stack = state.get('btn_stack')
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
-
-            if btn_stack:
-                if loading:
-                    btn_stack.setCurrentIndex(1)
-                    if loading_label and message:
-                        loading_label.setText(message)
-                    if spinner:
-                        from PyQt6.QtCore import QTimer
-                        QTimer.singleShot(50, spinner.start)
-                else:
-                    btn_stack.setCurrentIndex(0)
-                    if spinner:
-                        spinner.stop()
+                if btn_stack:
+                    if loading:
+                        btn_stack.setCurrentIndex(1)
+                        if loading_label and message:
+                            loading_label.setText(message)
+                        if spinner:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, spinner.start)
+                    else:
+                        btn_stack.setCurrentIndex(0)
+                        if spinner:
+                            spinner.stop()
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def set_panel_success(self, panel_id: str, message: str = "生成成功"):
         """设置画格生成成功状态
@@ -380,60 +413,64 @@ class MangaPanelBuilder(
             panel_id: 画格ID
             message: 成功消息
         """
-        self._panel_loading_states[panel_id] = False
+        try:
+            self._panel_loading_states[panel_id] = False
 
-        # 方式1: 尝试从 _scene_cards 获取
-        if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
-            card = self._scene_cards[panel_id]
-            if hasattr(card, 'set_success'):
-                card.set_success(message)
+            # 方式1: 尝试从 _scene_cards 获取
+            if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
+                card = self._scene_cards[panel_id]
+                if hasattr(card, 'set_success'):
+                    card.set_success(message)
+                    return
+
+            # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
+            if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
+                state = self._panel_card_states[panel_id]
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
+
+                if spinner:
+                    spinner.stop()
+
+                if loading_label:
+                    s = self._styler
+                    loading_label.setText(message)
+                    loading_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.success};
+                        font-weight: 500;
+                    """)
+
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(2000, lambda pid=panel_id: self._restore_panel_button_state(pid))
                 return
 
-        # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
-        if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
-            state = self._panel_card_states[panel_id]
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
+            # 方式3: 使用 _scene_loading_states
+            scene_id = self._parse_scene_id_from_panel_id(panel_id)
+            if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
+                state = self._scene_loading_states[scene_id]
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
 
-            if spinner:
-                spinner.stop()
+                if spinner:
+                    spinner.stop()
 
-            if loading_label:
-                s = self._styler
-                loading_label.setText(message)
-                loading_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: {s.success};
-                    font-weight: 500;
-                """)
+                if loading_label:
+                    s = self._styler
+                    loading_label.setText(message)
+                    loading_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.success};
+                        font-weight: 500;
+                    """)
 
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(2000, lambda pid=panel_id: self._restore_panel_button_state(pid))
-            return
-
-        # 方式3: 使用 _scene_loading_states
-        scene_id = self._parse_scene_id_from_panel_id(panel_id)
-        if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
-            state = self._scene_loading_states[scene_id]
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
-
-            if spinner:
-                spinner.stop()
-
-            if loading_label:
-                s = self._styler
-                loading_label.setText(message)
-                loading_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: {s.success};
-                    font-weight: 500;
-                """)
-
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(2000, lambda sid=scene_id: self._restore_button_state(sid))
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(2000, lambda sid=scene_id: self._restore_button_state(sid))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def set_panel_error(self, panel_id: str, message: str = "生成失败"):
         """设置画格生成失败状态
@@ -442,82 +479,90 @@ class MangaPanelBuilder(
             panel_id: 画格ID
             message: 错误消息
         """
-        self._panel_loading_states[panel_id] = False
+        try:
+            self._panel_loading_states[panel_id] = False
 
-        # 方式1: 尝试从 _scene_cards 获取
-        if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
-            card = self._scene_cards[panel_id]
-            if hasattr(card, 'set_error'):
-                card.set_error(message)
+            # 方式1: 尝试从 _scene_cards 获取
+            if hasattr(self, '_scene_cards') and panel_id in self._scene_cards:
+                card = self._scene_cards[panel_id]
+                if hasattr(card, 'set_error'):
+                    card.set_error(message)
+                    return
+
+            # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
+            if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
+                state = self._panel_card_states[panel_id]
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
+
+                if spinner:
+                    spinner.stop()
+
+                if loading_label:
+                    s = self._styler
+                    loading_label.setText(message)
+                    loading_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.error};
+                        font-weight: 500;
+                    """)
+
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(3000, lambda pid=panel_id: self._restore_panel_button_state(pid))
                 return
 
-        # 方式2: 尝试从 _panel_card_states 获取（PromptTab方式）
-        if hasattr(self, '_panel_card_states') and panel_id in self._panel_card_states:
-            state = self._panel_card_states[panel_id]
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
+            # 方式3: 使用 _scene_loading_states
+            scene_id = self._parse_scene_id_from_panel_id(panel_id)
+            if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
+                state = self._scene_loading_states[scene_id]
+                spinner = state.get('spinner')
+                loading_label = state.get('loading_label')
 
-            if spinner:
-                spinner.stop()
+                if spinner:
+                    spinner.stop()
 
-            if loading_label:
-                s = self._styler
-                loading_label.setText(message)
-                loading_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: {s.error};
-                    font-weight: 500;
-                """)
+                if loading_label:
+                    s = self._styler
+                    loading_label.setText(message)
+                    loading_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.error};
+                        font-weight: 500;
+                    """)
 
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(3000, lambda pid=panel_id: self._restore_panel_button_state(pid))
-            return
-
-        # 方式3: 使用 _scene_loading_states
-        scene_id = self._parse_scene_id_from_panel_id(panel_id)
-        if scene_id > 0 and hasattr(self, '_scene_loading_states') and scene_id in self._scene_loading_states:
-            state = self._scene_loading_states[scene_id]
-            spinner = state.get('spinner')
-            loading_label = state.get('loading_label')
-
-            if spinner:
-                spinner.stop()
-
-            if loading_label:
-                s = self._styler
-                loading_label.setText(message)
-                loading_label.setStyleSheet(f"""
-                    font-family: {s.ui_font};
-                    font-size: {sp(10)}px;
-                    color: {s.error};
-                    font-weight: 500;
-                """)
-
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(3000, lambda sid=scene_id: self._restore_button_state(sid))
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(3000, lambda sid=scene_id: self._restore_button_state(sid))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def _restore_panel_button_state(self, panel_id: str):
         """恢复画格卡片按钮状态（PromptTab方式）"""
-        if not hasattr(self, '_panel_card_states') or panel_id not in self._panel_card_states:
-            return
+        try:
+            if not hasattr(self, '_panel_card_states') or panel_id not in self._panel_card_states:
+                return
 
-        state = self._panel_card_states[panel_id]
-        btn_stack = state.get('btn_stack')
-        loading_label = state.get('loading_label')
+            state = self._panel_card_states[panel_id]
+            btn_stack = state.get('btn_stack')
+            loading_label = state.get('loading_label')
 
-        if loading_label:
-            s = self._styler
-            loading_label.setText("正在生成...")
-            loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.accent_color};
-                font-weight: 500;
-            """)
+            if loading_label:
+                s = self._styler
+                loading_label.setText("正在生成...")
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.accent_color};
+                    font-weight: 500;
+                """)
 
-        if btn_stack:
-            btn_stack.setCurrentIndex(0)
+            if btn_stack:
+                btn_stack.setCurrentIndex(0)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     # ==================== 兼容旧API ====================
 
@@ -535,3 +580,136 @@ class MangaPanelBuilder(
         """兼容旧API: 设置场景生成失败状态"""
         panel_id = f"scene{scene_id}_page1_panel1"
         self.set_panel_error(panel_id, message)
+
+    # ==================== 页面级加载状态控制（整页生成） ====================
+
+    def set_page_loading(self, page_number: int, loading: bool, message: str = "正在生成整页漫画..."):
+        """设置页面的加载状态（整页生成）
+
+        Args:
+            page_number: 页码
+            loading: 是否显示加载状态
+            message: 加载时显示的消息
+        """
+        try:
+            if page_number not in self._page_loading_states:
+                return
+
+            state = self._page_loading_states[page_number]
+            btn_stack = state.get('btn_stack')
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
+
+            if btn_stack:
+                if loading:
+                    btn_stack.setCurrentIndex(1)
+                    if loading_label and message:
+                        loading_label.setText(message)
+                    if spinner:
+                        from PyQt6.QtCore import QTimer
+                        QTimer.singleShot(50, spinner.start)
+                else:
+                    btn_stack.setCurrentIndex(0)
+                    if spinner:
+                        spinner.stop()
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
+
+    def set_page_success(self, page_number: int, message: str = "生成成功"):
+        """设置页面生成成功状态
+
+        Args:
+            page_number: 页码
+            message: 成功消息
+        """
+        try:
+            if page_number not in self._page_loading_states:
+                return
+
+            state = self._page_loading_states[page_number]
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
+
+            if spinner:
+                spinner.stop()
+
+            if loading_label:
+                s = self._styler
+                loading_label.setText(message)
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.success};
+                    font-weight: 500;
+                """)
+
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda pn=page_number: self._restore_page_button_state(pn))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
+
+    def set_page_error(self, page_number: int, message: str = "生成失败"):
+        """设置页面生成失败状态
+
+        Args:
+            page_number: 页码
+            message: 错误消息
+        """
+        try:
+            if page_number not in self._page_loading_states:
+                return
+
+            state = self._page_loading_states[page_number]
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
+
+            if spinner:
+                spinner.stop()
+
+            if loading_label:
+                s = self._styler
+                loading_label.setText(message)
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.error};
+                    font-weight: 500;
+                """)
+
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda pn=page_number: self._restore_page_button_state(pn))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
+
+    def _restore_page_button_state(self, page_number: int):
+        """恢复页面按钮状态
+
+        Args:
+            page_number: 页码
+        """
+        try:
+            if page_number not in self._page_loading_states:
+                return
+
+            state = self._page_loading_states[page_number]
+            btn_stack = state.get('btn_stack')
+            loading_label = state.get('loading_label')
+
+            if loading_label:
+                s = self._styler
+                loading_label.setText("正在生成...")
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.accent_color};
+                    font-weight: 500;
+                """)
+
+            if btn_stack:
+                btn_stack.setCurrentIndex(0)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass

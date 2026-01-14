@@ -201,16 +201,6 @@ prompts:
     description: "基于ReAct循环的正文优化智能体"
 
   # ==================== 06 漫画模块 ====================
-  manga_chapter_extraction:
-    path: "novel/06_manga/manga_chapter_extraction.md"
-    title: "漫画信息提取"
-    category: "manga"
-    status: "active"
-    used_by:
-      - "ChapterInfoExtractor.extract"
-    dependencies: []
-    description: "从章节内容中提取角色、对话、场景等漫画所需信息"
-
   # 分步提取策略（避免单次LLM调用输出过大导致JSON被截断）
   manga_extraction_step1:
     path: "novel/06_manga/manga_extraction_step1.md"
@@ -263,7 +253,10 @@ prompts:
     used_by:
       - "PagePlanner.plan"
     dependencies:
-      - "manga_chapter_extraction"
+      - "manga_extraction_step1"
+      - "manga_extraction_step2"
+      - "manga_extraction_step3"
+      - "manga_extraction_step4"
     description: "规划漫画页数分配和节奏控制"
 
   manga_storyboard_design:
@@ -277,32 +270,16 @@ prompts:
       - "manga_page_planning"
     description: "设计每页的画格布局和镜头安排"
 
-  manga_prompt:
-    path: "novel/06_manga/manga_prompt.md"
-    title: "提示词生成"
+  manga_page_prompt_generation:
+    path: "novel/06_manga/manga_page_prompt_generation.md"
+    title: "整页提示词生成"
     category: "manga"
-    status: "unused"
-    used_by: []
-    dependencies: []
-    description: "生成AI绘图提示词(旧版，已由PromptBuilder替代)"
-
-  manga_layout:
-    path: "novel/06_manga/manga_layout.md"
-    title: "布局规划"
-    category: "manga"
-    status: "unused"
-    used_by: []
-    dependencies: []
-    description: "漫画页面布局规划(旧版，已整合到分镜设计)"
-
-  screenwriting:
-    path: "novel/06_manga/screenwriting.md"
-    title: "分格剧本(已弃用)"
-    category: "manga"
-    status: "deprecated"
-    used_by: []
-    dependencies: []
-    description: "已迁移至 blueprint，请使用 02_blueprint/blueprint.md"
+    status: "active"
+    used_by:
+      - "PagePromptGenerator.generate_single_page_prompt"
+    dependencies:
+      - "manga_storyboard_design"
+    description: "使用LLM将分镜设计转换为整页漫画图像生成提示词"
 
   # ==================== 07 主角档案 ====================
   protagonist_analysis:
@@ -381,49 +358,71 @@ prompts:
       - "system_design"
     description: "为指定系统批量生成模块列表和设计规范"
 
-  module_design:
-    path: "coding/module_design.md"
-    title: "模块详细设计"
+  directory_structure_generation:
+    path: "coding/directory_structure_generation.md"
+    title: "目录结构生成"
     category: "coding"
     status: "active"
     used_by:
-      - "CodingModuleService.design_single"
+      - "DirectoryStructureService.generate_for_module"
     dependencies:
       - "modules_batch_design"
-    description: "为单个模块生成详细的组件和接口设计"
+    description: "根据模块信息生成项目目录结构和源文件列表"
 
-  features_batch_outline:
-    path: "coding/features_batch_outline.md"
-    title: "功能大纲批量生成"
+  file_prompt_generation:
+    path: "coding/file_prompt_generation.md"
+    title: "文件Prompt生成"
     category: "coding"
     status: "active"
     used_by:
-      - "CodingFeatureService.generate_outlines"
+      - "FilePromptService.generate_prompt"
+    dependencies:
+      - "directory_structure_generation"
+    description: "根据源文件信息生成实现Prompt"
+
+  file_review_generation:
+    path: "coding/file_review_generation.md"
+    title: "文件审查Prompt生成"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "FilePromptService.generate_review_prompt"
+    dependencies:
+      - "file_prompt_generation"
+    description: "根据源文件信息和实现Prompt生成代码审查与测试Prompt"
+
+  file_description_generation:
+    path: "coding/file_description_generation.md"
+    title: "文件描述生成"
+    category: "coding"
+    status: "active"
+    used_by:
+      - "ArchitectureBasedGenerator._generate_file_info_with_llm"
     dependencies:
       - "modules_batch_design"
-    description: "为指定模块批量生成功能大纲列表"
+    description: "使用LLM为源文件生成详细的功能描述、存在理由和实现备注"
 
-  feature_design:
-    path: "coding/feature_design.md"
-    title: "功能详细设计"
+  directory_planning_agent:
+    path: "coding/directory_planning_agent.md"
+    title: "目录规划Agent"
     category: "coding"
     status: "active"
     used_by:
-      - "CodingFeatureService.design_single"
+      - "DirectoryPlanningAgent.run"
     dependencies:
-      - "features_batch_outline"
-    description: "为单个功能生成详细的实现规范"
+      - "modules_batch_design"
+    description: "使用ReAct循环的智能Agent，根据项目信息规划最优目录结构"
 
-  prompt_generation:
-    path: "coding/prompt_generation.md"
-    title: "Prompt生成"
+  context_compression:
+    path: "coding/context_compression.md"
+    title: "Agent上下文压缩"
     category: "coding"
     status: "active"
     used_by:
-      - "CodingChapterService.generate"
+      - "DirectoryPlanningAgent._compress_with_llm"
     dependencies:
-      - "feature_design"
-    description: "根据功能设计生成高质量的编程实现Prompt"
+      - "directory_planning_agent"
+    description: "将Agent对话历史压缩为简洁摘要，用于长对话的上下文管理"
 
 # ==================== 分类定义 ====================
 categories:

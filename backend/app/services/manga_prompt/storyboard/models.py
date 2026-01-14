@@ -82,15 +82,19 @@ class AspectRatio(str, Enum):
 
 @dataclass
 class DialogueBubble:
-    """对话气泡（简化版）"""
+    """对话气泡"""
     speaker: str                        # 说话人
     content: str                        # 对话内容
+    is_internal: bool = False           # 是否是内心独白/想法
+    bubble_type: str = "normal"         # 气泡类型: normal/shout/whisper/thought
 
     def to_dict(self) -> dict:
         """转换为字典"""
         return {
             "speaker": self.speaker,
             "content": self.content,
+            "is_internal": self.is_internal,
+            "bubble_type": self.bubble_type,
         }
 
     @classmethod
@@ -99,6 +103,8 @@ class DialogueBubble:
         return cls(
             speaker=data.get("speaker", ""),
             content=data.get("content", ""),
+            is_internal=data.get("is_internal", False),
+            bubble_type=data.get("bubble_type", "normal"),
         )
 
 
@@ -138,8 +144,12 @@ class PanelDesign:
     character_actions: Dict[str, str] = field(default_factory=dict)      # {角色名: 动作}
     character_expressions: Dict[str, str] = field(default_factory=dict)  # {角色名: 表情}
 
-    # 对话
+    # 对话（角色说出的话 + 内心想法）
     dialogues: List[DialogueBubble] = field(default_factory=list)
+
+    # 旁白（叙述性文字，与对话/想法不同）
+    narration: str = ""                 # 旁白内容
+    narration_type: str = ""            # 旁白类型: scene/time/inner/exposition
 
     # 关联信息
     event_indices: List[int] = field(default_factory=list)  # 关联的事件索引
@@ -162,6 +172,8 @@ class PanelDesign:
             "character_actions": self.character_actions,
             "character_expressions": self.character_expressions,
             "dialogues": [d.to_dict() for d in self.dialogues],
+            "narration": self.narration,
+            "narration_type": self.narration_type,
             "event_indices": self.event_indices,
         }
 
@@ -189,6 +201,8 @@ class PanelDesign:
                 DialogueBubble.from_dict(d) for d in dialogues_data
                 if isinstance(d, dict)
             ],
+            narration=data.get("narration") or "",
+            narration_type=data.get("narration_type") or "",
             event_indices=data.get("event_indices") or [],
         )
 

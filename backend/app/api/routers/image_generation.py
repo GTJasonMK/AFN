@@ -39,6 +39,7 @@ from ...services.image_generation.schemas import (
     ChapterMangaPDFRequest,
     ChapterMangaPDFResponse,
     DEFAULT_MANGA_NEGATIVE_PROMPT,
+    PageImageGenerationRequest,
 )
 from ...services.image_generation.pdf_export import PDFExportService
 
@@ -202,12 +203,12 @@ async def import_image_configs(
 # 用于检测负面提示词是否已包含关键质量词的关键词列表
 # 如果包含这些关键词，说明是LLM生成的完整负面提示词，不需要再追加默认值
 NEGATIVE_PROMPT_QUALITY_KEYWORDS = [
-    "low quality",
-    "bad anatomy",
-    "blurry",
-    "deformed",
-    "extra limbs",
-    "wrong proportions",
+    "模糊",
+    "低质量",
+    "变形",
+    "扭曲",
+    "多余",
+    "禁止",
 ]
 
 
@@ -357,6 +358,83 @@ async def generate_scene_image(
     return result
 
 
+@router.post(
+    "/novels/{project_id}/chapters/{chapter_number}/pages/{page_number}/generate",
+    response_model=ImageGenerationResult,
+)
+async def generate_page_image(
+    project_id: str,
+    chapter_number: int,
+    page_number: int,
+    request: PageImageGenerationRequest,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
+):
+    """为整页漫画生成图片
+
+    让AI直接生成带分格布局的整页漫画，包含对话气泡和音效文字。
+    相比逐panel生成，整页生成的画面更统一，布局更自然。
+
+    请求体需要包含由 PromptBuilder.build_page_prompt() 生成的页面级提示词。
+    """
+    # 智能合并负面提示词
+    merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
+
+    # 动态获取立绘路径（如果有panel_summaries，提取角色列表）
+    reference_image_paths = request.reference_image_paths or []
+    if request.panel_summaries:
+        # 从所有panel摘要中收集角色
+        all_characters = set()
+        for panel in request.panel_summaries:
+            characters = panel.get("characters", [])
+            all_characters.update(characters)
+
+        if all_characters:
+            portrait_repo = CharacterPortraitRepository(session)
+            active_portraits = await portrait_repo.get_all_active_by_project(project_id)
+            portrait_map = {
+                p.character_name: str(settings.generated_images_dir / p.image_path)
+                for p in active_portraits
+                if p.image_path
+            }
+            dynamic_paths = [
+                portrait_map[char] for char in all_characters if char in portrait_map
+            ]
+            if dynamic_paths:
+                reference_image_paths = dynamic_paths
+                logger.info(
+                    "整页生成: 动态获取立绘路径, characters=%s, paths=%d",
+                    list(all_characters), len(dynamic_paths)
+                )
+
+    # 创建合并后的请求
+    merged_request = PageImageGenerationRequest(
+        full_page_prompt=request.full_page_prompt,
+        negative_prompt=merged_negative,
+        layout_template=request.layout_template,
+        layout_description=request.layout_description,
+        ratio=request.ratio,
+        resolution=request.resolution,
+        style=request.style,
+        chapter_version_id=request.chapter_version_id,
+        reference_image_paths=reference_image_paths if reference_image_paths else None,
+        reference_strength=request.reference_strength,
+        panel_summaries=request.panel_summaries,
+        dialogue_language=request.dialogue_language,
+    )
+
+    service = ImageGenerationService(session)
+    result = await service.generate_page_image(
+        user_id=desktop_user.id,
+        project_id=project_id,
+        chapter_number=chapter_number,
+        page_number=page_number,
+        request=merged_request,
+    )
+    await session.commit()
+    return result
+
+
 # ==================== 图片管理 ====================
 
 @router.get(
@@ -430,6 +508,7 @@ async def get_chapter_images(
             url=f"/api/image-generation/files/{project_id}/chapter_{chapter_number}/scene_{img.scene_id}/{img.file_name}",
             scene_id=img.scene_id,
             panel_id=img.panel_id,
+            image_type=img.image_type,  # 图片类型: panel 或 page
             width=img.width,
             height=img.height,
             prompt=img.prompt,

@@ -20,16 +20,6 @@ class CodingSystemStatus(str, Enum):
     FAILED = "failed"
 
 
-class CodingFeatureStatus(str, Enum):
-    """功能生成状态"""
-    NOT_GENERATED = "not_generated"
-    GENERATING = "generating"
-    EVALUATING = "evaluating"
-    SELECTING = "selecting"
-    FAILED = "failed"
-    SUCCESSFUL = "successful"
-
-
 # ==================== 技术栈相关 ====================
 
 class TechComponent(BaseModel):
@@ -115,7 +105,6 @@ class CodingSystem(BaseModel):
     responsibilities: List[str] = Field(default_factory=list, description="主要职责列表")
     tech_requirements: str = Field(default="", description="技术要求和约束")
     module_count: int = Field(default=0, description="该系统下的模块数量")
-    feature_count: int = Field(default=0, description="该系统下的功能数量")
     generation_status: CodingSystemStatus = Field(default=CodingSystemStatus.PENDING, description="模块生成状态")
     progress: int = Field(default=0, description="生成进度 0-100")
 
@@ -129,26 +118,7 @@ class CodingModule(BaseModel):
     description: str = Field(default="", description="模块职责描述")
     interface: str = Field(default="", description="接口规范和数据格式")
     dependencies: List[str] = Field(default_factory=list, description="依赖的其他模块名称列表")
-    feature_count: int = Field(default=0, description="该模块下的功能数量")
     generation_status: CodingSystemStatus = Field(default=CodingSystemStatus.PENDING, description="功能生成状态")
-
-
-class CodingFeature(BaseModel):
-    """编程项目功能大纲 - 最终产物的大纲"""
-    feature_number: int = Field(default=0, description="全局功能编号（从1开始，0表示未分配）")
-    module_number: int = Field(default=0, description="所属模块编号（0表示未分配）")
-    system_number: int = Field(default=0, description="所属系统编号（0表示未分配）")
-    name: str = Field(..., description="功能名称")
-    description: str = Field(default="", description="功能描述")
-    inputs: str = Field(default="", description="输入参数说明")
-    outputs: str = Field(default="", description="输出结果说明")
-    implementation_notes: str = Field(default="", description="实现要点和注意事项")
-    priority: str = Field(default="medium", description="优先级：high/medium/low")
-    # 内容生成状态字段
-    status: str = Field(default="not_generated", description="生成状态")
-    has_content: bool = Field(default=False, description="是否已生成内容")
-    selected_version_id: Optional[int] = Field(default=None, description="选中的版本ID")
-    version_count: int = Field(default=0, description="版本数量")
 
 
 # ==================== 蓝图 ====================
@@ -175,7 +145,6 @@ class CodingBlueprint(BaseModel):
     # 三层结构数据
     systems: List[CodingSystem] = Field(default_factory=list, description="系统列表")
     modules: List[CodingModule] = Field(default_factory=list, description="模块列表")
-    features: List[CodingFeature] = Field(default_factory=list, description="功能大纲列表")
 
     # 模块间依赖关系
     dependencies: List[ModuleDependency] = Field(default_factory=list, description="模块依赖关系")
@@ -183,7 +152,6 @@ class CodingBlueprint(BaseModel):
     # 统计信息
     total_systems: int = Field(default=0, description="系统总数（预估）")
     total_modules: int = Field(default=0, description="模块总数（预估）")
-    total_features: int = Field(default=0, description="功能总数")
 
     # 分阶段设计标志
     needs_phased_design: bool = Field(default=False, description="是否需要分阶段设计")
@@ -245,7 +213,6 @@ class CodingProjectResponse(BaseModel):
     status: str
     conversation_history: List[Dict[str, Any]] = []
     blueprint: Optional[CodingBlueprint] = None
-    features: List[CodingFeature] = []
     warnings: Optional[List[str]] = None
 
     class Config:
@@ -258,8 +225,6 @@ class CodingProjectSummary(BaseModel):
     title: str
     project_type_desc: str = ""
     last_edited: str
-    completed_features: int = 0
-    total_features: int = 0
     status: str
 
 
@@ -295,34 +260,6 @@ class CodingBlueprintPatch(BaseModel):
     tech_stack: Optional[TechStack] = None
     systems: Optional[List[CodingSystem]] = None
     modules: Optional[List[CodingModule]] = None
-    features: Optional[List[CodingFeature]] = None
-
-
-# ==================== 功能生成相关 ====================
-
-class GenerateCodingFeatureRequest(BaseModel):
-    """生成功能实现请求"""
-    feature_number: int
-    writing_notes: Optional[str] = Field(default=None, description="额外的实现指令")
-
-
-class CodingFeatureGenerationResponse(BaseModel):
-    """功能生成响应"""
-    ai_message: str
-    feature_versions: List[Dict[str, Any]]
-
-
-class SelectCodingVersionRequest(BaseModel):
-    """选择功能版本请求"""
-    feature_number: int
-    version_index: int
-
-
-class RetryCodingVersionRequest(BaseModel):
-    """重新生成功能版本请求"""
-    feature_number: int
-    version_index: int
-    custom_prompt: Optional[str] = Field(default=None, description="用户自定义的优化提示词")
 
 
 # ==================== 系统/模块生成相关 ====================
@@ -338,10 +275,3 @@ class GenerateCodingModulesRequest(BaseModel):
     system_number: int = Field(..., description="目标系统编号")
     count: Optional[int] = Field(default=None, description="要生成的模块数量")
     preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：更关注某类功能、增加某种模块等")
-
-
-class GenerateCodingFeaturesRequest(BaseModel):
-    """生成功能列表请求"""
-    module_number: int = Field(..., description="目标模块编号")
-    count: Optional[int] = Field(default=None, description="要生成的功能数量")
-    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：细化某类功能、增加边界处理等")

@@ -101,6 +101,9 @@ STORYBOARD_DESIGN_PROMPT = """你是漫画分镜师，请为章节内容设计�
 ### 相关对话
 {dialogues_json}
 
+### 相关旁白
+{narrations_json}
+
 ### 出场角色
 {characters_json}
 
@@ -137,7 +140,9 @@ STORYBOARD_DESIGN_PROMPT = """你是漫画分镜师，请为章节内容设计�
       "lighting": "光线",
       "character_actions": {{"角色1": "动作"}},
       "character_expressions": {{"角色1": "表情"}},
-      "dialogues": [{{"speaker": "角色1", "content": "对话"}}],
+      "dialogues": [{{"speaker": "角色1", "content": "对话", "is_internal": false, "bubble_type": "normal"}}],
+      "narration": "旁白内容（如有）",
+      "narration_type": "scene",
       "event_indices": [0]
     }},
     {{
@@ -156,6 +161,8 @@ STORYBOARD_DESIGN_PROMPT = """你是漫画分镜师，请为章节内容设计�
       "character_actions": {{"角色1": "站立"}},
       "character_expressions": {{"角色1": "严肃"}},
       "dialogues": [],
+      "narration": "",
+      "narration_type": "",
       "event_indices": [0]
     }},
     {{
@@ -173,7 +180,9 @@ STORYBOARD_DESIGN_PROMPT = """你是漫画分镜师，请为章节内容设计�
       "lighting": "聚光",
       "character_actions": {{}},
       "character_expressions": {{"角色2": "惊讶"}},
-      "dialogues": [],
+      "dialogues": [{{"speaker": "角色2", "content": "内心独白", "is_internal": true, "bubble_type": "thought"}}],
+      "narration": "",
+      "narration_type": "",
       "event_indices": [0]
     }},
     {{
@@ -191,7 +200,9 @@ STORYBOARD_DESIGN_PROMPT = """你是漫画分镜师，请为章节内容设计�
       "lighting": "自然光",
       "character_actions": {{"角色2": "转身"}},
       "character_expressions": {{"角色2": "微笑"}},
-      "dialogues": [{{"speaker": "角色2", "content": "对话内容"}}],
+      "dialogues": [{{"speaker": "角色2", "content": "对话内容", "is_internal": false, "bubble_type": "normal"}}],
+      "narration": "三天后",
+      "narration_type": "time",
       "event_indices": [1]
     }}
   ],

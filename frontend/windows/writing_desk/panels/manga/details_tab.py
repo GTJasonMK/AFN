@@ -208,19 +208,25 @@ class DetailsTabMixin:
                     dialogues_widget = self._create_dialogues_widget(dialogues)
                     extraction_section.add_content(dialogues_widget)
 
-                # 1.4 场景列表
+                # 1.4 旁白列表
+                narrations = chapter_info.get('narrations', [])
+                if narrations:
+                    narrations_widget = self._create_narrations_widget(narrations)
+                    extraction_section.add_content(narrations_widget)
+
+                # 1.5 场景列表
                 scenes = chapter_info.get('scenes', [])
                 if scenes:
                     scenes_widget = self._create_scenes_widget(scenes)
                     extraction_section.add_content(scenes_widget)
 
-                # 1.5 物品列表
+                # 1.6 物品列表
                 items = chapter_info.get('items', [])
                 if items:
                     items_widget = self._create_items_widget(items)
                     extraction_section.add_content(items_widget)
 
-                # 1.6 情绪曲线
+                # 1.7 情绪曲线
                 mood = chapter_info.get('mood_progression', [])
                 climax = chapter_info.get('climax_event_indices', [])
                 if mood or climax:
@@ -408,33 +414,96 @@ class DetailsTabMixin:
     def _create_dialogues_widget(self, dialogues: list) -> QFrame:
         """创建对话列表展示"""
         s = self._styler
-        frame = self._create_section_frame(f"对话列表 ({len(dialogues)})")
+
+        # 统计对话和想法数量
+        dialogue_count = 0
+        thought_count = 0
+        for dialogue in dialogues:
+            if isinstance(dialogue, dict):
+                is_internal = dialogue.get('is_internal', False)
+                bubble_type = dialogue.get('bubble_type', 'normal')
+                if is_internal or bubble_type == 'thought':
+                    thought_count += 1
+                else:
+                    dialogue_count += 1
+            else:
+                dialogue_count += 1
+
+        # 构建标题
+        title_parts = []
+        if dialogue_count > 0:
+            title_parts.append(f"对话 {dialogue_count}")
+        if thought_count > 0:
+            title_parts.append(f"想法 {thought_count}")
+        title = "对话/想法列表 (" + ", ".join(title_parts) + ")" if title_parts else f"对话列表 ({len(dialogues)})"
+
+        frame = self._create_section_frame(title)
         layout = frame.layout()
 
         for dialogue in dialogues:
             dlg_frame = QFrame()
-            dlg_frame.setStyleSheet(f"""
-                QFrame {{
-                    background: {s.bg_card};
-                    border: 1px solid {s.border_light};
-                    border-radius: {dp(4)}px;
-                    margin-bottom: {dp(4)}px;
-                }}
-            """)
-            dlg_layout = QVBoxLayout(dlg_frame)
-            dlg_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
-            dlg_layout.setSpacing(dp(2))
 
             if isinstance(dialogue, dict):
                 speaker = dialogue.get('speaker', '???')
                 content = dialogue.get('content', '')
                 emotion = dialogue.get('emotion', '')
+                is_internal = dialogue.get('is_internal', False)
+                bubble_type = dialogue.get('bubble_type', 'normal')
+
+                # 根据是否为内心独白设置不同样式
+                if is_internal or bubble_type == 'thought':
+                    # 想法/内心独白 - 使用虚线边框和不同背景色
+                    dlg_frame.setStyleSheet(f"""
+                        QFrame {{
+                            background: {s.bg_secondary};
+                            border: 2px dashed {s.text_secondary};
+                            border-radius: {dp(4)}px;
+                            margin-bottom: {dp(4)}px;
+                        }}
+                    """)
+                    type_indicator = "[想法]"
+                    type_color = s.text_secondary
+                else:
+                    # 对话 - 使用实线边框
+                    dlg_frame.setStyleSheet(f"""
+                        QFrame {{
+                            background: {s.bg_card};
+                            border: 1px solid {s.border_light};
+                            border-radius: {dp(4)}px;
+                            margin-bottom: {dp(4)}px;
+                        }}
+                    """)
+                    # 根据气泡类型显示不同标记
+                    if bubble_type == 'shout':
+                        type_indicator = "[喊叫]"
+                    elif bubble_type == 'whisper':
+                        type_indicator = "[低语]"
+                    else:
+                        type_indicator = "[对话]"
+                    type_color = s.accent_color
+
+                dlg_layout = QVBoxLayout(dlg_frame)
+                dlg_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+                dlg_layout.setSpacing(dp(2))
+
+                # 说话者行：类型标记 + 说话者名 + 情绪
+                header_layout = QHBoxLayout()
+                header_layout.setSpacing(dp(4))
+                header_layout.setContentsMargins(0, 0, 0, 0)
+
+                # 类型标记
+                type_label = QLabel(type_indicator)
+                type_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {type_color};
+                    background: transparent;
+                    border: none;
+                """)
+                header_layout.addWidget(type_label)
 
                 # 说话者
-                speaker_text = f"{speaker}"
-                if emotion:
-                    speaker_text += f" ({emotion})"
-                speaker_label = QLabel(speaker_text)
+                speaker_label = QLabel(speaker)
                 speaker_label.setStyleSheet(f"""
                     font-family: {s.ui_font};
                     font-size: {sp(11)}px;
@@ -443,10 +512,30 @@ class DetailsTabMixin:
                     background: transparent;
                     border: none;
                 """)
-                dlg_layout.addWidget(speaker_label)
+                header_layout.addWidget(speaker_label)
 
-                # 内容
-                content_label = QLabel(f'"{content}"')
+                # 情绪
+                if emotion:
+                    emotion_label = QLabel(f"({emotion})")
+                    emotion_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(10)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    header_layout.addWidget(emotion_label)
+
+                header_layout.addStretch()
+                dlg_layout.addLayout(header_layout)
+
+                # 内容 - 想法用不同的引号样式
+                if is_internal or bubble_type == 'thought':
+                    content_text = f"({content})"  # 想法用圆括号
+                else:
+                    content_text = f'"{content}"'  # 对话用引号
+
+                content_label = QLabel(content_text)
                 content_label.setWordWrap(True)
                 content_label.setStyleSheet(f"""
                     font-family: {s.ui_font};
@@ -454,10 +543,22 @@ class DetailsTabMixin:
                     color: {s.text_primary};
                     background: transparent;
                     border: none;
-                    font-style: italic;
+                    font-style: {'italic' if is_internal or bubble_type == 'thought' else 'normal'};
                 """)
                 dlg_layout.addWidget(content_label)
             else:
+                dlg_frame.setStyleSheet(f"""
+                    QFrame {{
+                        background: {s.bg_card};
+                        border: 1px solid {s.border_light};
+                        border-radius: {dp(4)}px;
+                        margin-bottom: {dp(4)}px;
+                    }}
+                """)
+                dlg_layout = QVBoxLayout(dlg_frame)
+                dlg_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+                dlg_layout.setSpacing(dp(2))
+
                 label = QLabel(str(dialogue))
                 label.setWordWrap(True)
                 label.setStyleSheet(f"""
@@ -470,6 +571,98 @@ class DetailsTabMixin:
                 dlg_layout.addWidget(label)
 
             layout.addWidget(dlg_frame)
+        return frame
+
+    def _create_narrations_widget(self, narrations: list) -> QFrame:
+        """创建旁白列表展示"""
+        s = self._styler
+        frame = self._create_section_frame(f"旁白列表 ({len(narrations)})")
+        layout = frame.layout()
+
+        # 旁白类型到显示文本的映射
+        type_labels = {
+            'scene': '场景',
+            'time': '时间',
+            'inner': '内心',
+            'exposition': '背景',
+        }
+
+        for narration in narrations:
+            nar_frame = QFrame()
+            # 旁白使用方框样式，区别于对话气泡
+            nar_frame.setStyleSheet(f"""
+                QFrame {{
+                    background: {s.bg_card};
+                    border: 2px solid {s.accent_color};
+                    border-radius: {dp(4)}px;
+                    margin-bottom: {dp(4)}px;
+                }}
+            """)
+
+            nar_layout = QVBoxLayout(nar_frame)
+            nar_layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
+            nar_layout.setSpacing(dp(2))
+
+            if isinstance(narration, dict):
+                content = narration.get('content', '')
+                narration_type = narration.get('narration_type', 'scene')
+                position = narration.get('position', 'top')
+
+                # 类型标签
+                type_text = type_labels.get(narration_type, narration_type)
+                header_layout = QHBoxLayout()
+                header_layout.setSpacing(dp(4))
+                header_layout.setContentsMargins(0, 0, 0, 0)
+
+                type_label = QLabel(f"[旁白-{type_text}]")
+                type_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.accent_color};
+                    background: transparent;
+                    border: none;
+                    font-weight: bold;
+                """)
+                header_layout.addWidget(type_label)
+
+                if position != 'top':
+                    pos_label = QLabel(f"({position})")
+                    pos_label.setStyleSheet(f"""
+                        font-family: {s.ui_font};
+                        font-size: {sp(9)}px;
+                        color: {s.text_secondary};
+                        background: transparent;
+                        border: none;
+                    """)
+                    header_layout.addWidget(pos_label)
+
+                header_layout.addStretch()
+                nar_layout.addLayout(header_layout)
+
+                # 内容
+                content_label = QLabel(content)
+                content_label.setWordWrap(True)
+                content_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(11)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
+                """)
+                nar_layout.addWidget(content_label)
+            else:
+                label = QLabel(str(narration))
+                label.setWordWrap(True)
+                label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(11)}px;
+                    color: {s.text_primary};
+                    background: transparent;
+                    border: none;
+                """)
+                nar_layout.addWidget(label)
+
+            layout.addWidget(nar_frame)
         return frame
 
     def _create_scenes_widget(self, scenes: list) -> QFrame:

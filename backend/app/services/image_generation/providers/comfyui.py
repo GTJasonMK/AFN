@@ -348,7 +348,7 @@ class ComfyUIProvider(BaseImageProvider):
 
         # 构建提示词
         prompt = self.build_prompt(request, add_context=False)
-        negative_prompt = request.negative_prompt or "low quality, blurry, distorted"
+        negative_prompt = request.negative_prompt or "禁止：模糊低质量、变形扭曲"
 
         # 获取参数
         seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)
@@ -812,7 +812,7 @@ class ComfyUIProvider(BaseImageProvider):
 
         # 构建提示词
         prompt = self.build_prompt(request, add_context=False)
-        negative_prompt = request.negative_prompt or "low quality, blurry, distorted"
+        negative_prompt = request.negative_prompt or "禁止：模糊低质量、变形扭曲"
 
         # 获取参数
         seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)

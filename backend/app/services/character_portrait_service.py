@@ -347,11 +347,10 @@ class CharacterPortraitService:
     def _get_portrait_negative_prompt(self) -> str:
         """获取立绘专用负面提示词"""
         return (
-            "low quality, blurry, pixelated, watermark, signature, "
-            "bad anatomy, wrong proportions, deformed hands, extra fingers, "
-            "ugly face, deformed face, asymmetrical face, crossed eyes, "
-            "multiple people, crowd, group shot, full body, legs, "
-            "text, logo, frame, border"
+            "禁止：模糊低质量、水印签名、"
+            "解剖错误、手指变形、面部变形、"
+            "多人场景、全身照、"
+            "文字Logo、边框"
         )
 
     def _safe_character_name(self, character_name: str) -> str:

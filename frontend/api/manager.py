@@ -6,6 +6,9 @@ API 客户端管理器 - 单例模式
 用法:
     from api.manager import APIClientManager
 
+    # 配置后端地址（可选，在应用启动时调用）
+    APIClientManager.configure(base_url="http://192.168.1.100:8123")
+
     # 获取客户端实例（自动创建或复用）
     client = APIClientManager.get_client()
     data = client.get_novels()
@@ -15,12 +18,16 @@ API 客户端管理器 - 单例模式
 """
 
 import logging
+import os
 import threading
 from typing import Optional
 
 from api.client import AFNAPIClient
 
 logger = logging.getLogger(__name__)
+
+# 默认后端地址（可通过环境变量 AFN_API_URL 覆盖）
+DEFAULT_API_URL = os.environ.get("AFN_API_URL", "http://127.0.0.1:8123")
 
 
 class APIClientManager:
@@ -29,11 +36,29 @@ class APIClientManager:
     特性：
     - 线程安全的单例实现
     - 自动检测客户端是否已关闭并重新创建
+    - 支持配置后端地址（通过 configure() 或环境变量 AFN_API_URL）
     - 统一的资源清理接口
     """
 
     _instance: Optional[AFNAPIClient] = None
     _lock = threading.Lock()
+    _base_url: str = DEFAULT_API_URL
+
+    @classmethod
+    def configure(cls, base_url: str = None) -> None:
+        """配置 API 客户端
+
+        Args:
+            base_url: 后端服务地址，如 "http://192.168.1.100:8123"
+        """
+        with cls._lock:
+            if base_url:
+                cls._base_url = base_url.rstrip('/')
+                logger.info("API 客户端配置更新: base_url=%s", cls._base_url)
+                # 如果已有实例，需要重新创建
+                if cls._instance is not None:
+                    cls._instance.close()
+                    cls._instance = None
 
     @classmethod
     def get_client(cls) -> AFNAPIClient:
@@ -50,8 +75,8 @@ class APIClientManager:
             with cls._lock:
                 # 再次检查，避免竞态条件
                 if cls._instance is None or cls._instance._closed:
-                    logger.debug("创建新的 API 客户端实例")
-                    cls._instance = AFNAPIClient()
+                    logger.debug("创建新的 API 客户端实例: base_url=%s", cls._base_url)
+                    cls._instance = AFNAPIClient(base_url=cls._base_url)
         return cls._instance
 
     @classmethod

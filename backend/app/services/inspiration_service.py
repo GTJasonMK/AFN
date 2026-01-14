@@ -343,6 +343,7 @@ class InspirationService:
             temperature=settings.llm_temp_inspiration,
             user_id=user_id,
             timeout=LLMConstants.INSPIRATION_TIMEOUT,
+            max_tokens=settings.llm_max_tokens_default,
         ):
             content = chunk.get("content")
             if content:

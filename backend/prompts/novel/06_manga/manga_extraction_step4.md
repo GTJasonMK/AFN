@@ -3,21 +3,23 @@ title: 分步提取-物品和摘要
 description: 分步提取策略的第四步，提取物品信息和章节摘要
 tags: manga, extraction, items, summary
 ---
-
 请从以下章节内容中提取物品信息和章节摘要。
 
 ## 章节内容
+
 {content}
 
 ## 已识别的事件数量
+
 {event_count}
 
 ## 提取要求
 
 ### 1. 物品信息 (items)
+
 只提取对剧情有影响的物品：
+
 - name: 物品名（中文）
-- name_en: 物品名（英文）
 - description: 描述（中文）
 - description_en: 描述（英文，用于绘图）
 - importance: prop/key_item/mcguffin
@@ -25,8 +27,8 @@ tags: manga, extraction, items, summary
 - visual_features: 视觉特征（英文）
 
 ### 2. 章节摘要
+
 - chapter_summary: 章节内容摘要（2-3句话，中文）
-- chapter_summary_en: 英文摘要
 - mood_progression: 情绪变化轨迹（如["平静", "紧张", "高潮", "释然"]）
 - total_estimated_pages: 预估漫画页数（5-15页）
 
@@ -37,7 +39,6 @@ tags: manga, extraction, items, summary
   "items": [
     {{
       "name": "物品名",
-      "name_en": "Item name",
       "description": "描述",
       "description_en": "Description",
       "importance": "prop",
@@ -46,7 +47,6 @@ tags: manga, extraction, items, summary
     }}
   ],
   "chapter_summary": "章节摘要...",
-  "chapter_summary_en": "Chapter summary...",
   "mood_progression": ["开始情绪", "中间情绪", "结束情绪"],
   "total_estimated_pages": 10
 }}

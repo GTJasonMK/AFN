@@ -212,6 +212,50 @@ class DialogueInfo:
 
 
 @dataclass
+class NarrationInfo:
+    """
+    旁白信息
+
+    旁白是叙述性文字，与对话/想法不同：
+    - 对话(dialogue)：角色说出的话，用对话气泡
+    - 想法(thought)：角色内心独白，用云朵气泡
+    - 旁白(narration)：叙述性文字，用方框旁白框
+
+    旁白类型：
+    - scene: 场景描述，如"夜晚，城市的灯火阑珊"
+    - time: 时间跳转，如"三天后..."
+    - inner: 深度内心描写（非角色直接想法，而是作者对心理的描述）
+    - exposition: 背景说明，如"这座城市已经沦陷了三年"
+    """
+    index: int                          # 旁白索引
+    content: str                        # 旁白内容
+    narration_type: str = "scene"       # 旁白类型: scene/time/inner/exposition
+    event_index: int = 0                # 所属事件索引
+    position: str = "top"               # 位置: top/bottom/left/right
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "index": self.index,
+            "content": self.content,
+            "narration_type": self.narration_type,
+            "event_index": self.event_index,
+            "position": self.position,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NarrationInfo":
+        """从字典创建"""
+        return cls(
+            index=data.get("index", 0),
+            content=data.get("content", ""),
+            narration_type=data.get("narration_type", "scene"),
+            event_index=data.get("event_index", 0),
+            position=data.get("position", "top"),
+        )
+
+
+@dataclass
 class SceneInfo:
     """场景信息"""
     index: int                      # 场景索引
@@ -339,6 +383,7 @@ class ChapterInfo:
     """章节信息汇总"""
     characters: Dict[str, CharacterInfo] = field(default_factory=dict)
     dialogues: List[DialogueInfo] = field(default_factory=list)
+    narrations: List[NarrationInfo] = field(default_factory=list)  # 旁白列表
     scenes: List[SceneInfo] = field(default_factory=list)
     events: List[EventInfo] = field(default_factory=list)
     items: List[ItemInfo] = field(default_factory=list)
@@ -352,6 +397,7 @@ class ChapterInfo:
         return {
             "characters": {k: v.to_dict() for k, v in self.characters.items()},
             "dialogues": [d.to_dict() for d in self.dialogues],
+            "narrations": [n.to_dict() for n in self.narrations],
             "scenes": [s.to_dict() for s in self.scenes],
             "events": [e.to_dict() for e in self.events],
             "items": [i.to_dict() for i in self.items],
@@ -375,6 +421,7 @@ class ChapterInfo:
         return cls(
             characters=characters,
             dialogues=[DialogueInfo.from_dict(d) for d in data.get("dialogues", [])],
+            narrations=[NarrationInfo.from_dict(n) for n in data.get("narrations", [])],
             scenes=[SceneInfo.from_dict(s) for s in data.get("scenes", [])],
             events=[EventInfo.from_dict(e) for e in data.get("events", [])],
             items=[ItemInfo.from_dict(i) for i in data.get("items", [])],
@@ -412,6 +459,10 @@ class ChapterInfo:
         """获取高潮事件"""
         return [e for e in self.events if e.is_climax]
 
+    def get_narration_by_event(self, event_index: int) -> List[NarrationInfo]:
+        """获取指定事件的旁白"""
+        return [n for n in self.narrations if n.event_index == event_index]
+
 
 __all__ = [
     "EmotionType",
@@ -420,6 +471,7 @@ __all__ = [
     "ImportanceLevel",
     "CharacterInfo",
     "DialogueInfo",
+    "NarrationInfo",
     "SceneInfo",
     "EventInfo",
     "ItemInfo",

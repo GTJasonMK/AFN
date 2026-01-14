@@ -531,7 +531,7 @@ class ChapterGenerationService:
         """
         async def _generate_single_version(idx: int) -> Dict:
             task_id = id(asyncio.current_task())
-            logger.info("[Task %s] 开始生成版本 %s", task_id, idx + 1)
+            logger.debug("[Task %s] 开始生成版本 %s", task_id, idx + 1)
             try:
                 response = await self.llm_service.get_llm_response(
                     system_prompt=writer_prompt,
@@ -545,18 +545,18 @@ class ChapterGenerationService:
                     skip_daily_limit_check=skip_usage_tracking,
                     cached_config=llm_config,
                 )
-                logger.info("[Task %s] 版本 %s LLM 响应获取成功，长度: %d", task_id, idx + 1, len(response) if response else 0)
-                logger.info("[Task %s] 版本 %s 响应前500字符: %s", task_id, idx + 1, repr(response[:500]) if response else "None")
+                logger.debug("[Task %s] 版本 %s LLM 响应获取成功，长度: %d", task_id, idx + 1, len(response) if response else 0)
+                logger.debug("[Task %s] 版本 %s 响应前500字符: %s", task_id, idx + 1, repr(response[:500]) if response else "None")
 
                 cleaned = remove_think_tags(response)
-                logger.info("[Task %s] 版本 %s 清理后长度: %d，前200字符: %s", task_id, idx + 1, len(cleaned), repr(cleaned[:200]))
+                logger.debug("[Task %s] 版本 %s 清理后长度: %d，前200字符: %s", task_id, idx + 1, len(cleaned), repr(cleaned[:200]))
 
                 # 尝试解析JSON（安全模式）
                 result = parse_llm_json_safe(cleaned)
-                logger.info("[Task %s] 版本 %s JSON解析结果: %s", task_id, idx + 1, "成功" if result else "失败")
+                logger.debug("[Task %s] 版本 %s JSON解析结果: %s", task_id, idx + 1, "成功" if result else "失败")
 
                 if result:
-                    logger.info("[Task %s] 版本 %s 解析后的键: %s", task_id, idx + 1, list(result.keys()) if isinstance(result, dict) else type(result))
+                    logger.debug("[Task %s] 版本 %s 解析后的键: %s", task_id, idx + 1, list(result.keys()) if isinstance(result, dict) else type(result))
                     # 如果解析成功但没有content字段，检查是否有其他已知的内容字段
                     # 如果都没有，直接将原始文本作为content（LLM可能返回纯文本被错误解析）
                     # 注意：此列表必须与 ChapterVersionProcessor.CONTENT_FIELD_NAMES 保持一致
@@ -568,27 +568,27 @@ class ChapterGenerationService:
                         field in result and isinstance(result[field], str) and result[field].strip()
                         for field in content_fields
                     )
-                    logger.info("[Task %s] 版本 %s 有内容字段: %s", task_id, idx + 1, has_content_field)
+                    logger.debug("[Task %s] 版本 %s 有内容字段: %s", task_id, idx + 1, has_content_field)
 
                     if has_content_field:
                         # 找到使用的字段名和内容长度
                         for field in content_fields:
                             if field in result and isinstance(result[field], str) and result[field].strip():
-                                logger.info("[Task %s] 版本 %s 使用字段 '%s'，内容长度: %d", task_id, idx + 1, field, len(result[field]))
+                                logger.debug("[Task %s] 版本 %s 使用字段 '%s'，内容长度: %d", task_id, idx + 1, field, len(result[field]))
                                 break
                         return result
                     else:
                         # 没有明确的内容字段，说明纯文本被误解析为JSON
                         # 直接使用cleaned文本，不要调用unwrap_markdown_json（会截取错误内容）
-                        logger.info("[Task %s] JSON解析成功但无内容字段，使用原始文本（长度: %d）", task_id, len(cleaned))
+                        logger.debug("[Task %s] JSON解析成功但无内容字段，使用原始文本（长度: %d）", task_id, len(cleaned))
                         return {"content": cleaned}
                 else:
                     # JSON解析失败，说明是纯文本，直接使用
-                    logger.info("[Task %s] 版本 %s 使用原始文本作为content（长度: %d）", task_id, idx + 1, len(cleaned))
+                    logger.debug("[Task %s] 版本 %s 使用原始文本作为content（长度: %d）", task_id, idx + 1, len(cleaned))
                     return {"content": cleaned}
             except asyncio.CancelledError:
                 # 取消异常需要向上传播，不能被吞掉
-                logger.info("[Task %s] 版本 %s 生成被取消", task_id, idx + 1)
+                logger.debug("[Task %s] 版本 %s 生成被取消", task_id, idx + 1)
                 raise
             except (InvalidRequestError, OSError, TimeoutError) as exc:
                 # 可预期的异常：Session冲突、网络错误、超时
@@ -650,25 +650,25 @@ class ChapterGenerationService:
 
             async def _generate_version(idx: int) -> Dict:
                 """单个版本的生成（并发控制由llm_service层统一管理）"""
-                logger.info("项目 %s 第 %s 章开始生成版本 %s/%s", project_id, chapter_number, idx + 1, version_count)
+                logger.debug("项目 %s 第 %s 章开始生成版本 %s/%s", project_id, chapter_number, idx + 1, version_count)
                 result = await _generate_single_version(idx)
-                logger.info("项目 %s 第 %s 章版本 %s/%s 生成完成", project_id, chapter_number, idx + 1, version_count)
+                logger.debug("项目 %s 第 %s 章版本 %s/%s 生成完成", project_id, chapter_number, idx + 1, version_count)
                 return result
 
-            logger.info("项目 %s 第 %s 章开始并行执行，进入 no_autoflush 上下文", project_id, chapter_number)
+            logger.debug("项目 %s 第 %s 章开始并行执行，进入 no_autoflush 上下文", project_id, chapter_number)
             with self.session.no_autoflush:
-                logger.info("session.no_autoflush 已启用，session.autoflush=%s", self.session.autoflush)
+                logger.debug("session.no_autoflush 已启用，session.autoflush=%s", self.session.autoflush)
                 tasks = [_generate_version(idx) for idx in range(version_count)]
-                logger.info("项目 %s 第 %s 章创建了 %s 个并行任务，开始执行 gather", project_id, chapter_number, len(tasks))
+                logger.debug("项目 %s 第 %s 章创建了 %s 个并行任务，开始执行 gather", project_id, chapter_number, len(tasks))
                 raw_versions = await asyncio.gather(*tasks, return_exceptions=True)
-                logger.info("项目 %s 第 %s 章 gather 执行完成，退出 no_autoflush 上下文", project_id, chapter_number)
+                logger.debug("项目 %s 第 %s 章 gather 执行完成，退出 no_autoflush 上下文", project_id, chapter_number)
 
             # 处理异常结果
             processed_versions = []
             for idx, result in enumerate(raw_versions):
                 if isinstance(result, asyncio.CancelledError):
                     # 取消异常需要重新抛出
-                    logger.info("项目 %s 第 %s 章版本 %s 被取消，传播取消异常", project_id, chapter_number, idx + 1)
+                    logger.debug("项目 %s 第 %s 章版本 %s 被取消，传播取消异常", project_id, chapter_number, idx + 1)
                     raise result
                 elif isinstance(result, Exception):
                     logger.error("项目 %s 第 %s 章版本 %s 生成失败: %s", project_id, chapter_number, idx + 1, result)
@@ -680,7 +680,7 @@ class ChapterGenerationService:
             # 串行模式
             raw_versions = []
             for idx in range(version_count):
-                logger.info("项目 %s 第 %s 章开始生成版本 %s/%s（串行模式）", project_id, chapter_number, idx + 1, version_count)
+                logger.debug("项目 %s 第 %s 章开始生成版本 %s/%s（串行模式）", project_id, chapter_number, idx + 1, version_count)
                 raw_versions.append(await _generate_single_version(idx))
 
         elapsed_time = time.time() - start_time

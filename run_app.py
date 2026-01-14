@@ -37,12 +37,15 @@ from setup_env import (
     FRONTEND_PYTHON,
     # 日志
     logger,
+    _load_logging_config,
     # 工具函数
     safe_input,
     ensure_port_available,
     # 环境设置
     print_banner,
     setup_environment,
+    # 进度管理
+    startup_progress,
 )
 
 
@@ -121,28 +124,42 @@ def start_backend_subprocess():
     """以子进程方式启动后端（开发模式）"""
     global backend_process
 
-    print(f"\n[启动] 启动后端服务...")
-    print(f"       端口: {BACKEND_PORT}")
     logger.info("启动后端服务（子进程模式）...")
 
     # 使用后端虚拟环境的 Python
     python_exe = str(BACKEND_PYTHON) if BACKEND_PYTHON.exists() else sys.executable
-    print(f"       Python: {python_exe}")
 
-    # 启动 uvicorn - 输出直接显示到当前控制台
+    # 获取用户配置的日志级别（用于 uvicorn）
+    user_config = _load_logging_config()
+    user_levels = user_config.get('levels', {})
+    uvicorn_level = user_levels.get('app', 'info').lower()
+
+    # 启动期间总是重定向输出到文件（保证启动动画干净）
+    # 后端应用的业务日志通过 Python logging 系统写入各个日志文件
+    logs_dir = STORAGE_DIR / 'logs'
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    backend_log = logs_dir / 'backend_console.log'
+
+    # 清空旧的控制台日志（每次启动重新记录）
+    with open(backend_log, 'w', encoding='utf-8') as f:
+        f.write(f"=== 后端启动日志 ===\n")
+
+    log_file = open(backend_log, 'a', encoding='utf-8')
     backend_process = subprocess.Popen(
         [
             python_exe, '-m', 'uvicorn',
             'app.main:app',
             '--host', '127.0.0.1',
             '--port', str(BACKEND_PORT),
-            '--log-level', 'info'
+            '--log-level', uvicorn_level
         ],
-        cwd=str(BACKEND_DIR)
+        cwd=str(BACKEND_DIR),
+        stdout=log_file,
+        stderr=log_file
     )
+    # 注意：log_file 不关闭，让子进程持续写入
 
     logger.info(f"后端进程已启动 (PID: {backend_process.pid})")
-    print(f"       进程ID: {backend_process.pid}")
 
 
 def start_backend_thread():
@@ -158,7 +175,7 @@ def start_backend_thread():
         app,
         host="127.0.0.1",
         port=BACKEND_PORT,
-        log_level="warning",
+        log_level="debug",
         access_log=False
     )
     server = uvicorn.Server(config)
@@ -169,30 +186,43 @@ def wait_for_backend(timeout=60):
     """等待后端服务就绪"""
     import urllib.request
     import urllib.error
+    import socket
 
-    print(f"\n[等待] 等待后端服务就绪...")
-    print(f"       健康检查地址: http://127.0.0.1:{BACKEND_PORT}/health")
     logger.info("等待后端服务就绪...")
 
+    # Windows 上给后端进程一点启动时间
+    time.sleep(1)
+
+    # 创建不使用代理的 opener（避免系统代理影响 localhost 访问）
+    no_proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(no_proxy_handler)
+
     start_time = time.time()
+    url = f'http://127.0.0.1:{BACKEND_PORT}/health'
 
     while time.time() - start_time < timeout:
+        # 检查后端进程是否还在运行（仅子进程模式）
+        if backend_process is not None:
+            exit_code = backend_process.poll()
+            if exit_code is not None:
+                # 进程已退出，说明启动失败
+                logger.error(f"后端进程异常退出，退出码: {exit_code}")
+                logger.error("请查看 storage/logs/backend_console.log 或控制台输出了解详情")
+                return False
+
         try:
-            response = urllib.request.urlopen(f'http://127.0.0.1:{BACKEND_PORT}/health', timeout=2)
+            response = opener.open(url, timeout=2)
             if response.status == 200:
-                elapsed = time.time() - start_time
-                print(f"\n       后端服务已就绪 (耗时 {elapsed:.1f}s) [OK]")
                 logger.info("后端服务已就绪")
                 return True
-        except (urllib.error.URLError, urllib.error.HTTPError, ConnectionRefusedError, TimeoutError):
+        except (urllib.error.URLError, urllib.error.HTTPError, ConnectionRefusedError, TimeoutError, socket.timeout, OSError) as e:
+            logger.debug("健康检查等待中: %s", type(e).__name__)
             pass
+        except Exception as e:
+            logger.debug("健康检查遇到异常: %s - %s", type(e).__name__, e)
 
-        # 显示进度
-        elapsed = int(time.time() - start_time)
-        print(f"\r       正在检查服务状态... ({elapsed}s)", end='', flush=True)
         time.sleep(0.5)
 
-    print(f"\n[错误] 后端服务启动超时 (超过 {timeout}s)")
     logger.error("等待后端服务超时")
     return False
 
@@ -211,6 +241,30 @@ def stop_backend():
         backend_process = None
 
 
+def show_backend_error_log(max_lines=30):
+    """显示后端错误日志的最后几行，帮助用户调试"""
+    backend_log = STORAGE_DIR / 'logs' / 'backend_console.log'
+    if not backend_log.exists():
+        return
+
+    print("\n" + "=" * 60)
+    print("  后端启动日志 (最后 {} 行):".format(max_lines))
+    print("=" * 60)
+
+    try:
+        with open(backend_log, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+            # 显示最后 max_lines 行
+            for line in lines[-max_lines:]:
+                print("  " + line.rstrip())
+    except Exception as e:
+        print(f"  [无法读取日志: {e}]")
+
+    print("=" * 60)
+    print(f"  完整日志: {backend_log}")
+    print("=" * 60 + "\n")
+
+
 # ============================================================
 # 前端 GUI
 # ============================================================
@@ -219,8 +273,6 @@ def start_frontend_subprocess():
     """以子进程方式启动前端（开发模式）"""
     python_exe = str(FRONTEND_PYTHON) if FRONTEND_PYTHON.exists() else sys.executable
 
-    print(f"\n[启动] 启动前端应用...")
-    print(f"       Python: {python_exe}")
     logger.info(f"启动前端应用（子进程模式），使用: {python_exe}")
 
     process = subprocess.Popen(
@@ -228,10 +280,6 @@ def start_frontend_subprocess():
         cwd=str(FRONTEND_DIR)
     )
 
-    print(f"       进程ID: {process.pid}")
-    print("\n" + "=" * 60)
-    print(" AFN 已启动，祝您创作愉快！")
-    print("=" * 60 + "\n")
     logger.info(f"前端进程已启动 (PID: {process.pid})")
 
     return process.wait()
@@ -253,7 +301,6 @@ def start_frontend():
     from themes.accessibility import AccessibilityTheme
     from utils.config_manager import ConfigManager
 
-    print("\n[启动] 启动前端应用...")
     logger.info("启动前端应用...")
 
     # 启用高 DPI 支持
@@ -342,9 +389,6 @@ def start_frontend():
     window = MainWindow()
     window.show()
 
-    print("\n" + "=" * 60)
-    print(" AFN 已启动，祝您创作愉快！")
-    print("=" * 60 + "\n")
     logger.info("前端应用已启动")
 
     # 运行应用
@@ -357,77 +401,102 @@ def start_frontend():
 
 def main():
     """主函数"""
-    try:
-        # 打印启动横幅
-        print_banner()
+    import io
 
-        # 设置环境（创建虚拟环境、安装依赖）
-        if not setup_environment():
-            print("\n[错误] 环境设置失败，请查看 storage/app.log")
+    # 保存原始 stdout/stderr
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    # 创建一个空输出用于静默其他模块的 print
+    null_out = io.StringIO()
+
+    try:
+        # 启动时清屏并开始循环动画
+        startup_progress.clear_screen()
+        startup_progress.start_loop_animation("检查运行环境")
+
+        # 阶段0：环境检查
+        sys.stdout = null_out
+        sys.stderr = null_out
+        env_ok = setup_environment()
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        if not env_ok:
+            startup_progress.stop_loop_animation()
+            startup_progress.show_error("环境设置失败，请查看 storage/logs/startup.log")
             safe_input("按回车键退出...")
             sys.exit(1)
 
-        # 设置路径
+        # 阶段1：配置路径
+        startup_progress.update_stage_name("配置系统路径")
         frontend_path, backend_path = setup_paths()
         logger.info(f"前端路径: {frontend_path}")
         logger.info(f"后端路径: {backend_path}")
-
-        # 确保存储目录存在
         storage_dir = ensure_storage_dir()
         logger.info(f"存储目录: {storage_dir}")
 
-        # 检查并释放端口
-        if not ensure_port_available(BACKEND_PORT):
-            print(f"\n[错误] 无法释放端口 {BACKEND_PORT}")
-            print("       请手动关闭占用端口的程序后重试")
+        # 阶段2：检查端口
+        startup_progress.update_stage_name("检查服务端口")
+        sys.stdout = null_out
+        sys.stderr = null_out
+        port_ok = ensure_port_available(BACKEND_PORT)
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        if not port_ok:
+            startup_progress.stop_loop_animation()
+            startup_progress.show_error(f"无法释放端口 {BACKEND_PORT}，请手动关闭占用程序")
             safe_input("\n按回车键退出...")
             sys.exit(1)
 
-        # 启动后端服务
+        # 阶段3：启动后端
+        startup_progress.update_stage_name("启动后端服务")
         if IS_FROZEN:
-            # 打包模式：在线程中运行后端
             backend_thread = threading.Thread(target=start_backend_thread, daemon=True)
             backend_thread.start()
         else:
-            # 开发模式：以子进程运行后端
             start_backend_subprocess()
 
-        # 等待后端就绪
+        # 阶段4：等待后端就绪
+        startup_progress.update_stage_name("等待服务就绪")
         if not wait_for_backend(timeout=60):
-            print("\n[错误] 后端服务启动失败")
-            print("       可能原因：")
-            print("       1. 依赖安装不完整")
-            print("       2. 配置文件错误")
-            print("       3. 数据库损坏")
-            print("\n       请查看 storage/app.log 获取详细信息")
+            startup_progress.stop_loop_animation()
+            startup_progress.show_error("后端服务启动失败")
+            show_backend_error_log()  # 直接显示日志，方便调试
             stop_backend()
-            safe_input("\n按回车键退出...")
+            safe_input("按回车键退出...")
             sys.exit(1)
 
-        # 启动前端
+        # 全部完成 - 停止循环动画（等待当前循环完成）然后显示最终Logo
+        startup_progress.stop_loop_animation()
+        startup_progress.complete_all()
+
+        # 启动前端（此时控制台只剩 Logo）
         if IS_FROZEN:
-            # 打包模式：在当前进程中运行前端（PyQt6已打包）
             exit_code = start_frontend()
         else:
-            # 开发模式：以子进程运行前端（使用前端venv的Python）
             exit_code = start_frontend_subprocess()
 
-        # 清理
         stop_backend()
         logger.info("AFN 已退出")
         sys.exit(exit_code)
 
     except KeyboardInterrupt:
+        startup_progress.stop_loop_animation()
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
         print("\n\n[中断] 用户中断，正在退出...")
         stop_backend()
         sys.exit(0)
 
     except Exception as e:
+        startup_progress.stop_loop_animation()
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
         logger.exception(f"启动失败: {e}")
-        print(f"\n[错误] 启动失败: {e}")
-        print("       请查看 storage/app.log 获取详细信息")
+        startup_progress.show_error(f"启动失败: {e}")
+        show_backend_error_log()  # 显示后端日志帮助调试
         stop_backend()
-        safe_input("\n按回车键退出...")
+        safe_input("按回车键退出...")
         sys.exit(1)
 
 

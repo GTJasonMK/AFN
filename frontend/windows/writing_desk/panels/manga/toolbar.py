@@ -27,13 +27,18 @@ class ToolbarMixin:
         self._max_pages_spin: Optional[QSpinBox] = None
         self._use_portraits_checkbox: Optional[QCheckBox] = None  # 使用角色立绘
         self._auto_generate_portraits_checkbox: Optional[QCheckBox] = None  # 自动生成缺失立绘
+        self._auto_generate_page_images_checkbox: Optional[QCheckBox] = None  # 自动生成整页图片
+        self._page_prompt_concurrency_spin: Optional[QSpinBox] = None  # 整页提示词并发数
         self._toolbar_btn_stack: Optional[QStackedWidget] = None
         self._toolbar_generate_btn: Optional[QPushButton] = None
+        self._toolbar_restart_btn: Optional[QPushButton] = None  # 从头生成按钮（多按钮场景）
+        self._toolbar_regenerate_btn: Optional[QPushButton] = None  # 重新生成按钮（多按钮场景）
         self._toolbar_spinner: Optional[CircularSpinner] = None
         self._toolbar_loading_label: Optional[QLabel] = None
         self._toolbar_stop_btn: Optional[QPushButton] = None  # 停止按钮
         self._sub_tab_widget = None
         self._restore_timer = None  # 恢复状态的定时器
+        self._is_generating: bool = False  # 生成中标志，防止多按钮同时触发
         # 一键生成所有图片相关状态
         self._generate_all_btn: Optional[QPushButton] = None
         self._generate_all_btn_stack: Optional[QStackedWidget] = None
@@ -202,6 +207,65 @@ class ToolbarMixin:
         """)
         config_row.addWidget(self._auto_generate_portraits_checkbox)
 
+        # 自动生成整页图片复选框
+        self._auto_generate_page_images_checkbox = QCheckBox("整页图片")
+        self._auto_generate_page_images_checkbox.setChecked(False)  # 默认不启用（可能耗时较长）
+        self._auto_generate_page_images_checkbox.setToolTip("分镜生成完成后自动生成所有页面的整页漫画图片")
+        self._auto_generate_page_images_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_secondary};
+                spacing: {dp(4)}px;
+            }}
+            QCheckBox::indicator {{
+                width: {dp(14)}px;
+                height: {dp(14)}px;
+                border: 1px solid {s.border_light};
+                border-radius: {dp(3)}px;
+                background-color: {s.bg_secondary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {s.accent_color};
+                border-color: {s.accent_color};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {s.accent_color};
+            }}
+        """)
+        config_row.addWidget(self._auto_generate_page_images_checkbox)
+
+        # 整页提示词并发数
+        concurrency_label = QLabel("并发数")
+        concurrency_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.text_secondary};
+            margin-left: {dp(8)}px;
+        """)
+        config_row.addWidget(concurrency_label)
+
+        self._page_prompt_concurrency_spin = QSpinBox()
+        self._page_prompt_concurrency_spin.setRange(1, 20)
+        self._page_prompt_concurrency_spin.setValue(5)
+        self._page_prompt_concurrency_spin.setToolTip("整页提示词LLM生成的并发数（1-20），并发数越高速度越快但可能触发API限流")
+        self._page_prompt_concurrency_spin.setFixedWidth(dp(55))
+        self._page_prompt_concurrency_spin.setStyleSheet(f"""
+            QSpinBox {{
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.text_primary};
+                background-color: {s.bg_secondary};
+                border: 1px solid {s.border_light};
+                border-radius: {dp(4)}px;
+                padding: {dp(2)}px {dp(4)}px;
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                width: {dp(14)}px;
+            }}
+        """)
+        config_row.addWidget(self._page_prompt_concurrency_spin)
+
         config_row.addStretch()
         main_layout.addLayout(config_row)
 
@@ -221,45 +285,107 @@ class ToolbarMixin:
         btn_layout.setSpacing(dp(6))
 
         if has_content:
-            # 已有内容：显示重新生成按钮（带下拉菜单）
-            self._toolbar_generate_btn = QPushButton("重新生成")
-            self._toolbar_generate_btn.setObjectName("manga_regenerate_btn")
-            self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('XS'))
-            self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if can_resume:
+                # 有内容且可继续：显示继续生成按钮 + 重新生成按钮
+                # 继续生成按钮
+                stage_label = ""
+                progress_text = ""
+                if resume_progress:
+                    stage = resume_progress.get('stage', '')
+                    stage_label = resume_progress.get('stage_label', '')
+                    current = resume_progress.get('current', 0)
+                    total = resume_progress.get('total', 0)
+                    if total > 0:
+                        progress_text = f" ({current}/{total})"
 
-            # 创建下拉菜单
-            regenerate_menu = QMenu(self._toolbar_generate_btn)
-            regenerate_menu.setStyleSheet(self._get_menu_style())
+                if stage_label:
+                    btn_text = f"继续: {stage_label}{progress_text}"
+                else:
+                    btn_text = f"继续生成{progress_text}"
 
-            # 菜单项
-            action_full = regenerate_menu.addAction("完整重新生成")
-            action_full.setToolTip("从头开始，重新提取信息、规划、分镜")
-            action_full.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="extraction"))
+                self._toolbar_generate_btn = QPushButton(btn_text)
+                self._toolbar_generate_btn.setObjectName("manga_resume_btn")
+                self._toolbar_generate_btn.setStyleSheet(ButtonStyles.warning('XS'))
+                self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._toolbar_generate_btn.setToolTip("从上次中断的位置继续生成")
+                self._toolbar_generate_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=False))
+                btn_layout.addWidget(self._toolbar_generate_btn)
 
-            action_planning = regenerate_menu.addAction("从规划开始 (保留信息提取)")
-            action_planning.setToolTip("保留已提取的角色、对话等信息，重新规划页面")
-            action_planning.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="planning"))
+                # 重新生成按钮（带下拉菜单）
+                self._toolbar_regenerate_btn = QPushButton("重新生成")
+                self._toolbar_regenerate_btn.setObjectName("manga_regenerate_btn")
+                self._toolbar_regenerate_btn.setStyleSheet(ButtonStyles.secondary('XS'))
+                self._toolbar_regenerate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-            action_storyboard = regenerate_menu.addAction("从分镜开始 (保留规划)")
-            action_storyboard.setToolTip("保留页面规划，只重新设计分镜布局")
-            action_storyboard.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="storyboard"))
+                # 创建下拉菜单
+                regenerate_menu = QMenu(self._toolbar_regenerate_btn)
+                regenerate_menu.setStyleSheet(self._get_menu_style())
 
-            action_prompt = regenerate_menu.addAction("仅重新构建提示词")
-            action_prompt.setToolTip("保留分镜设计，只重新生成提示词文本")
-            action_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="prompt_building"))
+                action_full = regenerate_menu.addAction("完整重新生成")
+                action_full.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="extraction"))
 
-            self._toolbar_generate_btn.setMenu(regenerate_menu)
-            btn_layout.addWidget(self._toolbar_generate_btn)
+                action_planning = regenerate_menu.addAction("从规划开始")
+                action_planning.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="planning"))
+
+                action_storyboard = regenerate_menu.addAction("从分镜开始")
+                action_storyboard.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="storyboard"))
+
+                action_prompt = regenerate_menu.addAction("仅重新构建提示词")
+                action_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="prompt_building"))
+
+                regenerate_menu.addSeparator()
+
+                action_page_prompt = regenerate_menu.addAction("仅重新生成整页提示词")
+                action_page_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="page_prompt_building"))
+
+                self._toolbar_regenerate_btn.setMenu(regenerate_menu)
+                btn_layout.addWidget(self._toolbar_regenerate_btn)
+            else:
+                # 已有内容且已完成：显示重新生成按钮（带下拉菜单）
+                self._toolbar_generate_btn = QPushButton("重新生成")
+                self._toolbar_generate_btn.setObjectName("manga_regenerate_btn")
+                self._toolbar_generate_btn.setStyleSheet(ButtonStyles.primary('XS'))
+                self._toolbar_generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+                # 创建下拉菜单
+                regenerate_menu = QMenu(self._toolbar_generate_btn)
+                regenerate_menu.setStyleSheet(self._get_menu_style())
+
+                # 菜单项
+                action_full = regenerate_menu.addAction("完整重新生成")
+                action_full.setToolTip("从头开始，重新提取信息、规划、分镜")
+                action_full.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="extraction"))
+
+                action_planning = regenerate_menu.addAction("从规划开始 (保留信息提取)")
+                action_planning.setToolTip("保留已提取的角色、对话等信息，重新规划页面")
+                action_planning.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="planning"))
+
+                action_storyboard = regenerate_menu.addAction("从分镜开始 (保留规划)")
+                action_storyboard.setToolTip("保留页面规划，只重新设计分镜布局")
+                action_storyboard.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="storyboard"))
+
+                action_prompt = regenerate_menu.addAction("仅重新构建提示词")
+                action_prompt.setToolTip("保留分镜设计，只重新生成提示词文本")
+                action_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="prompt_building"))
+
+                regenerate_menu.addSeparator()
+
+                action_page_prompt = regenerate_menu.addAction("仅重新生成整页提示词")
+                action_page_prompt.setToolTip("保留画格提示词，只重新生成整页漫画提示词")
+                action_page_prompt.triggered.connect(lambda: self._on_generate_clicked(force_restart=True, start_from_stage="page_prompt_building"))
+
+                self._toolbar_generate_btn.setMenu(regenerate_menu)
+                btn_layout.addWidget(self._toolbar_generate_btn)
         elif can_resume:
             # 有断点：显示两个按钮 - 从头生成 和 继续生成
             # 从头生成按钮
-            restart_btn = QPushButton("从头生成")
-            restart_btn.setObjectName("manga_restart_btn")
-            restart_btn.setStyleSheet(ButtonStyles.secondary('XS'))
-            restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            restart_btn.setToolTip("忽略断点，重新开始生成漫画分镜")
-            restart_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
-            btn_layout.addWidget(restart_btn)
+            self._toolbar_restart_btn = QPushButton("从头生成")
+            self._toolbar_restart_btn.setObjectName("manga_restart_btn")
+            self._toolbar_restart_btn.setStyleSheet(ButtonStyles.secondary('XS'))
+            self._toolbar_restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._toolbar_restart_btn.setToolTip("忽略断点，重新开始生成漫画分镜")
+            self._toolbar_restart_btn.clicked.connect(lambda: self._on_generate_clicked(force_restart=True))
+            btn_layout.addWidget(self._toolbar_restart_btn)
 
             # 继续生成按钮
             stage_label = ""
@@ -484,6 +610,25 @@ class ToolbarMixin:
             force_restart: 是否强制从头开始，忽略断点
             start_from_stage: 指定从哪个阶段开始（extraction/planning/storyboard/prompt_building）
         """
+
+        # 防止重复触发：检查统一的生成标志
+        # 这个标志可以防止多个按钮（继续生成/从头生成/重新生成菜单项）同时触发
+        if getattr(self, '_is_generating', False):
+            print(f"[DEBUG toolbar] BLOCKED - _is_generating is True")
+            return
+
+        # 立即设置生成标志
+        self._is_generating = True
+        print(f"[DEBUG toolbar] SET _is_generating=True")
+
+        # 禁用所有可能触发生成的按钮
+        if self._toolbar_generate_btn:
+            self._toolbar_generate_btn.setEnabled(False)
+        if self._toolbar_restart_btn:
+            self._toolbar_restart_btn.setEnabled(False)
+        if self._toolbar_regenerate_btn:
+            self._toolbar_regenerate_btn.setEnabled(False)
+
         if self._on_generate and self._style_combo and self._min_pages_spin and self._max_pages_spin:
             style_map = {
                 "漫画": "manga",
@@ -505,6 +650,8 @@ class ToolbarMixin:
             max_pages = self._max_pages_spin.value()
             use_portraits = self._use_portraits_checkbox.isChecked() if self._use_portraits_checkbox else True
             auto_generate_portraits = self._auto_generate_portraits_checkbox.isChecked() if self._auto_generate_portraits_checkbox else True
+            auto_generate_page_images = self._auto_generate_page_images_checkbox.isChecked() if self._auto_generate_page_images_checkbox else False
+            page_prompt_concurrency = self._page_prompt_concurrency_spin.value() if self._page_prompt_concurrency_spin else 5
 
             # 确保max >= min
             if max_pages < min_pages:
@@ -512,7 +659,8 @@ class ToolbarMixin:
 
             self._on_generate(
                 style, min_pages, max_pages, language,
-                use_portraits, auto_generate_portraits, force_restart, start_from_stage
+                use_portraits, auto_generate_portraits, force_restart, start_from_stage,
+                auto_generate_page_images, page_prompt_concurrency
             )
 
     # ==================== 工具栏加载状态控制 ====================
@@ -524,95 +672,126 @@ class ToolbarMixin:
             loading: 是否显示加载状态
             message: 加载时显示的消息
         """
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"set_toolbar_loading called: loading={loading}, stack exists={self._toolbar_btn_stack is not None}")
+        try:
+            if not self._toolbar_btn_stack:
+                return
 
-        if not self._toolbar_btn_stack:
-            logger.warning("_toolbar_btn_stack is None, cannot show loading state")
-            return
-
-        if loading:
-            self._toolbar_btn_stack.setCurrentIndex(1)
-            if self._toolbar_loading_label:
-                self._toolbar_loading_label.setText(message)
-            if self._toolbar_spinner:
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(50, self._toolbar_spinner.start)
-        else:
-            self._toolbar_btn_stack.setCurrentIndex(0)
-            if self._toolbar_spinner:
-                self._toolbar_spinner.stop()
+            if loading:
+                self._toolbar_btn_stack.setCurrentIndex(1)
+                if self._toolbar_loading_label:
+                    self._toolbar_loading_label.setText(message)
+                if self._toolbar_spinner:
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(50, self._toolbar_spinner.start)
+            else:
+                self._toolbar_btn_stack.setCurrentIndex(0)
+                if self._toolbar_spinner:
+                    self._toolbar_spinner.stop()
+                # 重置生成标志
+                self._is_generating = False
+                # 恢复所有按钮状态
+                if self._toolbar_generate_btn:
+                    self._toolbar_generate_btn.setEnabled(True)
+                if self._toolbar_restart_btn:
+                    self._toolbar_restart_btn.setEnabled(True)
+                if self._toolbar_regenerate_btn:
+                    self._toolbar_regenerate_btn.setEnabled(True)
+        except RuntimeError:
+            # 组件已被删除（C++对象已销毁），忽略更新
+            pass
 
     def set_toolbar_success(self, message: str = "生成成功"):
         """设置工具栏生成成功状态"""
-        if not self._toolbar_btn_stack or not self._toolbar_loading_label:
-            return
+        try:
+            if not self._toolbar_btn_stack or not self._toolbar_loading_label:
+                return
 
-        s = self._styler
-        if self._toolbar_spinner:
-            self._toolbar_spinner.stop()
+            s = self._styler
+            if self._toolbar_spinner:
+                self._toolbar_spinner.stop()
 
-        self._toolbar_loading_label.setText(message)
-        self._toolbar_loading_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(12)}px;
-            color: {s.success};
-            font-weight: 500;
-        """)
-
-        from PyQt6.QtCore import QTimer
-        # 取消之前的定时器
-        if self._restore_timer:
-            self._restore_timer.stop()
-        self._restore_timer = QTimer()
-        self._restore_timer.setSingleShot(True)
-        self._restore_timer.timeout.connect(self._restore_toolbar_state)
-        self._restore_timer.start(2000)
-
-    def set_toolbar_error(self, message: str = "生成失败"):
-        """设置工具栏生成失败状态"""
-        if not self._toolbar_btn_stack or not self._toolbar_loading_label:
-            return
-
-        s = self._styler
-        if self._toolbar_spinner:
-            self._toolbar_spinner.stop()
-
-        self._toolbar_loading_label.setText(message)
-        self._toolbar_loading_label.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(12)}px;
-            color: {s.error};
-            font-weight: 500;
-        """)
-
-        from PyQt6.QtCore import QTimer
-        # 取消之前的定时器
-        if self._restore_timer:
-            self._restore_timer.stop()
-        self._restore_timer = QTimer()
-        self._restore_timer.setSingleShot(True)
-        self._restore_timer.timeout.connect(self._restore_toolbar_state)
-        self._restore_timer.start(3000)
-
-    def _restore_toolbar_state(self):
-        """恢复工具栏按钮状态"""
-        if not self._toolbar_btn_stack:
-            return
-
-        s = self._styler
-
-        if self._toolbar_loading_label:
+            self._toolbar_loading_label.setText(message)
             self._toolbar_loading_label.setStyleSheet(f"""
                 font-family: {s.ui_font};
                 font-size: {sp(12)}px;
-                color: {s.accent_color};
+                color: {s.success};
                 font-weight: 500;
             """)
-            self._toolbar_loading_label.setText("生成中...")
 
-        self._toolbar_btn_stack.setCurrentIndex(0)
+            from PyQt6.QtCore import QTimer
+            # 取消之前的定时器
+            if self._restore_timer:
+                self._restore_timer.stop()
+            self._restore_timer = QTimer()
+            self._restore_timer.setSingleShot(True)
+            self._restore_timer.timeout.connect(self._restore_toolbar_state)
+            self._restore_timer.start(2000)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
+
+    def set_toolbar_error(self, message: str = "生成失败"):
+        """设置工具栏生成失败状态"""
+        try:
+            if not self._toolbar_btn_stack or not self._toolbar_loading_label:
+                return
+
+            s = self._styler
+            if self._toolbar_spinner:
+                self._toolbar_spinner.stop()
+
+            self._toolbar_loading_label.setText(message)
+            self._toolbar_loading_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(12)}px;
+                color: {s.error};
+                font-weight: 500;
+            """)
+
+            from PyQt6.QtCore import QTimer
+            # 取消之前的定时器
+            if self._restore_timer:
+                self._restore_timer.stop()
+            self._restore_timer = QTimer()
+            self._restore_timer.setSingleShot(True)
+            self._restore_timer.timeout.connect(self._restore_toolbar_state)
+            self._restore_timer.start(3000)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
+
+    def _restore_toolbar_state(self):
+        """恢复工具栏按钮状态"""
+        try:
+            if not self._toolbar_btn_stack:
+                return
+
+            s = self._styler
+
+            if self._toolbar_loading_label:
+                self._toolbar_loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(12)}px;
+                    color: {s.accent_color};
+                    font-weight: 500;
+                """)
+                self._toolbar_loading_label.setText("生成中...")
+
+            self._toolbar_btn_stack.setCurrentIndex(0)
+
+            # 重置生成标志
+            self._is_generating = False
+
+            # 恢复所有按钮启用状态
+            if self._toolbar_generate_btn:
+                self._toolbar_generate_btn.setEnabled(True)
+            if self._toolbar_restart_btn:
+                self._toolbar_restart_btn.setEnabled(True)
+            if self._toolbar_regenerate_btn:
+                self._toolbar_regenerate_btn.setEnabled(True)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     # ==================== 一键生成所有图片 ====================
 

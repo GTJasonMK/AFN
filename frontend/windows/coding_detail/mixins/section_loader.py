@@ -2,6 +2,7 @@
 Section加载Mixin
 
 负责编程项目Section内容的加载和创建。
+重构版：适配4个Tab（概览、架构设计、目录结构、生成管理）
 """
 
 import logging
@@ -63,10 +64,9 @@ class SectionLoaderMixin:
         """获取Section显示名称"""
         names = {
             'overview': '概览',
-            'planning': '项目规划',
-            'systems': '项目结构',
-            'dependencies': '依赖',
-            'generated': '已生成',
+            'architecture': '架构设计',
+            'directory': '目录结构',
+            'generation': '生成管理',
         }
         return names.get(section_id, section_id)
 
@@ -136,10 +136,9 @@ class SectionLoaderMixin:
         """创建Section内容组件"""
         from ..sections import (
             CodingOverviewSection,
-            ProjectPlanningSection,
-            SystemsSection,
-            DependenciesSection,
-            GeneratedSection,
+            ArchitectureSection,
+            DirectorySection,
+            GenerationSection,
         )
 
         blueprint = self.get_blueprint()
@@ -154,8 +153,10 @@ class SectionLoaderMixin:
             section.editRequested.connect(self.onEditRequested)
             section.regenerateBlueprintRequested.connect(self._on_regenerate_blueprint)
 
-        elif section_id == 'planning':
-            # 项目规划：核心需求、技术挑战、非功能需求、风险、里程碑
+        elif section_id == 'architecture':
+            # 架构设计：合并蓝图展示 + 两层结构（系统/模块）
+            systems = blueprint.get('systems', [])
+            modules = blueprint.get('modules', [])
             planning_data = {
                 'core_requirements': blueprint.get('core_requirements', []),
                 'technical_challenges': blueprint.get('technical_challenges', []),
@@ -163,29 +164,39 @@ class SectionLoaderMixin:
                 'risks': blueprint.get('risks', []),
                 'milestones': blueprint.get('milestones', []),
             }
-            # 调试日志：查看传递给 Section 的数据
-            logger.info(
-                "planning section data: core_requirements count=%d, "
-                "technical_challenges count=%d, blueprint keys=%s",
-                len(planning_data.get('core_requirements', [])),
-                len(planning_data.get('technical_challenges', [])),
-                list(blueprint.keys()) if blueprint else [],
+            section = ArchitectureSection(
+                blueprint=blueprint,
+                planning_data=planning_data,
+                systems=systems,
+                modules=modules,
+                project_id=self.project_id,
+                editable=True
             )
-            # 如果有数据，打印第一条用于验证格式
-            if planning_data.get('core_requirements'):
-                logger.info("Frontend core_requirements[0] = %s", planning_data['core_requirements'][0])
-            if planning_data.get('technical_challenges'):
-                logger.info("Frontend technical_challenges[0] = %s", planning_data['technical_challenges'][0])
-            section = ProjectPlanningSection(data=planning_data, editable=True)
             section.editRequested.connect(self.onEditRequested)
+            section.refreshRequested.connect(self.refreshProject)
+            section.loadingRequested.connect(self.show_loading)
+            section.loadingFinished.connect(self.hide_loading)
 
-        elif section_id == 'systems':
-            # 三层结构：系统 -> 模块 -> 功能
-            systems = blueprint.get('systems', [])
+        elif section_id == 'directory':
+            # 目录结构：DirectorySection会自动加载目录树数据
+            modules = blueprint.get('modules', [])
+            section = DirectorySection(
+                modules=modules,
+                project_id=self.project_id,
+                editable=True
+            )
+            section.refreshRequested.connect(self.refreshProject)
+            section.loadingRequested.connect(self.show_loading)
+            section.loadingFinished.connect(self.hide_loading)
+            section.fileClicked.connect(self._on_file_clicked)
+
+        elif section_id == 'generation':
+            # 生成管理：合并依赖关系 + 已生成文件 + RAG状态
+            dependencies = blueprint.get('dependencies', [])
             modules = blueprint.get('modules', [])
             features = blueprint.get('features', [])
-            section = SystemsSection(
-                systems=systems,
+            section = GenerationSection(
+                dependencies=dependencies,
                 modules=modules,
                 features=features,
                 project_id=self.project_id,
@@ -193,50 +204,8 @@ class SectionLoaderMixin:
             )
             section.editRequested.connect(self.onEditRequested)
             section.refreshRequested.connect(self.refreshProject)
-            section.navigateToDesk.connect(self._navigateToCodingDesk)
             section.loadingRequested.connect(self.show_loading)
             section.loadingFinished.connect(self.hide_loading)
-
-        elif section_id == 'dependencies':
-            dependencies = blueprint.get('dependencies', [])
-            modules = blueprint.get('modules', [])
-            section = DependenciesSection(
-                data=dependencies,
-                modules=modules,
-                project_id=self.project_id,
-                editable=True
-            )
-            section.editRequested.connect(self.onEditRequested)
-            section.refreshRequested.connect(self.refreshProject)
-            section.loadingRequested.connect(self.show_loading)
-            section.loadingFinished.connect(self.hide_loading)
-
-        elif section_id == 'generated':
-            # 编程项目的生成内容存储在 features 中，需要转换为 chapters 格式
-            features = blueprint.get('features', [])
-
-            # 筛选已生成内容的功能，并转换为 chapters 格式
-            chapters = []
-            for f in features:
-                # 检查功能是否已生成内容
-                has_content = f.get('has_content', False)
-                status = f.get('status', 'not_generated')
-
-                # 只显示已生成内容的功能
-                if has_content or status in ('generated', 'successful'):
-                    chapters.append({
-                        'chapter_number': f.get('feature_number', 0),
-                        'word_count': 0,  # 字数需要从版本内容获取，暂时为0
-                        'versions': [],   # 版本详情需要额外API获取
-                        'status': 'generated' if has_content else status,
-                        'created_at': '',
-                        'version_count': f.get('version_count', 0),
-                    })
-
-            section = GeneratedSection(chapters=chapters, features=features)
-            section.setProjectId(self.project_id)
-            section.dataChanged.connect(self.refreshProject)
-            section.navigateToDesk.connect(self._navigateToCodingDesk)
 
         else:
             section = QLabel("未知Section")

@@ -225,7 +225,28 @@ class LLMClient:
         chunk_count = 0
 
         try:
-            async with httpx.AsyncClient(timeout=float(timeout)) as client:
+            # 使用更细粒度的超时配置，提高连接稳定性
+            # connect: 建立连接的超时时间
+            # read: 读取响应的超时时间（流式响应需要较长时间）
+            # write: 发送请求的超时时间
+            # pool: 从连接池获取连接的超时时间
+            timeout_config = httpx.Timeout(
+                connect=30.0,
+                read=float(timeout),
+                write=30.0,
+                pool=10.0
+            )
+            # 配置连接限制，避免连接耗尽
+            limits = httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+                keepalive_expiry=30.0
+            )
+            async with httpx.AsyncClient(
+                timeout=timeout_config,
+                limits=limits,
+                http2=True,  # 启用HTTP/2，更稳定的连接复用
+            ) as client:
                 async with client.stream(
                     'POST',
                     endpoint,

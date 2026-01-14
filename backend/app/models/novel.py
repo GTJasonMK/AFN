@@ -440,6 +440,12 @@ class ChapterMangaPrompt(Base):
     # dialogue, dialogue_speaker, narration, sound_effects, characters, is_key_panel
     panels: Mapped[list] = mapped_column(JSON, default=list)
 
+    # 整页提示词列表（JSON数组）- 用于整页漫画生成
+    # 每个页面包含: page_number, layout_template, layout_description,
+    # full_page_prompt, negative_prompt, aspect_ratio, panel_summaries,
+    # reference_image_paths
+    page_prompts: Mapped[list] = mapped_column(JSON, default=list)
+
     # 分析数据（JSON字典）- 保存漫画分镜生成过程中的详细分析结果
     # 包含: chapter_info（角色、事件、对话、场景、物品、情绪曲线等）
     #       page_plan（页面规划、节奏分配、高潮页码等）

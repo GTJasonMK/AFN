@@ -22,6 +22,7 @@ from .models import (
     ChapterInfo,
     CharacterInfo,
     DialogueInfo,
+    NarrationInfo,
     SceneInfo,
     EventInfo,
     ItemInfo,
@@ -108,9 +109,24 @@ class ChapterInfoExtractor:
         Raises:
             JSONParseError: 当LLM返回的JSON无法解析时
         """
-        # 限制内容长度
+        # 限制内容长度，并记录截断信息
+        original_length = len(chapter_content)
         content = chapter_content[:self.MAX_CONTENT_LENGTH]
-        logger.info("开始分步提取章节信息，内容长度: %d 字符", len(content))
+        is_truncated = original_length > self.MAX_CONTENT_LENGTH
+
+        if is_truncated:
+            truncated_chars = original_length - self.MAX_CONTENT_LENGTH
+            logger.warning(
+                "章节内容过长，已截断: 原始 %d 字符 -> %d 字符 (截断 %d 字符，%.1f%%)",
+                original_length,
+                self.MAX_CONTENT_LENGTH,
+                truncated_chars,
+                (truncated_chars / original_length) * 100
+            )
+
+        logger.info("开始分步提取章节信息，内容长度: %d 字符%s",
+                    len(content),
+                    " (已截断)" if is_truncated else "")
 
         # 步骤1：提取角色和事件
         logger.info("步骤1/4: 提取角色和事件...")
@@ -121,12 +137,13 @@ class ChapterInfoExtractor:
         logger.info("步骤1完成: %d 角色, %d 事件", len(characters), len(events))
 
         # 步骤2：提取对话
-        logger.info("步骤2/4: 提取对话...")
+        logger.info("步骤2/4: 提取对话和旁白...")
         step2_data = await self._extract_step2_dialogues(
             content, characters, events, user_id
         )
         dialogues = step2_data.get("dialogues", [])
-        logger.info("步骤2完成: %d 对话", len(dialogues))
+        narrations = step2_data.get("narrations", [])
+        logger.info("步骤2完成: %d 对话, %d 旁白", len(dialogues), len(narrations))
 
         # 步骤3：提取场景
         logger.info("步骤3/4: 提取场景...")
@@ -151,6 +168,7 @@ class ChapterInfoExtractor:
                 characters=characters,
                 events=events,
                 dialogues=dialogues,
+                narrations=narrations,
                 scenes=scenes,
                 items=items,
                 chapter_summary=chapter_summary,
@@ -159,9 +177,10 @@ class ChapterInfoExtractor:
                 total_estimated_pages=total_estimated_pages,
             )
             logger.info(
-                "分步提取完成: %d 角色, %d 对话, %d 场景, %d 事件, %d 物品",
+                "分步提取完成: %d 角色, %d 对话, %d 旁白, %d 场景, %d 事件, %d 物品",
                 len(chapter_info.characters),
                 len(chapter_info.dialogues),
+                len(chapter_info.narrations),
                 len(chapter_info.scenes),
                 len(chapter_info.events),
                 len(chapter_info.items),
@@ -197,11 +216,32 @@ class ChapterInfoExtractor:
         Returns:
             (ChapterInfo, checkpoint_data) 元组
         """
+        # 限制内容长度，并记录截断信息
+        original_length = len(chapter_content)
         content = chapter_content[:self.MAX_CONTENT_LENGTH]
-        logger.info("开始分步提取章节信息（支持断点），内容长度: %d 字符", len(content))
+        is_truncated = original_length > self.MAX_CONTENT_LENGTH
+
+        if is_truncated:
+            truncated_chars = original_length - self.MAX_CONTENT_LENGTH
+            logger.warning(
+                "章节内容过长，已截断: 原始 %d 字符 -> %d 字符 (截断 %d 字符，%.1f%%)",
+                original_length,
+                self.MAX_CONTENT_LENGTH,
+                truncated_chars,
+                (truncated_chars / original_length) * 100
+            )
+
+        logger.info("开始分步提取章节信息（支持断点），内容长度: %d 字符%s",
+                    len(content),
+                    " (已截断)" if is_truncated else "")
 
         # 初始化或恢复断点数据
         cp_data = checkpoint_data.copy() if checkpoint_data else {}
+        # 记录截断信息到断点数据
+        if is_truncated:
+            cp_data["content_truncated"] = True
+            cp_data["original_length"] = original_length
+            cp_data["truncated_length"] = self.MAX_CONTENT_LENGTH
 
         # 从断点恢复已提取的数据
         step1_data = cp_data.get("extraction_step1")
@@ -222,7 +262,7 @@ class ChapterInfoExtractor:
             if on_step_complete:
                 await self._safe_callback(on_step_complete, 1, cp_data)
         else:
-            logger.info("步骤1已从断点恢复，跳过")
+            logger.debug("步骤1已从断点恢复，跳过")
 
         characters = step1_data.get("characters", {})
         events = step1_data.get("events", [])
@@ -230,18 +270,23 @@ class ChapterInfoExtractor:
 
         # 步骤2：提取对话
         if not step2_data:
-            logger.info("步骤2/4: 提取对话...")
+            logger.info("步骤2/4: 提取对话和旁白...")
             step2_data = await self._extract_step2_dialogues(
                 content, characters, events, user_id
             )
             cp_data["extraction_step2"] = step2_data
-            logger.info("步骤2完成: %d 对话", len(step2_data.get("dialogues", [])))
+            logger.info(
+                "步骤2完成: %d 对话, %d 旁白",
+                len(step2_data.get("dialogues", [])),
+                len(step2_data.get("narrations", []))
+            )
             if on_step_complete:
                 await self._safe_callback(on_step_complete, 2, cp_data)
         else:
-            logger.info("步骤2已从断点恢复，跳过")
+            logger.debug("步骤2已从断点恢复，跳过")
 
         dialogues = step2_data.get("dialogues", [])
+        narrations = step2_data.get("narrations", [])
 
         # 步骤3：提取场景
         if not step3_data:
@@ -252,7 +297,7 @@ class ChapterInfoExtractor:
             if on_step_complete:
                 await self._safe_callback(on_step_complete, 3, cp_data)
         else:
-            logger.info("步骤3已从断点恢复，跳过")
+            logger.debug("步骤3已从断点恢复，跳过")
 
         scenes = step3_data.get("scenes", [])
 
@@ -267,7 +312,7 @@ class ChapterInfoExtractor:
             if on_step_complete:
                 await self._safe_callback(on_step_complete, 4, cp_data)
         else:
-            logger.info("步骤4已从断点恢复，跳过")
+            logger.debug("步骤4已从断点恢复，跳过")
 
         items = step4_data.get("items", [])
         chapter_summary = step4_data.get("chapter_summary", "")
@@ -280,6 +325,7 @@ class ChapterInfoExtractor:
                 characters=characters,
                 events=events,
                 dialogues=dialogues,
+                narrations=narrations,
                 scenes=scenes,
                 items=items,
                 chapter_summary=chapter_summary,
@@ -292,9 +338,10 @@ class ChapterInfoExtractor:
             cp_data["chapter_info"] = chapter_info.to_dict()
 
             logger.info(
-                "分步提取完成: %d 角色, %d 对话, %d 场景, %d 事件, %d 物品",
+                "分步提取完成: %d 角色, %d 对话, %d 旁白, %d 场景, %d 事件, %d 物品",
                 len(chapter_info.characters),
                 len(chapter_info.dialogues),
+                len(chapter_info.narrations),
                 len(chapter_info.scenes),
                 len(chapter_info.events),
                 len(chapter_info.items),
@@ -365,17 +412,33 @@ class ChapterInfoExtractor:
         user_id: Optional[int] = None,
     ) -> dict:
         """步骤2：提取对话"""
-        # 准备上下文信息
-        characters_json = json.dumps(
-            list(characters.keys()),
-            ensure_ascii=False
-        )
-        events_json = json.dumps(
-            [{"index": e.get("index", i), "description": e.get("description", "")}
-             for i, e in enumerate(events)],
-            ensure_ascii=False,
-            indent=2
-        )
+        # 准备上下文信息 - 传递完整的角色信息（包括外观、性格等）
+        # 这有助于LLM更准确地识别说话人和匹配对话风格
+        characters_data = []
+        for name, char_data in characters.items():
+            if isinstance(char_data, dict):
+                characters_data.append({
+                    "name": name,
+                    "appearance": char_data.get("appearance", "")[:100],  # 限制长度
+                    "personality": char_data.get("personality", "")[:50],
+                    "role": char_data.get("role", "supporting"),
+                    "gender": char_data.get("gender", "unknown"),
+                })
+            else:
+                characters_data.append({"name": name})
+        characters_json = json.dumps(characters_data, ensure_ascii=False, indent=2)
+
+        # 传递更完整的事件信息，帮助LLM准确关联对话到事件
+        events_data = []
+        for i, e in enumerate(events):
+            event_data = {
+                "index": e.get("index", i),
+                "description": e.get("description", ""),
+                "participants": e.get("participants", []),  # 添加参与者信息
+                "type": e.get("type", "description"),  # 添加事件类型
+            }
+            events_data.append(event_data)
+        events_json = json.dumps(events_data, ensure_ascii=False, indent=2)
 
         # 尝试从 PromptService 加载，失败则使用内置模板
         prompt_template = await self._get_step_prompt(
@@ -528,6 +591,7 @@ class ChapterInfoExtractor:
         characters: dict,
         events: list,
         dialogues: list,
+        narrations: list,
         scenes: list,
         items: list,
         chapter_summary: str,
@@ -556,6 +620,12 @@ class ChapterInfoExtractor:
             if isinstance(d, dict):
                 parsed_dialogues.append(DialogueInfo.from_dict(d))
 
+        # 解析旁白信息
+        parsed_narrations = []
+        for n in narrations:
+            if isinstance(n, dict):
+                parsed_narrations.append(NarrationInfo.from_dict(n))
+
         # 解析场景信息
         parsed_scenes = []
         for s in scenes:
@@ -568,9 +638,13 @@ class ChapterInfoExtractor:
             if isinstance(i, dict):
                 parsed_items.append(ItemInfo.from_dict(i))
 
+        # 验证并修复事件与场景的双向关联
+        self._validate_event_scene_association(parsed_events, parsed_scenes)
+
         return ChapterInfo(
             characters=parsed_characters,
             dialogues=parsed_dialogues,
+            narrations=parsed_narrations,
             scenes=parsed_scenes,
             events=parsed_events,
             items=parsed_items,
@@ -579,6 +653,55 @@ class ChapterInfoExtractor:
             climax_event_indices=climax_event_indices,
             total_estimated_pages=total_estimated_pages,
         )
+
+    def _validate_event_scene_association(
+        self,
+        events: list,
+        scenes: list,
+    ) -> None:
+        """
+        验证并修复事件与场景的双向关联
+
+        确保：
+        1. 每个事件的 scene_index 对应的场景存在
+        2. 每个场景的 event_indices 包含所有属于该场景的事件
+
+        Args:
+            events: 事件列表
+            scenes: 场景列表（会被原地修改）
+        """
+        if not events or not scenes:
+            return
+
+        # 构建场景索引集合
+        scene_indices = {s.index for s in scenes}
+        default_scene_index = scenes[0].index if scenes else 0
+
+        # 1. 验证每个事件的 scene_index 是否有效
+        for event in events:
+            if event.scene_index not in scene_indices:
+                logger.warning(
+                    "事件 %d 的 scene_index=%d 无效，修正为默认场景 %d",
+                    event.index, event.scene_index, default_scene_index
+                )
+                event.scene_index = default_scene_index
+
+        # 2. 重建场景的 event_indices（确保双向一致）
+        # 先清空所有场景的 event_indices
+        for scene in scenes:
+            scene.event_indices = []
+
+        # 根据事件的 scene_index 重建场景的 event_indices
+        for event in events:
+            for scene in scenes:
+                if scene.index == event.scene_index:
+                    if event.index not in scene.event_indices:
+                        scene.event_indices.append(event.index)
+                    break
+
+        # 按事件索引排序
+        for scene in scenes:
+            scene.event_indices.sort()
 
     async def _build_prompt(self, content: str) -> str:
         """

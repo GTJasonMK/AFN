@@ -214,7 +214,7 @@ class StoryboardDesigner:
         completed_page_numbers = set()
 
         if designed_data:
-            logger.info("从断点恢复 %d 个已设计页面", len(designed_data))
+            logger.debug("从断点恢复 %d 个已设计页面", len(designed_data))
             for page_data in designed_data:
                 page_storyboard = PageStoryboard.from_dict(page_data)
                 pages.append(page_storyboard)
@@ -318,6 +318,18 @@ class StoryboardDesigner:
                 dialogues_data.append({
                     "speaker": dialogue.speaker,
                     "content": dialogue.content,
+                    "is_internal": dialogue.is_internal,
+                    "bubble_type": dialogue.bubble_type,
+                })
+
+        # 收集页面相关的旁白
+        narrations_data = []
+        for idx in page_plan.event_indices:
+            for narration in chapter_info.get_narration_by_event(idx):
+                narrations_data.append({
+                    "content": narration.content,
+                    "narration_type": narration.narration_type,
+                    "position": narration.position,
                 })
 
         # 收集页面出场角色信息
@@ -368,6 +380,7 @@ class StoryboardDesigner:
             total_pages=total_pages,
             events_json=json.dumps(events_data, ensure_ascii=False, indent=2),
             dialogues_json=json.dumps(dialogues_data, ensure_ascii=False, indent=2),
+            narrations_json=json.dumps(narrations_data, ensure_ascii=False, indent=2),
             characters_json=json.dumps(characters_data, ensure_ascii=False, indent=2),
             suggested_panel_count=suggested,
             previous_panel=prev_panel_str,
@@ -404,87 +417,6 @@ class StoryboardDesigner:
             layout_description=data.get("layout_description") or "",
             gutter_horizontal=gutter_h,
             gutter_vertical=gutter_v,
-        )
-
-    def _fallback_design(
-        self,
-        page_plan: PagePlanItem,
-        chapter_info: ChapterInfo,
-    ) -> PageStoryboard:
-        """回退设计（LLM失败时使用）- 简化版"""
-        panels = []
-        panel_count = page_plan.suggested_panel_count
-
-        # 收集页面的对话
-        all_dialogues = []
-        for idx in page_plan.event_indices:
-            all_dialogues.extend(chapter_info.get_dialogue_by_event(idx))
-
-        # 收集页面的事件
-        events = [
-            chapter_info.get_event_by_index(idx)
-            for idx in page_plan.event_indices
-        ]
-        events = [e for e in events if e is not None]
-
-        # 分配对话到各格
-        dialogues_per_panel = max(1, len(all_dialogues) // panel_count) if all_dialogues else 0
-
-        # 简单行布局：每2个画格一行
-        current_row = 1
-        panels_in_current_row = 0
-
-        for i in range(panel_count):
-            # 确定镜头类型和形状（交替使用）
-            shot_types = ["medium", "close_up", "long"]
-            shapes = ["horizontal", "vertical", "square"]
-            aspect_ratios = ["4:3", "1:1", "16:9"]  # 与shapes对应
-            shot_type = shot_types[i % len(shot_types)]
-            shape = shapes[i % len(shapes)]
-            aspect_ratio = aspect_ratios[i % len(aspect_ratios)]
-
-            # 计算行号：每2个画格一行
-            if panels_in_current_row >= 2:
-                current_row += 1
-                panels_in_current_row = 0
-            panels_in_current_row += 1
-
-            # 分配对话
-            panel_dialogues = []
-            if dialogues_per_panel > 0:
-                start_idx = i * dialogues_per_panel
-                end_idx = start_idx + dialogues_per_panel
-                for d in all_dialogues[start_idx:end_idx]:
-                    panel_dialogues.append(DialogueBubble(
-                        speaker=d.speaker,
-                        content=d.content,
-                    ))
-
-            # 生成描述
-            event_desc = events[min(i, len(events) - 1)].description if events else page_plan.content_summary
-
-            panel = PanelDesign(
-                panel_id=i + 1,
-                row_id=current_row,
-                row_span=1,  # 回退设计不使用跨行
-                shape=PanelShape.from_string(shape),
-                shot_type=ShotType.from_string(shot_type),
-                width_ratio=WidthRatio.HALF,  # 默认半宽，两个并排
-                aspect_ratio=AspectRatio.from_string(aspect_ratio),
-                visual_description=event_desc[:200],
-                characters=page_plan.key_characters[:3],
-                dialogues=panel_dialogues,
-                event_indices=page_plan.event_indices[:1] if page_plan.event_indices else [],
-            )
-
-            panels.append(panel)
-
-        return PageStoryboard(
-            page_number=page_plan.page_number,
-            panels=panels,
-            layout_description="fallback: 每行2格并排布局",
-            gutter_horizontal=8,
-            gutter_vertical=8,
         )
 
 __all__ = [

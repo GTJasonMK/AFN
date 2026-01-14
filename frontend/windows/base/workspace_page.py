@@ -2,7 +2,7 @@
 工作台页面基类
 
 提供工作台的通用结构：Header + Sidebar + Workspace
-可被 WritingDesk 和 CodingDesk 继承使用。
+可被 WritingDesk 等继承使用。
 """
 
 import logging

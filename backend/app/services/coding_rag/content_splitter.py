@@ -507,41 +507,11 @@ class ContentSplitter:
 
         return sections
 
-    def split_feature_prompt(
-        self,
-        content: str,
-        feature_number: int,
-        feature_title: str,
-        source_id: str,
-        project_id: str = ""
-    ) -> List[IngestionRecord]:
-        """
-        分割功能Prompt内容（使用策略配置）
-
-        Args:
-            content: 功能Prompt内容
-            feature_number: 功能编号
-            feature_title: 功能标题
-            source_id: 来源章节ID
-            project_id: 项目ID
-
-        Returns:
-            入库记录列表
-        """
-        return self.split_content(
-            content=content,
-            data_type=CodingDataType.FEATURE_PROMPT,
-            source_id=source_id,
-            project_id=project_id,
-            feature_number=feature_number,
-            parent_title=feature_title,
-        )
-
     def split_review_prompt(
         self,
         content: str,
-        feature_number: int,
-        feature_title: str,
+        module_number: int,
+        file_title: str,
         source_id: str,
         project_id: str = ""
     ) -> List[IngestionRecord]:
@@ -550,9 +520,9 @@ class ContentSplitter:
 
         Args:
             content: 审查Prompt内容
-            feature_number: 功能编号
-            feature_title: 功能标题
-            source_id: 来源功能ID
+            module_number: 模块编号
+            file_title: 文件标题
+            source_id: 来源文件ID
             project_id: 项目ID
 
         Returns:
@@ -563,8 +533,64 @@ class ContentSplitter:
             data_type=CodingDataType.REVIEW_PROMPT,
             source_id=source_id,
             project_id=project_id,
-            feature_number=feature_number,
-            parent_title=feature_title,
+            module_number=module_number,
+            parent_title=file_title,
+        )
+
+    def split_file_prompt(
+        self,
+        content: str,
+        file_id: str,
+        filename: str,
+        file_path: str,
+        project_id: str,
+        module_number: Optional[int] = None,
+        system_number: Optional[int] = None,
+        file_type: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> List[IngestionRecord]:
+        """
+        分割文件实现Prompt内容（新系统）
+
+        按Markdown标题或段落分割文件Prompt，为RAG检索做准备。
+        用于文件驱动的Prompt生成系统。
+
+        Args:
+            content: 文件Prompt内容
+            file_id: 源文件ID
+            filename: 文件名
+            file_path: 文件完整路径
+            project_id: 项目ID
+            module_number: 所属模块编号（可选）
+            system_number: 所属系统编号（可选）
+            file_type: 文件类型（可选，如 component, service 等）
+            language: 编程语言（可选）
+
+        Returns:
+            入库记录列表
+        """
+        # 构建元数据
+        extra_metadata = {
+            'filename': filename,
+            'file_path': file_path,
+            'parent_title': f"{file_path}",  # 用于上下文前缀
+        }
+
+        if module_number is not None:
+            extra_metadata['module_number'] = module_number
+        if system_number is not None:
+            extra_metadata['system_number'] = system_number
+        if file_type:
+            extra_metadata['file_type'] = file_type
+        if language:
+            extra_metadata['language'] = language
+
+        return self.split_content(
+            content=content,
+            data_type=CodingDataType.FILE_PROMPT,
+            source_id=file_id,
+            project_id=project_id,
+            **extra_metadata,
         )
 
     def split_architecture(

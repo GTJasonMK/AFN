@@ -51,8 +51,10 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 - content: 对话内容（保留原文）
 - emotion: 情绪（neutral/happy/sad/angry/surprised/fearful/disgusted/contemptuous/excited/calm/nervous/determined）
 - target: 对话对象（如有明确对象）
-- is_internal: 是否是内心独白（true/false）
-- bubble_type: 气泡类型（normal=普通/shout=喊叫/whisper=低语/thought=思考）
+- is_internal: 是否是内心独白（心想、暗道、心中想等 → true；说出来的话 → false）
+- bubble_type: 气泡类型（thought用于内心想法；normal/shout/whisper用于说出的话）
+
+**重要：对话和想法必须正确区分，这直接影响漫画中气泡的绘制方式（对话用普通气泡，想法用云朵气泡）。**
 
 ### 3. 场景信息 (scenes)
 识别不同的场景/地点：
@@ -249,19 +251,30 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
 请确保JSON格式正确。只输出JSON，不要其他文字。
 """
 
-# 步骤2：提取对话
-STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话信息。
+# 步骤2：提取对话和旁白
+STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话和旁白信息。
 
 ## 章节内容
 {content}
 
-## 已识别的角色
+## 已识别的角色（含详细信息）
 {characters_json}
+
+**角色信息说明**：
+- name: 角色名字
+- appearance: 外观描述（用于识别角色）
+- personality: 性格特点（用于判断说话风格）
+- role: 角色定位（protagonist/antagonist/supporting/minor/background）
+- gender: 性别
+
+请根据角色的性格特点和说话风格，准确匹配对话的说话人。
 
 ## 已识别的事件
 {events_json}
 
 ## 提取要求
+
+### 一、对话和想法提取
 
 提取所有对话和内心独白：
 - index: 对话序号（从0开始）
@@ -270,8 +283,34 @@ STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话信息�
 - emotion: neutral/happy/sad/angry/surprised/fearful/excited/calm/nervous/determined
 - target: 对话对象
 - event_index: 所属事件索引（对应events中的index）
-- is_internal: 是否是内心独白
-- bubble_type: normal/shout/whisper/thought
+- is_internal: 是否是内心独白（心想、暗道、心中想等 → true；说出来的话 → false）
+- bubble_type: thought用于内心想法；normal/shout/whisper用于说出的话
+
+**重要区分：**
+- **对话(dialogue)**: 角色说出来的话，用普通对话气泡
+- **想法(thought)**: 角色内心独白，用云朵气泡（is_internal=true, bubble_type="thought"）
+
+### 二、旁白提取
+
+提取叙述性文字（旁白），这些是作者的叙述，不是角色说的话或想的事：
+- index: 旁白序号（从0开始）
+- content: 旁白内容
+- narration_type: 旁白类型
+  - scene: 场景描述，如"夜晚，城市灯火阑珊"
+  - time: 时间跳转，如"三天后..."、"第二天清晨"
+  - inner: 深度心理描写（作者对角色心理的描述，非角色直接想法）
+  - exposition: 背景说明，如"这座城市已沦陷三年"
+- event_index: 所属事件索引
+- position: 建议位置 top/bottom
+
+**重要区分：**
+- **旁白(narration)**: 作者的叙述文字，用方框旁白框
+- **想法(thought)**: 角色的内心独白，用云朵气泡
+
+例如：
+- "他心想：这下完了" → 想法（角色直接的内心话语）
+- "他的内心充满了绝望，仿佛世界末日来临" → 旁白/inner（作者对心理的描述）
+- "夜幕降临，街道上空无一人" → 旁白/scene（场景描述）
 
 ## 输出格式
 
@@ -287,6 +326,15 @@ STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话信息�
       "event_index": 0,
       "is_internal": false,
       "bubble_type": "normal"
+    }}
+  ],
+  "narrations": [
+    {{
+      "index": 0,
+      "content": "旁白内容",
+      "narration_type": "scene",
+      "event_index": 0,
+      "position": "top"
     }}
   ]
 }}

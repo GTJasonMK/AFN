@@ -64,6 +64,70 @@ def unwrap_markdown_json(raw_text: str) -> str:
     return normalize_chinese_quotes(trimmed)
 
 
+def escape_control_chars_in_strings(text: str) -> str:
+    """
+    转义JSON字符串值中的控制字符（换行符、制表符等）
+
+    LLM有时会在JSON字符串值中直接包含换行符，而JSON标准要求
+    这些字符必须被转义（如 \\n）。此函数会找到字符串值中的
+    控制字符并正确转义它们。
+
+    Args:
+        text: JSON文本
+
+    Returns:
+        转义后的JSON文本
+    """
+    if not text:
+        return text
+
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+
+    while i < len(text):
+        char = text[i]
+
+        if escape_next:
+            result.append(char)
+            escape_next = False
+            i += 1
+            continue
+
+        if char == '\\':
+            result.append(char)
+            escape_next = True
+            i += 1
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            result.append(char)
+            i += 1
+            continue
+
+        if in_string:
+            # 在字符串内部，转义控制字符
+            if char == '\n':
+                result.append('\\n')
+            elif char == '\r':
+                result.append('\\r')
+            elif char == '\t':
+                result.append('\\t')
+            elif ord(char) < 32:
+                # 其他控制字符转义为Unicode
+                result.append(f'\\u{ord(char):04x}')
+            else:
+                result.append(char)
+        else:
+            result.append(char)
+
+        i += 1
+
+    return ''.join(result)
+
+
 def normalize_chinese_quotes(text: str) -> str:
     """
     智能替换中文引号为英文引号（仅替换JSON结构性引号）
@@ -293,6 +357,8 @@ def parse_llm_json_or_fail(
     try:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
+        # 转义字符串值中的控制字符（如换行符）
+        normalized = escape_control_chars_in_strings(normalized)
         # 尝试修复字符串内的未转义引号
         normalized = try_fix_inner_quotes(normalized)
         return json.loads(normalized)
@@ -354,6 +420,8 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
     try:
         cleaned = remove_think_tags(raw_text)
         normalized = unwrap_markdown_json(cleaned)
+        # 转义字符串值中的控制字符（如换行符）
+        normalized = escape_control_chars_in_strings(normalized)
         # 尝试修复字符串内的未转义引号
         normalized = try_fix_inner_quotes(normalized)
         return json.loads(normalized)

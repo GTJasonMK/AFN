@@ -115,11 +115,12 @@ class AFNAPIClient(
 
         # 配置重试策略
         # 仅对连接错误和 502/503/504 状态码重试
+        # 注意：POST 请求不应该被重试，因为不是幂等操作
         retry_strategy = Retry(
             total=3,                    # 最多重试3次
             backoff_factor=0.5,         # 退避因子：0.5s, 1s, 2s
             status_forcelist=[502, 503, 504],  # 需要重试的状态码
-            allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            allowed_methods=["GET"],    # 只允许 GET 请求重试，POST/PUT/DELETE 不重试
             raise_on_status=False       # 不在重试时抛出异常
         )
 

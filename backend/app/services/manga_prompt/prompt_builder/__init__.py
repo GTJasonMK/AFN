@@ -6,16 +6,20 @@
 
 from .models import (
     PanelPrompt,
+    PagePrompt,
     PagePromptResult,
     MangaPromptResult,
 )
 from .builder import PromptBuilder
+from .page_prompt_generator import PagePromptGenerator
 
 __all__ = [
     # 数据类
     "PanelPrompt",
+    "PagePrompt",
     "PagePromptResult",
     "MangaPromptResult",
     # 构建器
     "PromptBuilder",
+    "PagePromptGenerator",
 ]

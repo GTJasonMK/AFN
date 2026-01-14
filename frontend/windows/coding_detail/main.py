@@ -237,22 +237,42 @@ class CodingDetail(
         self.loadProjectBasicInfo()
         self.loadSection(self.active_section)
 
-    def openCodingDesk(self):
-        """打开Prompt生成工作台"""
-        self.navigateTo('CODING_DESK', project_id=self.project_id)
-
-    def _navigateToCodingDesk(self, feature_number: int = 1):
-        """导航到工作台并选中指定功能
-
-        Args:
-            feature_number: 要选中的功能编号（1-based）
-        """
-        logger.info(f"导航到工作台: project_id={self.project_id}, feature_number={feature_number}")
-        self.navigateTo('CODING_DESK', project_id=self.project_id, feature_number=feature_number)
-
     def goBackToWorkspace(self):
         """返回首页"""
         self.navigateTo('HOME')
+
+    def openCodingDesk(self):
+        """打开编程写作台"""
+        logger.info(f"打开编程写作台: project_id={self.project_id}")
+        self.navigateTo('CODING_DESK', project_id=self.project_id)
+
+    def onSyncRAG(self):
+        """同步RAG数据"""
+        logger.info(f"同步RAG数据: project_id={self.project_id}")
+
+        self.show_loading("正在同步RAG数据...")
+
+        worker = AsyncAPIWorker(
+            self.api_client.ingest_all_rag_data,
+            self.project_id,
+            force=True
+        )
+        worker.success.connect(self._onRAGSyncSuccess)
+        worker.error.connect(self._onRAGSyncError)
+        self.worker_manager.start(worker, 'sync_rag')
+
+    def _onRAGSyncSuccess(self, result):
+        """RAG同步成功"""
+        self.hide_loading()
+        added = result.get('added', 0)
+        total = result.get('total_items', 0)
+        MessageService.show_success(self, f"RAG同步完成：已入库 {added}/{total} 项数据")
+
+    def _onRAGSyncError(self, error_msg: str):
+        """RAG同步失败"""
+        self.hide_loading()
+        logger.error(f"RAG同步失败: {error_msg}")
+        MessageService.show_error(self, f"RAG同步失败：{error_msg}")
 
     def _on_regenerate_blueprint(self, preference: str):
         """处理蓝图重新生成请求
@@ -287,6 +307,17 @@ class CodingDetail(
         logger.error(f"蓝图重新生成失败: {error_msg}")
         MessageService.show_error(self, f"重新生成失败：{error_msg}")
 
+    def _on_file_clicked(self, file_id: int):
+        """处理文件点击事件 - 跳转到文件Prompt生成页面
+
+        Args:
+            file_id: 源文件ID
+        """
+        logger.info(f"文件点击: file_id={file_id}, project_id={self.project_id}")
+
+        # 跳转到CodingDesk页面
+        self.navigateTo('CODING_DESK', project_id=self.project_id, file_id=file_id)
+
     def refresh(self, **params):
         """页面刷新"""
         if 'project_id' in params:
@@ -295,7 +326,7 @@ class CodingDetail(
 
         if 'section' in params:
             section_id = params['section']
-            valid_sections = ['overview', 'tech_stack', 'systems', 'dependencies', 'generated']
+            valid_sections = ['overview', 'architecture', 'directory', 'generation']
             if section_id in valid_sections:
                 self.switchSection(section_id)
 

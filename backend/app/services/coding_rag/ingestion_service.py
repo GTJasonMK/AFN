@@ -24,9 +24,8 @@ from ...models.coding import (
     CodingConversation,
     CodingSystem,
     CodingModule,
-    CodingFeature,
-    CodingFeatureVersion,
 )
+from ...models.coding_files import CodingSourceFile, CodingFileVersion
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +82,7 @@ class CodingProjectIngestionService:
     """
     编程项目向量入库服务
 
-    支持10种数据类型的入库：
+    支持12种数据类型的入库：
     - inspiration: 灵感对话
     - architecture: 架构设计
     - tech_stack: 技术栈
@@ -91,9 +90,9 @@ class CodingProjectIngestionService:
     - challenge: 技术挑战
     - system: 系统划分
     - module: 模块定义
-    - feature_outline: 功能大纲
     - dependency: 依赖关系
-    - feature_prompt: 功能Prompt
+    - file_prompt: 文件实现Prompt
+    - review_prompt: 审查/测试Prompt
     """
 
     def __init__(
@@ -244,10 +243,9 @@ class CodingProjectIngestionService:
             CodingDataType.CHALLENGE: self._ingest_challenges,
             CodingDataType.SYSTEM: self._ingest_systems,
             CodingDataType.MODULE: self._ingest_modules,
-            CodingDataType.FEATURE_OUTLINE: self._ingest_feature_outlines,
             CodingDataType.DEPENDENCY: self._ingest_dependencies,
-            CodingDataType.FEATURE_PROMPT: self._ingest_feature_prompts,
             CodingDataType.REVIEW_PROMPT: self._ingest_review_prompts,
+            CodingDataType.FILE_PROMPT: self._ingest_file_prompts,
         }
 
         method = method_map.get(data_type)
@@ -525,14 +523,12 @@ class CodingProjectIngestionService:
             return await self._generate_system_records(project_id)
         elif data_type == CodingDataType.MODULE:
             return await self._generate_module_records(project_id)
-        elif data_type == CodingDataType.FEATURE_OUTLINE:
-            return await self._generate_feature_outline_records(project_id)
         elif data_type == CodingDataType.DEPENDENCY:
             return await self._generate_dependency_records(project_id)
-        elif data_type == CodingDataType.FEATURE_PROMPT:
-            return await self._generate_feature_prompt_records(project_id)
         elif data_type == CodingDataType.REVIEW_PROMPT:
             return await self._generate_review_prompt_records(project_id)
+        elif data_type == CodingDataType.FILE_PROMPT:
+            return await self._generate_file_prompt_records(project_id)
         return []
 
     async def _generate_inspiration_records(self, project_id: str) -> List[IngestionRecord]:
@@ -710,28 +706,6 @@ class CodingProjectIngestionService:
                     records.append(record)
         return records
 
-    async def _generate_feature_outline_records(self, project_id: str) -> List[IngestionRecord]:
-        """生成功能大纲记录"""
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
-
-        records: List[IngestionRecord] = []
-        for feature in features:
-            content = self._format_feature_outline(feature)
-            if content:
-                record = self.splitter.create_simple_record(
-                    content=content,
-                    data_type=CodingDataType.FEATURE_OUTLINE,
-                    source_id=str(feature.id),
-                    project_id=project_id,
-                    feature_number=feature.feature_number
-                )
-                if record:
-                    records.append(record)
-        return records
-
     async def _generate_dependency_records(self, project_id: str) -> List[IngestionRecord]:
         """生成依赖关系记录 - 支持简单模式和模块聚合模式"""
         blueprint = await self._get_blueprint(project_id)
@@ -841,102 +815,29 @@ class CodingProjectIngestionService:
 
         return "\n".join(parts) if len(parts) > 1 else ""
 
-    async def _generate_feature_prompt_records(self, project_id: str) -> List[IngestionRecord]:
-        """生成功能Prompt记录
-
-        根据策略配置，使用不同的分块方法：
-        - SEMANTIC_DP: 使用语义动态规划分块
-        - 其他: 使用传统分块方法
-        """
-        # 检查策略配置
-        config = get_strategy_manager().get_config(CodingDataType.FEATURE_PROMPT)
-        use_semantic = config.method == ChunkMethod.SEMANTIC_DP
-
-        from sqlalchemy.orm import selectinload
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id,
-            CodingFeature.selected_version_id.isnot(None)
-        ).options(
-            selectinload(CodingFeature.selected_version)
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
-
-        records: List[IngestionRecord] = []
-        for feature in features:
-            if not feature.selected_version or not feature.selected_version.content:
-                continue
-            content = feature.selected_version.content
-            if not content.strip():
-                continue
-
-            feature_title = feature.name or f"功能 {feature.feature_number}"
-
-            if use_semantic:
-                # 使用语义分块
-                try:
-                    feature_records = await self.splitter.split_content_semantic_async(
-                        content=content,
-                        data_type=CodingDataType.FEATURE_PROMPT,
-                        source_id=str(feature.id),
-                        project_id=project_id,
-                        embedding_func=self._get_sentence_embeddings,
-                        config=config,
-                        feature_number=feature.feature_number,
-                        parent_title=feature_title
-                    )
-                    records.extend(feature_records)
-                except Exception as e:
-                    logger.warning(
-                        "功能Prompt语义分块失败，降级为传统分块: feature=%d error=%s",
-                        feature.feature_number, str(e)
-                    )
-                    # 降级为传统分块
-                    feature_records = self.splitter.split_feature_prompt(
-                        content=content,
-                        feature_number=feature.feature_number,
-                        feature_title=feature_title,
-                        source_id=str(feature.id),
-                        project_id=project_id
-                    )
-                    records.extend(feature_records)
-            else:
-                # 使用传统分块
-                feature_records = self.splitter.split_feature_prompt(
-                    content=content,
-                    feature_number=feature.feature_number,
-                    feature_title=feature_title,
-                    source_id=str(feature.id),
-                    project_id=project_id
-                )
-                records.extend(feature_records)
-
-        return records
-
     async def _generate_review_prompt_records(self, project_id: str) -> List[IngestionRecord]:
         """生成审查/测试Prompt记录
 
-        根据策略配置，使用不同的分块方法：
-        - SEMANTIC_DP: 使用语义动态规划分块
-        - 其他: 使用传统分块方法
+        从CodingSourceFile表读取review_prompt字段，生成入库记录。
         """
         # 检查策略配置
         config = get_strategy_manager().get_config(CodingDataType.REVIEW_PROMPT)
         use_semantic = config.method == ChunkMethod.SEMANTIC_DP
 
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id,
-            CodingFeature.review_prompt.isnot(None),
-            CodingFeature.review_prompt != ""
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
+        stmt = select(CodingSourceFile).where(
+            CodingSourceFile.project_id == project_id,
+            CodingSourceFile.review_prompt.isnot(None),
+            CodingSourceFile.review_prompt != ""
+        ).order_by(CodingSourceFile.sort_order)
+        files = (await self.session.execute(stmt)).scalars().all()
 
         records: List[IngestionRecord] = []
-        for feature in features:
-            content = feature.review_prompt
+        for file in files:
+            content = file.review_prompt
             if not content or not content.strip():
                 continue
 
-            feature_title = feature.name or f"功能 {feature.feature_number}"
+            file_title = file.filename or f"文件 {file.id}"
 
             if use_semantic:
                 # 使用语义分块
@@ -944,25 +845,25 @@ class CodingProjectIngestionService:
                     review_records = await self.splitter.split_content_semantic_async(
                         content=content,
                         data_type=CodingDataType.REVIEW_PROMPT,
-                        source_id=str(feature.id),
+                        source_id=str(file.id),
                         project_id=project_id,
                         embedding_func=self._get_sentence_embeddings,
                         config=config,
-                        feature_number=feature.feature_number,
-                        parent_title=feature_title
+                        module_number=file.module_number,
+                        parent_title=file_title
                     )
                     records.extend(review_records)
                 except Exception as e:
                     logger.warning(
-                        "审查Prompt语义分块失败，降级为传统分块: feature=%d error=%s",
-                        feature.feature_number, str(e)
+                        "审查Prompt语义分块失败，降级为传统分块: file=%s error=%s",
+                        file.filename, str(e)
                     )
                     # 降级为传统分块
                     review_records = self.splitter.split_review_prompt(
                         content=content,
-                        feature_number=feature.feature_number,
-                        feature_title=feature_title,
-                        source_id=str(feature.id),
+                        module_number=file.module_number or 0,
+                        file_title=file_title,
+                        source_id=str(file.id),
                         project_id=project_id
                     )
                     records.extend(review_records)
@@ -970,12 +871,52 @@ class CodingProjectIngestionService:
                 # 使用传统分块
                 review_records = self.splitter.split_review_prompt(
                     content=content,
-                    feature_number=feature.feature_number,
-                    feature_title=feature_title,
-                    source_id=str(feature.id),
+                    module_number=file.module_number or 0,
+                    file_title=file_title,
+                    source_id=str(file.id),
                     project_id=project_id
                 )
                 records.extend(review_records)
+
+        return records
+
+    async def _generate_file_prompt_records(self, project_id: str) -> List[IngestionRecord]:
+        """生成文件实现Prompt记录（新系统）
+
+        遍历所有有选中版本的源文件，为每个文件的Prompt内容生成入库记录。
+        """
+        from sqlalchemy.orm import selectinload
+
+        stmt = select(CodingSourceFile).where(
+            CodingSourceFile.project_id == project_id,
+            CodingSourceFile.selected_version_id.isnot(None)
+        ).options(
+            selectinload(CodingSourceFile.selected_version)
+        ).order_by(CodingSourceFile.sort_order)
+        files = (await self.session.execute(stmt)).scalars().all()
+
+        records: List[IngestionRecord] = []
+        for file in files:
+            if not file.selected_version or not file.selected_version.content:
+                continue
+
+            content = file.selected_version.content
+            if not content.strip():
+                continue
+
+            # 使用分割器分块
+            file_records = self.splitter.split_file_prompt(
+                content=content,
+                file_id=str(file.id),
+                filename=file.filename,
+                file_path=file.file_path,
+                project_id=project_id,
+                module_number=file.module_number,
+                system_number=file.system_number,
+                file_type=file.file_type,
+                language=file.language,
+            )
+            records.extend(file_records)
 
         return records
 
@@ -1249,36 +1190,6 @@ class CodingProjectIngestionService:
         result.total_records = len(records)
         return await self._ingest_records(records, result, project_id)
 
-    async def _ingest_feature_outlines(self, project_id: str) -> IngestionResult:
-        """入库功能大纲"""
-        result = IngestionResult(success=True, data_type=CodingDataType.FEATURE_OUTLINE)
-
-        # 功能大纲存储在 coding_features 表
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
-
-        if not features:
-            return result
-
-        records: List[IngestionRecord] = []
-        for feature in features:
-            content = self._format_feature_outline(feature)
-            if content:
-                record = self.splitter.create_simple_record(
-                    content=content,
-                    data_type=CodingDataType.FEATURE_OUTLINE,
-                    source_id=str(feature.id),
-                    project_id=project_id,
-                    feature_number=feature.feature_number
-                )
-                if record:
-                    records.append(record)
-
-        result.total_records = len(records)
-        return await self._ingest_records(records, result, project_id)
-
     async def _ingest_dependencies(self, project_id: str) -> IngestionResult:
         """入库依赖关系 - 从蓝图的dependencies字段获取"""
         result = IngestionResult(success=True, data_type=CodingDataType.DEPENDENCY)
@@ -1315,76 +1226,82 @@ class CodingProjectIngestionService:
         result.total_records = len(records)
         return await self._ingest_records(records, result, project_id)
 
-    async def _ingest_feature_prompts(self, project_id: str) -> IngestionResult:
-        """入库功能Prompt"""
-        result = IngestionResult(success=True, data_type=CodingDataType.FEATURE_PROMPT)
-
-        # 功能Prompt存储在 coding_features 表，内容在选中版本中
-        from sqlalchemy.orm import selectinload
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id,
-            CodingFeature.selected_version_id.isnot(None)
-        ).options(
-            selectinload(CodingFeature.selected_version)
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
-
-        if not features:
-            return result
-
-        records: List[IngestionRecord] = []
-        for feature in features:
-            # 获取选中版本的内容
-            if not feature.selected_version or not feature.selected_version.content:
-                continue
-
-            content = feature.selected_version.content
-            if not content.strip():
-                continue
-
-            # 功能Prompt需要分割
-            feature_records = self.splitter.split_feature_prompt(
-                content=content,
-                feature_number=feature.feature_number,
-                feature_title=feature.name or f"功能 {feature.feature_number}",
-                source_id=str(feature.id),
-                project_id=project_id
-            )
-            records.extend(feature_records)
-
-        result.total_records = len(records)
-        return await self._ingest_records(records, result, project_id)
-
     async def _ingest_review_prompts(self, project_id: str) -> IngestionResult:
         """入库审查/测试Prompt"""
         result = IngestionResult(success=True, data_type=CodingDataType.REVIEW_PROMPT)
 
-        # 审查Prompt直接存储在 coding_features.review_prompt 字段
-        stmt = select(CodingFeature).where(
-            CodingFeature.project_id == project_id,
-            CodingFeature.review_prompt.isnot(None),
-            CodingFeature.review_prompt != ""
-        ).order_by(CodingFeature.feature_number)
-        features = (await self.session.execute(stmt)).scalars().all()
+        # 审查Prompt存储在 coding_source_files.review_prompt 字段
+        stmt = select(CodingSourceFile).where(
+            CodingSourceFile.project_id == project_id,
+            CodingSourceFile.review_prompt.isnot(None),
+            CodingSourceFile.review_prompt != ""
+        ).order_by(CodingSourceFile.sort_order)
+        files = (await self.session.execute(stmt)).scalars().all()
 
-        if not features:
+        if not files:
             return result
 
         records: List[IngestionRecord] = []
-        for feature in features:
-            content = feature.review_prompt
+        for file in files:
+            content = file.review_prompt
             if not content or not content.strip():
                 continue
 
-            # 审查Prompt使用与功能Prompt相同的分割逻辑
+            # 审查Prompt分割
             review_records = self.splitter.split_review_prompt(
                 content=content,
-                feature_number=feature.feature_number,
-                feature_title=feature.name or f"功能 {feature.feature_number}",
-                source_id=str(feature.id),
+                module_number=file.module_number or 0,
+                file_title=file.filename or f"文件 {file.id}",
+                source_id=str(file.id),
                 project_id=project_id
             )
             records.extend(review_records)
+
+        result.total_records = len(records)
+        return await self._ingest_records(records, result, project_id)
+
+    async def _ingest_file_prompts(self, project_id: str) -> IngestionResult:
+        """入库文件实现Prompt（新系统）
+
+        遍历所有有选中版本的源文件，将Prompt内容入库到向量库。
+        """
+        result = IngestionResult(success=True, data_type=CodingDataType.FILE_PROMPT)
+
+        # 获取有选中版本的源文件
+        from sqlalchemy.orm import selectinload
+        stmt = select(CodingSourceFile).where(
+            CodingSourceFile.project_id == project_id,
+            CodingSourceFile.selected_version_id.isnot(None)
+        ).options(
+            selectinload(CodingSourceFile.selected_version)
+        ).order_by(CodingSourceFile.sort_order)
+        files = (await self.session.execute(stmt)).scalars().all()
+
+        if not files:
+            return result
+
+        records: List[IngestionRecord] = []
+        for file in files:
+            if not file.selected_version or not file.selected_version.content:
+                continue
+
+            content = file.selected_version.content
+            if not content.strip():
+                continue
+
+            # 使用分割器分块
+            file_records = self.splitter.split_file_prompt(
+                content=content,
+                file_id=str(file.id),
+                filename=file.filename,
+                file_path=file.file_path,
+                project_id=project_id,
+                module_number=file.module_number,
+                system_number=file.system_number,
+                file_type=file.file_type,
+                language=file.language,
+            )
+            records.extend(file_records)
 
         result.total_records = len(records)
         return await self._ingest_records(records, result, project_id)
@@ -1463,13 +1380,6 @@ class CodingProjectIngestionService:
             result = await self.session.execute(stmt)
             return result.scalar() or 0
 
-        elif data_type == CodingDataType.FEATURE_OUTLINE:
-            stmt = select(func.count()).select_from(CodingFeature).where(
-                CodingFeature.project_id == project_id
-            )
-            result = await self.session.execute(stmt)
-            return result.scalar() or 0
-
         elif data_type == CodingDataType.DEPENDENCY:
             blueprint = await self._get_blueprint(project_id)
             if not blueprint or not blueprint.dependencies:
@@ -1482,21 +1392,21 @@ class CodingProjectIngestionService:
                     return 0
             return len(deps) if isinstance(deps, list) else 0
 
-        elif data_type == CodingDataType.FEATURE_PROMPT:
-            # 功能Prompt需要检查有选中版本的功能数
-            stmt = select(func.count()).select_from(CodingFeature).where(
-                CodingFeature.project_id == project_id,
-                CodingFeature.selected_version_id.isnot(None)
+        elif data_type == CodingDataType.REVIEW_PROMPT:
+            # 审查Prompt检查有review_prompt内容的源文件数
+            stmt = select(func.count()).select_from(CodingSourceFile).where(
+                CodingSourceFile.project_id == project_id,
+                CodingSourceFile.review_prompt.isnot(None),
+                CodingSourceFile.review_prompt != ""
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
 
-        elif data_type == CodingDataType.REVIEW_PROMPT:
-            # 审查Prompt检查有review_prompt内容的功能数
-            stmt = select(func.count()).select_from(CodingFeature).where(
-                CodingFeature.project_id == project_id,
-                CodingFeature.review_prompt.isnot(None),
-                CodingFeature.review_prompt != ""
+        elif data_type == CodingDataType.FILE_PROMPT:
+            # 文件Prompt检查有选中版本的源文件数
+            stmt = select(func.count()).select_from(CodingSourceFile).where(
+                CodingSourceFile.project_id == project_id,
+                CodingSourceFile.selected_version_id.isnot(None)
             )
             result = await self.session.execute(stmt)
             return result.scalar() or 0
@@ -1644,21 +1554,7 @@ class CodingProjectIngestionService:
         )
 
         # 数据类型到来源信息的映射
-        if data_type == CodingDataType.FEATURE_PROMPT:
-            # 功能Prompt: F{feature_number} - {parent_title}
-            num = metadata.get("feature_number", 0)
-            title = metadata.get("parent_title", "")
-            section = metadata.get("section_title", "")
-            if section:
-                title = f"{title} > {section}" if title else section
-            return (num, title or f"功能{num}")
-
-        elif data_type == CodingDataType.FEATURE_OUTLINE:
-            # 功能大纲: F{feature_number}
-            num = metadata.get("feature_number", 0)
-            return (num, f"功能大纲{num}")
-
-        elif data_type == CodingDataType.SYSTEM:
+        if data_type == CodingDataType.SYSTEM:
             # 系统: S{system_number}
             num = metadata.get("system_number", 0)
             return (num, f"系统{num}")
@@ -1705,13 +1601,25 @@ class CodingProjectIngestionService:
             return (0, f"{from_mod} -> {to_mod}" if from_mod and to_mod else "模块依赖")
 
         elif data_type == CodingDataType.REVIEW_PROMPT:
-            # 测试Prompt: T{feature_number} - {parent_title}
-            num = metadata.get("feature_number", 0)
+            # 测试Prompt: M{module_number} - {parent_title}
+            num = metadata.get("module_number", 0)
             title = metadata.get("parent_title", "")
             section = metadata.get("section_title", "")
             if section:
                 title = f"{title} > {section}" if title else section
             return (num, title or f"测试{num}")
+
+        elif data_type == CodingDataType.FILE_PROMPT:
+            # 文件Prompt: 文件路径
+            filename = metadata.get("filename", "")
+            file_path = metadata.get("file_path", "")
+            module_num = metadata.get("module_number")
+            section = metadata.get("section_title", "")
+            # 优先显示文件路径，其次文件名
+            title = file_path or filename
+            if section:
+                title = f"{title} > {section}" if title else section
+            return (module_num or 0, title or "文件Prompt")
 
         # 默认
         return (0, CodingDataType.get_display_name(data_type.value))
@@ -1891,29 +1799,6 @@ class CodingProjectIngestionService:
                 parts.append(f"依赖: {', '.join(str(d) for d in deps)}")
             else:
                 parts.append(f"依赖: {deps}")
-        return "\n".join(parts)
-
-    def _format_feature_outline(self, feature: CodingFeature) -> str:
-        """
-        格式化功能大纲
-
-        Args:
-            feature: CodingFeature模型实例
-
-        Returns:
-            格式化的功能大纲文本
-        """
-        parts = [f"功能 {feature.feature_number}: {feature.name or ''}"]
-        if feature.description:
-            parts.append(f"描述: {feature.description}")
-        if feature.inputs:
-            parts.append(f"输入: {feature.inputs}")
-        if feature.outputs:
-            parts.append(f"输出: {feature.outputs}")
-        if feature.implementation_notes:
-            parts.append(f"实现说明: {feature.implementation_notes}")
-        if feature.priority:
-            parts.append(f"优先级: {feature.priority}")
         return "\n".join(parts)
 
     def _format_dependency(self, dep: Dict[str, Any]) -> str:

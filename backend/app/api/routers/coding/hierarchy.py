@@ -1,12 +1,11 @@
 """
-编程项目三层结构管理路由
+编程项目两层结构管理路由
 
-处理系统(System)、模块(Module)、功能(Feature)的CRUD和生成操作。
+处理系统(System)、模块(Module)的CRUD和生成操作。
 
 数据库存储映射：
 - Systems -> coding_systems 表
 - Modules -> coding_modules 表
-- Features -> coding_features 表
 """
 
 import json
@@ -36,17 +35,14 @@ from ....schemas.coding import (
     CodingSystem,
     CodingSystemStatus,
     CodingModule,
-    CodingFeature,
 )
 from ....models.coding import (
     CodingSystem as CodingSystemModel,
     CodingModule as CodingModuleModel,
-    CodingFeature as CodingFeatureModel,
 )
 from ....repositories.coding_repository import (
     CodingSystemRepository,
     CodingModuleRepository,
-    CodingFeatureRepository,
 )
 from ....services.llm_service import LLMService
 from ....services.coding import CodingProjectService
@@ -96,28 +92,6 @@ class UpdateModuleRequest(BaseModel):
     dependencies: Optional[List[str]] = None
 
 
-class CreateFeatureRequest(BaseModel):
-    """创建功能请求"""
-    system_number: int = Field(..., description="所属系统编号")
-    module_number: int = Field(..., description="所属模块编号")
-    name: str = Field(..., description="功能名称")
-    description: str = Field(default="", description="功能描述")
-    inputs: str = Field(default="", description="输入说明")
-    outputs: str = Field(default="", description="输出说明")
-    implementation_notes: str = Field(default="", description="实现要点")
-    priority: str = Field(default="medium", description="优先级")
-
-
-class UpdateFeatureRequest(BaseModel):
-    """更新功能请求"""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    inputs: Optional[str] = None
-    outputs: Optional[str] = None
-    implementation_notes: Optional[str] = None
-    priority: Optional[str] = None
-
-
 class GenerateSystemsRequest(BaseModel):
     """生成系统请求"""
     min_systems: int = Field(default=3, description="最少系统数")
@@ -133,13 +107,11 @@ class GenerateModulesRequest(BaseModel):
     preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导")
 
 
-class GenerateFeaturesRequest(BaseModel):
-    """生成功能请求"""
-    system_number: int = Field(..., description="所属系统编号")
-    module_number: int = Field(..., description="目标模块编号")
-    min_features: int = Field(default=2, description="最少功能数")
-    max_features: int = Field(default=6, description="最多功能数")
-    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导")
+class GenerateAllModulesRequest(BaseModel):
+    """批量生成所有系统模块请求"""
+    min_modules: int = Field(default=3, description="每个系统最少模块数")
+    max_modules: int = Field(default=8, description="每个系统最多模块数")
+    preference: Optional[str] = Field(default=None, description="生成偏好指导")
 
 
 class CreateDependencyRequest(BaseModel):
@@ -181,7 +153,6 @@ def _serialize_system(system: CodingSystemModel) -> CodingSystem:
         responsibilities=system.responsibilities or [],
         tech_requirements=system.tech_requirements or "",
         module_count=system.module_count or 0,
-        feature_count=system.feature_count or 0,
         generation_status=gen_status,
         progress=system.progress or 0,
     )
@@ -202,23 +173,7 @@ def _serialize_module(module: CodingModuleModel) -> CodingModule:
         description=module.description or "",
         interface=module.interface or "",
         dependencies=module.dependencies or [],
-        feature_count=module.feature_count or 0,
         generation_status=gen_status,
-    )
-
-
-def _serialize_feature(feature: CodingFeatureModel) -> CodingFeature:
-    """将CodingFeatureModel序列化为CodingFeature Schema"""
-    return CodingFeature(
-        feature_number=feature.feature_number,
-        module_number=feature.module_number,
-        system_number=feature.system_number,
-        name=feature.name or f"功能{feature.feature_number}",
-        description=feature.description or "",
-        inputs=feature.inputs or "",
-        outputs=feature.outputs or "",
-        implementation_notes=feature.implementation_notes or "",
-        priority=feature.priority or "medium",
     )
 
 
@@ -336,7 +291,7 @@ async def delete_system(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
-    """删除系统（同时删除关联的模块和功能）"""
+    """删除系统（同时删除关联的模块）"""
     project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
     system_repo = CodingSystemRepository(session)
@@ -351,14 +306,6 @@ async def delete_system(
         delete(CodingModuleModel).where(
             CodingModuleModel.project_id == project_id,
             CodingModuleModel.system_number == system_number
-        )
-    )
-
-    # 删除关联的功能
-    await session.execute(
-        delete(CodingFeatureModel).where(
-            CodingFeatureModel.project_id == project_id,
-            CodingFeatureModel.system_number == system_number
         )
     )
 
@@ -493,7 +440,7 @@ async def delete_module(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
-    """删除模块（同时删除关联的功能）"""
+    """删除模块"""
     project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
     module_repo = CodingModuleRepository(session)
@@ -502,169 +449,12 @@ async def delete_module(
     if not module:
         raise ResourceNotFoundError("module", str(module_number), "模块不存在")
 
-    # 删除关联的功能
-    from sqlalchemy import delete as sql_delete
-    await session.execute(
-        sql_delete(CodingFeatureModel).where(
-            CodingFeatureModel.project_id == project_id,
-            CodingFeatureModel.module_number == module_number
-        )
-    )
-
     # 删除模块本身
     await session.delete(module)
     await session.commit()
 
-    logger.info("项目 %s 删除模块 %d 及关联功能", project_id, module_number)
+    logger.info("项目 %s 删除模块 %d", project_id, module_number)
     return {"success": True, "deleted_module_number": module_number}
-
-
-# ==================== 功能(Feature) CRUD ====================
-
-@router.get("/coding/{project_id}/features/outlines")
-async def list_feature_outlines(
-    project_id: str,
-    system_number: Optional[int] = Query(None, description="按系统编号过滤"),
-    module_number: Optional[int] = Query(None, description="按模块编号过滤"),
-    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> List[CodingFeature]:
-    """获取功能大纲列表"""
-    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
-
-    feature_repo = CodingFeatureRepository(session)
-
-    if module_number is not None:
-        features = await feature_repo.get_by_module(project_id, module_number)
-    elif system_number is not None:
-        features = await feature_repo.get_by_system(project_id, system_number)
-    else:
-        features = await feature_repo.get_by_project_ordered(project_id)
-
-    return [_serialize_feature(f) for f in features]
-
-
-@router.get("/coding/{project_id}/features/outlines/{feature_number}")
-async def get_feature_outline(
-    project_id: str,
-    feature_number: int,
-    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> CodingFeature:
-    """获取指定功能大纲详情"""
-    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
-
-    feature_repo = CodingFeatureRepository(session)
-    feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
-
-    if not feature:
-        raise ResourceNotFoundError("feature", str(feature_number), "功能不存在")
-
-    return _serialize_feature(feature)
-
-
-@router.post("/coding/{project_id}/features/outlines")
-async def create_feature_outline(
-    project_id: str,
-    request: CreateFeatureRequest,
-    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> CodingFeature:
-    """手动创建功能大纲"""
-    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
-
-    feature_repo = CodingFeatureRepository(session)
-
-    # 计算新的功能编号
-    new_number = await feature_repo.get_max_number(project_id) + 1
-
-    # 创建CodingFeature记录
-    new_feature = CodingFeatureModel(
-        project_id=project_id,
-        feature_number=new_number,
-        system_number=request.system_number,
-        module_number=request.module_number,
-        name=request.name,
-        description=request.description or "",
-        inputs=request.inputs or "",
-        outputs=request.outputs or "",
-        implementation_notes=request.implementation_notes or "",
-        priority=request.priority or "medium",
-    )
-    session.add(new_feature)
-    await session.commit()
-
-    logger.info(
-        "项目 %s 创建功能 %d: %s (系统 %d, 模块 %d)",
-        project_id, new_number, request.name, request.system_number, request.module_number
-    )
-    return _serialize_feature(new_feature)
-
-
-@router.put("/coding/{project_id}/features/outlines/{feature_number}")
-async def update_feature_outline(
-    project_id: str,
-    feature_number: int,
-    request: UpdateFeatureRequest,
-    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> CodingFeature:
-    """更新功能大纲"""
-    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
-
-    feature_repo = CodingFeatureRepository(session)
-    feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
-
-    if not feature:
-        raise ResourceNotFoundError("feature", str(feature_number), "功能不存在")
-
-    # 更新字段
-    if request.name is not None:
-        feature.name = request.name
-    if request.description is not None:
-        feature.description = request.description
-    if request.inputs is not None:
-        feature.inputs = request.inputs
-    if request.outputs is not None:
-        feature.outputs = request.outputs
-    if request.implementation_notes is not None:
-        feature.implementation_notes = request.implementation_notes
-    if request.priority is not None:
-        feature.priority = request.priority
-
-    await session.commit()
-
-    logger.info("项目 %s 更新功能 %d", project_id, feature_number)
-    return _serialize_feature(feature)
-
-
-@router.delete("/coding/{project_id}/features/outlines/{feature_number}")
-async def delete_feature_outline(
-    project_id: str,
-    feature_number: int,
-    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
-    session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
-) -> dict:
-    """删除功能大纲"""
-    project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
-
-    feature_repo = CodingFeatureRepository(session)
-    feature = await feature_repo.get_by_project_and_number(project_id, feature_number)
-
-    if not feature:
-        raise ResourceNotFoundError("feature", str(feature_number), "功能不存在")
-
-    # 删除功能
-    await session.delete(feature)
-    await session.commit()
-
-    logger.info("项目 %s 删除功能 %d", project_id, feature_number)
-    return {"success": True, "deleted_feature_number": feature_number}
 
 
 # ==================== 生成接口 ====================
@@ -733,12 +523,8 @@ async def generate_systems(
 
     # 保存到数据库
     system_repo = CodingSystemRepository(session)
-    # 清除旧数据（级联删除：先删功能、再删模块、最后删系统）
+    # 清除旧数据（级联删除：先删模块、再删系统）
     from sqlalchemy import delete
-    # 删除所有功能大纲
-    await session.execute(
-        delete(CodingFeatureModel).where(CodingFeatureModel.project_id == project_id)
-    )
     # 删除所有模块
     await session.execute(
         delete(CodingModuleModel).where(CodingModuleModel.project_id == project_id)
@@ -748,7 +534,7 @@ async def generate_systems(
         delete(CodingSystemModel).where(CodingSystemModel.project_id == project_id)
     )
     await session.flush()
-    logger.info("项目 %s 重新生成系统划分，已级联删除旧的系统/模块/功能数据", project_id)
+    logger.info("项目 %s 重新生成系统划分，已级联删除旧的系统/模块数据", project_id)
 
     systems = result.get("systems", [])
     created_systems = []
@@ -865,15 +651,8 @@ async def generate_modules(
     result = parse_llm_json_or_fail(response, "模块生成失败")
 
     # 保存到数据库
-    # 先删除该系统下的旧功能和旧模块（级联删除）
+    # 先删除该系统下的旧模块
     from sqlalchemy import delete
-    # 删除该系统下的所有功能大纲
-    await session.execute(
-        delete(CodingFeatureModel).where(
-            CodingFeatureModel.project_id == project_id,
-            CodingFeatureModel.system_number == request.system_number
-        )
-    )
     # 删除该系统下的所有模块
     await session.execute(
         delete(CodingModuleModel).where(
@@ -882,7 +661,7 @@ async def generate_modules(
         )
     )
     await session.flush()
-    logger.info("项目 %s 系统 %d 重新生成模块，已级联删除旧的模块/功能数据", project_id, request.system_number)
+    logger.info("项目 %s 系统 %d 重新生成模块，已删除旧的模块数据", project_id, request.system_number)
 
     modules = result.get("modules", [])
     created_modules = []
@@ -897,7 +676,6 @@ async def generate_modules(
             description=mod_data.get("description", ""),
             interface=mod_data.get("interface", ""),
             dependencies=mod_data.get("dependencies", []),
-            feature_count=mod_data.get("estimated_feature_count", 0),
             generation_status=CodingSystemStatus.PENDING.value,
         )
         session.add(new_module)
@@ -937,142 +715,218 @@ async def generate_modules(
     return created_modules
 
 
-@router.post("/coding/{project_id}/features/generate")
-async def generate_features(
+@router.post("/coding/{project_id}/modules/generate-all")
+async def generate_all_modules_stream(
     project_id: str,
-    request: GenerateFeaturesRequest,
+    request: Optional[GenerateAllModulesRequest] = None,
     coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     llm_service: LLMService = Depends(get_llm_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
     vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
-) -> List[CodingFeature]:
-    """为指定模块生成功能大纲"""
+):
+    """
+    为所有系统批量生成模块（SSE流式）
+
+    逐个系统生成模块，通过LLM队列控制并发，实时返回进度。
+
+    事件类型:
+    - start: 开始批量生成 {"total_systems": N}
+    - system_start: 开始处理某个系统 {"system_number": N, "system_name": "xxx", "index": N}
+    - system_complete: 完成某个系统 {"system_number": N, "modules_created": N}
+    - system_error: 某个系统生成失败 {"system_number": N, "error": "xxx"}
+    - complete: 全部完成 {"total_modules": N, "systems_processed": N}
+    - error: 整体错误 {"message": "xxx"}
+    """
+    logger.info("收到批量生成模块请求: project_id=%s", project_id)
+
+    # 验证项目所有权
     project = await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
-    # 获取目标模块
-    module_repo = CodingModuleRepository(session)
-    target_module = await module_repo.get_by_project_and_number(project_id, request.module_number)
+    # 获取所有系统
+    system_repo = CodingSystemRepository(session)
+    systems = await system_repo.get_by_project_ordered(project_id)
 
-    if not target_module:
-        raise ResourceNotFoundError("module", str(request.module_number), "模块不存在")
+    if not systems:
+        async def no_systems_generator():
+            yield sse_event("error", {"message": "项目没有系统划分，请先生成系统"})
+        return create_sse_response(no_systems_generator())
+
+    # 获取请求参数
+    min_modules = request.min_modules if request else 3
+    max_modules = request.max_modules if request else 8
+    preference = request.preference if request else None
 
     # 获取架构上下文
     architecture = await _get_architecture_context(project)
 
-    # 先删除该模块下的旧功能
-    feature_repo = CodingFeatureRepository(session)
-    from sqlalchemy import delete as sql_delete
-    await session.execute(
-        sql_delete(CodingFeatureModel).where(
-            CodingFeatureModel.project_id == project_id,
-            CodingFeatureModel.module_number == request.module_number
-        )
-    )
-    await session.flush()
-
-    # 计算起始功能编号
-    start_feature_number = await feature_repo.get_max_number(project_id) + 1
-
     # 获取提示词
     system_prompt = ensure_prompt(
-        await prompt_service.get_prompt("features_batch_outline"),
-        "features_batch_outline"
+        await prompt_service.get_prompt("modules_batch_design"),
+        "modules_batch_design"
     )
 
-    # 构建模块信息
-    module_info = _serialize_module(target_module).model_dump()
+    # 获取LLM队列
+    from ....services.queue import LLMRequestQueue
+    llm_queue = LLMRequestQueue.get_instance()
 
-    # 构建用户消息
-    user_message = f"""请为以下模块生成功能大纲列表。
+    async def event_generator():
+        total_modules_created = 0
+        systems_processed = 0
+        module_repo = CodingModuleRepository(session)
+
+        # 发送开始事件
+        yield sse_event("start", {
+            "total_systems": len(systems),
+            "project_name": project.title,
+        })
+
+        for idx, target_system in enumerate(systems):
+            system_number = target_system.system_number
+            system_name = target_system.name
+
+            # 发送系统开始事件
+            yield sse_event("system_start", {
+                "system_number": system_number,
+                "system_name": system_name,
+                "index": idx + 1,
+                "total": len(systems),
+            })
+
+            try:
+                # 通过LLM队列控制并发
+                async with llm_queue.request_slot():
+                    # 计算起始模块编号
+                    start_module_number = await module_repo.get_max_number(project_id) + 1
+
+                    # 构建用户消息
+                    user_message = f"""请为以下系统设计模块列表。
 
 ## 项目架构设计
 {json.dumps(architecture, ensure_ascii=False, indent=2)}
 
-## 系统信息
-- 系统编号: {request.system_number}
-
-## 模块信息
-{json.dumps(module_info, ensure_ascii=False, indent=2)}
+## 当前系统信息
+- 系统编号: {target_system.system_number}
+- 系统名称: {target_system.name}
+- 系统描述: {target_system.description}
 
 ## 生成配置
-- 起始功能编号 (start_feature_number): {start_feature_number}
-- 最少功能数: {request.min_features}
-- 最多功能数: {request.max_features}
+- 起始模块编号 (start_module_number): {start_module_number}
+- 最少模块数: {min_modules}
+- 最多模块数: {max_modules}
 """
-
-    # 如果有偏好指导，添加到用户消息中
-    if request.preference:
-        user_message += f"""
+                    if preference:
+                        user_message += f"""
 ## 用户偏好指导
 请特别注意以下偏好要求：
-{request.preference}
+{preference}
 """
-        logger.info("项目 %s 模块 %d 使用偏好指导重新生成功能大纲", project_id, request.module_number)
+                    user_message += "\n请生成该系统的模块列表JSON。"
 
-    user_message += "\n请生成该模块的功能大纲列表JSON。"
+                    # 调用LLM
+                    response = await llm_service.get_llm_response(
+                        system_prompt=system_prompt,
+                        conversation_history=[{"role": "user", "content": user_message}],
+                        user_id=desktop_user.id,
+                        temperature=settings.llm_temp_outline,
+                        max_tokens=settings.llm_max_tokens_coding_module,
+                        timeout=180,
+                    )
 
-    # 调用LLM（功能大纲需要足够的token）
-    response = await llm_service.get_llm_response(
-        system_prompt=system_prompt,
-        conversation_history=[{"role": "user", "content": user_message}],
-        user_id=desktop_user.id,
-        temperature=settings.llm_temp_outline,
-        max_tokens=settings.llm_max_tokens_coding_feature,
-        timeout=180,
-    )
+                    # 解析结果
+                    result = parse_llm_json_or_fail(response, f"系统{system_name}模块生成失败")
 
-    # 解析结果
-    result = parse_llm_json_or_fail(response, "功能大纲生成失败")
+                    # 删除该系统下的旧模块
+                    from sqlalchemy import delete
+                    await session.execute(
+                        delete(CodingModuleModel).where(
+                            CodingModuleModel.project_id == project_id,
+                            CodingModuleModel.system_number == system_number
+                        )
+                    )
+                    await session.flush()
 
-    # 保存到数据库
-    features = result.get("features", [])
-    created_features = []
+                    # 保存模块
+                    modules = result.get("modules", [])
+                    modules_created = 0
 
-    for feat_data in features:
-        new_feature = CodingFeatureModel(
-            project_id=project_id,
-            feature_number=feat_data.get("feature_number", start_feature_number + len(created_features)),
-            system_number=request.system_number,
-            module_number=request.module_number,
-            name=feat_data.get("name", ""),
-            description=feat_data.get("description", ""),
-            inputs=feat_data.get("inputs", ""),
-            outputs=feat_data.get("outputs", ""),
-            implementation_notes=feat_data.get("implementation_notes", ""),
-            priority=feat_data.get("priority", "medium"),
-        )
-        session.add(new_feature)
-        await session.flush()
-        created_features.append(_serialize_feature(new_feature))
+                    for mod_data in modules:
+                        new_module = CodingModuleModel(
+                            project_id=project_id,
+                            module_number=mod_data.get("module_number", start_module_number + modules_created),
+                            system_number=system_number,
+                            name=mod_data.get("name", ""),
+                            module_type=mod_data.get("type", "service"),
+                            description=mod_data.get("description", ""),
+                            interface=mod_data.get("interface", ""),
+                            dependencies=mod_data.get("dependencies", []),
+                            generation_status=CodingSystemStatus.PENDING.value,
+                        )
+                        session.add(new_module)
+                        modules_created += 1
 
-    # 更新模块的功能数量
-    target_module.feature_count = len(created_features)
+                    # 更新系统的模块数量
+                    target_system.module_count = modules_created
+                    await session.commit()
 
-    await session.commit()
+                    total_modules_created += modules_created
+                    systems_processed += 1
 
-    logger.info(
-        "项目 %s 模块 %d 生成 %d 个功能大纲",
-        project_id, request.module_number, len(created_features)
-    )
+                    logger.info(
+                        "系统 %s 模块生成完成: %d 个模块",
+                        system_name, modules_created
+                    )
 
-    # 自动入库：功能大纲
-    if vector_store and created_features:
-        try:
-            from ....services.coding_rag import schedule_ingestion, CodingDataType
-            schedule_ingestion(
-                project_id=project_id,
-                user_id=desktop_user.id,
-                data_type=CodingDataType.FEATURE_OUTLINE,
-                vector_store=vector_store,
-                llm_service=llm_service,
-            )
-            logger.info("项目 %s 功能大纲已调度RAG入库", project_id)
-        except Exception as rag_exc:
-            logger.warning("项目 %s 功能大纲RAG入库调度失败: %s", project_id, str(rag_exc))
+                    # 发送系统完成事件
+                    yield sse_event("system_complete", {
+                        "system_number": system_number,
+                        "system_name": system_name,
+                        "modules_created": modules_created,
+                        "index": idx + 1,
+                    })
 
-    return created_features
+            except Exception as e:
+                logger.error("系统 %s 模块生成失败: %s", system_name, str(e))
+                yield sse_event("system_error", {
+                    "system_number": system_number,
+                    "system_name": system_name,
+                    "error": str(e),
+                    "index": idx + 1,
+                })
+                # 继续处理下一个系统
+                continue
+
+        # 发送完成事件
+        yield sse_event("complete", {
+            "total_modules": total_modules_created,
+            "systems_processed": systems_processed,
+            "total_systems": len(systems),
+        })
+
+        # 自动入库RAG
+        if vector_store and total_modules_created > 0:
+            try:
+                from ....services.coding_rag import schedule_ingestion, CodingDataType
+                schedule_ingestion(
+                    project_id=project_id,
+                    user_id=desktop_user.id,
+                    data_type=CodingDataType.MODULE,
+                    vector_store=vector_store,
+                    llm_service=llm_service,
+                )
+                schedule_ingestion(
+                    project_id=project_id,
+                    user_id=desktop_user.id,
+                    data_type=CodingDataType.DEPENDENCY,
+                    vector_store=vector_store,
+                    llm_service=llm_service,
+                )
+                logger.info("项目 %s 模块定义已调度RAG入库", project_id)
+            except Exception as rag_exc:
+                logger.warning("项目 %s 模块定义RAG入库调度失败: %s", project_id, str(rag_exc))
+
+    return create_sse_response(event_generator())
 
 
 # ==================== 依赖关系管理 ====================

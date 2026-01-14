@@ -13,12 +13,9 @@ from ..models.coding import (
     CodingBlueprint as CodingBlueprintModel,
     CodingSystem as CodingSystemModel,
     CodingModule as CodingModuleModel,
-    CodingFeature as CodingFeatureModel,
 )
 from ..schemas.coding import (
     CodingBlueprint,
-    CodingFeature,
-    CodingFeatureStatus,
     CodingModule,
     CodingProjectResponse,
     CodingProjectSummary,
@@ -66,12 +63,6 @@ class CodingSerializer:
         # 构建蓝图Schema
         blueprint_schema = CodingSerializer.build_blueprint_schema(project)
 
-        # 构建功能列表
-        features_schema = [
-            CodingSerializer.build_feature_schema(feature)
-            for feature in sorted(project.features, key=lambda f: f.feature_number)
-        ]
-
         return CodingProjectResponse(
             id=project.id,
             user_id=project.user_id,
@@ -80,7 +71,6 @@ class CodingSerializer:
             status=project.status,
             conversation_history=conversations,
             blueprint=blueprint_schema,
-            features=features_schema,
         )
 
     @staticmethod
@@ -94,12 +84,6 @@ class CodingSerializer:
         Returns:
             CodingProjectSummary: 项目摘要
         """
-        # 计算已完成功能数
-        completed_features = len([
-            f for f in project.features
-            if f.status == "successful"
-        ])
-
         # 获取项目类型描述
         project_type_desc = ""
         if project.blueprint:
@@ -110,8 +94,6 @@ class CodingSerializer:
             title=project.title,
             project_type_desc=project_type_desc,
             last_edited=project.updated_at.isoformat() if project.updated_at else "",
-            completed_features=completed_features,
-            total_features=len(project.features),
             status=project.status,
         )
 
@@ -218,12 +200,6 @@ class CodingSerializer:
             for module in sorted(project.modules, key=lambda m: m.module_number)
         ]
 
-        # 从关联关系构建功能列表
-        features = [
-            CodingSerializer.build_feature_schema(feature)
-            for feature in sorted(project.features, key=lambda f: f.feature_number)
-        ]
-
         # 从模块的dependencies字段动态提取依赖关系
         # 每个模块的dependencies存储了它依赖的其他模块名称列表
         dependencies = []
@@ -255,11 +231,9 @@ class CodingSerializer:
             milestones=milestones,
             systems=systems,
             modules=modules,
-            features=features,
             dependencies=dependencies,
             total_systems=blueprint_obj.total_systems or len(systems),
             total_modules=blueprint_obj.total_modules or len(modules),
-            total_features=blueprint_obj.total_features or len(features),
             needs_phased_design=blueprint_obj.needs_phased_design or False,
         )
 
@@ -286,7 +260,6 @@ class CodingSerializer:
             responsibilities=system.responsibilities or [],
             tech_requirements=system.tech_requirements or "",
             module_count=system.module_count or 0,
-            feature_count=system.feature_count or 0,
             generation_status=gen_status,
             progress=system.progress or 0,
         )
@@ -315,37 +288,5 @@ class CodingSerializer:
             description=module.description or "",
             interface=module.interface or "",
             dependencies=module.dependencies or [],
-            feature_count=module.feature_count or 0,
             generation_status=gen_status,
-        )
-
-    @staticmethod
-    def build_feature_schema(feature: CodingFeatureModel) -> CodingFeature:
-        """
-        构建功能Schema
-
-        Args:
-            feature: 功能ORM模型
-
-        Returns:
-            CodingFeature: 功能Schema
-        """
-        # 计算版本数量
-        version_count = len(feature.versions) if hasattr(feature, 'versions') and feature.versions else 0
-
-        return CodingFeature(
-            feature_number=feature.feature_number,
-            module_number=feature.module_number,
-            system_number=feature.system_number,
-            name=feature.name,
-            description=feature.description or "",
-            inputs=feature.inputs or "",
-            outputs=feature.outputs or "",
-            implementation_notes=feature.implementation_notes or "",
-            priority=feature.priority or "medium",
-            # 内容生成状态
-            status=feature.status or "not_generated",
-            has_content=bool(feature.selected_version_id),
-            selected_version_id=feature.selected_version_id,
-            version_count=version_count,
         )

@@ -84,6 +84,69 @@ class PanelPrompt:
 
 
 @dataclass
+class PagePrompt:
+    """
+    整页漫画提示词结果
+
+    用于生成带分格布局的整页漫画图片，让AI直接画出完整页面。
+    """
+    page_number: int
+
+    # 布局模板标识 (如 "3row_1x2x1" 表示3行，第1行1格，第2行2格，第3行1格)
+    layout_template: str = ""
+
+    # 布局描述文本 (给AI理解的结构化描述)
+    layout_description: str = ""
+
+    # 每个画格的简要描述列表
+    panel_summaries: List[Dict[str, Any]] = field(default_factory=list)
+
+    # 整合后的完整页面提示词（中文）
+    full_page_prompt: str = ""
+
+    # 负面提示词
+    negative_prompt: str = ""
+
+    # 页面宽高比 (漫画页通常是 3:4 或 2:3)
+    aspect_ratio: str = "3:4"
+
+    # 原始panel数据引用 (用于前端显示和兼容)
+    panels: List["PanelPrompt"] = field(default_factory=list)
+
+    # 角色立绘引用路径（整页使用的所有立绘）
+    reference_image_paths: Optional[List[str]] = None
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            "page_number": self.page_number,
+            "layout_template": self.layout_template,
+            "layout_description": self.layout_description,
+            "panel_summaries": self.panel_summaries,
+            "full_page_prompt": self.full_page_prompt,
+            "negative_prompt": self.negative_prompt,
+            "aspect_ratio": self.aspect_ratio,
+            "panels": [p.to_dict() for p in self.panels],
+            "reference_image_paths": self.reference_image_paths,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PagePrompt":
+        """从字典创建"""
+        return cls(
+            page_number=data.get("page_number", 1),
+            layout_template=data.get("layout_template", ""),
+            layout_description=data.get("layout_description", ""),
+            panel_summaries=data.get("panel_summaries", []),
+            full_page_prompt=data.get("full_page_prompt", ""),
+            negative_prompt=data.get("negative_prompt", ""),
+            aspect_ratio=data.get("aspect_ratio", "3:4"),
+            panels=[PanelPrompt.from_dict(p) for p in data.get("panels", [])],
+            reference_image_paths=data.get("reference_image_paths"),
+        )
+
+
+@dataclass
 class PagePromptResult:
     """单页提示词结果（简化版）"""
     page_number: int
@@ -126,6 +189,8 @@ class MangaPromptResult:
     total_panels: int = 0
     character_profiles: Dict[str, str] = field(default_factory=dict)
     dialogue_language: str = "chinese"
+    # 整页提示词列表（用于整页漫画生成）
+    page_prompts: List[PagePrompt] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """转换为字典"""
@@ -137,12 +202,14 @@ class MangaPromptResult:
             "total_panels": self.total_panels,
             "character_profiles": self.character_profiles,
             "dialogue_language": self.dialogue_language,
+            "page_prompts": [pp.to_dict() for pp in self.page_prompts],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "MangaPromptResult":
         """从字典创建"""
         pages = [PagePromptResult.from_dict(p) for p in data.get("pages", [])]
+        page_prompts = [PagePrompt.from_dict(pp) for pp in data.get("page_prompts", [])]
         return cls(
             chapter_number=data.get("chapter_number", 1),
             style=data.get("style", "manga"),
@@ -151,6 +218,7 @@ class MangaPromptResult:
             total_panels=data.get("total_panels", sum(len(p.panels) for p in pages)),
             character_profiles=data.get("character_profiles", {}),
             dialogue_language=data.get("dialogue_language", "chinese"),
+            page_prompts=page_prompts,
         )
 
     def get_all_prompts(self) -> List[PanelPrompt]:
@@ -160,9 +228,17 @@ class MangaPromptResult:
             prompts.extend(page.panels)
         return prompts
 
+    def get_page_prompt(self, page_number: int) -> Optional[PagePrompt]:
+        """获取指定页码的整页提示词"""
+        for pp in self.page_prompts:
+            if pp.page_number == page_number:
+                return pp
+        return None
+
 
 __all__ = [
     "PanelPrompt",
+    "PagePrompt",
     "PagePromptResult",
     "MangaPromptResult",
 ]

@@ -186,19 +186,20 @@ def _create_coding_detail_page(parent, **kwargs):
     return CodingDetail(project_id, parent)
 
 
-@register_page_factory('CODING_DESK')
-def _create_coding_desk_page(parent, **kwargs):
-    """创建Prompt生成工作台页"""
-    from windows.coding_desk import CodingDesk
-    project_id = kwargs.get('project_id')
-    if not project_id:
-        logger.error("CODING_DESK页面缺少project_id参数")
-        return None
-    return CodingDesk(project_id, parent)
-
-
 @register_page_factory('CODING_INSPIRATION')
 def _create_coding_inspiration_page(parent, **kwargs):
     """创建编程项目需求分析对话页"""
     from windows.coding_inspiration import CodingInspirationMode
     return CodingInspirationMode(parent)
+
+
+@register_page_factory('CODING_DESK')
+def _create_coding_desk_page(parent, **kwargs):
+    """创建编程项目Prompt生成工作台"""
+    from windows.coding_desk import CodingDesk
+    project_id = kwargs.get('project_id')
+    file_id = kwargs.get('file_id')
+    if not project_id:
+        logger.error("CODING_DESK页面缺少project_id参数")
+        return None
+    return CodingDesk(project_id, file_id, parent)

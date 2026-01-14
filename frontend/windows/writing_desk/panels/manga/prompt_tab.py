@@ -151,6 +151,8 @@ class PromptTabMixin:
         panels = manga_data.get('panels', [])
         # scenes字段存储的是pages数据（包含gutter信息）
         pages_info = manga_data.get('scenes', [])
+        # 获取整页提示词列表
+        page_prompts = manga_data.get('page_prompts', [])
 
         # 构建页面gutter信息映射
         page_gutter_map = {}
@@ -164,6 +166,13 @@ class PromptTabMixin:
                     'layout_description': page_info.get('layout_description', ''),
                 }
 
+        # 构建整页提示词映射
+        page_prompts_map = {}
+        for pp in page_prompts:
+            pn = pp.get('page_number')
+            if pn is not None:
+                page_prompts_map[pn] = pp
+
         # 按页码分组画格
         panels_by_page: Dict[int, List] = {}
         for panel in panels:
@@ -176,9 +185,10 @@ class PromptTabMixin:
         for page_number in sorted(panels_by_page.keys()):
             page_panels = panels_by_page[page_number]
             page_info = page_gutter_map.get(page_number, {})
+            page_prompt = page_prompts_map.get(page_number)
 
-            # 页面标题
-            page_header = self._create_page_header(page_number, page_info, len(page_panels))
+            # 页面标题（传递页面画格数据和整页提示词用于整页生成）
+            page_header = self._create_page_header(page_number, page_info, len(page_panels), page_panels, page_prompt)
             content_layout.addWidget(page_header)
 
             # 页面网格（按row_id分行排列）
@@ -190,13 +200,15 @@ class PromptTabMixin:
 
         return scroll_area
 
-    def _create_page_header(self, page_number: int, page_info: dict, panel_count: int) -> QFrame:
+    def _create_page_header(self, page_number: int, page_info: dict, panel_count: int, page_panels: List = None, page_prompt: dict = None) -> QFrame:
         """创建页面标题
 
         Args:
             page_number: 页码
             page_info: 页面信息（mood, layout_description, gutter等）
             panel_count: 画格数量
+            page_panels: 该页的画格列表（用于整页生成）
+            page_prompt: 整页提示词数据（从后端预生成）
 
         Returns:
             页面标题Widget
@@ -218,7 +230,7 @@ class PromptTabMixin:
         layout.setContentsMargins(dp(10), dp(6), dp(10), dp(6))
         layout.setSpacing(dp(4))
 
-        # 顶部行：页码 + 情感标签 + 画格数
+        # 顶部行：页码 + 情感标签 + 画格数 + 查看整页提示词 + 整页生成按钮
         top_row = QHBoxLayout()
         top_row.setSpacing(dp(8))
 
@@ -231,8 +243,6 @@ class PromptTabMixin:
             color: {s.accent_color};
         """)
         top_row.addWidget(page_label)
-
-        top_row.addStretch()
 
         # 情感标签
         mood = page_info.get('mood', '')
@@ -263,6 +273,119 @@ class PromptTabMixin:
         """)
         top_row.addWidget(count_label)
 
+        # 如果有预生成的整页提示词，显示标记
+        if page_prompt and page_prompt.get('full_page_prompt'):
+            has_prompt_label = QLabel("整页提示词")
+            has_prompt_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(9)}px;
+                color: {s.success};
+                background-color: {s.success}20;
+                padding: {dp(1)}px {dp(4)}px;
+                border-radius: {dp(2)}px;
+            """)
+            top_row.addWidget(has_prompt_label)
+
+        top_row.addStretch()
+
+        # 查看整页提示词按钮（如果有预生成的提示词）
+        if page_prompt and page_prompt.get('full_page_prompt'):
+            view_page_prompt_btn = QPushButton("查看")
+            view_page_prompt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            view_page_prompt_btn.setStyleSheet(ButtonStyles.text('XS'))
+            view_page_prompt_btn.setToolTip("查看整页提示词")
+            if hasattr(self, '_on_preview_prompt') and self._on_preview_prompt:
+                # 构建一个包含整页提示词的伪panel数据，供预览使用
+                page_prompt_data = {
+                    'panel_id': f'page_{page_number}_prompt',
+                    'page_number': page_number,
+                    'prompt': page_prompt.get('full_page_prompt', ''),
+                    'negative_prompt': page_prompt.get('negative_prompt', ''),
+                    'layout_template': page_prompt.get('layout_template', ''),
+                    'aspect_ratio': page_prompt.get('aspect_ratio', '3:4'),
+                    'is_page_prompt': True,  # 标记为整页提示词
+                }
+                view_page_prompt_btn.clicked.connect(
+                    lambda checked, ppd=page_prompt_data: self._on_preview_prompt(ppd)
+                )
+            top_row.addWidget(view_page_prompt_btn)
+
+        # 整页生成按钮区域（使用 QStackedWidget 切换按钮和加载状态）
+        if page_panels and hasattr(self, '_on_generate_page_image') and self._on_generate_page_image:
+            btn_stack = QStackedWidget()
+            btn_stack.setFixedHeight(dp(28))
+
+            # 状态0: 整页生成按钮
+            btn_container = QWidget()
+            btn_container.setStyleSheet("background: transparent;")
+            btn_inner_layout = QHBoxLayout(btn_container)
+            btn_inner_layout.setContentsMargins(0, 0, 0, 0)
+            btn_inner_layout.setSpacing(dp(4))
+
+            generate_page_btn = QPushButton("整页生成")
+            generate_page_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            generate_page_btn.setStyleSheet(ButtonStyles.secondary('XS'))
+            generate_page_btn.setToolTip("让AI直接生成带分格布局的整页漫画")
+
+            # 构建页面数据并绑定回调
+            def on_generate_page_clicked(checked, pn=page_number, panels=page_panels, info=page_info, pp=page_prompt):
+                # 如果有预生成的整页提示词，优先使用
+                if pp and pp.get('full_page_prompt'):
+                    page_data = {
+                        'page_number': pn,
+                        'layout_template': pp.get('layout_template', ''),
+                        'layout_description': pp.get('layout_description', ''),
+                        'full_page_prompt': pp.get('full_page_prompt', ''),
+                        'negative_prompt': pp.get('negative_prompt', ''),
+                        'aspect_ratio': pp.get('aspect_ratio', '3:4'),
+                        'panel_summaries': pp.get('panel_summaries', []),
+                        'reference_image_paths': pp.get('reference_image_paths', []),
+                    }
+                else:
+                    # 回退到旧的构建方式
+                    page_data = self._build_page_data_for_generation(pn, panels, info)
+                if page_data and self._on_generate_page_image:
+                    self._on_generate_page_image(page_data)
+
+            generate_page_btn.clicked.connect(on_generate_page_clicked)
+            btn_inner_layout.addWidget(generate_page_btn)
+
+            btn_stack.addWidget(btn_container)
+
+            # 状态1: 加载中状态
+            loading_container = QWidget()
+            loading_container.setStyleSheet("background: transparent;")
+            loading_inner_layout = QHBoxLayout(loading_container)
+            loading_inner_layout.setContentsMargins(0, 0, 0, 0)
+            loading_inner_layout.setSpacing(dp(4))
+
+            spinner = CircularSpinner(size=dp(14), color=s.accent_color, auto_start=False)
+            loading_inner_layout.addWidget(spinner)
+
+            loading_label = QLabel("正在生成...")
+            loading_label.setStyleSheet(f"""
+                font-family: {s.ui_font};
+                font-size: {sp(10)}px;
+                color: {s.accent_color};
+                font-weight: 500;
+            """)
+            loading_inner_layout.addWidget(loading_label)
+            loading_inner_layout.addStretch()
+
+            btn_stack.addWidget(loading_container)
+            btn_stack.setCurrentIndex(0)
+
+            top_row.addWidget(btn_stack)
+
+            # 保存页面加载状态引用（用于 set_page_loading 等方法）
+            if hasattr(self, '_page_loading_states'):
+                self._page_loading_states[page_number] = {
+                    'btn_stack': btn_stack,
+                    'spinner': spinner,
+                    'loading_label': loading_label,
+                    'generate_btn': generate_page_btn,
+                }
+
         layout.addLayout(top_row)
 
         # 布局描述（如果有）
@@ -279,6 +402,150 @@ class PromptTabMixin:
             layout.addWidget(desc_label)
 
         return header
+
+    def _build_page_data_for_generation(self, page_number: int, panels: List, page_info: dict) -> dict:
+        """构建整页生成所需的数据
+
+        Args:
+            page_number: 页码
+            panels: 该页的画格列表
+            page_info: 页面信息
+
+        Returns:
+            页面数据字典，用于调用整页生成API
+        """
+        if not panels:
+            return None
+
+        # 分析布局：按row_id分组，计算布局模板名
+        rows_map: Dict[int, List] = {}
+        for panel in panels:
+            row_id = panel.get('row_id', 1)
+            if row_id not in rows_map:
+                rows_map[row_id] = []
+            rows_map[row_id].append(panel)
+
+        # 构建布局模板名，如 "3row_1x2x1"
+        row_counts = [len(rows_map.get(r, [])) for r in sorted(rows_map.keys())]
+        layout_template = f"{len(row_counts)}row_{'x'.join(map(str, row_counts))}"
+
+        # 构建布局描述
+        layout_desc = page_info.get('layout_description', '')
+
+        # 构建画格简要信息列表
+        panel_summaries = []
+        for panel in panels:
+            summary = {
+                'panel_id': panel.get('panel_id', ''),
+                'row_id': panel.get('row_id', 1),
+                'panel_number': panel.get('panel_number', 1),
+                'width_ratio': panel.get('width_ratio', 'half'),
+                'aspect_ratio': panel.get('aspect_ratio', '1:1'),
+                'prompt': panel.get('prompt', ''),
+                'characters': panel.get('characters', []),
+                'dialogue': panel.get('dialogue', ''),
+                'narration': panel.get('narration', ''),
+                'sound_effects': panel.get('sound_effects', []),
+                'is_key_panel': panel.get('is_key_panel', False),
+            }
+            panel_summaries.append(summary)
+
+        # 构建整页提示词（简化版，后端会用 PromptBuilder 重新构建）
+        # 这里提供基础框架，让后端能理解页面结构
+        full_page_prompt = self._build_simple_page_prompt(panels, layout_template, page_info)
+
+        # 收集所有角色的立绘路径（去重）
+        reference_image_paths = []
+        for panel in panels:
+            paths = panel.get('reference_image_paths', [])
+            if paths:
+                for path in paths:
+                    if path not in reference_image_paths:
+                        reference_image_paths.append(path)
+
+        # 获取负面提示词（使用第一个画格的负面提示词或默认值）
+        negative_prompt = ''
+        if panels:
+            negative_prompt = panels[0].get('negative_prompt', '')
+
+        return {
+            'page_number': page_number,
+            'layout_template': layout_template,
+            'layout_description': layout_desc,
+            'full_page_prompt': full_page_prompt,
+            'negative_prompt': negative_prompt,
+            'aspect_ratio': '3:4',  # 漫画页标准比例
+            'panel_summaries': panel_summaries,
+            'reference_image_paths': reference_image_paths,
+        }
+
+    def _build_simple_page_prompt(self, panels: List, layout_template: str, page_info: dict) -> str:
+        """构建简化版整页提示词
+
+        Args:
+            panels: 画格列表
+            layout_template: 布局模板名
+            page_info: 页面信息
+
+        Returns:
+            整页提示词字符串
+        """
+        lines = []
+
+        # 基础风格描述
+        lines.append("manga style, professional manga page, black and white manga, panel layout")
+        lines.append("")
+
+        # 页面结构
+        mood = page_info.get('mood', '')
+        if mood:
+            lines.append(f"[Page Mood: {mood}]")
+
+        layout_desc = page_info.get('layout_description', '')
+        if layout_desc:
+            lines.append(f"[Layout: {layout_desc}]")
+        else:
+            lines.append(f"[Layout Template: {layout_template}]")
+
+        lines.append("")
+        lines.append("[Panel Contents]")
+
+        # 各画格内容
+        for i, panel in enumerate(panels, 1):
+            row_id = panel.get('row_id', 1)
+            width_ratio = panel.get('width_ratio', 'half')
+            aspect_ratio = panel.get('aspect_ratio', '1:1')
+            prompt = panel.get('prompt', '')
+
+            # 画格位置和尺寸
+            panel_line = f"Panel {i} (Row {row_id}, {width_ratio}, {aspect_ratio}):"
+            lines.append(panel_line)
+
+            # 画格内容描述
+            if prompt:
+                # 截取前100字符
+                short_prompt = prompt[:100] + '...' if len(prompt) > 100 else prompt
+                lines.append(f"  {short_prompt}")
+
+            # 对话/旁白
+            dialogue = panel.get('dialogue', '')
+            if dialogue:
+                lines.append(f"  [Dialogue bubble: \"{dialogue[:50]}...\"]" if len(dialogue) > 50 else f"  [Dialogue bubble: \"{dialogue}\"]")
+
+            narration = panel.get('narration', '')
+            if narration:
+                lines.append(f"  [Narration box: \"{narration[:50]}...\"]" if len(narration) > 50 else f"  [Narration box: \"{narration}\"]")
+
+            lines.append("")
+
+        # 必须包含的元素
+        lines.append("[Required Elements]")
+        lines.append("- Clear panel borders with black lines")
+        lines.append("- White gutters between panels")
+        lines.append("- Speech bubbles with text (if dialogue exists)")
+        lines.append("- Manga-style visual flow")
+
+        return "\n".join(lines)
 
     def _create_page_grid(self, panels: List, page_info: dict) -> QFrame:
         """创建页面网格布局（支持row_span跨行）

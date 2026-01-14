@@ -51,9 +51,20 @@ class GenerateRequest(BaseModel):
         default=None,
         description=(
             "指定从哪个阶段开始生成，可选值: "
-            "extraction(信息提取), planning(页面规划), storyboard(分镜设计), prompt_building(提示词构建)。"
+            "extraction(信息提取), planning(页面规划), storyboard(分镜设计), "
+            "prompt_building(提示词构建), page_prompt_building(整页提示词构建)。"
             "为None时自动从断点恢复或从头开始"
         )
+    )
+    auto_generate_page_images: bool = Field(
+        default=False,
+        description="是否在分镜生成完成后自动生成所有整页图片"
+    )
+    page_prompt_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="整页提示词LLM生成的并发数（1-20）"
     )
 
 
@@ -94,6 +105,18 @@ class PageResponse(BaseModel):
     gutter_vertical: int = 8
 
 
+class PagePromptResponse(BaseModel):
+    """整页提示词响应"""
+    page_number: int
+    layout_template: str = ""
+    layout_description: str = ""
+    full_page_prompt: str = ""
+    negative_prompt: str = ""
+    aspect_ratio: str = "3:4"
+    panel_summaries: List[Dict[str, Any]] = []
+    reference_image_paths: List[str] = []
+
+
 class GenerateResponse(BaseModel):
     """生成响应"""
     chapter_number: int
@@ -110,6 +133,8 @@ class GenerateResponse(BaseModel):
     # 增量更新状态字段
     is_complete: bool = True  # 是否已全部完成
     completed_pages_count: Optional[int] = None  # 已完成的页数（增量生成时使用）
+    # 整页提示词列表（用于整页漫画生成）
+    page_prompts: List[PagePromptResponse] = []
 
 
 # ============================================================
@@ -146,7 +171,7 @@ async def generate_manga_prompts(
     logger.info(
         f"生成漫画分镜: project={project_id}, chapter={chapter_number}, "
         f"style={request.style}, language={request.language}, "
-        f"pages={request.min_pages}-{request.max_pages}"
+        f"pages={request.min_pages}-{request.max_pages}, force_restart={request.force_restart}"
     )
 
     # 创建服务
@@ -156,12 +181,36 @@ async def generate_manga_prompts(
         prompt_service=prompt_service,
     )
 
-    # 获取章节内容
+    # 获取章节
     chapter_repo = ChapterRepository(session)
     chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
 
     if not chapter:
         raise ResourceNotFoundError("章节", f"第{chapter_number}章")
+
+    # 检查是否已有生成记录
+    from ....repositories.manga_prompt_repository import MangaPromptRepository
+    manga_prompt_repo = MangaPromptRepository(session)
+    existing_manga = await manga_prompt_repo.get_by_chapter_id(chapter.id)
+    if existing_manga:
+        current_status = existing_manga.generation_status
+        # 如果是进行中状态（非 pending/completed/cancelled）
+        if current_status not in (None, "pending", "completed", "cancelled"):
+            if request.force_restart:
+                # 用户选择强制重新开始，重置状态
+                logger.info(
+                    f"强制重新生成，重置状态: project={project_id}, chapter={chapter_number}, "
+                    f"{current_status} -> pending"
+                )
+                existing_manga.generation_status = "pending"
+                existing_manga.generation_progress = {}
+                await session.flush()
+            else:
+                # 用户选择继续生成（断点续传）
+                logger.info(
+                    f"继续未完成的生成任务: project={project_id}, chapter={chapter_number}, "
+                    f"当前状态={current_status}"
+                )
 
     # 获取章节内容
     content = None
@@ -203,15 +252,16 @@ async def generate_manga_prompts(
             dialogue_language=request.language,
             character_portraits=character_portraits,
             auto_generate_portraits=request.auto_generate_portraits,
-            resume=not request.force_restart,  # 如果 force_restart=True，则不从断点恢复
-            start_from_stage=request.start_from_stage,  # 指定起始阶段
+            resume=not request.force_restart,
+            start_from_stage=request.start_from_stage,
+            auto_generate_page_images=request.auto_generate_page_images,
+            page_prompt_concurrency=request.page_prompt_concurrency,
         )
 
         await session.commit()
         return _convert_to_response(result)
 
     except AFNException as e:
-        # 业务异常，使用 detail 返回用户友好的错误消息
         logger.error(f"漫画分镜生成失败: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
@@ -409,6 +459,8 @@ async def get_manga_prompt_progress(
         "generating": "生成中",
         "generating_portraits": "生成角色立绘中",
         "prompt_building": "生成提示词中",
+        "page_prompt_building": "生成整页提示词中",
+        "page_image_generation": "生成整页图片中",
         "completed": "已完成",
         "cancelled": "已取消",
     }
@@ -498,6 +550,20 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             reference_image_paths=prompt.reference_image_paths or [],
         ))
 
+    # 转换整页提示词
+    page_prompts = []
+    for pp in result.page_prompts or []:
+        page_prompts.append(PagePromptResponse(
+            page_number=pp.page_number,
+            layout_template=pp.layout_template or "",
+            layout_description=pp.layout_description or "",
+            full_page_prompt=pp.full_page_prompt or "",
+            negative_prompt=pp.negative_prompt or "",
+            aspect_ratio=pp.aspect_ratio or "3:4",
+            panel_summaries=pp.panel_summaries or [],
+            reference_image_paths=pp.reference_image_paths or [],
+        ))
+
     return GenerateResponse(
         chapter_number=result.chapter_number,
         style=result.style,
@@ -510,6 +576,7 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
         # 从完整结果转换时，总是已完成状态
         is_complete=True,
         completed_pages_count=result.total_pages,
+        page_prompts=page_prompts,
     )
 
 
@@ -555,6 +622,20 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
             reference_image_paths=p.get("reference_image_paths") or [],
         ))
 
+    # 转换整页提示词
+    page_prompts = []
+    for pp in data.get("page_prompts", []):
+        page_prompts.append(PagePromptResponse(
+            page_number=pp.get("page_number", 0),
+            layout_template=pp.get("layout_template", ""),
+            layout_description=pp.get("layout_description", ""),
+            full_page_prompt=pp.get("full_page_prompt", ""),
+            negative_prompt=pp.get("negative_prompt", ""),
+            aspect_ratio=pp.get("aspect_ratio", "3:4"),
+            panel_summaries=pp.get("panel_summaries", []),
+            reference_image_paths=pp.get("reference_image_paths", []),
+        ))
+
     return GenerateResponse(
         chapter_number=data.get("chapter_number", 0),
         style=data.get("style", "manga"),
@@ -568,4 +649,5 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
         # 增量更新状态
         is_complete=data.get("is_complete", True),
         completed_pages_count=data.get("completed_pages_count"),
+        page_prompts=page_prompts,
     )

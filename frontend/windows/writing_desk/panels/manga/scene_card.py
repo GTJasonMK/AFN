@@ -400,97 +400,113 @@ class SceneCardMixin:
 
     def set_scene_loading(self, scene_id: int, loading: bool, message: str = "生成中..."):
         """设置场景卡片的加载状态"""
-        if scene_id not in self._scene_loading_states:
-            return
+        try:
+            if scene_id not in self._scene_loading_states:
+                return
 
-        state = self._scene_loading_states[scene_id]
-        btn_stack = state.get('btn_stack')
-        spinner = state.get('spinner')
-        loading_label = state.get('loading_label')
+            state = self._scene_loading_states[scene_id]
+            btn_stack = state.get('btn_stack')
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
 
-        if not btn_stack:
-            return
+            if not btn_stack:
+                return
 
-        if loading:
-            btn_stack.setCurrentIndex(1)
-            if loading_label and message:
-                loading_label.setText(message)
-            if spinner:
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(50, spinner.start)
-        else:
-            btn_stack.setCurrentIndex(0)
-            if spinner:
-                spinner.stop()
+            if loading:
+                btn_stack.setCurrentIndex(1)
+                if loading_label and message:
+                    loading_label.setText(message)
+                if spinner:
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(50, spinner.start)
+            else:
+                btn_stack.setCurrentIndex(0)
+                if spinner:
+                    spinner.stop()
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def set_scene_success(self, scene_id: int, message: str = "生成成功"):
         """设置场景生成成功状态"""
-        if scene_id not in self._scene_loading_states:
-            return
+        try:
+            if scene_id not in self._scene_loading_states:
+                return
 
-        state = self._scene_loading_states[scene_id]
-        spinner = state.get('spinner')
-        loading_label = state.get('loading_label')
+            state = self._scene_loading_states[scene_id]
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
 
-        if spinner:
-            spinner.stop()
+            if spinner:
+                spinner.stop()
 
-        if loading_label:
-            s = self._styler
-            loading_label.setText(message)
-            loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.success};
-                font-weight: 500;
-            """)
+            if loading_label:
+                s = self._styler
+                loading_label.setText(message)
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.success};
+                    font-weight: 500;
+                """)
 
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(2000, lambda sid=scene_id: self._restore_button_state(sid))
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda sid=scene_id: self._restore_button_state(sid))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def set_scene_error(self, scene_id: int, message: str = "生成失败"):
         """设置场景生成失败状态"""
-        if scene_id not in self._scene_loading_states:
-            return
+        try:
+            if scene_id not in self._scene_loading_states:
+                return
 
-        state = self._scene_loading_states[scene_id]
-        spinner = state.get('spinner')
-        loading_label = state.get('loading_label')
+            state = self._scene_loading_states[scene_id]
+            spinner = state.get('spinner')
+            loading_label = state.get('loading_label')
 
-        if spinner:
-            spinner.stop()
+            if spinner:
+                spinner.stop()
 
-        if loading_label:
-            s = self._styler
-            loading_label.setText(message)
-            loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.error};
-                font-weight: 500;
-            """)
+            if loading_label:
+                s = self._styler
+                loading_label.setText(message)
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.error};
+                    font-weight: 500;
+                """)
 
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(3000, lambda sid=scene_id: self._restore_button_state(sid))
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda sid=scene_id: self._restore_button_state(sid))
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass
 
     def _restore_button_state(self, scene_id: int):
         """恢复按钮状态"""
-        if scene_id not in self._scene_loading_states:
-            return
+        try:
+            if scene_id not in self._scene_loading_states:
+                return
 
-        state = self._scene_loading_states[scene_id]
-        btn_stack = state.get('btn_stack')
-        loading_label = state.get('loading_label')
+            state = self._scene_loading_states[scene_id]
+            btn_stack = state.get('btn_stack')
+            loading_label = state.get('loading_label')
 
-        if loading_label:
-            s = self._styler
-            loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(10)}px;
-                color: {s.accent_color};
-                font-weight: 500;
-            """)
-            loading_label.setText("生成中...")
+            if loading_label:
+                s = self._styler
+                loading_label.setStyleSheet(f"""
+                    font-family: {s.ui_font};
+                    font-size: {sp(10)}px;
+                    color: {s.accent_color};
+                    font-weight: 500;
+                """)
+                loading_label.setText("生成中...")
 
-        if btn_stack:
-            btn_stack.setCurrentIndex(0)
+            if btn_stack:
+                btn_stack.setCurrentIndex(0)
+        except RuntimeError:
+            # 组件已被删除，忽略更新
+            pass

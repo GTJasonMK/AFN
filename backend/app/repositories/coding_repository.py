@@ -17,8 +17,6 @@ from ..models.coding import (
     CodingBlueprint,
     CodingSystem,
     CodingModule,
-    CodingFeature,
-    CodingFeatureVersion,
 )
 
 
@@ -41,7 +39,6 @@ class CodingProjectRepository(BaseRepository[CodingProject]):
                 selectinload(CodingProject.conversations),
                 selectinload(CodingProject.systems),
                 selectinload(CodingProject.modules),
-                selectinload(CodingProject.features).selectinload(CodingFeature.versions),
             )
         )
         result = await self.session.execute(stmt)
@@ -72,7 +69,6 @@ class CodingProjectRepository(BaseRepository[CodingProject]):
             .where(CodingProject.user_id == user_id)
             .options(
                 selectinload(CodingProject.blueprint),
-                selectinload(CodingProject.features),
             )
         )
 
@@ -199,106 +195,3 @@ class CodingModuleRepository(BaseRepository[CodingModule]):
         )
         result = await self.session.execute(stmt)
         return result.scalar() or 0
-
-
-class CodingFeatureRepository(BaseRepository[CodingFeature]):
-    """Coding功能仓储"""
-
-    model = CodingFeature
-
-    async def get_by_project_and_number(
-        self,
-        project_id: str,
-        feature_number: int,
-    ) -> Optional[CodingFeature]:
-        """根据项目ID和功能编号获取功能"""
-        return await self.get(project_id=project_id, feature_number=feature_number)
-
-    async def get_with_versions(
-        self,
-        project_id: str,
-        feature_number: int,
-    ) -> Optional[CodingFeature]:
-        """获取功能及其版本列表"""
-        stmt = (
-            select(CodingFeature)
-            .where(CodingFeature.project_id == project_id)
-            .where(CodingFeature.feature_number == feature_number)
-            .options(selectinload(CodingFeature.versions))
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().first()
-
-    async def get_by_project_ordered(self, project_id: str) -> List[CodingFeature]:
-        """获取项目的功能列表（按编号排序）"""
-        features = await self.list(
-            filters={"project_id": project_id},
-            order_by="feature_number",
-            order_desc=False,
-        )
-        return list(features)
-
-    async def get_by_module(
-        self,
-        project_id: str,
-        module_number: int,
-    ) -> List[CodingFeature]:
-        """获取模块下的所有功能"""
-        stmt = (
-            select(CodingFeature)
-            .where(CodingFeature.project_id == project_id)
-            .where(CodingFeature.module_number == module_number)
-            .order_by(CodingFeature.feature_number)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_by_system(
-        self,
-        project_id: str,
-        system_number: int,
-    ) -> List[CodingFeature]:
-        """获取系统下的所有功能"""
-        stmt = (
-            select(CodingFeature)
-            .where(CodingFeature.project_id == project_id)
-            .where(CodingFeature.system_number == system_number)
-            .order_by(CodingFeature.feature_number)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_max_number(self, project_id: str) -> int:
-        """获取项目的最大功能编号"""
-        from sqlalchemy import func
-        stmt = (
-            select(func.max(CodingFeature.feature_number))
-            .where(CodingFeature.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
-
-
-class CodingFeatureVersionRepository(BaseRepository[CodingFeatureVersion]):
-    """Coding功能版本仓储"""
-
-    model = CodingFeatureVersion
-
-    async def get_by_feature(self, feature_id: int) -> List[CodingFeatureVersion]:
-        """获取功能的所有版本"""
-        versions = await self.list(
-            filters={"feature_id": feature_id},
-            order_by="created_at",
-            order_desc=False,
-        )
-        return list(versions)
-
-    async def get_latest(self, feature_id: int) -> Optional[CodingFeatureVersion]:
-        """获取功能的最新版本"""
-        versions = await self.list(
-            filters={"feature_id": feature_id},
-            order_by="created_at",
-            order_desc=True,
-        )
-        versions_list = list(versions)
-        return versions_list[0] if versions_list else None

@@ -2,6 +2,7 @@
 Tab管理Mixin
 
 负责编程项目详情页Tab导航的创建和管理。
+重构版：精简为4个Tab（概览、架构设计、目录结构、生成管理）
 """
 
 import logging
@@ -11,7 +12,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton
 from PyQt6.QtCore import Qt
 
 from themes.theme_manager import theme_manager
-from utils.dpi_utils import dp
+from utils.dpi_utils import dp, sp
 
 if TYPE_CHECKING:
     from ..main import CodingDetail
@@ -19,13 +20,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# 编程项目Tab配置
+# 编程项目Tab配置 - 精简为4个
 CODING_TABS = [
     {'id': 'overview', 'label': '概览'},
-    {'id': 'planning', 'label': '项目规划'},
-    {'id': 'systems', 'label': '项目结构'},
-    {'id': 'dependencies', 'label': '依赖'},
-    {'id': 'generated', 'label': '已生成'},
+    {'id': 'architecture', 'label': '架构设计'},
+    {'id': 'directory', 'label': '目录结构'},
+    {'id': 'generation', 'label': '生成管理'},
 ]
 
 

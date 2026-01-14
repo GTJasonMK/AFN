@@ -74,6 +74,7 @@ from .schemas import (
     ImageGenerationRequest,
     ImageGenerationResult,
     GeneratedImageInfo,
+    PageImageGenerationRequest,
 )
 from .providers import ImageProviderFactory
 from .providers.base import ReferenceImageInfo
@@ -340,6 +341,215 @@ class ImageGenerationService:
                 error_message=error_msg,
             )
 
+    async def generate_page_image(
+        self,
+        user_id: int,
+        project_id: str,
+        chapter_number: int,
+        page_number: int,
+        request: PageImageGenerationRequest,
+    ) -> ImageGenerationResult:
+        """
+        生成整页漫画图片
+
+        让AI直接生成带分格布局的整页漫画，包含对话气泡和音效文字。
+        相比逐panel生成，整页生成的画面更统一，布局更自然。
+
+        Args:
+            user_id: 用户ID
+            project_id: 项目ID
+            chapter_number: 章节号
+            page_number: 页码
+            request: 页面级生成请求
+
+        Returns:
+            ImageGenerationResult: 生成结果
+        """
+        start_time = time.time()
+
+        # 构建 page_id 用于标识整页图片
+        page_id = f"page{page_number}"
+
+        # 先删除该页的旧图片（保持每页只有一张整页图片）
+        deleted_count = await self.delete_page_images(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            page_number=page_number,
+        )
+        if deleted_count > 0:
+            logger.info(
+                "重新生成整页前已删除旧图片: page=%d, count=%d",
+                page_number, deleted_count
+            )
+
+        # 获取激活的配置
+        config = await self.config_service.get_active_config(user_id)
+        if not config:
+            all_configs = await self.config_service.get_configs(user_id)
+            if all_configs:
+                config_names = ", ".join(c.config_name for c in all_configs[:3])
+                if len(all_configs) > 3:
+                    config_names += f" 等{len(all_configs)}个"
+                return ImageGenerationResult(
+                    success=False,
+                    error_message=f"请先激活图片生成配置。已有配置: {config_names}，请在设置中选择并激活",
+                )
+            else:
+                return ImageGenerationResult(
+                    success=False,
+                    error_message="未配置图片生成服务，请先在设置中添加配置",
+                )
+
+        try:
+            # 使用工厂获取对应的供应商
+            provider = ImageProviderFactory.get_provider(config.provider_type)
+            if not provider:
+                return ImageGenerationResult(
+                    success=False,
+                    error_message=f"不支持的提供商类型: {config.provider_type}",
+                )
+
+            # 构建内部生成请求（复用现有的 ImageGenerationRequest）
+            internal_request = ImageGenerationRequest(
+                prompt=request.full_page_prompt,
+                negative_prompt=request.negative_prompt,
+                style=request.style,
+                ratio=request.ratio,
+                resolution=request.resolution,
+                count=1,  # 整页生成只需要1张
+                panel_id=page_id,  # 使用 page_id 作为标识
+                chapter_version_id=request.chapter_version_id,
+                reference_image_paths=request.reference_image_paths,
+                reference_strength=request.reference_strength,
+                dialogue_language=request.dialogue_language,
+            )
+
+            # 通过队列控制并发
+            queue = ImageRequestQueue.get_instance()
+            async with queue.request_slot():
+                # 检查是否需要使用 img2img
+                if request.reference_image_paths and len(request.reference_image_paths) > 0:
+                    reference_images = await self._prepare_reference_images(
+                        request.reference_image_paths,
+                        request.reference_strength,
+                    )
+
+                    if reference_images and provider.supports_img2img():
+                        logger.info(
+                            "整页生成使用 img2img 模式: provider=%s, reference_count=%d",
+                            config.provider_type, len(reference_images)
+                        )
+                        gen_result = await provider.generate_with_reference(
+                            config, internal_request, reference_images
+                        )
+                    else:
+                        gen_result = await provider.generate(config, internal_request)
+                else:
+                    gen_result = await provider.generate(config, internal_request)
+
+            if not gen_result.success:
+                return ImageGenerationResult(
+                    success=False,
+                    error_message=gen_result.error_message,
+                )
+
+            if not gen_result.image_urls:
+                return ImageGenerationResult(
+                    success=False,
+                    error_message="未能获取到生成的图片",
+                )
+
+            # 下载并保存图片（整页使用 scene_id = page_number）
+            saved_images = await self._download_and_save_images(
+                image_urls=gen_result.image_urls,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                scene_id=page_number,  # 使用页码作为 scene_id
+                prompt=request.full_page_prompt,
+                negative_prompt=request.negative_prompt,
+                model_name=config.model_name,
+                style=request.style,
+                chapter_version_id=request.chapter_version_id,
+                panel_id=page_id,  # 标识为整页图片
+                target_aspect_ratio=request.ratio,
+                image_type="page",  # 标记为整页类型
+            )
+
+            generation_time = time.time() - start_time
+
+            logger.info(
+                "整页漫画生成完成: project=%s, chapter=%d, page=%d, time=%.2fs",
+                project_id, chapter_number, page_number, generation_time
+            )
+
+            return ImageGenerationResult(
+                success=True,
+                images=saved_images,
+                generation_time=generation_time,
+            )
+
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+            logger.error(f"整页图片生成失败: {error_msg}", exc_info=True)
+            return ImageGenerationResult(
+                success=False,
+                error_message=error_msg,
+            )
+
+    async def delete_page_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+        page_number: int,
+    ) -> int:
+        """删除页面的整页图片
+
+        用于重新生成整页图片时清理旧图片。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            page_number: 页码
+
+        Returns:
+            删除的图片数量
+        """
+        page_id = f"page{page_number}"
+
+        # 查询该页的整页图片
+        result = await self.session.execute(
+            select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+                GeneratedImage.panel_id == page_id,
+            )
+        )
+        images = list(result.scalars().all())
+
+        if not images:
+            return 0
+
+        deleted_count = 0
+        for image in images:
+            file_path = get_images_root() / image.file_path
+            if await async_exists(file_path):
+                try:
+                    await async_unlink(file_path)
+                    logger.debug("已删除整页图片文件: %s", file_path)
+                except Exception as e:
+                    logger.warning("删除整页图片文件失败: %s - %s", file_path, e)
+
+            await self.session.delete(image)
+            deleted_count += 1
+
+        await self.session.flush()
+
+        logger.info(
+            "已删除整页旧图片: project_id=%s, chapter=%d, page=%d, count=%d",
+            project_id, chapter_number, page_number, deleted_count
+        )
+        return deleted_count
+
     async def _prepare_reference_images(
         self,
         image_paths: List[str],
@@ -511,6 +721,7 @@ class ImageGenerationService:
         chapter_version_id: Optional[int] = None,
         panel_id: Optional[str] = None,
         target_aspect_ratio: Optional[str] = None,
+        image_type: str = "panel",
     ) -> List[GeneratedImageInfo]:
         """下载并保存图片
 
@@ -524,12 +735,15 @@ class ImageGenerationService:
             chapter_version_id: 章节版本ID，用于版本追溯
             panel_id: 画格ID，用于精确匹配
             target_aspect_ratio: 目标宽高比，如 "16:9"，用于后处理裁切
+            image_type: 图片类型 "panel"(单画格) 或 "page"(整页)
         """
 
         saved_images = []
 
         # 异步确保目录存在
-        save_dir = get_images_root() / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}"
+        # 根据图片类型分目录存储：panels/ 或 pages/
+        type_subdir = "pages" if image_type == "page" else "panels"
+        save_dir = get_images_root() / project_id / f"chapter_{chapter_number}" / type_subdir / f"scene_{scene_id}"
         await async_mkdir(save_dir, parents=True, exist_ok=True)
 
         # 使用共享的HTTP客户端（连接池复用）
@@ -606,6 +820,7 @@ class ImageGenerationService:
                     model_name=model_name,
                     style=style,
                     source_url=source_url_to_save,
+                    image_type=image_type,  # 图片类型：panel或page
                 )
                 self.session.add(image_record)
                 await self.session.flush()
@@ -819,17 +1034,25 @@ class ImageGenerationService:
 
         await self.session.flush()
 
-        # 尝试异步清理空目录
+        # 尝试异步清理空目录（支持新的 panels/pages 子目录结构）
         try:
             chapter_dir = get_images_root() / project_id / f"chapter_{chapter_number}"
             if await async_exists(chapter_dir):
-                # 删除空的场景子目录
-                scene_dirs = await async_iterdir(chapter_dir)
-                for scene_dir in scene_dirs:
-                    if await async_is_dir(scene_dir):
-                        scene_contents = await async_iterdir(scene_dir)
-                        if not scene_contents:
-                            await async_rmdir(scene_dir)
+                # 遍历 panels/ 和 pages/ 子目录
+                type_dirs = await async_iterdir(chapter_dir)
+                for type_dir in type_dirs:
+                    if await async_is_dir(type_dir):
+                        # 删除空的场景子目录
+                        scene_dirs = await async_iterdir(type_dir)
+                        for scene_dir in scene_dirs:
+                            if await async_is_dir(scene_dir):
+                                scene_contents = await async_iterdir(scene_dir)
+                                if not scene_contents:
+                                    await async_rmdir(scene_dir)
+                        # 如果类型目录也空了，删除它
+                        type_contents = await async_iterdir(type_dir)
+                        if not type_contents:
+                            await async_rmdir(type_dir)
                 # 如果章节目录也空了，删除它
                 chapter_contents = await async_iterdir(chapter_dir)
                 if not chapter_contents:
@@ -840,6 +1063,79 @@ class ImageGenerationService:
         logger.info(
             "已删除章节图片: project_id=%s, chapter=%d, count=%d",
             project_id, chapter_number, deleted_count
+        )
+        return deleted_count
+
+    async def delete_chapter_images_by_type(
+        self,
+        project_id: str,
+        chapter_number: int,
+        image_type: str,
+    ) -> int:
+        """按类型删除章节的图片
+
+        用于重新生成某种类型的图片时清理旧图片。
+        例如重新生成整页图片时只删除page类型，保留panel类型。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            image_type: 图片类型 "panel"(单画格) 或 "page"(整页)
+
+        Returns:
+            删除的图片数量
+        """
+        # 查询该章节指定类型的图片
+        result = await self.session.execute(
+            select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+                GeneratedImage.image_type == image_type,
+            )
+        )
+        images = list(result.scalars().all())
+
+        if not images:
+            return 0
+
+        deleted_count = 0
+        for image in images:
+            # 异步删除文件
+            file_path = get_images_root() / image.file_path
+            if await async_exists(file_path):
+                try:
+                    await async_unlink(file_path)
+                except Exception as e:
+                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
+
+            # 删除数据库记录
+            await self.session.delete(image)
+            deleted_count += 1
+
+        await self.session.flush()
+
+        # 尝试异步清理空目录
+        try:
+            type_subdir = "pages" if image_type == "page" else "panels"
+            type_dir = get_images_root() / project_id / f"chapter_{chapter_number}" / type_subdir
+            if await async_exists(type_dir):
+                # 删除空的场景子目录
+                scene_dirs = await async_iterdir(type_dir)
+                for scene_dir in scene_dirs:
+                    if await async_is_dir(scene_dir):
+                        scene_contents = await async_iterdir(scene_dir)
+                        if not scene_contents:
+                            await async_rmdir(scene_dir)
+                # 如果类型目录也空了，删除它
+                type_contents = await async_iterdir(type_dir)
+                if not type_contents:
+                    await async_rmdir(type_dir)
+        except Exception as e:
+            logger.warning("清理空目录失败: %s", e)
+
+        logger.info(
+            "已删除章节%s类型图片: project_id=%s, chapter=%d, count=%d",
+            image_type, project_id, chapter_number, deleted_count
         )
         return deleted_count
 

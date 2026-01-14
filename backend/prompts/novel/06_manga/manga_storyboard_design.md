@@ -138,6 +138,9 @@ tags: manga, storyboard, panel, prompt, layout
 ## 相关对话
 {dialogues_json}
 
+## 相关旁白
+{narrations_json}
+
 ## 出场角色
 {characters_json}
 
@@ -193,7 +196,19 @@ tags: manga, storyboard, panel, prompt, layout
 角色头部附近的思考气泡写着"内心独白",
 ```
 
-## 8. 音效文字
+## 8. 旁白框（与对话气泡不同！）
+旁白是作者的叙述文字，使用方框样式，不是角色的话或想法：
+- **scene**: 场景旁白，如"夜幕降临，城市灯火阑珊"
+- **time**: 时间旁白，如"三天后..."
+- **inner**: 心理旁白（作者对角色心理的描述）
+- **exposition**: 背景旁白，如"这座城市已沦陷三年"
+
+```
+页面顶部的方框旁白"那是改变一切的一天...",
+画格角落的时间旁白框"三天后",
+```
+
+## 9. 音效文字
 ```
 动作旁边的粗体冲击文字"砰！",
 表示移动的风格化音效"嗖",
@@ -220,7 +235,9 @@ tags: manga, storyboard, panel, prompt, layout
       "lighting": "光线",
       "character_actions": {{"角色1": "动作"}},
       "character_expressions": {{"角色1": "表情"}},
-      "dialogues": [{{"speaker": "角色1", "content": "对话"}}],
+      "dialogues": [{{"speaker": "角色1", "content": "对话", "is_internal": false, "bubble_type": "normal"}}],
+      "narration": "那是改变一切的一天...",
+      "narration_type": "scene",
       "event_indices": [0],
       "is_key_panel": true
     }},
@@ -239,7 +256,9 @@ tags: manga, storyboard, panel, prompt, layout
       "lighting": "自然光",
       "character_actions": {{"角色1": "说话"}},
       "character_expressions": {{"角色1": "认真"}},
-      "dialogues": [{{"speaker": "角色1", "content": "对话内容"}}],
+      "dialogues": [{{"speaker": "角色1", "content": "对话内容", "is_internal": false, "bubble_type": "normal"}}],
+      "narration": "",
+      "narration_type": "",
       "event_indices": [0]
     }},
     {{
@@ -257,7 +276,9 @@ tags: manga, storyboard, panel, prompt, layout
       "lighting": "聚光",
       "character_actions": {{}},
       "character_expressions": {{"角色2": "惊讶"}},
-      "dialogues": [],
+      "dialogues": [{{"speaker": "角色2", "content": "这怎么可能...", "is_internal": true, "bubble_type": "thought"}}],
+      "narration": "",
+      "narration_type": "",
       "event_indices": [0]
     }},
     {{
@@ -276,6 +297,8 @@ tags: manga, storyboard, panel, prompt, layout
       "character_actions": {{"角色1": "转身"}},
       "character_expressions": {{"角色1": "惊讶"}},
       "dialogues": [],
+      "narration": "三天后",
+      "narration_type": "time",
       "event_indices": [1]
     }},
     {{
@@ -294,6 +317,8 @@ tags: manga, storyboard, panel, prompt, layout
       "character_actions": {{}},
       "character_expressions": {{}},
       "dialogues": [],
+      "narration": "",
+      "narration_type": "",
       "event_indices": [1]
     }}
   ],

@@ -1,7 +1,7 @@
 """
-三层结构Section - 系统/模块/功能层级展示
+两层结构Section - 系统/模块层级展示
 
-提供编程项目的系统->模块->功能三层可折叠树形结构展示。
+提供编程项目的系统->模块两层可折叠树形结构展示。
 """
 
 import logging
@@ -24,173 +24,14 @@ from utils.message_service import MessageService
 logger = logging.getLogger(__name__)
 
 
-class FeatureItem(QFrame):
-    """功能项组件 - 带描述展示"""
-
-    clicked = pyqtSignal(dict)
-    generateClicked = pyqtSignal(dict)
-
-    def __init__(self, feature_data: Dict[str, Any], parent=None):
-        super().__init__(parent)
-        self.feature_data = feature_data
-        self._setup_ui()
-
-    def _setup_ui(self):
-        """设置UI"""
-        self.setObjectName("feature_item")
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
-        main_layout.setSpacing(dp(4))
-
-        # 第一行：编号、名称、优先级、按钮
-        header_row = QWidget()
-        header_layout = QHBoxLayout(header_row)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(dp(8))
-
-        # 功能编号
-        feature_num = self.feature_data.get('feature_number', 0)
-        num_label = QLabel(f"F{feature_num}")
-        num_label.setObjectName("feature_num")
-        num_label.setFixedWidth(dp(36))
-        header_layout.addWidget(num_label)
-
-        # 功能名称
-        name = self.feature_data.get('name', '未命名功能')
-        name_label = QLabel(name)
-        name_label.setObjectName("feature_name")
-        header_layout.addWidget(name_label, 1)
-
-        # 优先级标签
-        priority = self.feature_data.get('priority', 'medium')
-        priority_label = QLabel(self._get_priority_text(priority))
-        priority_label.setObjectName(f"priority_{priority}")
-        header_layout.addWidget(priority_label)
-
-        # 生成按钮
-        gen_btn = QPushButton("生成")
-        gen_btn.setObjectName("gen_btn")
-        gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        gen_btn.clicked.connect(lambda: self.generateClicked.emit(self.feature_data))
-        header_layout.addWidget(gen_btn)
-
-        main_layout.addWidget(header_row)
-
-        # 第二行：描述信息
-        description = self.feature_data.get('description', '')
-        if description:
-            desc_label = QLabel(description[:120] + '...' if len(description) > 120 else description)
-            desc_label.setObjectName("feature_desc")
-            desc_label.setWordWrap(True)
-            main_layout.addWidget(desc_label)
-
-        # 第三行：输入/输出（如果有）
-        inputs = self.feature_data.get('inputs', '')
-        outputs = self.feature_data.get('outputs', '')
-        if inputs or outputs:
-            io_row = QWidget()
-            io_layout = QHBoxLayout(io_row)
-            io_layout.setContentsMargins(dp(36), 0, 0, 0)  # 对齐编号
-            io_layout.setSpacing(dp(16))
-
-            if inputs:
-                inputs_label = QLabel(f"输入: {inputs[:50]}..." if len(inputs) > 50 else f"输入: {inputs}")
-                inputs_label.setObjectName("feature_io")
-                io_layout.addWidget(inputs_label)
-
-            if outputs:
-                outputs_label = QLabel(f"输出: {outputs[:50]}..." if len(outputs) > 50 else f"输出: {outputs}")
-                outputs_label.setObjectName("feature_io")
-                io_layout.addWidget(outputs_label)
-
-            io_layout.addStretch()
-            main_layout.addWidget(io_row)
-
-        self._apply_style()
-
-    def _get_priority_text(self, priority: str) -> str:
-        """获取优先级显示文本"""
-        mapping = {'high': '高', 'medium': '中', 'low': '低'}
-        return mapping.get(priority, priority)
-
-    def _apply_style(self):
-        """应用样式"""
-        priority = self.feature_data.get('priority', 'medium')
-        priority_colors = {
-            'high': theme_manager.ERROR,
-            'medium': theme_manager.WARNING,
-            'low': theme_manager.TEXT_TERTIARY,
-        }
-        priority_color = priority_colors.get(priority, theme_manager.TEXT_TERTIARY)
-
-        self.setStyleSheet(f"""
-            QFrame#feature_item {{
-                background-color: {theme_manager.book_bg_secondary()};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(4)}px;
-            }}
-            QFrame#feature_item:hover {{
-                border-color: {theme_manager.PRIMARY};
-            }}
-            QLabel#feature_num {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(11)}px;
-                font-family: Consolas, monospace;
-            }}
-            QLabel#feature_name {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(13)}px;
-            }}
-            QLabel#feature_desc {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(12)}px;
-                padding-left: {dp(36)}px;
-            }}
-            QLabel#feature_io {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(11)}px;
-                font-family: Consolas, monospace;
-            }}
-            QLabel#priority_high, QLabel#priority_medium, QLabel#priority_low {{
-                color: {priority_color};
-                font-size: {dp(11)}px;
-                padding: {dp(2)}px {dp(6)}px;
-                background-color: {priority_color}15;
-                border-radius: {dp(3)}px;
-            }}
-            QPushButton#gen_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(3)}px;
-                padding: {dp(4)}px {dp(10)}px;
-                font-size: {dp(11)}px;
-            }}
-            QPushButton#gen_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
-        """)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.feature_data)
-        super().mousePressEvent(event)
-
-
 class ModuleNode(QFrame):
-    """模块节点组件 - 可折叠展示功能列表，带描述和依赖展示"""
+    """模块节点组件 - 简化版，只展示模块信息"""
 
     clicked = pyqtSignal(dict)
-    generateFeaturesClicked = pyqtSignal(int, int)  # system_number, module_number
-    featureGenerateClicked = pyqtSignal(dict)
 
-    def __init__(self, module_data: Dict[str, Any], features: List[Dict] = None, parent=None):
+    def __init__(self, module_data: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.module_data = module_data
-        self.features = features or []
-        self._expanded = False
-        self._feature_items = []
         self._setup_ui()
 
     def _setup_ui(self):
@@ -201,10 +42,9 @@ class ModuleNode(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 模块头部容器（包含标题行和描述行）
+        # 模块头部容器
         self.header = QFrame()
         self.header.setObjectName("module_header")
-        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
         header_main_layout = QVBoxLayout(self.header)
         header_main_layout.setContentsMargins(dp(12), dp(10), dp(12), dp(10))
         header_main_layout.setSpacing(dp(6))
@@ -214,12 +54,6 @@ class ModuleNode(QFrame):
         title_layout = QHBoxLayout(title_row)
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(dp(8))
-
-        # 展开/折叠图标
-        self.expand_icon = QLabel("+")
-        self.expand_icon.setObjectName("expand_icon")
-        self.expand_icon.setFixedWidth(dp(16))
-        title_layout.addWidget(self.expand_icon)
 
         # 模块编号
         module_num = self.module_data.get('module_number', 0)
@@ -241,19 +75,6 @@ class ModuleNode(QFrame):
             type_label.setObjectName("module_type")
             title_layout.addWidget(type_label)
 
-        # 功能数量
-        feature_count = len(self.features)
-        count_label = QLabel(f"{feature_count} 功能")
-        count_label.setObjectName("feature_count")
-        title_layout.addWidget(count_label)
-
-        # 生成功能按钮
-        gen_btn = QPushButton("生成功能")
-        gen_btn.setObjectName("gen_features_btn")
-        gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        gen_btn.clicked.connect(self._on_generate_features)
-        title_layout.addWidget(gen_btn)
-
         header_main_layout.addWidget(title_row)
 
         # 第二行：描述信息（如果有）
@@ -271,7 +92,7 @@ class ModuleNode(QFrame):
         if dependencies or interface:
             meta_row = QWidget()
             meta_layout = QHBoxLayout(meta_row)
-            meta_layout.setContentsMargins(dp(24), 0, 0, 0)
+            meta_layout.setContentsMargins(dp(40), 0, 0, 0)
             meta_layout.setSpacing(dp(16))
 
             if dependencies:
@@ -295,58 +116,7 @@ class ModuleNode(QFrame):
 
         layout.addWidget(self.header)
 
-        # 功能列表容器（默认隐藏）
-        self.features_container = QWidget()
-        self.features_container.setObjectName("features_container")
-        features_layout = QVBoxLayout(self.features_container)
-        features_layout.setContentsMargins(dp(40), dp(4), dp(8), dp(8))
-        features_layout.setSpacing(dp(4))
-
-        self._populate_features(features_layout)
-        self.features_container.setVisible(False)
-        layout.addWidget(self.features_container)
-
-        # 绑定点击事件
-        self.header.mousePressEvent = self._on_header_click
-
         self._apply_style()
-
-    def _populate_features(self, layout):
-        """填充功能列表"""
-        for item in self._feature_items:
-            item.deleteLater()
-        self._feature_items.clear()
-
-        if not self.features:
-            empty_label = QLabel("暂无功能，点击「生成功能」添加")
-            empty_label.setObjectName("empty_hint")
-            layout.addWidget(empty_label)
-            self._feature_items.append(empty_label)
-            return
-
-        for feature in self.features:
-            item = FeatureItem(feature)
-            item.clicked.connect(lambda f: self.clicked.emit(f))
-            item.generateClicked.connect(self.featureGenerateClicked.emit)
-            layout.addWidget(item)
-            self._feature_items.append(item)
-
-    def _on_header_click(self, event):
-        """头部点击事件"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._toggle_expand()
-
-    def _toggle_expand(self):
-        """切换展开/折叠状态"""
-        self._expanded = not self._expanded
-        self.features_container.setVisible(self._expanded)
-        self.expand_icon.setText("-" if self._expanded else "+")
-
-    def _on_generate_features(self):
-        """生成功能按钮点击"""
-        system_num = self.module_data.get('system_number', 1)
-        module_num = self.module_data.get('module_number', 1)
-        self.generateFeaturesClicked.emit(system_num, module_num)
 
     def _apply_style(self):
         """应用样式"""
@@ -363,11 +133,6 @@ class ModuleNode(QFrame):
             QFrame#module_header:hover {{
                 border-color: {theme_manager.PRIMARY};
             }}
-            QLabel#expand_icon {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(14)}px;
-                font-weight: bold;
-            }}
             QLabel#module_num {{
                 color: {theme_manager.PRIMARY};
                 font-size: {dp(12)}px;
@@ -381,7 +146,7 @@ class ModuleNode(QFrame):
             QLabel#module_desc {{
                 color: {theme_manager.TEXT_SECONDARY};
                 font-size: {dp(12)}px;
-                padding-left: {dp(24)}px;
+                padding-left: {dp(40)}px;
             }}
             QLabel#module_deps {{
                 color: {theme_manager.WARNING};
@@ -399,51 +164,24 @@ class ModuleNode(QFrame):
                 background-color: {theme_manager.PRIMARY}15;
                 border-radius: {dp(4)}px;
             }}
-            QLabel#feature_count {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#gen_features_btn {{
-                background-color: transparent;
-                color: {theme_manager.PRIMARY};
-                border: 1px solid {theme_manager.PRIMARY};
-                border-radius: {dp(4)}px;
-                padding: {dp(4)}px {dp(10)}px;
-                font-size: {dp(11)}px;
-            }}
-            QPushButton#gen_features_btn:hover {{
-                background-color: {theme_manager.PRIMARY}10;
-            }}
-            QWidget#features_container {{
-                background-color: transparent;
-            }}
-            QLabel#empty_hint {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(12)}px;
-                font-style: italic;
-            }}
         """)
 
 
 class SystemNode(QFrame):
-    """系统节点组件 - 可折叠展示模块列表，带描述和职责展示"""
+    """系统节点组件 - 可折叠展示模块列表（两层结构）"""
 
     clicked = pyqtSignal(dict)
     generateModulesClicked = pyqtSignal(int)  # system_number
-    moduleGenerateFeaturesClicked = pyqtSignal(int, int)  # system_number, module_number
-    featureGenerateClicked = pyqtSignal(dict)
 
     def __init__(
         self,
         system_data: Dict[str, Any],
         modules: List[Dict] = None,
-        features: List[Dict] = None,
         parent=None
     ):
         super().__init__(parent)
         self.system_data = system_data
         self.modules = modules or []
-        self.all_features = features or []
         self._expanded = True  # 默认展开
         self._module_nodes = []
         self._setup_ui()
@@ -586,19 +324,9 @@ class SystemNode(QFrame):
             self._module_nodes.append(empty_label)
             return
 
-        system_num = self.system_data.get('system_number', 1)
         for module in self.modules:
-            # 筛选该模块下的功能
-            module_num = module.get('module_number', 0)
-            module_features = [
-                f for f in self.all_features
-                if f.get('module_number') == module_num
-            ]
-
-            node = ModuleNode(module, module_features)
+            node = ModuleNode(module)
             node.clicked.connect(self.clicked.emit)
-            node.generateFeaturesClicked.connect(self.moduleGenerateFeaturesClicked.emit)
-            node.featureGenerateClicked.connect(self.featureGenerateClicked.emit)
             layout.addWidget(node)
             self._module_nodes.append(node)
 
@@ -701,12 +429,11 @@ class SystemNode(QFrame):
 
 
 class SystemsSection(BaseSection):
-    """三层结构Section
+    """两层结构Section
 
-    展示：系统 -> 模块 -> 功能 的可折叠树形结构
+    展示：系统 -> 模块 的可折叠树形结构
     """
 
-    navigateToDesk = pyqtSignal(int)  # feature_number
     refreshRequested = pyqtSignal()
     loadingRequested = pyqtSignal(str)  # 请求显示加载状态
     loadingFinished = pyqtSignal()  # 请求隐藏加载状态
@@ -715,7 +442,6 @@ class SystemsSection(BaseSection):
         self,
         systems: List[Dict] = None,
         modules: List[Dict] = None,
-        features: List[Dict] = None,
         project_id: str = None,
         editable: bool = True,
         parent=None
@@ -723,7 +449,6 @@ class SystemsSection(BaseSection):
         self.project_id = project_id
         self.systems = systems or []
         self.modules = modules or []
-        self.features = features or []
         self._system_nodes = []
         self._workers = []
         self.api_client = APIClientManager.get_client()
@@ -747,7 +472,7 @@ class SystemsSection(BaseSection):
         header_layout.addWidget(title_label)
 
         # 统计信息
-        stats_text = f"{len(self.systems)} 系统 / {len(self.modules)} 模块 / {len(self.features)} 功能"
+        stats_text = f"{len(self.systems)} 系统 / {len(self.modules)} 模块"
         stats_label = QLabel(stats_text)
         stats_label.setObjectName("stats_label")
         header_layout.addWidget(stats_label)
@@ -807,11 +532,9 @@ class SystemsSection(BaseSection):
                 if m.get('system_number') == system_num
             ]
 
-            node = SystemNode(system, system_modules, self.features)
+            node = SystemNode(system, system_modules)
             node.clicked.connect(self._on_item_clicked)
             node.generateModulesClicked.connect(self._on_generate_modules)
-            node.moduleGenerateFeaturesClicked.connect(self._on_generate_features)
-            node.featureGenerateClicked.connect(self._on_feature_generate)
             self.systems_layout.addWidget(node)
             self._system_nodes.append(node)
 
@@ -872,7 +595,7 @@ class SystemsSection(BaseSection):
                 self,
                 title="重新生成系统划分",
                 message=f"当前已有 {len(self.systems)} 个系统划分。\n\n"
-                        "重新生成将覆盖现有的系统、模块和功能大纲数据。",
+                        "重新生成将覆盖现有的系统和模块数据。",
                 placeholder="例如：希望更细粒度划分、合并某些系统、增加某类系统等"
             )
             if not ok:
@@ -918,7 +641,7 @@ class SystemsSection(BaseSection):
                 self,
                 title=f"重新生成模块 - {system_name}",
                 message=f"系统 [{system_name}] 下已有 {len(existing_modules)} 个模块。\n\n"
-                        "重新生成将覆盖现有的模块和功能大纲数据。",
+                        "重新生成将覆盖现有的模块数据。",
                 placeholder="例如：增加某类模块、更关注某类功能、合并某些模块等"
             )
             if not ok:
@@ -946,86 +669,26 @@ class SystemsSection(BaseSection):
         MessageService.show_success(self, f"成功生成 {len(result)} 个模块")
         self.refreshRequested.emit()
 
-    def _on_generate_features(self, system_number: int, module_number: int):
-        """生成功能"""
-        from components.dialogs import get_regenerate_preference
-
-        logger.info(f"生成功能: system={system_number}, module={module_number}")
-
-        preference = None
-
-        # 检查该模块下是否已有功能
-        existing_features = [
-            f for f in self.features
-            if f.get('system_number') == system_number and f.get('module_number') == module_number
-        ]
-        if existing_features:
-            module_name = next(
-                (m.get('name', f'模块{module_number}') for m in self.modules if m.get('module_number') == module_number),
-                f'模块{module_number}'
-            )
-            preference, ok = get_regenerate_preference(
-                self,
-                title=f"重新生成功能大纲 - {module_name}",
-                message=f"模块 [{module_name}] 下已有 {len(existing_features)} 个功能大纲。\n\n"
-                        "重新生成将覆盖现有的功能大纲数据。",
-                placeholder="例如：细化某类功能、增加边界处理、增加异常处理等"
-            )
-            if not ok:
-                return
-
-        self.loadingRequested.emit("正在生成功能大纲，请稍候...")
-
-        worker = AsyncAPIWorker(
-            self.api_client.generate_coding_features,
-            self.project_id,
-            system_number,
-            module_number,
-            min_features=2,
-            max_features=6,
-            preference=preference
-        )
-        worker.success.connect(self._on_features_generated)
-        worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
-        worker.start()
-
-    def _on_features_generated(self, result):
-        """功能生成完成"""
-        self.loadingFinished.emit()
-        logger.info(f"功能生成完成: {len(result)} 个功能")
-        MessageService.show_success(self, f"成功生成 {len(result)} 个功能大纲")
-        self.refreshRequested.emit()
-
     def _on_generate_error(self, error_msg: str):
         """生成失败处理"""
         self.loadingFinished.emit()
         logger.error(f"生成失败: {error_msg}")
         MessageService.show_error(self, f"生成失败：{error_msg}")
 
-    def _on_feature_generate(self, feature_data: Dict):
-        """单个功能生成内容"""
-        feature_num = feature_data.get('feature_number', 0)
-        logger.info(f"跳转到工作台生成功能: feature_number={feature_num}")
-        self.navigateToDesk.emit(feature_num)  # 直接传递feature_number
-
     def updateData(
         self,
         systems: List[Dict] = None,
-        modules: List[Dict] = None,
-        features: List[Dict] = None
+        modules: List[Dict] = None
     ):
         """更新数据"""
         if systems is not None:
             self.systems = systems
         if modules is not None:
             self.modules = modules
-        if features is not None:
-            self.features = features
 
         # 更新统计
         if hasattr(self, 'stats_label') and self.stats_label:
-            stats_text = f"{len(self.systems)} 系统 / {len(self.modules)} 模块 / {len(self.features)} 功能"
+            stats_text = f"{len(self.systems)} 系统 / {len(self.modules)} 模块"
             self.stats_label.setText(stats_text)
 
         self._populate_systems()

@@ -145,14 +145,25 @@ class PagePlanner:
         if not prompt_template:
             prompt_template = PAGE_PLANNING_PROMPT
 
-        # 准备事件列表JSON
+        # 准备事件列表JSON - 增加复杂度信息
         events_data = []
         for event in chapter_info.events:
+            # 统计该事件关联的对话数量
+            dialogue_count = len(chapter_info.get_dialogue_by_event(event.index))
+            # 判断是否是高潮事件
+            is_climax = (
+                event.is_climax or
+                event.type.value in ("climax", "conflict") or
+                event.importance.value in ("critical", "high")
+            )
             events_data.append({
                 "index": event.index,
                 "type": event.type.value,
                 "description": event.description,
                 "participants": event.participants,
+                "importance": event.importance.value if hasattr(event.importance, 'value') else str(event.importance),
+                "dialogue_count": dialogue_count,
+                "is_climax": is_climax,
             })
 
         # 准备场景列表JSON
@@ -167,10 +178,11 @@ class PagePlanner:
         # 准备角色列表
         characters_list = list(chapter_info.characters.keys())
 
-        # 识别高潮事件索引（类型为 climax 或 conflict 的事件）
+        # 识别高潮事件索引
         climax_indices = [
             event.index for event in chapter_info.events
-            if event.type.value in ("climax", "conflict", "action")
+            if event.is_climax or event.type.value in ("climax", "conflict", "action")
+               or (hasattr(event.importance, 'value') and event.importance.value in ("critical", "high"))
         ]
 
         return prompt_template.format(
@@ -206,16 +218,44 @@ class PagePlanner:
         missing_events = all_event_indices - assigned_events
 
         if missing_events:
-            logger.warning("有 %d 个事件未被分配，添加到最后一页", len(missing_events))
-            if pages:
-                pages[-1].event_indices.extend(sorted(missing_events))
-            else:
-                # 没有页面，创建一个
-                pages.append(PagePlanItem(
-                    page_number=1,
-                    event_indices=sorted(missing_events),
-                    content_summary="补充内容",
-                ))
+            logger.warning("有 %d 个事件未被分配，按顺序插入到合适的页面", len(missing_events))
+            # 按事件索引排序遗漏的事件
+            missing_sorted = sorted(missing_events)
+
+            for missing_idx in missing_sorted:
+                # 找到应该插入的页面：选择包含相邻事件的页面
+                inserted = False
+                for page in pages:
+                    if not page.event_indices:
+                        continue
+                    # 检查该页面是否包含相邻事件
+                    min_idx = min(page.event_indices)
+                    max_idx = max(page.event_indices)
+                    # 如果遗漏事件在该页面事件范围内或紧邻，则插入
+                    if min_idx - 1 <= missing_idx <= max_idx + 1:
+                        page.event_indices.append(missing_idx)
+                        page.event_indices.sort()  # 保持顺序
+                        inserted = True
+                        break
+
+                # 如果没有找到合适的页面，插入到第一个事件索引大于它的页面之前的页面
+                if not inserted:
+                    for i, page in enumerate(pages):
+                        if page.event_indices and min(page.event_indices) > missing_idx:
+                            # 插入到前一个页面（如果存在）
+                            if i > 0:
+                                pages[i - 1].event_indices.append(missing_idx)
+                                pages[i - 1].event_indices.sort()
+                            else:
+                                pages[0].event_indices.append(missing_idx)
+                                pages[0].event_indices.sort()
+                            inserted = True
+                            break
+
+                    # 最后的回退：添加到最后一页
+                    if not inserted and pages:
+                        pages[-1].event_indices.append(missing_idx)
+                        pages[-1].event_indices.sort()
 
         return PagePlanResult(
             total_pages=data.get("total_pages", len(pages)),
@@ -227,85 +267,37 @@ class PagePlanner:
         chapter_info: ChapterInfo,
         min_pages: int,
     ) -> PagePlanResult:
-        """简单规划（事件很少时使用）"""
+        """简单规划（事件很少时使用）
+
+        当事件数量少于3个时使用此方法。
+        不再添加空白页，因为空白页会导致分镜设计和提示词构建产生无意义内容。
+        如果事件确实很少，生成的页数也会相应较少。
+        """
         pages = []
         events = chapter_info.events
 
-        for i, event in enumerate(events):
+        if not events:
+            # 如果完全没有事件，创建一个基于章节摘要的单页
             pages.append(PagePlanItem(
-                page_number=i + 1,
-                event_indices=[event.index],
-                content_summary=event.description[:50],
-                key_characters=event.participants,
-                has_dialogue=len(chapter_info.get_dialogue_by_event(event.index)) > 0,
-                has_action=event.type.value in ("action", "conflict"),
+                page_number=1,
+                event_indices=[],
+                content_summary=chapter_info.chapter_summary[:100] if chapter_info.chapter_summary else "章节概览",
+                key_characters=list(chapter_info.characters.keys())[:3],
+                has_dialogue=len(chapter_info.dialogues) > 0,
+                has_action=False,
                 suggested_panel_count=4,
             ))
-
-        # 如果页数不够，补充空白页
-        while len(pages) < min_pages:
-            pages.append(PagePlanItem(
-                page_number=len(pages) + 1,
-                event_indices=[],
-                content_summary="补充画面",
-                suggested_panel_count=3,
-            ))
-
-        return PagePlanResult(
-            total_pages=len(pages),
-            pages=pages,
-        )
-
-    def _fallback_plan(
-        self,
-        chapter_info: ChapterInfo,
-        min_pages: int,
-        max_pages: int,
-    ) -> PagePlanResult:
-        """回退规划（LLM失败时使用）"""
-        events = chapter_info.events
-        if not events:
-            return self._simple_plan(chapter_info, min_pages)
-
-        # 计算目标页数
-        target_pages = min(max(min_pages, len(events) // 2), max_pages)
-
-        # 平均分配事件到页面
-        events_per_page = max(1, len(events) // target_pages)
-
-        pages = []
-        current_events = []
-        page_number = 1
-
-        for i, event in enumerate(events):
-            current_events.append(event.index)
-
-            # 当前页事件够了，或者到达最后一个事件
-            if len(current_events) >= events_per_page or i == len(events) - 1:
-                # 收集角色
-                key_chars = []
-                has_dialogue = False
-                has_action = False
-                for idx in current_events:
-                    if idx < len(events):
-                        key_chars.extend(events[idx].participants)
-                        if chapter_info.get_dialogue_by_event(idx):
-                            has_dialogue = True
-                        if events[idx].type.value in ("action", "conflict"):
-                            has_action = True
-
+        else:
+            for i, event in enumerate(events):
                 pages.append(PagePlanItem(
-                    page_number=page_number,
-                    event_indices=list(current_events),
-                    content_summary=events[current_events[0]].description[:50] if current_events else "",
-                    key_characters=list(set(key_chars))[:3],
-                    has_dialogue=has_dialogue,
-                    has_action=has_action,
+                    page_number=i + 1,
+                    event_indices=[event.index],
+                    content_summary=event.description[:50],
+                    key_characters=event.participants,
+                    has_dialogue=len(chapter_info.get_dialogue_by_event(event.index)) > 0,
+                    has_action=event.type.value in ("action", "conflict"),
                     suggested_panel_count=4,
                 ))
-
-                current_events = []
-                page_number += 1
 
         return PagePlanResult(
             total_pages=len(pages),

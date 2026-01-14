@@ -71,7 +71,7 @@ async def list_prompts(
 
     返回包含 title、description、is_modified 等元数据的完整提示词列表。
     """
-    logger.info("查询提示词列表")
+    logger.debug("查询提示词列表")
     return await service.list_prompts()
 
 
@@ -86,7 +86,7 @@ async def get_prompt(
     Args:
         name: 提示词名称（如 inspiration, writing 等）
     """
-    logger.info(f"查询提示词: {name}")
+    logger.debug(f"查询提示词: {name}")
     result = await service.get_prompt_by_name(name)
     if not result:
         raise ResourceNotFoundError("提示词", name)

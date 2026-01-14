@@ -21,7 +21,6 @@ from ...repositories.coding_repository import (
     CodingBlueprintRepository,
     CodingSystemRepository,
     CodingModuleRepository,
-    CodingFeatureRepository,
 )
 from ...serializers.coding_serializer import CodingSerializer
 from ...schemas.coding import (
@@ -56,7 +55,6 @@ class CodingProjectService:
         self.blueprint_repo = CodingBlueprintRepository(session)
         self.system_repo = CodingSystemRepository(session)
         self.module_repo = CodingModuleRepository(session)
-        self.feature_repo = CodingFeatureRepository(session)
 
     # ------------------------------------------------------------------
     # 状态机管理

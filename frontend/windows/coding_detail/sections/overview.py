@@ -1,38 +1,51 @@
 """
-编程项目概览Section
+编程项目概览Section - 增强版
 
-显示编程项目的基本信息：标题、类型、风格、摘要等。
+显示：
+- 项目进度指示器
+- 快捷操作按钮区
+- 项目摘要卡片
+- 技术栈信息
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
+    QScrollArea, QGridLayout, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
-from utils.dpi_utils import dp
+from utils.dpi_utils import dp, sp
 
 logger = logging.getLogger(__name__)
 
 
-class CodingOverviewSection(BaseSection):
-    """编程项目概览Section
+# 工作流程步骤定义（两层结构：系统 -> 模块）
+WORKFLOW_STEPS = [
+    {'id': 'blueprint', 'label': '蓝图', 'key': 'has_blueprint'},
+    {'id': 'systems', 'label': '系统', 'key': 'systems'},
+    {'id': 'modules', 'label': '模块', 'key': 'modules'},
+    {'id': 'directory', 'label': '目录', 'key': 'directory_tree'},
+    {'id': 'prompts', 'label': 'Prompt', 'key': 'generated_count'},
+]
 
-    显示：
-    - 一句话摘要
-    - 目标受众
-    - 项目类型
-    - 技术风格
-    - 项目调性
-    - 架构概述
+
+class CodingOverviewSection(BaseSection):
+    """编程项目概览Section - 增强版
+
+    展示：
+    - 项目进度指示器（工作流程步骤）
+    - 快捷操作按钮区
+    - 项目摘要卡片
+    - 技术栈信息
     """
 
-    # 重新生成蓝图信号
-    regenerateBlueprintRequested = pyqtSignal(str)  # preference (可为None)
+    # 信号
+    regenerateBlueprintRequested = pyqtSignal(str)
 
     def __init__(self, data: Dict[str, Any] = None, editable: bool = True, project_id: str = None, parent=None):
         self.project_id = project_id
@@ -41,382 +54,373 @@ class CodingOverviewSection(BaseSection):
 
     def _create_ui_structure(self):
         """创建UI结构"""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(16))
+        # 创建滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # 标题行（包含重新生成按钮）
-        header_row = QWidget()
-        header_layout = QHBoxLayout(header_row)
-        header_layout.setContentsMargins(0, 0, 0, dp(8))
-        header_layout.setSpacing(dp(12))
+        # 内容容器
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, dp(8), 0)
+        layout.setSpacing(dp(20))
 
-        section_title = QLabel("架构设计概览")
-        section_title.setObjectName("section_title")
-        header_layout.addWidget(section_title)
+        # 1. 项目进度Section
+        self.progress_section = self._create_progress_section()
+        layout.addWidget(self.progress_section)
 
-        header_layout.addStretch()
+        # 2. 快捷操作Section
+        self.actions_section = self._create_actions_section()
+        layout.addWidget(self.actions_section)
 
-        # 重新生成蓝图按钮
-        if self._editable:
-            self.regenerate_btn = QPushButton("重新生成蓝图")
-            self.regenerate_btn.setObjectName("regenerate_blueprint_btn")
-            self.regenerate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.regenerate_btn.clicked.connect(self._on_regenerate_blueprint)
-            header_layout.addWidget(self.regenerate_btn)
+        # 3. 项目摘要Section
+        self.summary_section = self._create_summary_section()
+        layout.addWidget(self.summary_section)
 
-        layout.addWidget(header_row)
-
-        # 一句话摘要卡片
-        self.summary_card = self._create_field_card(
-            "一句话摘要",
-            self._data.get('one_sentence_summary', '') if self._data else '',
-            'one_sentence_summary',
-            multiline=False
-        )
-        layout.addWidget(self.summary_card)
-
-        # 基本信息行
-        info_row = QWidget()
-        info_layout = QHBoxLayout(info_row)
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(dp(16))
-
-        # 目标受众
-        self.audience_card = self._create_field_card(
-            "目标受众",
-            self._data.get('target_audience', '') if self._data else '',
-            'target_audience',
-            multiline=False
-        )
-        info_layout.addWidget(self.audience_card)
-
-        # 项目类型
-        self.type_card = self._create_field_card(
-            "项目类型",
-            self._data.get('project_type_desc', '') if self._data else '',
-            'project_type_desc',
-            multiline=False
-        )
-        info_layout.addWidget(self.type_card)
-
-        layout.addWidget(info_row)
-
-        # 风格行
-        style_row = QWidget()
-        style_layout = QHBoxLayout(style_row)
-        style_layout.setContentsMargins(0, 0, 0, 0)
-        style_layout.setSpacing(dp(16))
-
-        # 技术风格
-        self.tech_style_card = self._create_field_card(
-            "技术风格",
-            self._data.get('tech_style', '') if self._data else '',
-            'tech_style',
-            multiline=False
-        )
-        style_layout.addWidget(self.tech_style_card)
-
-        # 项目调性
-        self.tone_card = self._create_field_card(
-            "项目调性",
-            self._data.get('project_tone', '') if self._data else '',
-            'project_tone',
-            multiline=False
-        )
-        style_layout.addWidget(self.tone_card)
-
-        layout.addWidget(style_row)
-
-        # 架构概述卡片
-        self.synopsis_card = self._create_field_card(
-            "架构概述",
-            self._data.get('architecture_synopsis', '') if self._data else '',
-            'architecture_synopsis',
-            multiline=True
-        )
-        layout.addWidget(self.synopsis_card)
-
-        # 技术栈卡片
+        # 4. 技术栈Section
         tech_stack = self._data.get('tech_stack', {}) if self._data else {}
-        self.tech_stack_card = self._create_tech_stack_card(tech_stack)
-        layout.addWidget(self.tech_stack_card)
+        self.tech_stack_section = self._create_tech_stack_section(tech_stack)
+        layout.addWidget(self.tech_stack_section)
 
         layout.addStretch()
 
-    def _create_field_card(
-        self,
-        title: str,
-        value: str,
-        field_name: str,
-        multiline: bool = False
-    ) -> QFrame:
-        """创建字段卡片"""
-        card = QFrame()
-        card.setObjectName("field_card")
+        scroll.setWidget(content)
 
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
-        layout.setSpacing(dp(8))
+        # 主布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+
+        self._apply_scroll_style(scroll)
+
+    def _create_progress_section(self) -> QFrame:
+        """创建项目进度Section"""
+        section = QFrame()
+        section.setObjectName("progress_section")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        layout.setSpacing(dp(16))
 
         # 标题行
-        title_row = QWidget()
-        title_layout = QHBoxLayout(title_row)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(dp(8))
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel(title)
-        title_label.setObjectName("field_title")
-        title_layout.addWidget(title_label)
+        title = QLabel("项目进度")
+        title.setObjectName("section_title")
+        header_layout.addWidget(title)
 
-        title_layout.addStretch()
+        header_layout.addStretch()
 
-        # 编辑按钮
-        if self._editable:
-            edit_btn = QPushButton("编辑")
-            edit_btn.setObjectName("edit_btn")
-            edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            edit_btn.clicked.connect(
-                lambda: self.requestEdit(field_name, title, value)
-            )
-            title_layout.addWidget(edit_btn)
+        # 计算完成百分比
+        progress_percent = self._calculate_progress()
+        self.progress_percent_label = QLabel(f"{progress_percent}%")
+        self.progress_percent_label.setObjectName("progress_percent")
+        header_layout.addWidget(self.progress_percent_label)
 
-        layout.addWidget(title_row)
+        layout.addWidget(header)
 
-        # 内容
-        value_label = QLabel(value or "暂无内容")
-        value_label.setObjectName("field_value")
-        value_label.setWordWrap(True)
-        if multiline:
-            value_label.setMinimumHeight(dp(80))
-        layout.addWidget(value_label)
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("workflow_progress")
+        self.progress_bar.setFixedHeight(dp(8))
+        self.progress_bar.setValue(progress_percent)
+        self.progress_bar.setTextVisible(False)
+        layout.addWidget(self.progress_bar)
 
-        # 保存引用
-        card.value_label = value_label
+        # 步骤指示器
+        steps_widget = QWidget()
+        steps_layout = QHBoxLayout(steps_widget)
+        steps_layout.setContentsMargins(0, dp(8), 0, 0)
+        steps_layout.setSpacing(dp(4))
 
-        self._apply_card_style(card)
-        return card
+        self._step_labels = []
+        for i, step in enumerate(WORKFLOW_STEPS):
+            step_widget = self._create_step_indicator(step, i)
+            steps_layout.addWidget(step_widget, 1)
+            if i < len(WORKFLOW_STEPS) - 1:
+                # 连接线
+                connector = QLabel("--")
+                connector.setObjectName("step_connector")
+                connector.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                steps_layout.addWidget(connector)
 
-    def _create_tech_stack_card(self, tech_stack: dict) -> QFrame:
-        """创建技术栈卡片"""
-        card = QFrame()
-        card.setObjectName("tech_stack_card")
+        layout.addWidget(steps_widget)
 
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
+        self._apply_progress_style(section)
+        return section
+
+    def _create_step_indicator(self, step: dict, index: int) -> QWidget:
+        """创建单个步骤指示器"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(dp(4))
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # 判断步骤是否完成
+        is_completed = self._is_step_completed(step['key'])
+
+        # 步骤图标/数字
+        icon_label = QLabel(str(index + 1))
+        icon_label.setObjectName("step_icon_completed" if is_completed else "step_icon_pending")
+        icon_label.setFixedSize(dp(24), dp(24))
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 步骤标签
+        label = QLabel(step['label'])
+        label.setObjectName("step_label_completed" if is_completed else "step_label_pending")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+        self._step_labels.append((icon_label, label, step['key']))
+
+        return widget
+
+    def _is_step_completed(self, key: str) -> bool:
+        """判断步骤是否完成"""
+        if not self._data:
+            return False
+
+        if key == 'has_blueprint':
+            # 检查蓝图是否存在
+            return bool(self._data.get('one_sentence_summary') or self._data.get('architecture_synopsis'))
+        elif key in ['systems', 'modules']:
+            # 检查列表是否非空
+            items = self._data.get(key, [])
+            return len(items) > 0
+        elif key == 'directory_tree':
+            # 检查目录树是否存在
+            return bool(self._data.get('directory_tree'))
+        elif key == 'generated_count':
+            # 检查是否有已生成内容
+            return self._data.get('generated_count', 0) > 0
+
+        return False
+
+    def _calculate_progress(self) -> int:
+        """计算项目进度百分比"""
+        if not self._data:
+            return 0
+
+        completed = 0
+        for step in WORKFLOW_STEPS:
+            if self._is_step_completed(step['key']):
+                completed += 1
+
+        return int((completed / len(WORKFLOW_STEPS)) * 100)
+
+    def _create_actions_section(self) -> QFrame:
+        """创建快捷操作Section"""
+        section = QFrame()
+        section.setObjectName("actions_section")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
         layout.setSpacing(dp(12))
 
         # 标题
-        title_label = QLabel("技术栈")
-        title_label.setObjectName("tech_stack_title")
-        layout.addWidget(title_label)
+        title = QLabel("快捷操作")
+        title.setObjectName("section_title")
+        layout.addWidget(title)
 
-        if not tech_stack:
-            empty_label = QLabel("暂无技术栈信息")
-            empty_label.setObjectName("tech_stack_empty")
-            layout.addWidget(empty_label)
-        else:
-            # 核心技术约束
-            core_constraints = tech_stack.get('core_constraints', '')
-            if core_constraints:
-                constraints_widget = self._create_tech_field("核心约束", core_constraints)
-                layout.addWidget(constraints_widget)
+        # 操作按钮区
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(dp(12))
 
-            # 技术组件
-            components = tech_stack.get('components', [])
-            if components:
-                components_widget = self._create_tech_list("技术组件", components)
-                layout.addWidget(components_widget)
+        # 生成蓝图按钮
+        self.gen_blueprint_btn = self._create_action_button(
+            "生成蓝图",
+            "从需求分析生成架构设计蓝图",
+            self._on_regenerate_blueprint
+        )
+        buttons_layout.addWidget(self.gen_blueprint_btn)
 
-            # 技术领域
-            domains = tech_stack.get('domains', [])
-            if domains:
-                domains_widget = self._create_tech_list("技术领域", domains)
-                layout.addWidget(domains_widget)
+        # Agent规划按钮（主要操作）
+        self.agent_plan_btn = self._create_action_button(
+            "Agent规划",
+            "使用AI Agent规划整个项目结构",
+            self._on_agent_plan,
+            primary=True
+        )
+        buttons_layout.addWidget(self.agent_plan_btn)
 
-            # 如果都为空
-            if not any([core_constraints, components, domains]):
-                empty_label = QLabel("暂无技术栈信息")
-                empty_label.setObjectName("tech_stack_empty")
-                layout.addWidget(empty_label)
+        buttons_layout.addStretch()
+        layout.addWidget(buttons_widget)
 
-        self._apply_tech_stack_style(card)
-        return card
+        self._apply_actions_style(section)
+        return section
 
-    def _create_tech_field(self, label: str, value: str) -> QWidget:
-        """创建技术栈字段"""
+    def _create_action_button(self, text: str, tooltip: str, callback, primary: bool = False) -> QPushButton:
+        """创建操作按钮"""
+        btn = QPushButton(text)
+        btn.setObjectName("action_btn_primary" if primary else "action_btn")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        btn.clicked.connect(callback)
+        return btn
+
+    def _create_summary_section(self) -> QFrame:
+        """创建项目摘要Section"""
+        section = QFrame()
+        section.setObjectName("summary_section")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        layout.setSpacing(dp(12))
+
+        # 标题行
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        title = QLabel("项目摘要")
+        title.setObjectName("section_title")
+        header_layout.addWidget(title)
+
+        header_layout.addStretch()
+        layout.addWidget(header)
+
+        # 一句话摘要
+        summary = self._data.get('one_sentence_summary', '') if self._data else ''
+        self.summary_label = QLabel(summary or "暂无摘要，请先生成蓝图")
+        self.summary_label.setObjectName("summary_text")
+        self.summary_label.setWordWrap(True)
+        layout.addWidget(self.summary_label)
+
+        # 信息网格
+        info_grid = QWidget()
+        grid_layout = QGridLayout(info_grid)
+        grid_layout.setContentsMargins(0, dp(8), 0, 0)
+        grid_layout.setSpacing(dp(12))
+
+        # 项目类型
+        self.type_label = self._create_info_item(
+            "项目类型",
+            self._data.get('project_type_desc', '未定义') if self._data else '未定义'
+        )
+        grid_layout.addWidget(self.type_label, 0, 0)
+
+        # 目标受众
+        self.audience_label = self._create_info_item(
+            "目标受众",
+            self._data.get('target_audience', '未定义') if self._data else '未定义'
+        )
+        grid_layout.addWidget(self.audience_label, 0, 1)
+
+        # 技术风格
+        self.style_label = self._create_info_item(
+            "技术风格",
+            self._data.get('tech_style', '未定义') if self._data else '未定义'
+        )
+        grid_layout.addWidget(self.style_label, 1, 0)
+
+        # 项目调性
+        self.tone_label = self._create_info_item(
+            "项目调性",
+            self._data.get('project_tone', '未定义') if self._data else '未定义'
+        )
+        grid_layout.addWidget(self.tone_label, 1, 1)
+
+        layout.addWidget(info_grid)
+
+        # 架构概述
+        synopsis = self._data.get('architecture_synopsis', '') if self._data else ''
+        if synopsis:
+            synopsis_title = QLabel("架构概述")
+            synopsis_title.setObjectName("info_label")
+            layout.addWidget(synopsis_title)
+
+            self.synopsis_label = QLabel(synopsis)
+            self.synopsis_label.setObjectName("synopsis_text")
+            self.synopsis_label.setWordWrap(True)
+            layout.addWidget(self.synopsis_label)
+
+        self._apply_summary_style(section)
+        return section
+
+    def _create_info_item(self, label: str, value: str) -> QWidget:
+        """创建信息项"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(dp(4))
 
         label_widget = QLabel(label)
-        label_widget.setObjectName("tech_field_label")
+        label_widget.setObjectName("info_label")
         layout.addWidget(label_widget)
 
-        value_widget = QLabel(value)
-        value_widget.setObjectName("tech_field_value")
+        value_widget = QLabel(value or "未定义")
+        value_widget.setObjectName("info_value")
         value_widget.setWordWrap(True)
         layout.addWidget(value_widget)
 
-        return widget
-
-    def _create_tech_list(self, label: str, items: list) -> QWidget:
-        """创建技术栈列表"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(dp(4))
-
-        label_widget = QLabel(label)
-        label_widget.setObjectName("tech_field_label")
-        layout.addWidget(label_widget)
-
-        # 创建标签流式布局
-        tags_widget = QWidget()
-        tags_layout = QHBoxLayout(tags_widget)
-        tags_layout.setContentsMargins(0, 0, 0, 0)
-        tags_layout.setSpacing(dp(8))
-
-        for item in items[:6]:  # 最多显示6个
-            name = item.get('name', '') if isinstance(item, dict) else str(item)
-            desc = item.get('description', '') if isinstance(item, dict) else ''
-
-            tag = QLabel(name)
-            tag.setObjectName("tech_tag")
-            if desc:
-                tag.setToolTip(desc)
-            tags_layout.addWidget(tag)
-
-        if len(items) > 6:
-            more_label = QLabel(f"+{len(items) - 6}")
-            more_label.setObjectName("tech_tag_more")
-            tags_layout.addWidget(more_label)
-
-        tags_layout.addStretch()
-        layout.addWidget(tags_widget)
+        # 保存引用用于更新
+        widget.value_label = value_widget
 
         return widget
 
-    def _apply_tech_stack_style(self, card: QFrame):
-        """应用技术栈卡片样式"""
-        card.setStyleSheet(f"""
-            QFrame#tech_stack_card {{
-                background-color: {theme_manager.book_bg_secondary()};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(8)}px;
-            }}
-            QLabel#tech_stack_title {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(12)}px;
-                font-weight: 500;
-            }}
-            QLabel#tech_stack_empty {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(13)}px;
-                font-style: italic;
-            }}
-            QLabel#tech_field_label {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(11)}px;
-                font-weight: 500;
-            }}
-            QLabel#tech_field_value {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(13)}px;
-            }}
-            QLabel#tech_tag {{
-                background-color: {theme_manager.PRIMARY}15;
-                color: {theme_manager.PRIMARY};
-                font-size: {dp(12)}px;
-                padding: {dp(4)}px {dp(10)}px;
-                border-radius: {dp(4)}px;
-                border: 1px solid {theme_manager.PRIMARY}30;
-            }}
-            QLabel#tech_tag_more {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(11)}px;
-                padding: {dp(4)}px;
-            }}
-        """)
+    def _create_tech_stack_section(self, tech_stack: dict) -> QFrame:
+        """创建技术栈Section"""
+        section = QFrame()
+        section.setObjectName("tech_stack_section")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
+        layout.setSpacing(dp(12))
 
-    def _apply_card_style(self, card: QFrame):
-        """应用卡片样式"""
-        card.setStyleSheet(f"""
-            QFrame#field_card {{
-                background-color: {theme_manager.book_bg_secondary()};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(8)}px;
-            }}
-            QLabel#field_title {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(12)}px;
-                font-weight: 500;
-            }}
-            QLabel#field_value {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(14)}px;
-                line-height: 1.5;
-            }}
-            QPushButton#edit_btn {{
-                background-color: transparent;
-                color: {theme_manager.PRIMARY};
-                border: none;
-                font-size: {dp(12)}px;
-                padding: {dp(4)}px {dp(8)}px;
-            }}
-            QPushButton#edit_btn:hover {{
-                background-color: {theme_manager.PRIMARY}20;
-                border-radius: {dp(4)}px;
-            }}
-        """)
+        # 标题
+        title = QLabel("技术栈")
+        title.setObjectName("section_title")
+        layout.addWidget(title)
 
-    def _apply_theme(self):
-        """应用主题"""
-        # 标题样式
-        for child in self.findChildren(QLabel):
-            if child.objectName() == "section_title":
-                child.setStyleSheet(f"""
-                    QLabel#section_title {{
-                        color: {theme_manager.TEXT_PRIMARY};
-                        font-size: {dp(18)}px;
-                        font-weight: 600;
-                    }}
-                """)
+        if not tech_stack:
+            empty_label = QLabel("暂无技术栈信息，请先生成蓝图")
+            empty_label.setObjectName("empty_text")
+            layout.addWidget(empty_label)
+        else:
+            # 核心约束
+            core_constraints = tech_stack.get('core_constraints', '')
+            if core_constraints:
+                constraints_label = QLabel(f"核心约束: {core_constraints}")
+                constraints_label.setObjectName("constraints_text")
+                constraints_label.setWordWrap(True)
+                layout.addWidget(constraints_label)
 
-        # 重新生成按钮样式
-        if hasattr(self, 'regenerate_btn') and self.regenerate_btn:
-            self.regenerate_btn.setStyleSheet(f"""
-                QPushButton#regenerate_blueprint_btn {{
-                    background-color: transparent;
-                    color: {theme_manager.PRIMARY};
-                    border: 1px solid {theme_manager.PRIMARY};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(16)}px;
-                    font-size: {dp(13)}px;
-                }}
-                QPushButton#regenerate_blueprint_btn:hover {{
-                    background-color: {theme_manager.PRIMARY}15;
-                }}
-            """)
+            # 技术组件标签
+            components = tech_stack.get('components', [])
+            if components:
+                tags_widget = QWidget()
+                tags_layout = QHBoxLayout(tags_widget)
+                tags_layout.setContentsMargins(0, 0, 0, 0)
+                tags_layout.setSpacing(dp(8))
 
-        for card in [
-            self.summary_card,
-            self.audience_card,
-            self.type_card,
-            self.tech_style_card,
-            self.tone_card,
-            self.synopsis_card
-        ]:
-            if card:
-                self._apply_card_style(card)
+                for comp in components[:8]:
+                    name = comp.get('name', '') if isinstance(comp, dict) else str(comp)
+                    desc = comp.get('description', '') if isinstance(comp, dict) else ''
 
-        # 技术栈卡片单独应用样式
-        if hasattr(self, 'tech_stack_card') and self.tech_stack_card:
-            self._apply_tech_stack_style(self.tech_stack_card)
+                    tag = QLabel(name)
+                    tag.setObjectName("tech_tag")
+                    if desc:
+                        tag.setToolTip(desc)
+                    tags_layout.addWidget(tag)
+
+                if len(components) > 8:
+                    more = QLabel(f"+{len(components) - 8}")
+                    more.setObjectName("tech_tag_more")
+                    tags_layout.addWidget(more)
+
+                tags_layout.addStretch()
+                layout.addWidget(tags_widget)
+
+        self._apply_tech_stack_style(section)
+        return section
+
+    # ========== 事件处理 ==========
 
     def _on_regenerate_blueprint(self):
-        """重新生成蓝图按钮点击"""
+        """重新生成蓝图"""
         from components.dialogs import get_regenerate_preference
 
         preference, ok = get_regenerate_preference(
@@ -429,36 +433,236 @@ class CodingOverviewSection(BaseSection):
         if ok:
             self.regenerateBlueprintRequested.emit(preference if preference else "")
 
+    def _on_agent_plan(self):
+        """Agent规划"""
+        from utils.message_service import MessageService
+        MessageService.show_info(self, "Agent规划功能开发中，请在目录结构Tab中使用Agent规划功能")
+
+    # ========== 样式方法 ==========
+
+    def _apply_scroll_style(self, scroll: QScrollArea):
+        """应用滚动区域样式"""
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: transparent;
+                border: none;
+            }}
+            {theme_manager.scrollbar()}
+        """)
+
+    def _apply_progress_style(self, section: QFrame):
+        """应用进度样式"""
+        section.setStyleSheet(f"""
+            QFrame#progress_section {{
+                background-color: {theme_manager.book_bg_secondary()};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(8)}px;
+            }}
+            QLabel#section_title {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(15)}px;
+                font-weight: 600;
+            }}
+            QLabel#progress_percent {{
+                color: {theme_manager.PRIMARY};
+                font-size: {sp(16)}px;
+                font-weight: bold;
+            }}
+            QProgressBar#workflow_progress {{
+                background-color: {theme_manager.BORDER_DEFAULT};
+                border: none;
+                border-radius: {dp(4)}px;
+            }}
+            QProgressBar#workflow_progress::chunk {{
+                background-color: {theme_manager.PRIMARY};
+                border-radius: {dp(4)}px;
+            }}
+            QLabel#step_connector {{
+                color: {theme_manager.BORDER_DEFAULT};
+                font-size: {sp(10)}px;
+            }}
+            QLabel#step_icon_completed {{
+                background-color: {theme_manager.SUCCESS};
+                color: white;
+                font-size: {sp(11)}px;
+                font-weight: bold;
+                border-radius: {dp(12)}px;
+            }}
+            QLabel#step_icon_pending {{
+                background-color: {theme_manager.BORDER_DEFAULT};
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {sp(11)}px;
+                font-weight: bold;
+                border-radius: {dp(12)}px;
+            }}
+            QLabel#step_label_completed {{
+                color: {theme_manager.SUCCESS};
+                font-size: {sp(11)}px;
+            }}
+            QLabel#step_label_pending {{
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {sp(11)}px;
+            }}
+        """)
+
+    def _apply_actions_style(self, section: QFrame):
+        """应用快捷操作样式"""
+        section.setStyleSheet(f"""
+            QFrame#actions_section {{
+                background-color: {theme_manager.book_bg_secondary()};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(8)}px;
+            }}
+            QLabel#section_title {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(15)}px;
+                font-weight: 600;
+            }}
+            QPushButton#action_btn {{
+                background-color: {theme_manager.book_bg_primary()};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+            }}
+            QPushButton#action_btn:hover {{
+                background-color: {theme_manager.PRIMARY}15;
+                border-color: {theme_manager.PRIMARY};
+            }}
+            QPushButton#action_btn_primary {{
+                background-color: {theme_manager.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: {dp(6)}px;
+                padding: {dp(10)}px {dp(16)}px;
+                font-size: {sp(13)}px;
+                font-weight: 500;
+            }}
+            QPushButton#action_btn_primary:hover {{
+                background-color: {theme_manager.PRIMARY_DARK};
+            }}
+        """)
+
+    def _apply_summary_style(self, section: QFrame):
+        """应用摘要样式"""
+        section.setStyleSheet(f"""
+            QFrame#summary_section {{
+                background-color: {theme_manager.book_bg_secondary()};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(8)}px;
+            }}
+            QLabel#section_title {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(15)}px;
+                font-weight: 600;
+            }}
+            QLabel#summary_text {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(14)}px;
+                line-height: 1.5;
+            }}
+            QLabel#info_label {{
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {sp(11)}px;
+            }}
+            QLabel#info_value {{
+                color: {theme_manager.TEXT_SECONDARY};
+                font-size: {sp(13)}px;
+            }}
+            QLabel#synopsis_text {{
+                color: {theme_manager.TEXT_SECONDARY};
+                font-size: {sp(13)}px;
+                line-height: 1.5;
+            }}
+        """)
+
+    def _apply_tech_stack_style(self, section: QFrame):
+        """应用技术栈样式"""
+        section.setStyleSheet(f"""
+            QFrame#tech_stack_section {{
+                background-color: {theme_manager.book_bg_secondary()};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(8)}px;
+            }}
+            QLabel#section_title {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {sp(15)}px;
+                font-weight: 600;
+            }}
+            QLabel#empty_text {{
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {sp(13)}px;
+            }}
+            QLabel#constraints_text {{
+                color: {theme_manager.TEXT_SECONDARY};
+                font-size: {sp(13)}px;
+            }}
+            QLabel#tech_tag {{
+                background-color: {theme_manager.PRIMARY}15;
+                color: {theme_manager.PRIMARY};
+                font-size: {sp(12)}px;
+                padding: {dp(4)}px {dp(10)}px;
+                border-radius: {dp(4)}px;
+                border: 1px solid {theme_manager.PRIMARY}30;
+            }}
+            QLabel#tech_tag_more {{
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {sp(11)}px;
+            }}
+        """)
+
+    def _apply_theme(self):
+        """应用主题"""
+        if hasattr(self, 'progress_section'):
+            self._apply_progress_style(self.progress_section)
+        if hasattr(self, 'actions_section'):
+            self._apply_actions_style(self.actions_section)
+        if hasattr(self, 'summary_section'):
+            self._apply_summary_style(self.summary_section)
+        if hasattr(self, 'tech_stack_section'):
+            self._apply_tech_stack_style(self.tech_stack_section)
+
     def updateData(self, data: Dict[str, Any]):
         """更新数据"""
         super().updateData(data)
 
-        if hasattr(self, 'summary_card') and self.summary_card:
-            self.summary_card.value_label.setText(
-                data.get('one_sentence_summary', '') or "暂无内容"
+        # 更新进度
+        progress_percent = self._calculate_progress()
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.setValue(progress_percent)
+        if hasattr(self, 'progress_percent_label'):
+            self.progress_percent_label.setText(f"{progress_percent}%")
+
+        # 更新步骤状态
+        if hasattr(self, '_step_labels'):
+            for icon_label, text_label, key in self._step_labels:
+                is_completed = self._is_step_completed(key)
+                icon_label.setObjectName("step_icon_completed" if is_completed else "step_icon_pending")
+                text_label.setObjectName("step_label_completed" if is_completed else "step_label_pending")
+            # 重新应用样式
+            if hasattr(self, 'progress_section'):
+                self._apply_progress_style(self.progress_section)
+
+        # 更新摘要
+        if hasattr(self, 'summary_label'):
+            self.summary_label.setText(
+                data.get('one_sentence_summary', '') or "暂无摘要，请先生成蓝图"
             )
-        if hasattr(self, 'audience_card') and self.audience_card:
-            self.audience_card.value_label.setText(
-                data.get('target_audience', '') or "暂无内容"
-            )
-        if hasattr(self, 'type_card') and self.type_card:
-            self.type_card.value_label.setText(
-                data.get('project_type_desc', '') or "暂无内容"
-            )
-        if hasattr(self, 'tech_style_card') and self.tech_style_card:
-            self.tech_style_card.value_label.setText(
-                data.get('tech_style', '') or "暂无内容"
-            )
-        if hasattr(self, 'tone_card') and self.tone_card:
-            self.tone_card.value_label.setText(
-                data.get('project_tone', '') or "暂无内容"
-            )
-        if hasattr(self, 'synopsis_card') and self.synopsis_card:
-            self.synopsis_card.value_label.setText(
-                data.get('architecture_synopsis', '') or "暂无内容"
-            )
-        # 技术栈卡片需要重建（因为结构复杂）
-        # 简化处理：这里不做动态更新，依赖页面刷新
+
+        # 更新信息项
+        if hasattr(self, 'type_label') and hasattr(self.type_label, 'value_label'):
+            self.type_label.value_label.setText(data.get('project_type_desc', '未定义') or '未定义')
+        if hasattr(self, 'audience_label') and hasattr(self.audience_label, 'value_label'):
+            self.audience_label.value_label.setText(data.get('target_audience', '未定义') or '未定义')
+        if hasattr(self, 'style_label') and hasattr(self.style_label, 'value_label'):
+            self.style_label.value_label.setText(data.get('tech_style', '未定义') or '未定义')
+        if hasattr(self, 'tone_label') and hasattr(self.tone_label, 'value_label'):
+            self.tone_label.value_label.setText(data.get('project_tone', '未定义') or '未定义')
+
+        # 架构概述
+        if hasattr(self, 'synopsis_label'):
+            self.synopsis_label.setText(data.get('architecture_synopsis', '') or '')
 
 
 __all__ = ["CodingOverviewSection"]

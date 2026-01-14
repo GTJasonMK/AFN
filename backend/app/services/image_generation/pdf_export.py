@@ -608,11 +608,22 @@ class PDFExportService:
             # Bug 32 修复: 按 panel_id 索引图片，由于排序为 created_at.desc()，
             # 第一个遇到的是最新图片，后续重复的 panel_id 被忽略
             panel_image_map: Dict[str, GeneratedImage] = {}
+            # 整页图片索引（按页码）- 支持整页生成功能
+            page_image_map: Dict[int, GeneratedImage] = {}
+
             for img in all_images:
-                if img.panel_id and img.panel_id not in panel_image_map:
+                # 整页图片：image_type='page' 且 panel_id 格式为 "page{N}"
+                if img.image_type == 'page' and img.panel_id and img.panel_id.startswith('page'):
+                    try:
+                        pn = int(img.panel_id[4:])  # 从 "page1" 提取页码
+                        if pn not in page_image_map:
+                            page_image_map[pn] = img
+                    except (ValueError, IndexError):
+                        pass
+                elif img.panel_id and img.panel_id not in panel_image_map:
                     panel_image_map[img.panel_id] = img
 
-            logger.info(f"图片索引: panel_id={len(panel_image_map)}")
+            logger.info(f"图片索引: panel_id={len(panel_image_map)}, page_id={len(page_image_map)}")
 
             # 确保导出目录存在
             await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
@@ -685,14 +696,62 @@ class PDFExportService:
 
                 logger.debug(f"绘制第 {page_number} 页: {len(panels)} 个画格")
 
+                # 绘制页面背景
+                c.setFillColorRGB(1, 1, 1)
+                c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
+
+                # ========== 检查是否有整页图片 ==========
+                # 如果该页有整页生成的图片，直接渲染整页图片，跳过分格渲染
+                page_img_record = page_image_map.get(page_number)
+                if page_img_record:
+                    img_path = get_images_root() / page_img_record.file_path
+                    if await async_exists(img_path):
+                        try:
+                            # 读取图片尺寸
+                            def get_image_size(path):
+                                with PILImage.open(path) as img:
+                                    return img.size
+                            img_w, img_h = await asyncio.to_thread(get_image_size, str(img_path))
+
+                            # 计算缩放（保持比例，最大化显示）
+                            scale = min(content_width / img_w, content_height / img_h)
+                            draw_width = img_w * scale
+                            draw_height = img_h * scale
+
+                            # 居中显示
+                            offset_x = (page_width - draw_width) / 2
+                            offset_y = (page_height - draw_height) / 2
+
+                            # 绘制整页图片
+                            c.drawImage(
+                                str(img_path),
+                                offset_x,
+                                offset_y,
+                                width=draw_width,
+                                height=draw_height,
+                                preserveAspectRatio=True,
+                            )
+
+                            logger.debug(f"第 {page_number} 页使用整页图片")
+
+                            # 绘制页码
+                            _register_chinese_font()
+                            c.setFillColorRGB(0.5, 0.5, 0.5)
+                            c.setFont(_CHINESE_FONT_NAME, 9)
+                            c.drawCentredString(page_width / 2, 15, str(page_count + 1))
+
+                            c.showPage()
+                            page_count += 1
+                            continue  # 跳过分格渲染
+
+                        except Exception as e:
+                            logger.warning(f"整页图片绘制失败，回退到分格模式: {e}")
+                            # 继续执行分格渲染
+
                 # 获取页面级别的gutter配置（转换为点单位，约0.35mm/point）
                 gutter_info = page_gutter_map.get(page_number, {"gutter_h": 8, "gutter_v": 8})
                 gap_h = gutter_info["gutter_h"] * 0.35 * mm  # 水平间距（列之间）
                 gap_v = gutter_info["gutter_v"] * 0.35 * mm  # 垂直间距（行之间）
-
-                # 绘制页面背景
-                c.setFillColorRGB(1, 1, 1)
-                c.rect(0, 0, page_width, page_height, fill=True, stroke=False)
 
                 # ========== 基于row_id的精确布局 ==========
                 # 1. 按row_id分组画格

@@ -194,6 +194,38 @@ class ImageGenerationRequest(BaseModel):
     dialogue_language: Optional[str] = Field(default=None, description="对话/文字语言: chinese/japanese/english/korean")
 
 
+class PageImageGenerationRequest(BaseModel):
+    """整页漫画图片生成请求
+
+    用于生成带分格布局的整页漫画图片，AI直接画出包含多个panel的完整页面。
+    """
+    # 页面级提示词（由 PromptBuilder.build_page_prompt() 生成）
+    full_page_prompt: str = Field(..., description="整页漫画提示词")
+    negative_prompt: Optional[str] = Field(default=None, description="负面提示词")
+
+    # 布局信息
+    layout_template: str = Field(default="", description="布局模板名，如 3row_1x2x1")
+    layout_description: str = Field(default="", description="布局描述文本")
+
+    # 图片参数
+    ratio: str = Field(default="3:4", description="页面宽高比（漫画页标准比例）")
+    resolution: str = Field(default="2K", description="分辨率，整页建议2K")
+    style: Optional[str] = Field(default="manga", description="风格")
+
+    # 版本追溯
+    chapter_version_id: Optional[int] = Field(default=None, description="章节版本ID")
+
+    # 参考图（角色立绘等）
+    reference_image_paths: Optional[List[str]] = Field(default=None, description="参考图片路径列表")
+    reference_strength: float = Field(default=0.5, ge=0.0, le=1.0, description="参考图影响强度")
+
+    # 每个画格的简要信息（用于后续处理，如PDF导出时的区域裁切）
+    panel_summaries: Optional[List[Dict[str, Any]]] = Field(default=None, description="画格简要信息列表")
+
+    # 语言设置
+    dialogue_language: Optional[str] = Field(default="chinese", description="对话/文字语言")
+
+
 class GeneratedImageInfo(BaseModel):
     """生成的图片信息"""
     id: int
@@ -202,6 +234,7 @@ class GeneratedImageInfo(BaseModel):
     url: str  # 访问URL
     scene_id: int  # 场景ID
     panel_id: Optional[str] = None  # 画格ID
+    image_type: str = "panel"  # 图片类型: "panel"(单画格) 或 "page"(整页)
     width: Optional[int] = None
     height: Optional[int] = None
     prompt: Optional[str] = None
@@ -316,24 +349,15 @@ def has_style_keywords(prompt: str) -> bool:
     prompt_lower = prompt.lower()
     return any(kw in prompt_lower for kw in STYLE_DETECTION_KEYWORDS)
 
-# 漫画专用默认负面提示词（避免AI常见问题）
+# 漫画专用默认负面提示词（中文，自然语言）
 DEFAULT_MANGA_NEGATIVE_PROMPT = (
-    # 质量问题
-    "low quality, blurry, pixelated, jpeg artifacts, watermark, signature, "
-    # AI常见缺陷（塑料感、僵硬）
-    "plastic skin, waxy skin, shiny skin, overly smooth skin, doll-like appearance, "
-    "uncanny valley, stiff expression, lifeless eyes, dead eyes, "
-    # 解剖错误
-    "bad anatomy, wrong proportions, deformed hands, extra fingers, missing fingers, "
-    "fused fingers, malformed limbs, extra limbs, floating limbs, "
-    # 风格问题（避免厚涂/过度渲染）
-    "3D render, CGI, photorealistic, hyper-realistic, overly rendered, "
-    "excessive highlights, too much contrast, oil painting texture, heavy impasto, "
-    "thick paint strokes, painterly, subsurface scattering, volumetric lighting, "
-    # 文字错误
-    "wrong text, misspelled words, garbled text, unreadable text, text errors, gibberish text, "
-    # 面部问题
-    "ugly face, deformed face, asymmetrical face, crossed eyes"
+    "禁止出现以下问题："
+    "模糊低质量、像素化、水印签名、"
+    "塑料感皮肤、僵硬表情、呆滞眼神、"
+    "解剖错误、比例失调、手指变形、多余肢体、"
+    "3D渲染风格、过度真实、厚涂油画质感、"
+    "文字错误乱码、"
+    "面部变形不对称"
 )
 
 # 质量预设参数

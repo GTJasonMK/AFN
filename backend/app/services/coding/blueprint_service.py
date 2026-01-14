@@ -19,7 +19,6 @@ from ...repositories.coding_repository import (
     CodingBlueprintRepository,
     CodingSystemRepository,
     CodingModuleRepository,
-    CodingFeatureRepository,
 )
 from ...schemas.coding import (
     CodingBlueprint as CodingBlueprintSchema,
@@ -52,7 +51,6 @@ class CodingBlueprintService:
         self.blueprint_repo = CodingBlueprintRepository(session)
         self.system_repo = CodingSystemRepository(session)
         self.module_repo = CodingModuleRepository(session)
-        self.feature_repo = CodingFeatureRepository(session)
         self._project_service = CodingProjectService(session)
 
     async def get_blueprint(
@@ -164,7 +162,6 @@ class CodingBlueprintService:
         # 统计信息
         blueprint.total_systems = blueprint_data.get("total_systems", 0)
         blueprint.total_modules = blueprint_data.get("total_modules", 0)
-        blueprint.total_features = blueprint_data.get("total_features", 0)
         blueprint.needs_phased_design = blueprint_data.get("needs_phased_design", False)
 
         # 同步更新项目标题
@@ -188,19 +185,16 @@ class CodingBlueprintService:
         """
         await self._project_service.ensure_project_owner(project_id, user_id)
 
-        # 删除所有系统、模块、功能
+        # 删除所有系统、模块
         await self.system_repo.delete_by_project_id(project_id)
         await self.module_repo.delete_by_project_id(project_id)
-        await self.feature_repo.delete_by_project_id(project_id)
 
         # 重置蓝图数据
         blueprint = await self.blueprint_repo.get_by_project(project_id)
         if blueprint:
             blueprint.systems = []
             blueprint.modules = []
-            blueprint.features = []
             blueprint.total_systems = 0
             blueprint.total_modules = 0
-            blueprint.total_features = 0
 
         await self.session.flush()

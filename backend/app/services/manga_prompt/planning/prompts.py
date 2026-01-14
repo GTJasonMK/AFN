@@ -16,8 +16,17 @@ PAGE_PLANNING_PROMPT = """你是漫画分镜师，请根据章节信息规划页
 ### 章节摘要
 {chapter_summary}
 
-### 事件列表
+### 事件列表（含复杂度信息）
 {events_json}
+
+**事件字段说明**：
+- index: 事件索引
+- type: 事件类型（action动作/dialogue对话/conflict冲突/climax高潮等）
+- description: 事件描述
+- participants: 参与角色
+- importance: 重要程度（critical关键/high高/normal普通/low低）
+- dialogue_count: 关联对话数量
+- is_climax: 是否是高潮场景
 
 ### 场景列表
 {scenes_json}
@@ -25,11 +34,24 @@ PAGE_PLANNING_PROMPT = """你是漫画分镜师，请根据章节信息规划页
 ### 角色列表
 {characters_json}
 
+### 高潮事件索引
+{climax_indices}
+
 ## 规划要求
 
 1. **页面数量**: 规划 {min_pages}-{max_pages} 页
-2. **事件分配**: 每页包含 1-3 个相关事件
-3. **分镜数量**: 每页建议 3-6 个画格
+
+2. **事件复杂度考量**:
+   - **高潮/关键事件** (is_climax=true 或 importance=critical/high): 单独分配1页或更多
+   - **动作/冲突事件** (type=action/conflict): 需要更多画格，建议 4-6 格
+   - **对话密集事件** (dialogue_count>=3): 需要更多空间放对话气泡
+   - **普通/低重要度事件**: 可以合并，每页 2-3 个
+
+3. **分镜数量建议**:
+   - 高潮场景: 5-6 格（大场面）
+   - 动作场景: 4-5 格
+   - 对话场景: 3-4 格
+   - 过渡场景: 2-3 格
 
 ## 输出格式
 
@@ -47,15 +69,19 @@ PAGE_PLANNING_PROMPT = """你是漫画分镜师，请根据章节信息规划页
       "has_dialogue": true,
       "has_action": false,
       "suggested_panel_count": 4,
+      "page_importance": "normal",
       "notes": "建立场景氛围"
     }}
   ]
 }}
 ```
 
+**page_importance 说明**: critical(高潮页)/high(重要)/normal(普通)/low(过渡)
+
 请确保：
 1. 所有事件都被分配到某个页面
 2. 事件按时间顺序分配
+3. 高潮事件获得足够的页面空间
 """
 
 # 系统提示词

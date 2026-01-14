@@ -117,6 +117,9 @@ class GeneratedImage(Base):
     # 来源URL（如果是从远程下载的）
     source_url: Mapped[Optional[str]] = mapped_column(Text())
 
+    # 图片类型: panel(单画格) 或 page(整页漫画)
+    image_type: Mapped[str] = mapped_column(String(20), default="panel", nullable=False)
+
     # 用户选择状态
     is_selected: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否被选中用于导出
 

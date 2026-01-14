@@ -80,48 +80,112 @@ def _get_torch_device() -> str:
     return 'cpu'
 
 
-def _check_model_cached(model_name: str) -> bool:
+def _resolve_hf_hub_snapshot(hub_cache_dir: str) -> Optional[str]:
     """
-    检查模型是否已缓存在本地
+    解析 HuggingFace Hub 缓存目录，找到实际的模型 snapshot 路径
+
+    HF Hub 缓存结构:
+    models--BAAI--bge-base-zh-v1.5/
+    ├── blobs/
+    ├── refs/
+    │   └── main  (内容是 commit hash)
+    └── snapshots/
+        └── {commit_hash}/
+            ├── config.json
+            ├── pytorch_model.bin
+            └── ...
+
+    Args:
+        hub_cache_dir: HF Hub 缓存目录路径
+
+    Returns:
+        snapshot 目录路径，如果未找到返回 None
+    """
+    import os
+
+    snapshots_dir = os.path.join(hub_cache_dir, "snapshots")
+    if not os.path.exists(snapshots_dir):
+        return None
+
+    # 尝试从 refs/main 读取当前 commit hash
+    refs_main = os.path.join(hub_cache_dir, "refs", "main")
+    if os.path.exists(refs_main):
+        try:
+            with open(refs_main, "r") as f:
+                commit_hash = f.read().strip()
+            snapshot_path = os.path.join(snapshots_dir, commit_hash)
+            if os.path.exists(snapshot_path):
+                return snapshot_path
+        except Exception:
+            pass
+
+    # 如果 refs/main 不存在，取 snapshots 目录下的第一个子目录
+    try:
+        subdirs = [d for d in os.listdir(snapshots_dir)
+                   if os.path.isdir(os.path.join(snapshots_dir, d))]
+        if subdirs:
+            return os.path.join(snapshots_dir, subdirs[0])
+    except Exception:
+        pass
+
+    return None
+
+
+def _find_local_model_path(model_name: str) -> Optional[str]:
+    """
+    查找本地模型路径
 
     Args:
         model_name: 模型名称（如 BAAI/bge-base-zh-v1.5）
 
     Returns:
-        True 如果模型已缓存
+        本地模型路径，如果未找到返回 None
     """
     import os
-    try:
-        from huggingface_hub import try_to_load_from_cache
-        from huggingface_hub.utils import EntryNotFoundError
 
-        # 检查模型配置文件是否已缓存
-        try:
-            result = try_to_load_from_cache(model_name, "config.json")
-            if result is not None:
-                logger.debug("模型 %s 已缓存在本地", model_name)
-                return True
-        except (EntryNotFoundError, Exception):
-            pass
+    # 检查 SENTENCE_TRANSFORMERS_HOME（sentence-transformers 使用的目录）
+    st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME")
+    if st_home:
+        # 格式1: {ST_HOME}/{model_name.replace('/', '_')}
+        st_cache_dir = os.path.join(st_home, model_name.replace("/", "_"))
+        if os.path.exists(st_cache_dir):
+            # 检查是否是 HF Hub 格式（有 snapshots 子目录）
+            snapshot_path = _resolve_hf_hub_snapshot(st_cache_dir)
+            if snapshot_path:
+                logger.debug("模型在 ST_HOME (HF Hub格式): %s", snapshot_path)
+                return snapshot_path
+            # 否则检查是否直接是模型目录（有 config.json）
+            if os.path.exists(os.path.join(st_cache_dir, "config.json")):
+                logger.debug("模型在 ST_HOME (直接格式): %s", st_cache_dir)
+                return st_cache_dir
 
-        # 备选：检查 HF_HOME 或默认缓存目录
-        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
-        model_cache_dir = os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}")
-        if os.path.exists(model_cache_dir):
-            logger.debug("模型缓存目录存在: %s", model_cache_dir)
-            return True
+        # 格式2: {ST_HOME}/{model_name}
+        st_cache_dir2 = os.path.join(st_home, model_name)
+        if os.path.exists(st_cache_dir2):
+            snapshot_path = _resolve_hf_hub_snapshot(st_cache_dir2)
+            if snapshot_path:
+                logger.debug("模型在 ST_HOME (HF Hub格式): %s", snapshot_path)
+                return snapshot_path
+            if os.path.exists(os.path.join(st_cache_dir2, "config.json")):
+                logger.debug("模型在 ST_HOME (直接格式): %s", st_cache_dir2)
+                return st_cache_dir2
 
-    except ImportError:
-        logger.debug("huggingface_hub 未安装，无法检查缓存")
-    except Exception as e:
-        logger.debug("检查模型缓存失败: %s", e)
+    # 检查 HF_HOME（HuggingFace Hub 使用的目录）
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    model_cache_dir = os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}")
+    if os.path.exists(model_cache_dir):
+        snapshot_path = _resolve_hf_hub_snapshot(model_cache_dir)
+        if snapshot_path:
+            logger.debug("模型在 HF_HOME (HF Hub格式): %s", snapshot_path)
+            return snapshot_path
 
-    return False
+    logger.debug("模型未找到，已检查目录: ST_HOME=%s, HF_HOME=%s", st_home, hf_home)
+    return None
 
 
 def _load_sentence_transformer(model_name: str, device: str) -> Any:
     """
-    加载 SentenceTransformer 模型，优先使用本地缓存
+    加载 SentenceTransformer 模型（仅从本地加载）
 
     Args:
         model_name: 模型名称
@@ -129,32 +193,38 @@ def _load_sentence_transformer(model_name: str, device: str) -> Any:
 
     Returns:
         加载的模型实例
+
+    Raises:
+        FileNotFoundError: 模型不在本地缓存目录
     """
     import os
 
-    # 如果模型已缓存，尝试离线加载（避免网络检查）
-    if _check_model_cached(model_name):
-        try:
-            logger.info("尝试离线加载已缓存的模型: %s", model_name)
-            # 设置环境变量强制离线模式
-            old_offline = os.environ.get("HF_HUB_OFFLINE")
-            os.environ["HF_HUB_OFFLINE"] = "1"
-            try:
-                model = _SentenceTransformer(model_name, device=device)
-                logger.info("离线加载模型成功: %s", model_name)
-                return model
-            finally:
-                # 恢复原环境变量
-                if old_offline is None:
-                    os.environ.pop("HF_HUB_OFFLINE", None)
-                else:
-                    os.environ["HF_HUB_OFFLINE"] = old_offline
-        except Exception as e:
-            logger.warning("离线加载失败，尝试在线加载: %s", e)
+    # 查找本地模型路径
+    local_path = _find_local_model_path(model_name)
 
-    # 在线加载（首次下载或离线失败时）
-    logger.info("在线加载模型: %s（可能需要下载）", model_name)
-    return _SentenceTransformer(model_name, device=device)
+    if not local_path:
+        st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME", "")
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        expected_path = os.path.join(st_home, model_name.replace("/", "_")) if st_home else os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}")
+        raise FileNotFoundError(
+            f"本地嵌入模型不存在: {model_name}\n"
+            f"请将模型下载到: {expected_path}"
+        )
+
+    # 使用本地路径直接加载（不会触发网络请求）
+    logger.info("从本地路径加载模型: %s", local_path)
+    old_offline = os.environ.get("HF_HUB_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        # 直接传入本地路径，而不是模型名称
+        model = _SentenceTransformer(local_path, device=device)
+        logger.info("本地模型加载成功: %s", local_path)
+        return model
+    finally:
+        if old_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = old_offline
 
 
 class PreloadState(Enum):

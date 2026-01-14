@@ -21,8 +21,12 @@ from .coding import (
     CodingBlueprint,
     CodingSystem,
     CodingModule,
-    CodingFeature,
-    CodingFeatureVersion,
+)
+from .coding_files import (
+    CodingDirectoryNode,
+    CodingSourceFile,
+    CodingFileVersion,
+    CodingAgentState,
 )
 from .character_portrait import CharacterPortrait
 from .embedding_config import EmbeddingConfig
@@ -72,6 +76,9 @@ __all__ = [
     "CodingBlueprint",
     "CodingSystem",
     "CodingModule",
-    "CodingFeature",
-    "CodingFeatureVersion",
+    # Coding files models
+    "CodingDirectoryNode",
+    "CodingSourceFile",
+    "CodingFileVersion",
+    "CodingAgentState",
 ]

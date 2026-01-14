@@ -238,7 +238,6 @@ class GeneratedSection(BaseSection):
     """
 
     dataChanged = pyqtSignal()
-    navigateToDesk = pyqtSignal(int)  # feature_number - 导航到工作台
 
     def __init__(
         self,
@@ -293,13 +292,6 @@ class GeneratedSection(BaseSection):
                 stats_label.setObjectName("stats_label")
                 header_layout.addWidget(stats_label)
                 self.stats_label = stats_label
-
-        # 打开工作台按钮
-        open_desk_btn = QPushButton("打开工作台")
-        open_desk_btn.setObjectName("open_desk_btn")
-        open_desk_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_desk_btn.clicked.connect(lambda: self.navigateToDesk.emit(1))  # 默认选中第一个功能
-        header_layout.addWidget(open_desk_btn)
 
         layout.addWidget(header)
 
@@ -386,17 +378,10 @@ class GeneratedSection(BaseSection):
         layout.addWidget(text_label)
 
         # 提示说明
-        hint_label = QLabel("在工作台中选择功能并生成内容")
+        hint_label = QLabel("请先在目录结构Tab中为模块生成目录和文件，然后生成文件Prompt")
         hint_label.setObjectName("empty_hint")
         hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint_label)
-
-        # 打开工作台按钮
-        open_btn = QPushButton("打开工作台")
-        open_btn.setObjectName("open_desk_btn_empty")
-        open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_btn.clicked.connect(lambda: self.navigateToDesk.emit(1))  # 默认选中第一个功能
-        layout.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         empty.setStyleSheet(f"""
             QFrame#empty_state {{
@@ -416,17 +401,6 @@ class GeneratedSection(BaseSection):
             QLabel#empty_hint {{
                 color: {theme_manager.TEXT_TERTIARY};
                 font-size: {dp(13)}px;
-            }}
-            QPushButton#open_desk_btn_empty {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(24)}px;
-                font-size: {dp(14)}px;
-            }}
-            QPushButton#open_desk_btn_empty:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
             }}
         """)
 
@@ -450,17 +424,6 @@ class GeneratedSection(BaseSection):
                 font-size: {dp(13)}px;
                 font-weight: 500;
             }}
-            QPushButton#open_desk_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#open_desk_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
         """)
 
     def _apply_theme(self):
@@ -469,16 +432,6 @@ class GeneratedSection(BaseSection):
         for card in self._item_cards:
             if isinstance(card, GeneratedItemCard):
                 card._apply_style()
-
-    def _on_view_item(self, feature_number: int):
-        """查看内容 - 导航到工作台"""
-        logger.info(f"View feature: {feature_number}")
-        self.navigateToDesk.emit(feature_number)
-
-    def _on_edit_item(self, feature_number: int):
-        """编辑内容 - 导航到工作台"""
-        logger.info(f"Edit feature: {feature_number}")
-        self.navigateToDesk.emit(feature_number)
 
     def updateData(self, chapters: List[Dict], features: List[Dict] = None):
         """更新数据"""

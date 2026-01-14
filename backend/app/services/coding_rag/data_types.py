@@ -1,7 +1,7 @@
 """
 编程项目RAG数据类型定义
 
-定义11种需要入库的数据类型及其检索权重。
+定义10种需要入库的数据类型及其检索权重。
 """
 
 from enum import Enum
@@ -18,10 +18,9 @@ class CodingDataType(str, Enum):
     CHALLENGE = "challenge"               # 技术挑战
     SYSTEM = "system"                     # 系统划分
     MODULE = "module"                     # 模块定义
-    FEATURE_OUTLINE = "feature_outline"   # 功能大纲
     DEPENDENCY = "dependency"             # 依赖关系
-    FEATURE_PROMPT = "feature_prompt"     # 功能实现Prompt
-    REVIEW_PROMPT = "review_prompt"       # 功能审查/测试Prompt
+    REVIEW_PROMPT = "review_prompt"       # 审查/测试Prompt
+    FILE_PROMPT = "file_prompt"           # 文件实现Prompt
 
     @classmethod
     def get_weight(cls, data_type: str) -> float:
@@ -43,9 +42,8 @@ class CodingDataType(str, Enum):
             cls.TECH_STACK.value: 0.9,        # 技术栈
             cls.SYSTEM.value: 0.85,           # 系统划分
             cls.MODULE.value: 0.8,            # 模块定义
-            cls.FEATURE_OUTLINE.value: 0.75,  # 功能大纲
-            cls.FEATURE_PROMPT.value: 0.7,    # 功能实现Prompt
-            cls.REVIEW_PROMPT.value: 0.65,    # 功能审查/测试Prompt
+            cls.FILE_PROMPT.value: 0.72,      # 文件实现Prompt
+            cls.REVIEW_PROMPT.value: 0.65,    # 审查/测试Prompt
             cls.DEPENDENCY.value: 0.6,        # 依赖关系
             cls.CHALLENGE.value: 0.5,         # 技术挑战
             cls.INSPIRATION.value: 0.4,       # 灵感对话权重较低
@@ -71,10 +69,9 @@ class CodingDataType(str, Enum):
             cls.CHALLENGE.value: "技术挑战",
             cls.SYSTEM.value: "系统划分",
             cls.MODULE.value: "模块定义",
-            cls.FEATURE_OUTLINE.value: "功能大纲",
             cls.DEPENDENCY.value: "依赖关系",
-            cls.FEATURE_PROMPT.value: "功能Prompt",
             cls.REVIEW_PROMPT.value: "测试Prompt",
+            cls.FILE_PROMPT.value: "文件Prompt",
         }
         return names.get(data_type, data_type)
 
@@ -85,7 +82,7 @@ class CodingDataType(str, Enum):
 
         【重要设计说明】
         编程项目使用独立的数据库表：
-        - coding_features: 存储功能Prompt和审查Prompt
+        - coding_source_files: 存储审查Prompt和文件实现Prompt
 
         Args:
             data_type: 数据类型字符串
@@ -94,17 +91,16 @@ class CodingDataType(str, Enum):
             数据库表名
         """
         tables: Dict[str, str] = {
-            cls.INSPIRATION.value: "novel_conversations",
-            cls.ARCHITECTURE.value: "novel_blueprints",
-            cls.TECH_STACK.value: "novel_blueprints",
-            cls.REQUIREMENT.value: "novel_blueprints",
-            cls.CHALLENGE.value: "novel_blueprints",
-            cls.SYSTEM.value: "part_outlines",
-            cls.MODULE.value: "blueprint_characters",
-            cls.FEATURE_OUTLINE.value: "chapter_outlines",
-            cls.DEPENDENCY.value: "blueprint_relationships",
-            cls.FEATURE_PROMPT.value: "coding_features",
-            cls.REVIEW_PROMPT.value: "coding_features",
+            cls.INSPIRATION.value: "coding_conversations",
+            cls.ARCHITECTURE.value: "coding_blueprints",
+            cls.TECH_STACK.value: "coding_blueprints",
+            cls.REQUIREMENT.value: "coding_blueprints",
+            cls.CHALLENGE.value: "coding_blueprints",
+            cls.SYSTEM.value: "coding_systems",
+            cls.MODULE.value: "coding_modules",
+            cls.DEPENDENCY.value: "coding_blueprints",
+            cls.REVIEW_PROMPT.value: "coding_source_files",
+            cls.FILE_PROMPT.value: "coding_source_files",
         }
         return tables.get(data_type, "unknown")
 

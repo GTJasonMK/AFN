@@ -222,18 +222,13 @@ async def generate_coding_blueprint(
     blueprint_repo = CodingBlueprintRepository(session)
     blueprint = await blueprint_repo.get_by_project(project_id)
 
-    # 重新生成蓝图时，级联删除下游数据（Systems、Modules、Features）
+    # 重新生成蓝图时，级联删除下游数据（Systems、Modules）
     from ....models.coding import (
         CodingSystem as CodingSystemModel,
         CodingModule as CodingModuleModel,
-        CodingFeature as CodingFeatureModel,
     )
     from sqlalchemy import delete as sql_delete
 
-    # 删除所有功能大纲
-    await session.execute(
-        sql_delete(CodingFeatureModel).where(CodingFeatureModel.project_id == project_id)
-    )
     # 删除所有模块
     await session.execute(
         sql_delete(CodingModuleModel).where(CodingModuleModel.project_id == project_id)
@@ -243,7 +238,7 @@ async def generate_coding_blueprint(
         sql_delete(CodingSystemModel).where(CodingSystemModel.project_id == project_id)
     )
     await session.flush()
-    logger.info("项目 %s 重新生成蓝图，已级联删除旧的系统/模块/功能数据", project_id)
+    logger.info("项目 %s 重新生成蓝图，已级联删除旧的系统/模块数据", project_id)
 
     if blueprint:
         # 更新蓝图字段

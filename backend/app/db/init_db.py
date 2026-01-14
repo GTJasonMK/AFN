@@ -33,6 +33,17 @@ from ..models import (
     ForeshadowingIndex,
     NovelProject,
     PartOutline,
+    # Coding models
+    CodingProject,
+    CodingBlueprint,
+    CodingSystem,
+    CodingModule,
+    CodingConversation,
+    # Coding files models
+    CodingDirectoryNode,
+    CodingSourceFile,
+    CodingFileVersion,
+    CodingAgentState,
 )
 from .base import Base
 from .session import AsyncSessionLocal, engine
@@ -370,6 +381,18 @@ async def _run_migrations() -> None:
             "chapter_manga_prompts",
             "analysis_data",
             "ALTER TABLE chapter_manga_prompts ADD COLUMN analysis_data JSON DEFAULT NULL"
+        ),
+        # 图片类型：区分单画格(panel)和整页漫画(page)
+        (
+            "generated_images",
+            "image_type",
+            "ALTER TABLE generated_images ADD COLUMN image_type VARCHAR(20) DEFAULT 'panel' NOT NULL"
+        ),
+        # 整页提示词列表：存储整页漫画生成所需的提示词
+        (
+            "chapter_manga_prompts",
+            "page_prompts",
+            "ALTER TABLE chapter_manga_prompts ADD COLUMN page_prompts JSON DEFAULT '[]'"
         ),
     ]
 

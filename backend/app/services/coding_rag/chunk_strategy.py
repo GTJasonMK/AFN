@@ -117,18 +117,15 @@ DEFAULT_STRATEGIES: Dict[CodingDataType, ChunkConfig] = {
     CodingDataType.MODULE: ChunkConfig(
         method=ChunkMethod.SIMPLE,
     ),
-    CodingDataType.FEATURE_OUTLINE: ChunkConfig(
-        method=ChunkMethod.SIMPLE,
-    ),
     CodingDataType.DEPENDENCY: ChunkConfig(
         method=ChunkMethod.SIMPLE,
     ),
-    CodingDataType.FEATURE_PROMPT: ChunkConfig(
+    CodingDataType.REVIEW_PROMPT: ChunkConfig(
         method=ChunkMethod.MARKDOWN_HEADER,
         md_min_level=2,
         md_max_level=3,
     ),
-    CodingDataType.REVIEW_PROMPT: ChunkConfig(
+    CodingDataType.FILE_PROMPT: ChunkConfig(
         method=ChunkMethod.MARKDOWN_HEADER,
         md_min_level=2,
         md_max_level=3,
@@ -163,13 +160,10 @@ OPTIMIZED_STRATEGIES: Dict[CodingDataType, ChunkConfig] = {
     CodingDataType.MODULE: ChunkConfig(
         method=ChunkMethod.SIMPLE,
     ),
-    CodingDataType.FEATURE_OUTLINE: ChunkConfig(
-        method=ChunkMethod.SIMPLE,
-    ),
     CodingDataType.DEPENDENCY: ChunkConfig(
         method=ChunkMethod.MODULE_AGGREGATE,  # 按模块聚合
     ),
-    CodingDataType.FEATURE_PROMPT: ChunkConfig(
+    CodingDataType.REVIEW_PROMPT: ChunkConfig(
         method=ChunkMethod.SEMANTIC_DP,  # 使用语义动态规划分块
         min_chunk_length=100,
         max_chunk_length=1500,
@@ -179,7 +173,7 @@ OPTIMIZED_STRATEGIES: Dict[CodingDataType, ChunkConfig] = {
         semantic_min_sentences=2,
         semantic_max_sentences=15,
     ),
-    CodingDataType.REVIEW_PROMPT: ChunkConfig(
+    CodingDataType.FILE_PROMPT: ChunkConfig(
         method=ChunkMethod.SEMANTIC_DP,  # 使用语义动态规划分块
         min_chunk_length=100,
         max_chunk_length=1500,

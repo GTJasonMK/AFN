@@ -1,7 +1,7 @@
 """
-Prompt生成工作台
+编程项目Prompt生成工作台
 
-专为编程项目设计的Prompt生成和内容编辑工作台。
+提供文件级别的Prompt生成、编辑和版本管理功能。
 """
 
 from .main import CodingDesk

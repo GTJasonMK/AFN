@@ -64,6 +64,7 @@ class AdvancedConfigResponse(BaseModel):
     writer_chapter_version_count: int = Field(description="章节候选版本数量")
     writer_parallel_generation: bool = Field(description="是否启用并行生成")
     part_outline_threshold: int = Field(description="长篇分部大纲阈值")
+    agent_context_max_chars: int = Field(description="Agent上下文最大字符数")
 
 
 class AdvancedConfigUpdate(BaseModel):
@@ -71,6 +72,7 @@ class AdvancedConfigUpdate(BaseModel):
     writer_chapter_version_count: int = Field(ge=1, le=5, description="章节候选版本数量（1-5）")
     writer_parallel_generation: bool = Field(description="是否启用并行生成")
     part_outline_threshold: int = Field(ge=10, le=100, description="长篇分部大纲阈值（10-100）")
+    agent_context_max_chars: int = Field(ge=50000, le=500000, description="Agent上下文最大字符数（50000-500000）")
 
 
 class MaxTokensConfigResponse(BaseModel):
@@ -88,6 +90,7 @@ class MaxTokensConfigResponse(BaseModel):
     llm_max_tokens_coding_module: int = Field(description="模块生成最大tokens")
     llm_max_tokens_coding_feature: int = Field(description="功能大纲最大tokens")
     llm_max_tokens_coding_prompt: int = Field(description="功能Prompt最大tokens")
+    llm_max_tokens_coding_directory: int = Field(description="目录生成最大tokens")
 
 
 class TemperatureConfigResponse(BaseModel):
@@ -125,6 +128,7 @@ class MaxTokensConfigUpdate(BaseModel):
     llm_max_tokens_coding_module: int = Field(ge=1024, le=32768, description="模块生成最大tokens")
     llm_max_tokens_coding_feature: int = Field(ge=1024, le=16384, description="功能大纲最大tokens")
     llm_max_tokens_coding_prompt: int = Field(ge=1024, le=32768, description="功能Prompt最大tokens")
+    llm_max_tokens_coding_directory: int = Field(ge=4096, le=32768, description="目录生成最大tokens")
 
 
 # ==================== 导入导出相关 ====================
@@ -188,6 +192,7 @@ async def get_advanced_config() -> AdvancedConfigResponse:
         writer_chapter_version_count=settings.writer_chapter_versions,
         writer_parallel_generation=settings.writer_parallel_generation,
         part_outline_threshold=settings.part_outline_threshold,
+        agent_context_max_chars=settings.agent_context_max_chars,
     )
 
 
@@ -212,6 +217,7 @@ async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]
         current_config['writer_chapter_version_count'] = config.writer_chapter_version_count
         current_config['writer_parallel_generation'] = config.writer_parallel_generation
         current_config['part_outline_threshold'] = config.part_outline_threshold
+        current_config['agent_context_max_chars'] = config.agent_context_max_chars
 
         # 保存配置
         save_config(current_config)
@@ -223,6 +229,7 @@ async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]
             settings.writer_chapter_versions = config.writer_chapter_version_count
             settings.writer_parallel_generation = config.writer_parallel_generation
             settings.part_outline_threshold = config.part_outline_threshold
+            settings.agent_context_max_chars = config.agent_context_max_chars
             logger.info("运行时配置已更新")
             hot_reload_success = True
         except Exception as reload_error:
@@ -268,6 +275,7 @@ async def get_max_tokens_config() -> MaxTokensConfigResponse:
         llm_max_tokens_coding_module=settings.llm_max_tokens_coding_module,
         llm_max_tokens_coding_feature=settings.llm_max_tokens_coding_feature,
         llm_max_tokens_coding_prompt=settings.llm_max_tokens_coding_prompt,
+        llm_max_tokens_coding_directory=settings.llm_max_tokens_coding_directory,
     )
 
 
@@ -302,6 +310,7 @@ async def update_max_tokens_config(config: MaxTokensConfigUpdate) -> Dict[str, A
         current_config['llm_max_tokens_coding_module'] = config.llm_max_tokens_coding_module
         current_config['llm_max_tokens_coding_feature'] = config.llm_max_tokens_coding_feature
         current_config['llm_max_tokens_coding_prompt'] = config.llm_max_tokens_coding_prompt
+        current_config['llm_max_tokens_coding_directory'] = config.llm_max_tokens_coding_directory
 
         # 保存配置
         save_config(current_config)
@@ -322,6 +331,7 @@ async def update_max_tokens_config(config: MaxTokensConfigUpdate) -> Dict[str, A
             settings.llm_max_tokens_coding_module = config.llm_max_tokens_coding_module
             settings.llm_max_tokens_coding_feature = config.llm_max_tokens_coding_feature
             settings.llm_max_tokens_coding_prompt = config.llm_max_tokens_coding_prompt
+            settings.llm_max_tokens_coding_directory = config.llm_max_tokens_coding_directory
 
             logger.info("运行时Max Tokens配置已更新")
             hot_reload_success = True
@@ -402,6 +412,9 @@ async def export_max_tokens_config() -> MaxTokensConfigExportData:
             "llm_max_tokens_coding_prompt": current_config.get(
                 "llm_max_tokens_coding_prompt", settings.llm_max_tokens_coding_prompt
             ),
+            "llm_max_tokens_coding_directory": current_config.get(
+                "llm_max_tokens_coding_directory", settings.llm_max_tokens_coding_directory
+            ),
         }
     )
 
@@ -454,6 +467,7 @@ async def import_max_tokens_config(import_data: dict) -> ConfigImportResult:
             "llm_max_tokens_coding_module": (1024, 32768),
             "llm_max_tokens_coding_feature": (1024, 16384),
             "llm_max_tokens_coding_prompt": (1024, 32768),
+            "llm_max_tokens_coding_directory": (4096, 32768),
         }
 
         # 更新配置（带验证）
@@ -697,6 +711,9 @@ async def export_advanced_config() -> AdvancedConfigExportData:
             "part_outline_threshold": current_config.get(
                 "part_outline_threshold", settings.part_outline_threshold
             ),
+            "agent_context_max_chars": current_config.get(
+                "agent_context_max_chars", settings.agent_context_max_chars
+            ),
         }
     )
 
@@ -758,6 +775,15 @@ async def import_advanced_config(import_data: dict) -> ConfigImportResult:
                 details.append(f"分部大纲阈值已更新为 {value}")
             else:
                 details.append(f"分部大纲阈值 {value} 超出范围(10-100)，已跳过")
+
+        if "agent_context_max_chars" in config_data:
+            value = config_data["agent_context_max_chars"]
+            if 50000 <= value <= 500000:
+                current_config["agent_context_max_chars"] = value
+                settings.agent_context_max_chars = value
+                details.append(f"Agent上下文最大字符数已更新为 {value}")
+            else:
+                details.append(f"Agent上下文最大字符数 {value} 超出范围(50000-500000)，已跳过")
 
         # 保存配置
         save_config(current_config)
@@ -934,6 +960,9 @@ async def export_all_configs(
         "part_outline_threshold": current_config.get(
             "part_outline_threshold", settings.part_outline_threshold
         ),
+        "agent_context_max_chars": current_config.get(
+            "agent_context_max_chars", settings.agent_context_max_chars
+        ),
     }
 
     # 获取队列配置
@@ -980,6 +1009,9 @@ async def export_all_configs(
         ),
         "llm_max_tokens_coding_prompt": current_config.get(
             "llm_max_tokens_coding_prompt", settings.llm_max_tokens_coding_prompt
+        ),
+        "llm_max_tokens_coding_directory": current_config.get(
+            "llm_max_tokens_coding_directory", settings.llm_max_tokens_coding_directory
         ),
     }
 
@@ -1175,6 +1207,7 @@ async def import_all_configs(
                     "llm_max_tokens_coding_module": (1024, 32768),
                     "llm_max_tokens_coding_feature": (1024, 16384),
                     "llm_max_tokens_coding_prompt": (1024, 32768),
+                    "llm_max_tokens_coding_directory": (4096, 32768),
                 }
 
                 for field, (min_val, max_val) in max_tokens_fields.items():

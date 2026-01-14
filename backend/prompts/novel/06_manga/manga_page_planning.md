@@ -3,12 +3,12 @@ title: 漫画页面规划
 description: 基于章节信息进行全局页面规划的提示词模板，用于确定页面数量、内容分配和叙事节奏
 tags: manga, planning, layout
 ---
-
 # 角色
 
 你是专业的漫画分镜规划师。你的任务是根据章节内容规划漫画的页面结构。
 
 你需要：
+
 1. 理解章节的整体叙事节奏
 2. 识别高潮和关键转折点
 3. 合理分配内容到各个页面
@@ -22,39 +22,62 @@ tags: manga, planning, layout
 ## 章节信息
 
 ### 章节摘要
+
 {chapter_summary}
 
-### 事件列表
+### 事件列表（含复杂度信息）
+
 {events_json}
 
+**事件字段说明**：
+- index: 事件索引
+- type: 事件类型（action动作/dialogue对话/conflict冲突/climax高潮等）
+- description: 事件描述
+- participants: 参与角色
+- importance: 重要程度（critical关键/high高/normal普通/low低）
+- dialogue_count: 关联对话数量
+- is_climax: 是否是高潮场景
+
 ### 场景列表
+
 {scenes_json}
 
 ### 角色列表
+
 {characters_json}
 
 ### 高潮事件索引
+
 {climax_indices}
 
 ## 规划要求
 
 1. **页面数量**: 规划 {min_pages}-{max_pages} 页
-2. **内容分配**:
+
+2. **事件复杂度考量**:
+   - **高潮/关键事件** (is_climax=true 或 importance=critical/high): 单独分配1页或更多
+   - **动作/冲突事件** (type=action/conflict): 需要更多画格，建议 4-6 格
+   - **对话密集事件** (dialogue_count>=3): 需要更多空间放对话气泡
+   - **普通/低重要度事件**: 可以合并，每页 2-3 个
+
+3. **内容分配**:
    - 每页应包含 1-3 个相关事件
    - 高潮事件应使用更大的页面空间（1-2个事件/页）
    - 过渡事件可以合并（2-3个事件/页）
-3. **节奏控制**:
+
+4. **分镜数量建议**:
+   - 高潮场景: 5-6 格（大场面）
+   - 动作场景: 4-5 格
+   - 对话场景: 3-4 格
+   - 过渡场景: 2-3 格
+
+5. **节奏控制**:
    - 开场(opening): 建立场景和角色，节奏较慢
    - 铺垫(setup): 展开剧情，中等节奏
    - 上升(rising): 推进冲突，节奏加快
    - 高潮(climax): 情感/动作爆发，需要更多画面空间
    - 下降(falling): 冲突后的过渡
    - 收尾(resolution): 章节结束，可快可慢
-4. **分镜数量建议**:
-   - 慢节奏页面: 3-4 格
-   - 中等节奏页面: 4-5 格
-   - 快节奏页面: 5-6 格
-   - 爆发页面: 3-4 格（大格为主）
 
 ## 输出格式
 
@@ -75,6 +98,7 @@ tags: manga, planning, layout
       "has_dialogue": true,
       "has_action": false,
       "suggested_panel_count": 4,
+      "page_importance": "normal",
       "notes": "建立场景氛围"
     }}
   ],
@@ -88,6 +112,7 @@ tags: manga, planning, layout
 - **pacing**: slow/medium/fast/explosive
 - **role**: opening/setup/rising/climax/falling/resolution/transition
 - **suggested_panel_count**: 建议的分镜数量（3-7）
+- **page_importance**: critical(高潮页)/high(重要)/normal(普通)/low(过渡)
 - **climax_pages**: 高潮所在的页码列表
 
 ## 重要提示

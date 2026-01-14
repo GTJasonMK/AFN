@@ -89,8 +89,8 @@ async def list_novels(
     projects, total = await novel_service.list_projects_for_user(
         desktop_user.id, page, page_size
     )
-    logger.info("用户 %s 获取小说项目列表，页码=%d，返回 %d/%d 个",
-                desktop_user.id, page, len(projects), total)
+    logger.debug("用户 %s 获取小说项目列表，页码=%d，返回 %d/%d 个",
+                 desktop_user.id, page, len(projects), total)
     return projects
 
 
@@ -101,7 +101,7 @@ async def get_novel(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> NovelProjectSchema:
     """获取指定项目的完整信息"""
-    logger.info("用户 %s 查询项目 %s", desktop_user.id, project_id)
+    logger.debug("用户 %s 查询项目 %s", desktop_user.id, project_id)
     return await novel_service.get_project_schema(project_id, desktop_user.id)
 
 
@@ -113,7 +113,7 @@ async def get_novel_section(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> NovelSectionResponse:
     """获取项目的指定区段数据（概览、世界设定、角色等）"""
-    logger.info("用户 %s 获取项目 %s 的 %s 区段", desktop_user.id, project_id, section)
+    logger.debug("用户 %s 获取项目 %s 的 %s 区段", desktop_user.id, project_id, section)
     return await novel_service.get_section_data(project_id, section, desktop_user.id)
 
 
@@ -125,7 +125,7 @@ async def get_chapter(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> ChapterSchema:
     """获取指定章节的详细信息"""
-    logger.info("用户 %s 获取项目 %s 第 %s 章", desktop_user.id, project_id, chapter_number)
+    logger.debug("用户 %s 获取项目 %s 第 %s 章", desktop_user.id, project_id, chapter_number)
     return await novel_service.get_chapter_schema(project_id, chapter_number, desktop_user.id)
 
 

@@ -92,6 +92,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         generation_status: str = "completed",
         dialogue_language: str = "chinese",  # Bug 30 修复: 添加对话语言参数
         analysis_data: Optional[dict] = None,  # 分析数据
+        page_prompts: Optional[list] = None,  # 整页提示词列表
     ) -> ChapterMangaPrompt:
         """
         创建或更新漫画提示词
@@ -110,6 +111,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             generation_status: 生成状态
             dialogue_language: 对话语言
             analysis_data: 分析数据（章节信息提取和页面规划结果）
+            page_prompts: 整页提示词列表
 
         Returns:
             漫画提示词实例
@@ -128,6 +130,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             existing.generation_status = generation_status
             existing.dialogue_language = dialogue_language  # Bug 30 修复
             existing.analysis_data = analysis_data  # 保存分析数据
+            existing.page_prompts = page_prompts or []  # 保存整页提示词
             # 完成时清除断点数据
             if generation_status == "completed":
                 existing.checkpoint_data = None
@@ -148,6 +151,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
                 generation_status=generation_status,
                 dialogue_language=dialogue_language,  # Bug 30 修复
                 analysis_data=analysis_data,  # 保存分析数据
+                page_prompts=page_prompts or [],  # 保存整页提示词
             )
             return await self.add(manga_prompt)
 
@@ -208,6 +212,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         """
         获取生成断点信息
 
+        修改后的逻辑：只要有有效的断点数据就返回，不再依赖状态判断。
+        这样可以支持从任意中断点恢复，包括 pending 状态下的历史断点。
+
         Args:
             project_id: 项目ID
             chapter_number: 章节号
@@ -220,8 +227,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         if not manga_prompt:
             return None
 
-        # 只有未完成的任务才返回断点
-        if manga_prompt.generation_status in ("completed", "pending"):
+        # 只要有断点数据就返回（不再依赖状态判断）
+        # 这样可以支持从任意中断点恢复
+        if not manga_prompt.checkpoint_data:
             return None
 
         return {
@@ -320,6 +328,9 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
         # 根据 is_complete 决定状态
         generation_status = "completed" if is_complete else "generating"
 
+        # 提取整页提示词列表
+        page_prompts = result_data.get("page_prompts", [])
+
         # 使用 upsert 保存
         return await self.upsert(
             chapter_id=chapter_id,
@@ -333,6 +344,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             generation_status=generation_status,
             dialogue_language=dialogue_language,  # Bug 30 修复: 传递对话语言
             analysis_data=analysis_data,  # 保存分析数据
+            page_prompts=page_prompts,  # 保存整页提示词
         )
 
     async def get_result(self, chapter_id: int) -> Optional[dict]:
@@ -396,6 +408,8 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             "dialogue_language": manga_prompt.dialogue_language or "chinese",
             # 分析数据
             "analysis_data": manga_prompt.analysis_data,
+            # 整页提示词列表
+            "page_prompts": manga_prompt.page_prompts or [],
             # 增量状态字段
             "is_complete": is_complete,
             "completed_pages_count": completed_pages_count,

@@ -94,6 +94,7 @@ class WDWorkspace(
             on_preview_prompt=self._onPreviewPrompt,
             on_stop_generate=self._onStopMangaGenerate,
             on_stop_generate_all=self._onStopGenerateAllImages,
+            on_generate_page_image=self._onGeneratePageImage,
             api_base_url=self.api_client.base_url,
         )
 

@@ -440,7 +440,7 @@ async def reindex_coding_project(
     vector_store: Optional[VectorStoreService] = Depends(get_vector_store),
 ):
     """
-    将编程项目的功能Prompt入库到向量数据库
+    将编程项目的文件Prompt入库到向量数据库
 
     使用CodingProjectIngestionService进行入库，与ingest_all_rag_data保持一致。
     这是一个幂等操作，会增量更新索引。
@@ -466,14 +466,14 @@ async def reindex_coding_project(
     try:
         result = await ingestion_service.ingest_by_type(
             project_id=project_id,
-            data_type=CodingDataType.FEATURE_PROMPT
+            data_type=CodingDataType.FILE_PROMPT
         )
 
         if result.success:
             if result.total_records == 0:
-                message = "项目暂无已生成的功能Prompt内容"
+                message = "项目暂无已生成的文件Prompt内容"
             else:
-                message = f"成功入库 {result.added_count} 个功能Prompt片段"
+                message = f"成功入库 {result.added_count} 个文件Prompt片段"
             return ReindexResponse(
                 success=True,
                 indexed_count=result.added_count,
@@ -488,7 +488,7 @@ async def reindex_coding_project(
 
     except Exception as e:
         logger.error(
-            "功能Prompt入库失败: project=%s error=%s",
+            "文件Prompt入库失败: project=%s error=%s",
             project_id, str(e)
         )
         return ReindexResponse(

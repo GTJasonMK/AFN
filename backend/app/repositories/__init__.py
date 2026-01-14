@@ -18,6 +18,11 @@ from .blueprint_repository import (
     BlueprintRelationshipRepository,
 )
 from .manga_prompt_repository import MangaPromptRepository
+from .coding_files_repository import (
+    CodingDirectoryNodeRepository,
+    CodingSourceFileRepository,
+    CodingFileVersionRepository,
+)
 
 __all__ = [
     "BaseRepository",
@@ -34,4 +39,8 @@ __all__ = [
     "BlueprintCharacterRepository",
     "BlueprintRelationshipRepository",
     "MangaPromptRepository",
+    # Coding files repositories
+    "CodingDirectoryNodeRepository",
+    "CodingSourceFileRepository",
+    "CodingFileVersionRepository",
 ]

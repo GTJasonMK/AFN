@@ -85,13 +85,13 @@ class ChapterVersionProcessor:
             提取的内容字符串
         """
         # 调试：打印字典的所有键
-        logger.info("[DEBUG] _extract_content_from_dict - 输入字典键: %s", list(variant.keys()))
+        logger.debug("[DEBUG] _extract_content_from_dict - 输入字典键: %s", list(variant.keys()))
 
         # 1. 按优先级检查已知的内容字段名
         for field_name in self.CONTENT_FIELD_NAMES:
             if field_name in variant:
                 value = variant[field_name]
-                logger.info(
+                logger.debug(
                     "[DEBUG] _extract_content_from_dict - 检查字段 '%s': 类型=%s, 是字符串=%s, 值前100字符=%s",
                     field_name,
                     type(value).__name__,
@@ -100,13 +100,13 @@ class ChapterVersionProcessor:
                 )
                 # 如果是字符串，直接返回（不再尝试解析为JSON，避免复杂问题）
                 if isinstance(value, str) and value.strip():
-                    logger.info("[DEBUG] _extract_content_from_dict - 成功从字段 '%s' 提取，长度: %d", field_name, len(value))
+                    logger.debug("[DEBUG] _extract_content_from_dict - 成功从字段 '%s' 提取，长度: %d", field_name, len(value))
                     return value
                 # 如果是字典，递归提取
                 elif isinstance(value, dict):
                     nested = self._extract_content_from_dict(value)
                     if nested and not nested.strip().startswith("{"):
-                        logger.info("[DEBUG] _extract_content_from_dict - 从嵌套字段 '%s' 提取，长度: %d", field_name, len(nested))
+                        logger.debug("[DEBUG] _extract_content_from_dict - 从嵌套字段 '%s' 提取，长度: %d", field_name, len(nested))
                         return nested
 
         # 2. 找到字典中最长的字符串值
@@ -119,7 +119,7 @@ class ChapterVersionProcessor:
 
         # 如果找到了字符串，返回它
         if longest_str.strip():
-            logger.info("[DEBUG] _extract_content_from_dict - 使用最长字符串字段 '%s'，长度: %d", longest_key, len(longest_str))
+            logger.debug("[DEBUG] _extract_content_from_dict - 使用最长字符串字段 '%s'，长度: %d", longest_key, len(longest_str))
             return longest_str
 
         # 3. 检查是否有嵌套的字典内容
@@ -127,7 +127,7 @@ class ChapterVersionProcessor:
             if isinstance(value, dict):
                 nested_content = self._extract_content_from_dict(value)
                 if nested_content.strip() and not nested_content.startswith("{"):
-                    logger.info("[DEBUG] _extract_content_from_dict - 从嵌套字段 '%s' 提取到内容", key)
+                    logger.debug("[DEBUG] _extract_content_from_dict - 从嵌套字段 '%s' 提取到内容", key)
                     return nested_content
 
         # 4. 最后的fallback：记录警告并返回JSON

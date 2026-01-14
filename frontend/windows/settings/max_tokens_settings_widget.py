@@ -35,7 +35,8 @@ class MaxTokensSettingsWidget(QWidget):
         'llm_max_tokens_coding_system': 8000,
         'llm_max_tokens_coding_module': 6000,
         'llm_max_tokens_coding_feature': 4000,
-        'llm_max_tokens_coding_prompt': 8192,
+        'llm_max_tokens_coding_prompt': 16384,
+        'llm_max_tokens_coding_directory': 20000,
     }
 
     def __init__(self, parent=None):
@@ -284,10 +285,21 @@ class MaxTokensSettingsWidget(QWidget):
             'llm_max_tokens_coding_prompt',
             "功能Prompt",
             "功能Prompt生成的最大tokens（1024-32768）",
-            1024, 32768, 8192
+            1024, 32768, 16384
         )
         label = QLabel("功能Prompt")
         self._labels['llm_max_tokens_coding_prompt'] = label
+        form_layout.addRow(label, row)
+
+        # 目录生成
+        row = self._create_spinbox_row(
+            'llm_max_tokens_coding_directory',
+            "目录生成",
+            "目录结构生成的最大tokens（大项目需要更大值，4096-32768）",
+            4096, 32768, 20000
+        )
+        label = QLabel("目录生成")
+        self._labels['llm_max_tokens_coding_directory'] = label
         form_layout.addRow(label, row)
 
         return group

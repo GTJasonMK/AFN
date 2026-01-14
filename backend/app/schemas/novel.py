@@ -169,6 +169,7 @@ class Chapter(ChapterOutline):
     evaluation: Optional[str] = None
     generation_status: ChapterGenerationStatus = ChapterGenerationStatus.NOT_GENERATED
     selected_version: Optional[int] = None  # 选中的版本索引（0-based）
+    selected_version_id: Optional[int] = None  # 选中的版本ID（数据库主键）
     word_count: int = 0  # 字数统计
     analysis_data: Optional[ChapterAnalysisData] = None  # 章节分析数据
 

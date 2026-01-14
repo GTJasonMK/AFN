@@ -339,10 +339,13 @@ class NovelSerializer:
         status_value = ChapterGenerationStatus.NOT_GENERATED.value
         word_count = 0
         selected_version_idx: Optional[int] = None
+        selected_version_id: Optional[int] = None  # 数据库中的版本ID
 
         if chapter:
             status_value = chapter.status or ChapterGenerationStatus.NOT_GENERATED.value
             word_count = chapter.word_count or 0
+            # 保存版本ID（用于漫画生成等功能的版本追踪）
+            selected_version_id = chapter.selected_version_id
 
             # 解析章节分析数据
             if chapter.analysis_data:
@@ -395,6 +398,7 @@ class NovelSerializer:
             generation_status=generation_status,
             word_count=word_count,
             selected_version=selected_version_idx,
+            selected_version_id=selected_version_id,
             analysis_data=analysis_data,
         )
 

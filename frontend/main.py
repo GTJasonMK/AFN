@@ -12,8 +12,11 @@ import traceback
 import faulthandler
 from pathlib import Path
 
+import yaml
+
 from PyQt6.QtWidgets import QApplication, QStyleFactory
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 
 # 启用faulthandler来捕获段错误（C层面的崩溃）
 # 这会在发生段错误时打印Python调用栈
@@ -32,6 +35,36 @@ from windows.main_window import MainWindow
 from themes.theme_manager import theme_manager
 from themes.accessibility import AccessibilityTheme
 from utils.config_manager import ConfigManager
+
+
+def _get_storage_dir() -> Path:
+    """获取存储目录路径"""
+    if getattr(sys, 'frozen', False):
+        # 打包环境
+        return Path(sys.executable).parent / "storage"
+    else:
+        # 开发环境：frontend 的父目录是项目根目录
+        return Path(__file__).parent.parent / "storage"
+
+
+def _load_logging_config() -> dict:
+    """加载用户日志配置"""
+    config_path = _get_storage_dir() / 'logging_config.yaml'
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _get_log_level() -> int:
+    """获取用户配置的日志级别（前端使用 app 域的级别）"""
+    user_config = _load_logging_config()
+    user_levels = user_config.get('levels', {})
+    level_str = user_levels.get('app', 'INFO').upper()
+    return getattr(logging, level_str, logging.INFO)
 
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
@@ -212,10 +245,17 @@ def load_active_theme_config(logger):
 
 def main():
     """主函数"""
+    # 获取用户配置的日志级别
+    log_level = _get_log_level()
+
     # 配置日志系统 - 同时输出到控制台和文件
-    log_file = Path(__file__).parent / "frontend_debug.log"
+    # 日志文件统一放到 storage/logs/ 目录
+    logs_dir = _get_storage_dir() / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_file = logs_dir / "frontend.log"
+
     logging.basicConfig(
-        level=logging.DEBUG,  # 使用DEBUG级别获取更多信息
+        level=log_level,  # 使用用户配置的级别
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
@@ -223,6 +263,15 @@ def main():
         ]
     )
     logger = logging.getLogger(__name__)
+
+    # 配置第三方库日志级别（不低于用户配置的级别）
+    third_party_loggers = [
+        "urllib3", "requests", "httpx", "httpcore",
+        "PIL", "matplotlib", "asyncio"
+    ]
+    for lib_name in third_party_loggers:
+        lib_logger = logging.getLogger(lib_name)
+        lib_logger.setLevel(max(logging.WARNING, log_level))
 
     # 强制刷新日志
     for handler in logging.root.handlers:
@@ -248,10 +297,21 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
+    # Windows 任务栏图标设置：必须在创建 QApplication 之前设置 AppUserModelID
+    # 否则 Windows 会使用 Python 解释器的图标
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('AFN.AgentsForNovel.Desktop.1')
+
     # 创建应用
     app = QApplication(sys.argv)
     app.setApplicationName("AFN")
     app.setOrganizationName("AFN")
+
+    # 设置应用图标（任务栏、窗口标题栏等）
+    icon_path = project_root / "resources" / "logo.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # 设置 Fusion 样式 - 确保 QSS 样式表在 Windows 上正确工作
     # Windows 原生样式会覆盖 QSS 边框设置，Fusion 样式提供一致的跨平台行为
@@ -279,8 +339,13 @@ def main():
     window = MainWindow()
     window.show()
 
-    # 运行应用
-    sys.exit(app.exec())
+    # 运行应用（避免直接在 sys.exit 中调用 app.exec，防止 Windows COM 错误）
+    exit_code = app.exec()
+
+    # 显式删除窗口，确保资源在正确线程上释放
+    del window
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
