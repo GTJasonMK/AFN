@@ -388,7 +388,8 @@ class ThemeConfigEditorMixin:
         # 透明度配置是本地存储，不依赖后端配置ID，总是保存
         transparency_data = self._collect_transparency_data()
         theme_manager.set_transparency_config(transparency_data)
-        # 注意：不再调用 apply_transparency()，统一由"激活"按钮应用
+        # 保存后立即应用透明效果，让用户看到实时预览
+        theme_manager.apply_transparency()
 
         # 后端配置需要先选择一个配置
         if not self._current_config_id:

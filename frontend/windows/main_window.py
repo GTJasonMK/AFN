@@ -364,6 +364,8 @@ class MainWindow(QMainWindow):
                         page.hide()
                         # 同时设置页面为不透明，防止透过去看到
                         page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                        # 设置不透明背景，彻底防止穿透
+                        page.setAutoFillBackground(True)
                         # 将页面放到最底层
                         page.lower()
 
@@ -865,21 +867,26 @@ class MainWindow(QMainWindow):
             old_widget.hide()
             # 确保旧页面不透明，防止透过新页面看到
             old_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            # 设置不透明背景色，彻底防止穿透
+            old_widget.setAutoFillBackground(True)
             # 将旧页面放到最底层
             old_widget.lower()
+
+        # 先切换到新页面（重要：必须在设置透明属性之前）
+        self.page_stack.setCurrentWidget(page)
 
         # 确保新页面可见
         # 根据透明模式设置正确的透明属性
         transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
         if transparency_enabled:
             page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            page.setAutoFillBackground(False)
         else:
             page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            page.setAutoFillBackground(True)
         page.show()
         page.raise_()  # 确保在最上层
 
-        # 切换到页面
-        self.page_stack.setCurrentWidget(page)
         logger.info("Page switched to: %s", page_type)
 
         # 隐藏加载动画
@@ -933,21 +940,25 @@ class MainWindow(QMainWindow):
             current_widget.hide()
             # 确保旧页面不透明，防止透过新页面看到
             current_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            # 设置不透明背景色，彻底防止穿透
+            current_widget.setAutoFillBackground(True)
             # 将旧页面放到最底层
             current_widget.lower()
+
+        # 先切换到目标页面（重要：必须在设置透明属性之前）
+        self.page_stack.setCurrentWidget(prev_page)
 
         # 确保目标页面可见
         # 根据透明模式设置正确的透明属性
         transparency_enabled = theme_manager.get_transparency_config().get("enabled", False)
         if transparency_enabled:
             prev_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            prev_page.setAutoFillBackground(False)
         else:
             prev_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            prev_page.setAutoFillBackground(True)
         prev_page.show()
         prev_page.raise_()  # 确保在最上层
-
-        # 切换到上一页
-        self.page_stack.setCurrentWidget(prev_page)
 
         # 调用显示钩子
         if hasattr(prev_page, 'onShow'):

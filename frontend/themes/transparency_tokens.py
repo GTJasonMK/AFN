@@ -221,8 +221,8 @@ class TransparencyPresets:
         # 但不能超过1.0或低于组件的最小透明度
         calculated = base_opacity * preset.multiplier
 
-        # 确保结果在合理范围内
-        return max(0.3, min(1.0, calculated))
+        # 确保结果在合理范围内（允许极致透明）
+        return max(0.1, min(1.0, calculated))
 
     @classmethod
     def generate_config(cls, preset_id: str) -> Dict[str, float]:
