@@ -166,6 +166,10 @@ class MangaPromptServiceV2:
             f"页数范围={min_pages}-{max_pages}, 语言={dialogue_language}"
         )
 
+        # 清除取消状态缓存，确保使用最新的数据库状态
+        # 这对于 cancelled 状态被 API router 重置的情况尤其重要
+        self._cancel_cache.clear()
+
         # 获取章节信息
         chapter = await self.chapter_repo.get_by_project_and_number(
             project_id, chapter_number
@@ -221,7 +225,7 @@ class MangaPromptServiceV2:
 
         # 判断起始阶段
         start_stage = self._determine_start_stage(cp_data, start_from_stage)
-        logger.debug(f"起始阶段: {start_stage}")
+        logger.debug(f"用户指定阶段: {start_from_stage}, 实际起始阶段: {start_stage}")
 
         # 如果用户指定了起始阶段，验证前置数据是否存在
         if start_from_stage:
@@ -892,7 +896,9 @@ class MangaPromptServiceV2:
 
         # 重建每页的 storyboard
         pages = []
-        for scene in manga_prompt.scenes or []:
+        scenes_list = manga_prompt.scenes or []
+
+        for scene in scenes_list:
             page_number = scene.get("page_number", 0)
             page_panels = panels_by_page.get(page_number, [])
 

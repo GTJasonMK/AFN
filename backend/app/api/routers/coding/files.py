@@ -1546,6 +1546,12 @@ async def plan_directory_with_agent(
             event_type = event.get("event", "")
             event_data = event.get("data", {})
 
+            # 调试日志：记录所有转发的事件
+            if event_type == "structure_update":
+                logger.info("[SSE转发] structure_update事件: dirs=%d, files=%d",
+                           len(event_data.get("directories", [])),
+                           len(event_data.get("files", [])))
+
             # 保存最终状态
             if event_type == "final_state":
                 final_state = event_data

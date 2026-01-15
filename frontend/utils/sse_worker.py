@@ -28,9 +28,7 @@ from typing import Optional, List, Callable
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
-# Token批量发射配置
-# 每100ms刷新一次缓冲区，减少信号发射频率，提升UI性能
-_TOKEN_FLUSH_INTERVAL = 0.1  # 秒
+from .constants import SSEConstants
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +160,7 @@ class SSEWorker(QThread):
                 json=self.payload,
                 stream=True,
                 headers={"Accept": "text/event-stream"},
-                timeout=(10, 300)  # 连接10秒超时，读取5分钟超时
+                timeout=(SSEConstants.CONNECT_TIMEOUT, SSEConstants.READ_TIMEOUT)
             ) as response:
                 # 在 with 块内检查状态码，这样可以在响应关闭前读取错误内容
                 if not response.ok:
@@ -305,7 +303,8 @@ class SSEWorker(QThread):
             else:
                 # 未知事件类型，通过通用信号发射
                 if event_type:
-                    logger.debug("SSE收到自定义事件: %s", event_type)
+                    logger.info("SSE收到自定义事件并发射信号: type=%s, data_keys=%s",
+                               event_type, list(data.keys()) if data else [])
                     self.event_received.emit(event_type, data)
 
         except RuntimeError:
@@ -339,7 +338,7 @@ class SSEWorker(QThread):
         elapsed = now - self._last_token_flush
 
         # 达到时间阈值或强制刷新时，批量发射
-        if force or elapsed >= _TOKEN_FLUSH_INTERVAL:
+        if force or elapsed >= SSEConstants.TOKEN_FLUSH_INTERVAL:
             # 合并所有token为单个字符串
             merged_tokens = ''.join(self._token_buffer)
             self._token_buffer.clear()
@@ -387,7 +386,7 @@ class SSEWorker(QThread):
                 content = response.content
                 if content:
                     text = content.decode('utf-8')
-                    if len(text) < 200:
+                    if len(text) < SSEConstants.ERROR_TEXT_MAX_LENGTH:
                         return text
             except Exception:
                 pass

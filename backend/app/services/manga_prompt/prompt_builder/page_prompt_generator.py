@@ -17,12 +17,12 @@ from .models import PagePrompt, PanelPrompt
 
 logger = logging.getLogger(__name__)
 
-# 风格映射（中文）
-STYLE_CHINESE = {
-    "manga": "漫画风格，黑白漫画，网点纹理，日本漫画",
-    "anime": "动漫风格，鲜艳色彩，日本动画",
-    "comic": "漫画风格，粗线条，动感，美式漫画",
-    "webtoon": "条漫风格，竖向滚动，韩国漫画",
+# 风格模板（用户可基于这些模板自定义）
+STYLE_TEMPLATES = {
+    "manga": "漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度",
+    "anime": "动漫风格, 鲜艳色彩, 日本动画, 柔和阴影, 大眼睛",
+    "comic": "美漫风格, 粗线条, 动感, 强烈阴影, 肌肉感",
+    "webtoon": "条漫风格, 全彩, 韩国漫画, 柔和渐变, 现代感",
 }
 
 # 镜头类型映射（中文）
@@ -146,22 +146,15 @@ class PagePromptGenerator:
         async def generate_with_semaphore(page):
             nonlocal completed_count
             async with semaphore:
-                try:
-                    page_prompt = await self.generate_single_page_prompt(
-                        page=page,
-                        chapter_info=chapter_info,
-                        user_id=user_id,
-                        cached_config=cached_config,
-                    )
-                    logger.debug(f"第 {page.page_number} 页整页提示词LLM生成成功")
-                    result = (page.page_number, page_prompt, None)
-                except Exception as e:
-                    logger.error(f"第 {page.page_number} 页整页提示词LLM生成失败: {e}")
-                    logger.error(f"错误类型: {type(e).__name__}, 详情: {str(e)}")
-                    # 使用回退方案
-                    fallback_prompt = self._build_fallback_page_prompt(page, chapter_info)
-                    logger.warning(f"第 {page.page_number} 页已使用规则拼接回退方案")
-                    result = (page.page_number, fallback_prompt, e)
+                # LLM调用失败时直接抛出异常，不使用回退方案
+                page_prompt = await self.generate_single_page_prompt(
+                    page=page,
+                    chapter_info=chapter_info,
+                    user_id=user_id,
+                    cached_config=cached_config,
+                )
+                logger.debug(f"第 {page.page_number} 页整页提示词LLM生成成功")
+                result = (page.page_number, page_prompt, None)
 
             # 使用锁序列化回调调用，避免并发访问数据库session
             async with callback_lock:
@@ -190,31 +183,20 @@ class PagePromptGenerator:
 
         # 合并已完成的和新生成的结果
         all_prompts_dict = dict(completed_prompts_dict)  # 从已完成的开始
-        llm_success_count = 0
-        fallback_count = 0
 
         for page_number, page_prompt, error in results:
             all_prompts_dict[page_number] = page_prompt
-            if error is None:
-                llm_success_count += 1
-            else:
-                fallback_count += 1
 
         # 按页码排序返回
         page_prompts = [all_prompts_dict[i] for i in sorted(all_prompts_dict.keys())]
 
         # 汇总日志
         restored_count = len(completed_page_numbers)
-        if fallback_count > 0:
-            logger.warning(
-                f"整页提示词生成完成: 共 {total} 页, 恢复 {restored_count} 页, "
-                f"LLM成功 {llm_success_count} 页, 回退 {fallback_count} 页"
-            )
-        else:
-            logger.info(
-                f"整页提示词生成完成: 共 {total} 页, 恢复 {restored_count} 页, "
-                f"新生成 {llm_success_count} 页"
-            )
+        new_count = len(pages_to_generate)
+        logger.info(
+            f"整页提示词生成完成: 共 {total} 页, 恢复 {restored_count} 页, "
+            f"新生成 {new_count} 页"
+        )
 
         return page_prompts
 
@@ -421,33 +403,15 @@ class PagePromptGenerator:
 
     async def _load_system_prompt(self) -> str:
         """加载系统提示词"""
-        if self.prompt_service:
-            try:
-                prompt = await self.prompt_service.get_prompt(
-                    "manga_page_prompt_generation"
-                )
-                if prompt:
-                    return prompt
-            except Exception as e:
-                logger.warning(f"加载提示词模板失败: {e}")
+        if not self.prompt_service:
+            raise ValueError("PromptService未配置，无法加载系统提示词")
 
-        # 回退到内置提示词
-        return self._get_fallback_system_prompt()
-
-    def _get_fallback_system_prompt(self) -> str:
-        """内置的系统提示词（回退方案）"""
-        return """你是专业的漫画图像提示词工程师。
-
-根据提供的页面分镜设计，生成一个高质量的整页漫画图像生成提示词。
-
-输出要求：
-1. full_page_prompt: 英文提示词，用于AI绘图模型
-2. prompt_cn: 中文版本，供参考
-3. layout_keywords: 布局关键词
-4. style_keywords: 风格关键词
-5. quality_keywords: 质量关键词
-
-请以JSON格式输出。"""
+        prompt = await self.prompt_service.get_prompt(
+            "manga_page_prompt_generation"
+        )
+        if not prompt:
+            raise ValueError("系统提示词模板 'manga_page_prompt_generation' 不存在")
+        return prompt
 
     def _build_user_prompt(
         self,
@@ -490,9 +454,9 @@ class PagePromptGenerator:
         # 提取LLM生成的提示词
         full_page_prompt = llm_result.get("full_page_prompt", "")
 
-        # 如果LLM没有生成有效提示词，使用回退方案
+        # 如果LLM没有生成有效提示词，直接报错
         if not full_page_prompt:
-            return self._build_fallback_page_prompt(page, chapter_info)
+            raise ValueError(f"LLM未生成有效的整页提示词，返回内容: {llm_result}")
 
         # 构建布局模板名称
         layout_template = self._build_layout_template(page)
@@ -515,60 +479,6 @@ class PagePromptGenerator:
             negative_prompt=DEFAULT_NEGATIVE_PROMPT,
             aspect_ratio="3:4",
             panels=[],  # 画格级提示词由PromptBuilder单独生成
-            reference_image_paths=reference_paths,
-        )
-
-    def _build_fallback_page_prompt(
-        self,
-        page: PageStoryboard,
-        chapter_info: ChapterInfo,
-    ) -> PagePrompt:
-        """构建回退方案的整页提示词（当LLM调用失败时）"""
-        # 使用规则拼接生成中文提示词
-        style_prefix = STYLE_CHINESE.get(self.style, STYLE_CHINESE["manga"])
-        row_count = self._count_rows(page)
-        panel_count = len(page.panels)
-
-        parts = [
-            style_prefix,
-            f"漫画页面布局，{row_count}行，{panel_count}格",
-            "黑色画格边框，画格间白色间隙",
-            "满出血，边到边，无边距，无外框",
-            "画格内容完整不裁剪",
-            "对话气泡完整可读",
-        ]
-
-        # 添加每个画格的简要描述
-        for i, panel in enumerate(page.panels, 1):
-            shot = SHOT_TYPE_CHINESE.get(panel.shot_type.value, "中景")
-            desc = panel.visual_description[:100] if panel.visual_description else ""
-            parts.append(f"画格{i}: {shot}，{desc}" if desc else f"画格{i}: {shot}")
-
-        parts.append("高质量，精细线条，专业漫画，杰作")
-
-        full_prompt = "。".join(parts) + "。"
-
-        # 构建布局模板
-        layout_template = self._build_layout_template(page)
-
-        # 获取立绘路径
-        all_characters = set()
-        for panel in page.panels:
-            all_characters.update(panel.characters)
-        reference_paths = self._get_reference_paths(list(all_characters))
-
-        # 构建panel简要信息
-        panel_summaries = self._build_panel_summaries(page, chapter_info)
-
-        return PagePrompt(
-            page_number=page.page_number,
-            layout_template=layout_template,
-            layout_description=page.layout_description or "",
-            panel_summaries=panel_summaries,
-            full_page_prompt=full_prompt,
-            negative_prompt=DEFAULT_NEGATIVE_PROMPT,
-            aspect_ratio="3:4",
-            panels=[],
             reference_image_paths=reference_paths,
         )
 

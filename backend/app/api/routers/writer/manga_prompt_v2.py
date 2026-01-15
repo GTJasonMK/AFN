@@ -194,8 +194,18 @@ async def generate_manga_prompts(
     existing_manga = await manga_prompt_repo.get_by_chapter_id(chapter.id)
     if existing_manga:
         current_status = existing_manga.generation_status
+        # 如果状态是 cancelled，无论 force_restart 是什么，都需要重置状态
+        # 因为用户明显想要重新开始生成
+        if current_status == "cancelled":
+            logger.info(
+                f"重置已取消的任务: project={project_id}, chapter={chapter_number}, "
+                f"cancelled -> pending"
+            )
+            existing_manga.generation_status = "pending"
+            existing_manga.generation_progress = {}
+            await session.flush()
         # 如果是进行中状态（非 pending/completed/cancelled）
-        if current_status not in (None, "pending", "completed", "cancelled"):
+        elif current_status not in (None, "pending", "completed"):
             if request.force_restart:
                 # 用户选择强制重新开始，重置状态
                 logger.info(

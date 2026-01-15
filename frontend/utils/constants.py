@@ -150,3 +150,19 @@ class ConversationConstants:
     # 灵感对话轮数阈值
     TURNS_THRESHOLD = 5  # 对话轮数达到此值后可生成蓝图
 
+
+class SSEConstants:
+    """SSE (Server-Sent Events) 相关常量"""
+
+    # Token批量发射间隔（秒）
+    # 将高频token累积后批量发射，减少UI更新频率
+    TOKEN_FLUSH_INTERVAL = 0.1
+
+    # SSE连接超时配置（秒）
+    CONNECT_TIMEOUT = 10   # 连接建立超时
+    READ_TIMEOUT = 300     # 读取超时（5分钟，适应长时间生成）
+
+    # 错误响应文本最大长度
+    # 超过此长度的错误文本将被截断，避免显示过长的错误信息
+    ERROR_TEXT_MAX_LENGTH = 200
+

@@ -114,6 +114,11 @@ class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
         self.assistant_panel = CodingAssistantPanel(self.project_id, self)
         self.assistant_panel.setMinimumWidth(dp(280))
         self.assistant_panel.setMaximumWidth(dp(500))
+        # 连接Agent信号
+        self.assistant_panel.structureUpdated.connect(self._on_structure_updated)
+        self.assistant_panel.refreshTreeRequested.connect(self._refresh_directory_tree)
+        self.assistant_panel.planningStarted.connect(self._on_planning_started)
+        self.assistant_panel.planningCompleted.connect(self._on_planning_completed)
         self.main_splitter.addWidget(self.assistant_panel)
 
         # 设置Splitter比例 (7:3)
@@ -176,6 +181,11 @@ class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
         # 更新Sidebar目录树
         self.sidebar.set_tree_data(data)
 
+        # 更新助手面板的目录状态（用于显示优化按钮）
+        if self.assistant_panel:
+            has_directories = data.get('total_directories', 0) > 0
+            self.assistant_panel.set_has_directories(has_directories)
+
         # 如果有初始文件ID，选中它
         if self.initial_file_id:
             self.sidebar.select_file(self.initial_file_id)
@@ -204,6 +214,31 @@ class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
     def _refresh_directory_tree(self):
         """刷新目录树"""
         self._load_directory_tree()
+
+    # ========== Agent信号处理 ==========
+
+    def _on_structure_updated(self, directories: list, files: list):
+        """Agent结构更新事件
+
+        Agent规划过程中实时更新目录树，数据还未保存到数据库。
+        """
+        if self.sidebar:
+            self.sidebar.update_tree_from_agent_data(directories, files)
+
+    def _on_planning_started(self):
+        """Agent规划开始"""
+        logger.info("Agent目录规划已开始")
+        # 可以在这里添加UI反馈，如禁用某些按钮
+
+    def _on_planning_completed(self):
+        """Agent规划完成"""
+        logger.info("Agent目录规划已完成")
+        # 规划完成后刷新目录树（从数据库获取最新数据）
+        self._refresh_directory_tree()
+        # 更新助手面板的目录状态
+        if self.assistant_panel:
+            has_directories = bool(self._tree_data and self._tree_data.get('total_directories', 0) > 0)
+            self.assistant_panel.set_has_directories(has_directories)
 
     # ========== 事件处理 ==========
 

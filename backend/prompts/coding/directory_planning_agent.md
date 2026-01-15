@@ -107,6 +107,7 @@
 **并行调用原则**：
 - **可并行**：信息获取工具（get_xxx）、分析工具（analyze_xxx、evaluate_xxx）互相之间没有依赖，可以并行调用
 - **需串行**：操作工具（create_xxx、update_xxx、remove_xxx）会修改状态，需要按顺序执行
+- **数量限制**：单次最多调用5个工具，超出部分会被忽略
 - **示例**：开始时可以同时调用 `get_project_overview`、`get_all_systems`、`get_dependency_graph` 来快速获取所有信息
 
 ## 规划策略

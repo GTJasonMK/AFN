@@ -148,6 +148,24 @@ class CodingSidebar(ThemeAwareFrame):
         """更新文件状态"""
         self.directory_tree.update_file_status(file_id, status)
 
+    def update_tree_from_agent_data(self, directories: List[Dict], files: List[Dict]):
+        """从Agent数据更新目录树
+
+        Agent规划过程中数据还未保存到数据库，直接用事件数据更新UI。
+
+        Args:
+            directories: 目录列表
+            files: 文件列表
+        """
+        self.directory_tree.update_from_agent_data(directories, files)
+
+        # 更新统计
+        self.project_card.set_stats(
+            len(self._modules),
+            len(directories),
+            len(files)
+        )
+
     def _on_file_selected(self, file_data: Dict):
         """文件选中处理"""
         self.fileSelected.emit(file_data)

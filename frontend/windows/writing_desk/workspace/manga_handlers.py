@@ -54,11 +54,14 @@ class MangaHandlersMixin:
             'completed_pages_count': 0,
         }
 
+        # 使用传入的章节号，避免在后台线程中访问可能已变化的 self.current_chapter
+        chapter_number = chapter_data.get('chapter_number') if chapter_data else self.current_chapter
+
         # 尝试从API获取已保存的漫画分镜
-        if self.project_id and self.current_chapter:
+        if self.project_id and chapter_number:
             try:
                 result = self.api_client.get_manga_prompts(
-                    self.project_id, self.current_chapter
+                    self.project_id, chapter_number
                 )
                 if result:
                     manga_data['has_manga_prompt'] = True
@@ -555,7 +558,14 @@ class MangaHandlersMixin:
 
             # 构建进度消息
             if status == 'completed':
-                # 如果已完成，停止轮询（正常情况下on_success会先执行）
+                # 如果轮询先于 on_success 收到 completed 状态，主动更新 UI
+                # 这样可以避免 UI 卡在最后一次非 completed 的进度状态
+                logger.info("进度轮询检测到 completed 状态，主动更新 UI")
+                self._stopMangaProgressPolling()
+                # 只更新工具栏状态，不清除 _manga_generating_chapter
+                # _manga_generating_chapter 由 on_success 清除，避免竞态条件
+                if self._manga_builder:
+                    self._manga_builder.set_toolbar_success("生成完成")
                 return
 
             # 检测阶段变化或进度变化，实时更新详细信息Tab
@@ -1594,10 +1604,17 @@ class MangaHandlersMixin:
         # 整页提示词特殊处理：直接显示本地数据
         if panel.get('is_page_prompt'):
             negative = panel.get('negative_prompt', '')
-            # 构建与实际生成一致的完整提示词（负面提示词追加到末尾）
+            # 获取当前风格设置
+            current_style = ''
+            if self._manga_builder:
+                settings = self._manga_builder.get_current_settings()
+                current_style = settings.get('style', '')
+            # 构建与实际生成一致的完整提示词（风格追加到末尾）
             final = prompt
+            if current_style:
+                final = f"{prompt}, {current_style}"
             if negative:
-                final = f"{prompt}\n\n负面提示词: {negative}"
+                final = f"{final}\n\n负面提示词: {negative}"
             preview_data = {
                 'success': True,
                 'original_prompt': prompt,
@@ -1605,7 +1622,7 @@ class MangaHandlersMixin:
                 'negative_prompt': negative,
                 'provider': '整页生成',
                 'model': '-',
-                'style': '-',
+                'style': current_style if current_style else '-',
                 'ratio': panel.get('aspect_ratio', '3:4'),
                 'scene_type': 'page_layout',
                 'scene_type_zh': '整页布局',
@@ -1667,10 +1684,17 @@ class MangaHandlersMixin:
         # 语言设置
         dialogue_language = panel.get('dialogue_language', '')
 
+        # 获取当前风格设置
+        current_style = ''
+        if self._manga_builder:
+            settings = self._manga_builder.get_current_settings()
+            current_style = settings.get('style', '')
+
         def do_preview():
             return self.api_client.preview_image_prompt(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
+                style=current_style if current_style else None,
                 ratio=aspect_ratio,
                 # 漫画元数据 - 对话相关
                 dialogue=dialogue if dialogue else None,

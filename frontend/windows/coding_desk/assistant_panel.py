@@ -1,17 +1,20 @@
 """
-编程项目RAG助手面板
+编程项目助手面板
 
-提供项目上下文检索功能，查询功能描述、模块信息、技术栈等。
+提供两种模式：
+1. RAG查询模式：检索项目上下文
+2. Agent规划模式：智能规划目录结构
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QFrame,
     QLabel, QHBoxLayout, QSpinBox, QSizePolicy,
+    QPushButton, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from components.base import ThemeAwareWidget, ThemeAwareFrame
 from themes.theme_manager import theme_manager
@@ -21,6 +24,9 @@ from api.manager import APIClientManager
 
 # 复用灵感模式的输入组件
 from windows.inspiration_mode.components import ConversationInput
+
+# Agent规划内容
+from windows.coding_desk.agent_content import AgentPlanningContent
 
 
 logger = logging.getLogger(__name__)
@@ -161,20 +167,25 @@ class RAGResultCard(ThemeAwareFrame):
 
 
 class CodingAssistantPanel(ThemeAwareFrame):
-    """编程项目RAG助手面板
+    """编程项目助手面板
 
-    提供项目上下文检索功能，支持查询：
-    - 功能描述
-    - 模块信息
-    - 系统架构
-    - 技术栈
-    - 依赖关系
-    等项目相关信息
+    提供两种模式：
+    1. RAG查询模式：检索项目上下文（功能描述、模块信息、系统架构、技术栈、依赖关系等）
+    2. Agent规划模式：智能规划目录结构
     """
+
+    # 信号
+    structureUpdated = pyqtSignal(list, list)  # (directories, files) - 来自Agent的结构更新
+    planningCompleted = pyqtSignal()  # Agent规划完成
+    planningStarted = pyqtSignal()  # Agent规划开始
+    refreshTreeRequested = pyqtSignal()  # 请求刷新目录树
 
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
         self.api_client = APIClientManager.get_client()
+
+        # 当前模式: "rag" 或 "agent"
+        self.current_mode = "rag"
 
         # 状态
         self.is_loading = False
@@ -183,6 +194,14 @@ class CodingAssistantPanel(ThemeAwareFrame):
 
         # UI组件引用
         self.header_bar = None
+        self.mode_container = None
+        self.rag_btn = None
+        self.agent_btn = None
+        self.content_stack = None
+        self.rag_content = None
+        self.agent_content = None
+
+        # RAG相关组件
         self.topk_spinner = None
         self.scroll_area = None
         self.result_content = None
@@ -202,28 +221,37 @@ class CodingAssistantPanel(ThemeAwareFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 标题栏
+        # 标题栏（含模式切换）
         self.header_bar = QWidget()
         self.header_bar.setFixedHeight(dp(48))
         header_layout = QHBoxLayout(self.header_bar)
-        header_layout.setContentsMargins(dp(16), 0, dp(16), 0)
+        header_layout.setContentsMargins(dp(12), 0, dp(12), 0)
+        header_layout.setSpacing(dp(8))
 
-        title_label = QLabel("RAG 助手")
-        title_label.setObjectName("assistant_title")
-        header_layout.addWidget(title_label)
+        # 模式切换按钮组
+        self.mode_container = QWidget()
+        mode_layout = QHBoxLayout(self.mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(dp(4))
 
+        self.rag_btn = QPushButton("RAG查询")
+        self.rag_btn.setObjectName("mode_btn_rag")
+        self.rag_btn.setCheckable(True)
+        self.rag_btn.setChecked(True)
+        self.rag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rag_btn.clicked.connect(lambda: self._switch_mode("rag"))
+        mode_layout.addWidget(self.rag_btn)
+
+        self.agent_btn = QPushButton("目录规划")
+        self.agent_btn.setObjectName("mode_btn_agent")
+        self.agent_btn.setCheckable(True)
+        self.agent_btn.setChecked(False)
+        self.agent_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.agent_btn.clicked.connect(lambda: self._switch_mode("agent"))
+        mode_layout.addWidget(self.agent_btn)
+
+        header_layout.addWidget(self.mode_container)
         header_layout.addStretch()
-
-        # top_k 选择器
-        topk_label = QLabel("返回数量:")
-        topk_label.setObjectName("topk_label")
-        header_layout.addWidget(topk_label)
-
-        self.topk_spinner = QSpinBox()
-        self.topk_spinner.setRange(1, 30)
-        self.topk_spinner.setValue(10)
-        self.topk_spinner.setFixedWidth(dp(60))
-        header_layout.addWidget(self.topk_spinner)
 
         layout.addWidget(self.header_bar)
 
@@ -233,6 +261,50 @@ class CodingAssistantPanel(ThemeAwareFrame):
         divider.setFixedHeight(1)
         divider.setObjectName("divider")
         layout.addWidget(divider)
+
+        # 内容堆栈（切换RAG和Agent）
+        self.content_stack = QStackedWidget()
+
+        # RAG内容
+        self.rag_content = self._create_rag_content()
+        self.content_stack.addWidget(self.rag_content)
+
+        # Agent内容
+        self.agent_content = AgentPlanningContent(self.project_id, self)
+        self.agent_content.structureUpdated.connect(self.structureUpdated.emit)
+        self.agent_content.planningCompleted.connect(self.planningCompleted.emit)
+        self.agent_content.planningStarted.connect(self.planningStarted.emit)
+        self.agent_content.refreshTreeRequested.connect(self.refreshTreeRequested.emit)
+        self.content_stack.addWidget(self.agent_content)
+
+        layout.addWidget(self.content_stack, stretch=1)
+
+    def _create_rag_content(self) -> QWidget:
+        """创建RAG查询内容区域"""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # RAG头部（top_k选择器）
+        rag_header = QWidget()
+        rag_header.setFixedHeight(dp(36))
+        rag_header_layout = QHBoxLayout(rag_header)
+        rag_header_layout.setContentsMargins(dp(12), 0, dp(12), 0)
+
+        rag_header_layout.addStretch()
+
+        topk_label = QLabel("返回数量:")
+        topk_label.setObjectName("topk_label")
+        rag_header_layout.addWidget(topk_label)
+
+        self.topk_spinner = QSpinBox()
+        self.topk_spinner.setRange(1, 30)
+        self.topk_spinner.setValue(10)
+        self.topk_spinner.setFixedWidth(dp(60))
+        rag_header_layout.addWidget(self.topk_spinner)
+
+        layout.addWidget(rag_header)
 
         # 结果显示区域
         self.scroll_area = QScrollArea()
@@ -261,6 +333,32 @@ class CodingAssistantPanel(ThemeAwareFrame):
         input_layout.addWidget(self.input_box)
         layout.addWidget(self.input_container)
 
+        return container
+
+    def _switch_mode(self, mode: str):
+        """切换模式"""
+        if mode == self.current_mode:
+            return
+
+        # 如果Agent正在运行，提示用户
+        if self.current_mode == "agent" and self.agent_content and self.agent_content.is_running():
+            from utils.message_service import MessageService
+            MessageService.show_warning(self, "Agent正在运行中，请先停止后再切换")
+            # 恢复按钮状态
+            self.rag_btn.setChecked(mode != "rag")
+            self.agent_btn.setChecked(mode != "agent")
+            return
+
+        self.current_mode = mode
+        self.rag_btn.setChecked(mode == "rag")
+        self.agent_btn.setChecked(mode == "agent")
+
+        # 切换内容
+        self.content_stack.setCurrentIndex(0 if mode == "rag" else 1)
+
+        # 更新按钮样式
+        self._apply_mode_button_styles()
+
     def _apply_theme(self):
         """应用主题"""
         bg_color = theme_manager.book_bg_secondary()
@@ -276,20 +374,8 @@ class CodingAssistantPanel(ThemeAwareFrame):
         if self.header_bar:
             self.header_bar.setStyleSheet(f"background-color: transparent;")
 
-            title_label = self.header_bar.findChild(QLabel, "assistant_title")
-            if title_label:
-                title_label.setStyleSheet(f"""
-                    font-size: {dp(14)}px;
-                    font-weight: 600;
-                    color: {theme_manager.TEXT_PRIMARY};
-                """)
-
-            topk_label = self.header_bar.findChild(QLabel, "topk_label")
-            if topk_label:
-                topk_label.setStyleSheet(f"""
-                    font-size: {dp(12)}px;
-                    color: {theme_manager.TEXT_SECONDARY};
-                """)
+        # 模式按钮样式
+        self._apply_mode_button_styles()
 
         # top_k spinner
         if self.topk_spinner:
@@ -306,6 +392,15 @@ class CodingAssistantPanel(ThemeAwareFrame):
                     width: {dp(16)}px;
                 }}
             """)
+
+        # topk_label 样式
+        if self.rag_content:
+            topk_label = self.rag_content.findChild(QLabel, "topk_label")
+            if topk_label:
+                topk_label.setStyleSheet(f"""
+                    font-size: {dp(12)}px;
+                    color: {theme_manager.TEXT_SECONDARY};
+                """)
 
         # 分割线
         divider = self.findChild(QFrame, "divider")
@@ -331,6 +426,41 @@ class CodingAssistantPanel(ThemeAwareFrame):
                 background-color: {bg_color};
                 border-top: 1px solid {theme_manager.BORDER_DEFAULT};
             """)
+
+    def _apply_mode_button_styles(self):
+        """应用模式按钮样式"""
+        # 根据当前模式设置按钮样式
+        active_style = f"""
+            QPushButton {{
+                background-color: {theme_manager.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: {dp(4)}px;
+                padding: {dp(6)}px {dp(14)}px;
+                font-size: {dp(12)}px;
+                font-weight: 500;
+            }}
+        """
+
+        inactive_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {theme_manager.TEXT_SECONDARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(6)}px {dp(14)}px;
+                font-size: {dp(12)}px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme_manager.PRIMARY}10;
+                color: {theme_manager.PRIMARY};
+            }}
+        """
+
+        if self.rag_btn:
+            self.rag_btn.setStyleSheet(active_style if self.current_mode == "rag" else inactive_style)
+        if self.agent_btn:
+            self.agent_btn.setStyleSheet(active_style if self.current_mode == "agent" else inactive_style)
 
     def _show_welcome_message(self):
         """显示欢迎信息"""
@@ -571,6 +701,17 @@ class CodingAssistantPanel(ThemeAwareFrame):
         """清理资源"""
         self._cleanup_worker()
         self._clear_results()
+        if self.agent_content:
+            self.agent_content.cleanup()
+
+    def set_has_directories(self, has_directories: bool):
+        """设置是否有目录结构（用于Agent优化按钮显示）"""
+        if self.agent_content:
+            self.agent_content.set_has_directories(has_directories)
+
+    def switch_to_agent_mode(self):
+        """切换到Agent模式"""
+        self._switch_mode("agent")
 
 
 __all__ = ["CodingAssistantPanel"]

@@ -27,87 +27,6 @@ logger = logging.getLogger(__name__)
 # 提示词Key
 DIRECTORY_PLANNING_AGENT_PROMPT_KEY = "directory_planning_agent"
 
-# 默认提示词（当数据库中没有时使用）
-DEFAULT_SYSTEM_PROMPT = """你是一个专业的软件架构师Agent，负责为编程项目设计最优的目录结构。
-
-## 你的目标
-
-根据项目信息（需求、蓝图、系统划分、模块设计），为项目规划一个**完美的目录结构**：
-1. 每个代码文件的位置都放对（综合考虑用户需求、架构设计、复用性、扩展性）
-2. 对每个文件的功能进行详细解释（为什么要设置这个文件、要实现什么）
-3. 明确每个文件的依赖关系（依赖哪些模块、为什么需要这些依赖）
-
-## 工作方式
-
-你通过**思考-行动-观察**循环来完成任务：
-1. **思考(Thinking)**: 分析当前状态，决定下一步做什么
-2. **行动(Action)**: 调用工具获取信息或执行操作
-3. **观察(Observation)**: 查看工具执行结果
-4. 循环直到完成所有模块的规划
-
-{tools_prompt}
-
-## 响应格式
-
-每次响应必须包含以下两部分：
-
-1. **思考过程**（用<thinking>标签包裹）：
-<thinking>
-分析当前情况...
-我需要做什么...
-为什么选择这个工具...
-</thinking>
-
-2. **工具调用**（用<tool_call>标签包裹）：
-<tool_call>
-{
-    "tool": "工具名称",
-    "parameters": {参数},
-    "reasoning": "选择理由"
-}
-</tool_call>
-
-## 规划策略
-
-1. **第一步**：了解项目
-   - 获取项目概览，了解整体情况
-   - 获取蓝图详情，了解技术要求
-   - 获取所有系统，了解系统划分
-
-2. **第二步**：分析依赖
-   - 获取依赖关系图
-   - 分析共享模块候选
-   - 识别高依赖模块
-
-3. **第三步**：规划结构
-   - 先创建顶层目录结构（src/, tests/, etc.）
-   - 为每个系统/功能创建对应目录
-   - 为每个模块创建文件，详细说明功能和依赖
-
-4. **第四步**：验证完善
-   - 检查未覆盖的模块
-   - 评估结构质量
-   - 修复问题并完成规划
-
-## 关键原则
-
-1. **完整性**：确保所有模块都被覆盖，没有遗漏
-2. **合理性**：目录结构要符合架构设计原则（高内聚、低耦合）
-3. **清晰性**：每个文件的描述要清楚说明其职责
-4. **可维护性**：依赖关系要合理，避免循环依赖
-5. **实用性**：为后续编程Agent提供有价值的指导信息
-
-## 注意事项
-
-- 创建文件时，description字段要详细描述功能，不能泛泛而谈
-- purpose字段要解释为什么需要这个文件
-- dependencies字段要列出依赖的模块编号
-- dependency_reasons字段要解释为什么需要这些依赖
-- implementation_notes字段要给出实现建议
-
-现在开始规划，首先获取项目信息。
-"""
-
 
 class DirectoryPlanningAgent:
     """
@@ -294,9 +213,17 @@ class DirectoryPlanningAgent:
                     tool_def = get_tool(tool_call.tool)
                     if tool_def and tool_def.category == ToolCategory.ACTION:
                         has_structure_change = True
+                        logger.info(
+                            "[结构变更] ACTION工具执行成功: tool=%s, 将发送structure_update事件",
+                            tool_call.tool
+                        )
                         break
 
             if has_structure_change:
+                logger.info(
+                    "[结构变更] 发送structure_update事件: dirs=%d, files=%d",
+                    len(state.directories), len(state.files)
+                )
                 yield {
                     "event": "structure_update",
                     "data": {
@@ -409,17 +336,23 @@ class DirectoryPlanningAgent:
         )
 
     async def _build_system_prompt(self) -> str:
-        """构建系统提示词"""
-        # 尝试从数据库获取
-        prompt = None
-        if self.prompt_service:
-            try:
-                prompt = await self.prompt_service.get_prompt(DIRECTORY_PLANNING_AGENT_PROMPT_KEY)
-            except Exception as e:
-                logger.warning("获取提示词失败: %s", e)
+        """构建系统提示词
 
+        P0修复: 遵循CLAUDE.md规范，提示词加载失败时直接报错，不使用硬编码回退
+        """
+        if not self.prompt_service:
+            raise ValueError(
+                "目录规划Agent需要PromptService，但未提供。"
+                "请确保正确注入依赖。"
+            )
+
+        prompt = await self.prompt_service.get_prompt(DIRECTORY_PLANNING_AGENT_PROMPT_KEY)
         if not prompt:
-            prompt = DEFAULT_SYSTEM_PROMPT
+            raise ValueError(
+                f"未找到提示词 '{DIRECTORY_PLANNING_AGENT_PROMPT_KEY}'。"
+                "请检查 backend/prompts/coding/ 目录下是否存在对应的 .md 文件，"
+                "并确保已在 _registry.yaml 中注册。"
+            )
 
         # 替换工具列表
         tools_prompt = get_tools_prompt()

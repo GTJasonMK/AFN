@@ -36,6 +36,7 @@ LOGGER_DOMAIN_MAPPING = {
     # 漫画功能 -> manga.log
     "app.services.manga_prompt": "manga",
     "app.api.routers.writer.manga_prompt": "manga",
+    "app.api.routers.writer.manga_prompt_v2": "manga",  # 添加 v2 路由
 
     # 编程功能 -> coding.log
     "app.services.coding": "coding",

@@ -159,56 +159,61 @@ tags: manga, storyboard, panel, prompt, layout
 
 # 详细描述生成指南
 
-**visual_description 是最重要的字段！** 必须使用中文，包含以下所有要素：
+**visual_description 是最重要的字段！** 必须使用中文，只描述画面内容。
 
-## 1. 艺术风格（必须）
-```
-漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度
-```
+**重要：不要在 visual_description 中包含以下内容（它们会被自动添加）：**
+- **艺术风格**：如"漫画风格"、"黑白漫画"、"动漫风格"等（由用户选择并动态添加）
+- **镜头类型**：如"远景镜头"、"中景镜头"、"特写镜头"等（已有独立的 shot_type 字段）
+- **对话气泡描述**：如"对话气泡写着..."（由 dialogues 字段自动添加）
+- **旁白框描述**：如"旁白框写着..."（由 narration 字段自动添加）
 
-## 2. 构图指令
+visual_description 只需要描述：构图、视角、角色外观、动作、表情、背景、光线、氛围等**纯画面**内容。
+
+## 1. 构图指令
 - 三分法构图 / 居中构图 / 对角线构图
 - 平衡构图 / 非对称构图
 
-## 3. 镜头和视角
-- 镜头：大特写 / 特写 / 中景 / 全景 / 远景
-- 视角：平视 / 仰视 / 俯视 / 鸟瞰视角
-- 朝向：正面 / 四分之三侧面 / 侧面 / 背面
+## 2. 镜头和视角
+- 镜头（用于 shot_type 字段）：大特写 / 特写 / 中景 / 全景 / 远景
+- 视角（可放入 visual_description）：平视 / 仰视 / 俯视 / 鸟瞰视角
+- 朝向（可放入 visual_description）：正面 / 四分之三侧面 / 侧面 / 背面
 
-## 4. 角色描述（详细！）
+## 3. 角色描述（详细！）
 - 外观：使用提供的角色外观描述
 - 表情：坚定的表情 / 惊讶的神情 / 温柔的微笑
 - 动作：向前伸手 / 双臂交叉站立 / 奔跑
 - 位置：在前景 / 在左侧 / 画面中心
 
-## 5. 光线和氛围
+## 4. 光线和氛围
 - 光源：窗户透入的自然光 / 戏剧性的逆光 / 柔和的顶光
 - 阴影：强烈的阴影 / 柔和的阴影 / 无阴影
 - 氛围：紧张的气氛 / 平静的氛围 / 戏剧性的时刻
 
-## 6. 背景（与场景环境一致）
+## 5. 背景（与场景环境一致）
 - 描述可见的背景元素
 - 包含环境细节
 
-## 7. 对话气泡（重要！）
-```
-右上角的对话气泡写着"对话内容",
-角色头部附近的思考气泡写着"内心独白",
-```
+## 6. 对话（使用 dialogues 字段）
 
-## 8. 旁白框（与对话气泡不同！）
-旁白是作者的叙述文字，使用方框样式，不是角色的话或想法：
+对话内容填入 `dialogues` 数组，不要写在 visual_description 中。
+
+气泡类型 (bubble_type)：
+- **normal**: 普通对话气泡
+- **thought**: 思考气泡（云朵状，用于内心独白）
+- **shout**: 喊叫气泡（锯齿状）
+- **whisper**: 低语气泡（虚线边框）
+
+## 7. 旁白（使用 narration 字段）
+
+旁白是作者的叙述文字，填入 `narration` 字段，不要写在 visual_description 中。
+
+旁白类型 (narration_type)：
 - **scene**: 场景旁白，如"夜幕降临，城市灯火阑珊"
 - **time**: 时间旁白，如"三天后..."
 - **inner**: 心理旁白（作者对角色心理的描述）
 - **exposition**: 背景旁白，如"这座城市已沦陷三年"
 
-```
-页面顶部的方框旁白"那是改变一切的一天...",
-画格角落的时间旁白框"三天后",
-```
-
-## 9. 音效文字
+## 8. 音效文字（可放入 visual_description）
 ```
 动作旁边的粗体冲击文字"砰！",
 表示移动的风格化音效"嗖",
@@ -228,7 +233,7 @@ tags: manga, storyboard, panel, prompt, layout
       "width_ratio": "full",
       "aspect_ratio": "16:9",
       "shot_type": "long",
-      "visual_description": "漫画风格, 黑白漫画, 远景镜头, 三分法构图, 详细的场景描述...",
+      "visual_description": "三分法构图, 详细的场景描述...",
       "characters": ["角色1"],
       "background": "背景描述",
       "atmosphere": "氛围",
@@ -249,7 +254,7 @@ tags: manga, storyboard, panel, prompt, layout
       "width_ratio": "two_thirds",
       "aspect_ratio": "4:3",
       "shot_type": "medium",
-      "visual_description": "漫画风格, 中景镜头, 人物对话场景, 详细描述...",
+      "visual_description": "人物对话场景, 详细描述...",
       "characters": ["角色1", "角色2"],
       "background": "室内",
       "atmosphere": "平静",
@@ -269,7 +274,7 @@ tags: manga, storyboard, panel, prompt, layout
       "width_ratio": "third",
       "aspect_ratio": "3:4",
       "shot_type": "close_up",
-      "visual_description": "漫画风格, 特写镜头, 角色表情特写, 详细描述...",
+      "visual_description": "角色表情特写, 详细描述...",
       "characters": ["角色2"],
       "background": "",
       "atmosphere": "紧张",
@@ -289,7 +294,7 @@ tags: manga, storyboard, panel, prompt, layout
       "width_ratio": "half",
       "aspect_ratio": "1:1",
       "shot_type": "medium",
-      "visual_description": "漫画风格, 中景镜头, 角色反应, 详细描述...",
+      "visual_description": "角色反应, 详细描述...",
       "characters": ["角色1"],
       "background": "室内",
       "atmosphere": "紧张",
@@ -309,7 +314,7 @@ tags: manga, storyboard, panel, prompt, layout
       "width_ratio": "half",
       "aspect_ratio": "1:1",
       "shot_type": "close_up",
-      "visual_description": "漫画风格, 特写镜头, 物品特写, 详细描述...",
+      "visual_description": "物品特写, 详细描述...",
       "characters": [],
       "background": "",
       "atmosphere": "神秘",

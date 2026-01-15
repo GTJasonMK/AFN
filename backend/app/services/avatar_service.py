@@ -16,6 +16,7 @@ from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import parse_llm_json_or_fail
 from ..exceptions import ResourceNotFoundError, InvalidParameterError
+from ..core.constants import AvatarConstants
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,9 @@ class AvatarService:
                 world = blueprint.world_setting if isinstance(blueprint.world_setting, dict) else {}
                 core_rules = world.get('core_rules', '')
                 if core_rules:
-                    # 截取前200字符，避免过长
-                    core_rules_preview = core_rules[:200] + "..." if len(core_rules) > 200 else core_rules
+                    # 截取前N字符，避免过长
+                    preview_len = AvatarConstants.WORLD_RULES_PREVIEW_LENGTH
+                    core_rules_preview = core_rules[:preview_len] + "..." if len(core_rules) > preview_len else core_rules
                     world_info = f"""
 ## 世界观
 {core_rules_preview}
@@ -240,7 +242,7 @@ class AvatarService:
             svg = svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
 
         # 限制SVG大小（防止过大的SVG）
-        max_size = 50000  # 50KB
+        max_size = AvatarConstants.SVG_MAX_SIZE_BYTES
         if len(svg) > max_size:
             raise InvalidParameterError(f"SVG大小超过限制（{len(svg)} > {max_size}字节）", "svg")
 

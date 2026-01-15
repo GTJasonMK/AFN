@@ -7,7 +7,7 @@
 
 from typing import Optional
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox, QCheckBox, QMenu
+    QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QComboBox, QStackedWidget, QWidget, QSpinBox, QCheckBox, QMenu, QLineEdit
 )
 from PyQt6.QtCore import Qt
 
@@ -21,7 +21,8 @@ class ToolbarMixin:
 
     def _init_toolbar_state(self):
         """初始化工具栏状态"""
-        self._style_combo: Optional[QComboBox] = None
+        self._style_combo: Optional[QComboBox] = None  # 风格模板选择
+        self._style_edit: Optional[QLineEdit] = None  # 风格自定义编辑框
         self._language_combo: Optional[QComboBox] = None  # 语言选择
         self._min_pages_spin: Optional[QSpinBox] = None
         self._max_pages_spin: Optional[QSpinBox] = None
@@ -75,24 +76,39 @@ class ToolbarMixin:
         main_layout.setContentsMargins(dp(12), dp(10), dp(12), dp(12))
         main_layout.setSpacing(dp(10))
 
-        # ==================== 第一行：配置选项 ====================
-        config_row = QHBoxLayout()
-        config_row.setSpacing(dp(12))
+        # ==================== 第一行：风格配置 ====================
+        style_row = QHBoxLayout()
+        style_row.setSpacing(dp(8))
 
-        # 风格选择
+        # 风格模板选择
         style_label = QLabel("风格:")
         style_label.setStyleSheet(f"""
             font-family: {s.ui_font};
             font-size: {sp(12)}px;
             color: {s.text_secondary};
         """)
-        config_row.addWidget(style_label)
+        style_row.addWidget(style_label)
 
         self._style_combo = QComboBox()
-        self._style_combo.addItems(["漫画", "动漫", "美漫", "条漫"])
+        self._style_combo.addItems(["日漫", "动漫", "美漫", "条漫", "自定义"])
         self._style_combo.setStyleSheet(self._get_combo_style())
-        self._style_combo.setMinimumWidth(dp(80))
-        config_row.addWidget(self._style_combo)
+        self._style_combo.setFixedWidth(dp(72))
+        self._style_combo.setToolTip("选择风格模板")
+        self._style_combo.currentTextChanged.connect(self._on_style_template_changed)
+        style_row.addWidget(self._style_combo)
+
+        # 风格描述编辑框（拉伸填充）
+        self._style_edit = QLineEdit()
+        self._style_edit.setText("漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度")
+        self._style_edit.setStyleSheet(self._get_line_edit_style())
+        self._style_edit.setToolTip("风格描述，可自由编辑")
+        style_row.addWidget(self._style_edit, 1)  # stretch=1 让编辑框填充剩余空间
+
+        main_layout.addLayout(style_row)
+
+        # ==================== 第二行：其他配置选项 ====================
+        config_row = QHBoxLayout()
+        config_row.setSpacing(dp(12))
 
         # 语言选择
         language_label = QLabel("语言:")
@@ -269,7 +285,7 @@ class ToolbarMixin:
         config_row.addStretch()
         main_layout.addLayout(config_row)
 
-        # ==================== 第二行：操作按钮 ====================
+        # ==================== 第三行：操作按钮 ====================
         btn_row = QHBoxLayout()
         btn_row.setSpacing(dp(8))
 
@@ -554,6 +570,35 @@ class ToolbarMixin:
             }}
         """
 
+    def _get_line_edit_style(self) -> str:
+        """获取文本编辑框统一样式"""
+        s = self._styler
+        return f"""
+            QLineEdit {{
+                font-family: {s.ui_font};
+                background-color: {s.bg_secondary};
+                color: {s.text_primary};
+                padding: {dp(4)}px {dp(8)}px;
+                border: 1px solid {s.border_light};
+                border-radius: {dp(4)}px;
+                font-size: {sp(12)}px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {s.accent_color};
+            }}
+        """
+
+    def _on_style_template_changed(self, template_name: str):
+        """风格模板选择改变时的回调"""
+        templates = {
+            "日漫": "漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度",
+            "动漫": "动漫风格, 鲜艳色彩, 日本动画, 柔和阴影, 大眼睛",
+            "美漫": "美漫风格, 粗线条, 动感, 强烈阴影, 肌肉感",
+            "条漫": "条漫风格, 全彩, 韩国漫画, 柔和渐变, 现代感",
+        }
+        if template_name in templates and self._style_edit:
+            self._style_edit.setText(templates[template_name])
+
     def _get_spin_style(self) -> str:
         """获取数字输入框统一样式"""
         s = self._styler
@@ -610,40 +655,41 @@ class ToolbarMixin:
             force_restart: 是否强制从头开始，忽略断点
             start_from_stage: 指定从哪个阶段开始（extraction/planning/storyboard/prompt_building）
         """
-
         # 防止重复触发：检查统一的生成标志
         # 这个标志可以防止多个按钮（继续生成/从头生成/重新生成菜单项）同时触发
         if getattr(self, '_is_generating', False):
-            print(f"[DEBUG toolbar] BLOCKED - _is_generating is True")
             return
 
         # 立即设置生成标志
         self._is_generating = True
-        print(f"[DEBUG toolbar] SET _is_generating=True")
 
         # 禁用所有可能触发生成的按钮
-        if self._toolbar_generate_btn:
-            self._toolbar_generate_btn.setEnabled(False)
-        if self._toolbar_restart_btn:
-            self._toolbar_restart_btn.setEnabled(False)
-        if self._toolbar_regenerate_btn:
-            self._toolbar_regenerate_btn.setEnabled(False)
+        # 使用 try-except 包裹，防止 C++ 对象已被删除导致的 RuntimeError
+        try:
+            if self._toolbar_generate_btn:
+                self._toolbar_generate_btn.setEnabled(False)
+        except RuntimeError:
+            pass
+        try:
+            if self._toolbar_restart_btn:
+                self._toolbar_restart_btn.setEnabled(False)
+        except RuntimeError:
+            pass
+        try:
+            if self._toolbar_regenerate_btn:
+                self._toolbar_regenerate_btn.setEnabled(False)
+        except RuntimeError:
+            pass
 
-        if self._on_generate and self._style_combo and self._min_pages_spin and self._max_pages_spin:
-            style_map = {
-                "漫画": "manga",
-                "动漫": "anime",
-                "美漫": "comic",
-                "条漫": "webtoon",
-            }
+        if self._on_generate and self._style_edit and self._min_pages_spin and self._max_pages_spin:
             language_map = {
                 "中文": "chinese",
                 "日语": "japanese",
                 "英语": "english",
                 "韩语": "korean",
             }
-            style_text = self._style_combo.currentText()
-            style = style_map.get(style_text, "manga")
+            # 直接使用编辑框中的风格描述
+            style = self._style_edit.text().strip() or "漫画风格, 黑白漫画, 网点纸, 日式漫画"
             language_text = self._language_combo.currentText() if self._language_combo else "中文"
             language = language_map.get(language_text, "chinese")
             min_pages = self._min_pages_spin.value()

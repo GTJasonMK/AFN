@@ -429,6 +429,85 @@ class DirectoryTree(ThemeAwareWidget):
         if file_id in self._file_items_map:
             self._file_items_map[file_id].update_status(status)
 
+    def update_from_agent_data(self, directories: List[Dict], files: List[Dict]):
+        """从Agent事件数据直接更新目录树
+
+        Agent执行过程中数据还未保存到数据库，所以直接使用事件中的数据更新UI。
+
+        Args:
+            directories: 目录列表，每项包含 path, description, purpose
+            files: 文件列表，每项包含 path, filename, module_number, description
+        """
+        logger.info(f"从Agent数据更新目录树: {len(directories)} 目录, {len(files)} 文件")
+
+        # 按路径组织文件
+        files_by_dir: Dict[str, List[Dict]] = {}
+        for f in files:
+            path = f.get("path", "")
+            dir_path = "/".join(path.split("/")[:-1]) if "/" in path else ""
+            if dir_path not in files_by_dir:
+                files_by_dir[dir_path] = []
+            files_by_dir[dir_path].append({
+                "id": hash(path),  # 使用路径哈希作为临时ID
+                "path": path,
+                "filename": f.get("filename", path.split("/")[-1] if "/" in path else path),
+                "module_number": f.get("module_number"),
+                "description": f.get("description", ""),
+                "status": "not_generated",
+            })
+
+        # 构建目录节点
+        def build_node(dir_info: Dict) -> Dict:
+            path = dir_info.get("path", "")
+            return {
+                "id": hash(path),  # 使用路径哈希作为临时ID
+                "path": path,
+                "name": path.split("/")[-1] if "/" in path else path,
+                "description": dir_info.get("description", ""),
+                "purpose": dir_info.get("purpose", ""),
+                "files": files_by_dir.get(path, []),
+                "children": [],
+            }
+
+        # 按路径深度排序目录
+        sorted_dirs = sorted(directories, key=lambda d: d.get("path", "").count("/"))
+
+        # 构建目录树
+        root_nodes: List[Dict] = []
+        nodes_by_path: Dict[str, Dict] = {}
+
+        for dir_info in sorted_dirs:
+            path = dir_info.get("path", "")
+            node = build_node(dir_info)
+            nodes_by_path[path] = node
+
+            # 查找父目录
+            if "/" in path:
+                parent_path = "/".join(path.split("/")[:-1])
+                if parent_path in nodes_by_path:
+                    nodes_by_path[parent_path]["children"].append(node)
+                else:
+                    # 父目录不存在，作为根节点
+                    root_nodes.append(node)
+            else:
+                # 顶级目录
+                root_nodes.append(node)
+
+        # 更新目录树数据
+        self._tree_data = {
+            "root_nodes": root_nodes,
+            "total_directories": len(directories),
+            "total_files": len(files),
+        }
+
+        # 默认展开根节点
+        for node in root_nodes:
+            self._expanded_dirs.add(node.get('id'))
+
+        # 重建树形结构
+        self._rebuild_tree()
+        logger.info("目录树UI已从Agent数据更新")
+
     def _cleanup_worker(self):
         """清理异步Worker"""
         if self._worker is None:

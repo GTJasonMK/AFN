@@ -53,8 +53,6 @@ class DirectorySection(BaseSection):
         self._has_paused_state = False  # 是否有暂停的Agent状态
         self._paused_state_info = {}  # 暂停状态的详细信息
         self._detailed_mode = False  # Agent输出详细模式
-        self._tree_refresh_pending = False  # 是否有待处理的树刷新
-        self._tree_refresh_timer = None  # 防抖定时器
 
         super().__init__([], editable, parent)
         self.setupUI()
@@ -602,33 +600,6 @@ class DirectorySection(BaseSection):
         """刷新"""
         self._load_directory_tree()
 
-    def _load_directory_tree_debounced(self, delay_ms: int = 500):
-        """
-        防抖加载目录树
-
-        避免Agent快速创建文件时频繁刷新UI
-        """
-        from PyQt6.QtCore import QTimer
-
-        # 如果已有定时器，取消它
-        if self._tree_refresh_timer:
-            self._tree_refresh_timer.stop()
-
-        # 标记有待处理的刷新
-        self._tree_refresh_pending = True
-
-        # 创建新的定时器
-        self._tree_refresh_timer = QTimer(self)
-        self._tree_refresh_timer.setSingleShot(True)
-        self._tree_refresh_timer.timeout.connect(self._do_debounced_refresh)
-        self._tree_refresh_timer.start(delay_ms)
-
-    def _do_debounced_refresh(self):
-        """执行防抖刷新"""
-        self._tree_refresh_pending = False
-        self._tree_refresh_timer = None
-        self._load_directory_tree()
-
     def _load_directory_tree(self):
         """加载目录树数据"""
         if not self.project_id:
@@ -670,6 +641,80 @@ class DirectorySection(BaseSection):
         """目录树加载失败"""
         logger.warning(f"目录树加载失败: {error_msg}")
         # 不显示错误，可能只是还没有生成目录结构
+
+    def _update_tree_from_agent_data(self, directories: list, files: list):
+        """
+        从Agent事件数据直接更新目录树
+
+        Agent执行过程中数据还未保存到数据库，所以直接使用事件中的数据更新UI。
+
+        Args:
+            directories: 目录列表，每项包含 path, description, purpose
+            files: 文件列表，每项包含 path, filename, module_number, description, quality_ok
+        """
+        logger.info(f"从Agent数据更新目录树: {len(directories)} 目录, {len(files)} 文件")
+
+        # 构建树形结构
+        # 按路径组织文件
+        files_by_dir = {}
+        for f in files:
+            dir_path = "/".join(f.get("path", "").split("/")[:-1]) or "/"
+            if dir_path not in files_by_dir:
+                files_by_dir[dir_path] = []
+            files_by_dir[dir_path].append({
+                "path": f.get("path", ""),
+                "filename": f.get("filename", ""),
+                "module_number": f.get("module_number"),
+                "description": f.get("description", ""),
+                "quality_ok": f.get("quality_ok", True),
+            })
+
+        # 构建目录节点
+        def build_node(dir_info):
+            path = dir_info.get("path", "")
+            return {
+                "path": path,
+                "name": path.split("/")[-1] if "/" in path else path,
+                "description": dir_info.get("description", ""),
+                "purpose": dir_info.get("purpose", ""),
+                "files": files_by_dir.get(path, []),
+                "children": [],
+            }
+
+        # 按路径深度排序目录
+        sorted_dirs = sorted(directories, key=lambda d: d.get("path", "").count("/"))
+
+        # 构建目录树
+        root_nodes = []
+        nodes_by_path = {}
+
+        for dir_info in sorted_dirs:
+            path = dir_info.get("path", "")
+            node = build_node(dir_info)
+            nodes_by_path[path] = node
+
+            # 查找父目录
+            if "/" in path:
+                parent_path = "/".join(path.split("/")[:-1])
+                if parent_path in nodes_by_path:
+                    nodes_by_path[parent_path]["children"].append(node)
+                else:
+                    # 父目录不存在，作为根节点
+                    root_nodes.append(node)
+            else:
+                # 顶级目录
+                root_nodes.append(node)
+
+        # 更新目录树数据
+        self.directory_tree = {
+            "root_nodes": root_nodes,
+            "total_directories": len(directories),
+            "total_files": len(files),
+        }
+
+        # 重新填充目录树UI
+        self._populate_tree()
+        logger.info("目录树UI已从Agent数据更新")
 
     def _on_directory_generated(self, result):
         """目录生成完成"""
@@ -819,6 +864,9 @@ class DirectorySection(BaseSection):
 
     def _on_agent_event(self, event_type: str, data: dict):
         """处理Agent事件（兼容新V2 API和旧API事件）"""
+        # 调试日志：打印所有收到的事件
+        logger.info("[Agent事件] 收到事件: type=%s, data_keys=%s", event_type, list(data.keys()) if data else [])
+
         # ============ 新V2 API ReAct事件 ============
 
         # 阶段变化事件
@@ -946,6 +994,9 @@ class DirectorySection(BaseSection):
 
         elif event_type == "structure_update":
             # 实时目录结构更新（Agent执行操作工具后触发）
+            # 注意：此时数据还未保存到数据库，直接使用事件中的数据更新UI
+            logger.info("[Agent事件] 处理structure_update事件，直接更新UI")
+
             stats = data.get("stats", {})
             dirs_count = stats.get("total_directories", 0)
             files_count = stats.get("total_files", 0)
@@ -955,17 +1006,19 @@ class DirectorySection(BaseSection):
             # 更新统计显示
             if hasattr(self, 'stats_label') and self.stats_label:
                 self.stats_label.setText(f"{dirs_count} 目录 / {files_count} 文件")
+                logger.info("[Agent事件] 更新统计标签: %d 目录 / %d 文件", dirs_count, files_count)
 
-            # 显示进度信息（非详细模式下简化显示）
-            if self._detailed_mode:
-                coverage_pct = (covered / total * 100) if total > 0 else 0
-                self._append_agent_output(
-                    f"[更新] 目录: {dirs_count}, 文件: {files_count}, 覆盖率: {coverage_pct:.0f}%\n",
-                    "info"
-                )
+            # 显示进度信息
+            coverage_pct = (covered / total * 100) if total > 0 else 0
+            self._append_agent_output(
+                f"[结构更新] 目录: {dirs_count}, 文件: {files_count}, 覆盖率: {coverage_pct:.0f}%\n",
+                "info"
+            )
 
-            # 使用防抖刷新目录树，避免频繁API调用
-            self._load_directory_tree_debounced()
+            # 直接使用事件数据更新目录树（不从数据库获取，因为数据还没保存）
+            directories = data.get("directories", [])
+            files = data.get("files", [])
+            self._update_tree_from_agent_data(directories, files)
 
         elif event_type == "complete":
             self.agent_status_label.setText("规划完成")
@@ -1351,11 +1404,6 @@ class DirectorySection(BaseSection):
 
     def cleanup(self):
         """清理资源"""
-        # 停止防抖定时器
-        if self._tree_refresh_timer:
-            self._tree_refresh_timer.stop()
-            self._tree_refresh_timer = None
-
         if hasattr(self, '_sse_worker') and self._sse_worker:
             try:
                 self._sse_worker.stop()

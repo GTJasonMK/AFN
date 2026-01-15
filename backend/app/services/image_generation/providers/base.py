@@ -398,13 +398,10 @@ class BaseImageProvider(ABC):
         if manga_visual_parts:
             prompt = f"{prompt}, {manga_visual_parts}"
 
-        # 智能检测：如果提示词已包含风格关键词，则跳过风格后缀添加
-        # 使用集中定义的风格检测函数，确保检测逻辑与STYLE_SUFFIXES保持一致
-        has_style = has_style_keywords(prompt)
-
-        # 只有当提示词不包含风格关键词时，才添加风格后缀
-        if not has_style and request.style:
-            style_suffix = STYLE_SUFFIXES.get(request.style, "")
+        # 风格处理：用户明确指定的风格优先，否则检测提示词中是否已包含风格
+        # 如果style是预设key则使用对应模板，否则直接使用用户输入的自定义风格字符串
+        if request.style:
+            style_suffix = STYLE_SUFFIXES.get(request.style, request.style)
             if style_suffix:
                 prompt = f"{prompt}, {style_suffix}"
 

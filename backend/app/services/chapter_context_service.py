@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..core.config import settings
+from ..core.constants import ContextConstants
 from ..services.llm_service import LLMService
 from ..schemas.novel import ChapterAnalysisData
 from .vector_store_service import RetrievedChunk, RetrievedSummary, VectorStoreService
@@ -196,12 +197,12 @@ class EnhancedChapterContextService:
         llm_service: LLMService,
         vector_store: Optional[VectorStoreService] = None,
         # 时序检索参数
-        recency_weight: float = 0.3,
-        similarity_weight: float = 0.7,
-        nearby_bonus: float = 0.15,
-        nearby_range: int = 5,
+        recency_weight: float = ContextConstants.RECENCY_WEIGHT,
+        similarity_weight: float = ContextConstants.SIMILARITY_WEIGHT,
+        nearby_bonus: float = ContextConstants.NEARBY_BONUS,
+        nearby_range: int = ContextConstants.NEARBY_RANGE,
         # 上下文压缩参数
-        max_context_tokens: int = 4000,
+        max_context_tokens: int = ContextConstants.MAX_CONTEXT_TOKENS,
     ) -> None:
         self._llm_service = llm_service
         self._vector_store = vector_store
@@ -326,7 +327,7 @@ class EnhancedChapterContextService:
                         total_chapters=total_chapters,
                         user_id=user_id,
                         existing_chunks=chunks,
-                        max_additional=min(3, top_k_chunks - len(chunks)),
+                        max_additional=min(ContextConstants.MAX_ADDITIONAL_CHUNKS, top_k_chunks - len(chunks)),
                     )
 
         # 3. 构建智能上下文
@@ -378,8 +379,8 @@ class EnhancedChapterContextService:
         if not self._temporal_retriever or max_additional <= 0:
             return
 
-        existing_contents = {c.content[:100] for c in existing_chunks}
-        queries_to_process = character_queries[:2]  # 最多处理2个角色查询
+        existing_contents = {c.content[:ContextConstants.CONTENT_DEDUP_PREFIX_LENGTH] for c in existing_chunks}
+        queries_to_process = character_queries[:ContextConstants.MAX_CHARACTER_QUERIES]
 
         if not queries_to_process:
             return
@@ -408,7 +409,7 @@ class EnhancedChapterContextService:
                 query_embedding=embedding,
                 target_chapter=chapter_number,
                 total_chapters=total_chapters,
-                top_k=3,
+                top_k=ContextConstants.CHARACTER_RETRIEVAL_TOP_K,
             )
             for _, embedding in valid_pairs
         ]
@@ -417,9 +418,9 @@ class EnhancedChapterContextService:
         # 去重并添加
         for char_chunks in all_char_chunks:
             for chunk in char_chunks:
-                if chunk.content[:100] not in existing_contents:
+                if chunk.content[:ContextConstants.CONTENT_DEDUP_PREFIX_LENGTH] not in existing_contents:
                     existing_chunks.append(chunk)
-                    existing_contents.add(chunk.content[:100])
+                    existing_contents.add(chunk.content[:ContextConstants.CONTENT_DEDUP_PREFIX_LENGTH])
                     if len(existing_chunks) >= max_additional:
                         return
 

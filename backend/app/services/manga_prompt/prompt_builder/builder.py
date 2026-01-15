@@ -14,12 +14,12 @@ from .models import PanelPrompt, PagePrompt, PagePromptResult, MangaPromptResult
 logger = logging.getLogger(__name__)
 
 
-# 风格前缀映射（中文）
-STYLE_PREFIXES = {
-    "manga": "漫画风格, 黑白漫画, 网点纸, 日式漫画,",
-    "anime": "动漫风格, 鲜艳色彩, 日本动画,",
-    "comic": "美漫风格, 粗线条, 动感,",
-    "webtoon": "条漫风格, 竖向滚动, 韩国漫画,",
+# 风格模板（用户可基于这些模板自定义）
+STYLE_TEMPLATES = {
+    "manga": "漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度",
+    "anime": "动漫风格, 鲜艳色彩, 日本动画, 柔和阴影, 大眼睛",
+    "comic": "美漫风格, 粗线条, 动感, 强烈阴影, 肌肉感",
+    "webtoon": "条漫风格, 全彩, 韩国漫画, 柔和渐变, 现代感",
 }
 
 # 默认负面提示词（中文，自然语言）
@@ -45,14 +45,15 @@ class PromptBuilder:
         初始化构建器
 
         Args:
-            style: 漫画风格 (manga/anime/comic/webtoon)
+            style: 漫画风格，可以是预设key(manga/anime/comic/webtoon)或自定义描述字符串
             character_profiles: 角色外观描述字典 {角色名: 外观描述}
             character_portraits: 角色立绘路径字典 {角色名: 立绘图片路径}
         """
         self.style = style
         self.character_profiles = character_profiles or {}
         self.character_portraits = character_portraits or {}
-        self.style_prefix = STYLE_PREFIXES.get(style, STYLE_PREFIXES["manga"])
+        # 如果是预设key则使用模板，否则直接使用自定义字符串
+        self.style_prefix = STYLE_TEMPLATES.get(style, style)
 
     def build(
         self,
@@ -169,51 +170,28 @@ class PromptBuilder:
         panel: PanelDesign,
         chapter_info: ChapterInfo,
     ) -> str:
-        """构建中文提示词"""
-        parts = [self.style_prefix]
+        """
+        构建中文提示词
 
-        # 镜头类型
-        shot_names = {
-            "long": "远景镜头, 展示全身和环境,",
-            "medium": "中景镜头, 展示上半身,",
-            "close_up": "近景特写, 聚焦面部,",
-        }
-        shot_desc = shot_names.get(panel.shot_type.value, "中景镜头,")
-        parts.append(shot_desc)
+        注意：visual_description 已经是 LLM 生成的完整画面描述，包含了场景、角色、
+        动作、表情、背景、氛围等信息。这里只需要：
+        1. 添加风格前缀（由用户选择）
+        2. 使用 visual_description 作为主体
+        3. 添加对话气泡/旁白的结构化描述（确保 AI 绘图模型知道要画气泡）
+        4. 添加角色外观描述（用于角色一致性参考）
+        5. 添加质量标签
+        """
+        parts = []
 
-        # 画面描述
+        # 1. 风格前缀
+        parts.append(self.style_prefix)
+
+        # 2. 画面描述（LLM 生成的完整描述）
         if panel.visual_description:
             parts.append(panel.visual_description)
 
-        # 背景/场景
-        if panel.background:
-            parts.append(f"背景: {panel.background},")
-
-        # 氛围
-        if panel.atmosphere:
-            parts.append(f"{panel.atmosphere}氛围,")
-
-        # 光线
-        if panel.lighting:
-            parts.append(f"{panel.lighting}光线,")
-
-        # 角色描述（最多3个角色）
-        for char_name in panel.characters[:3]:
-            char_info = chapter_info.characters.get(char_name)
-            if char_info and char_info.appearance:
-                parts.append(f"{char_name}: {char_info.appearance[:200]},")
-            elif char_name in self.character_profiles:
-                parts.append(f"{char_name}: {self.character_profiles[char_name][:200]},")
-
-        # 角色动作
-        for char_name, action in panel.character_actions.items():
-            if action:
-                parts.append(f"{char_name}{action},")
-
-        # 角色表情
-        for char_name, expression in panel.character_expressions.items():
-            if expression:
-                parts.append(f"{char_name}{expression}表情,")
+        # 3. 对话气泡和旁白（结构化描述，确保 AI 知道要画气泡）
+        has_bubbles = False
 
         # 对话和想法内容 - 区分气泡类型
         dialogue_entries = []  # 普通对话
@@ -239,7 +217,6 @@ class PromptBuilder:
                 dialogue_entries.append(label)
 
         # 添加不同类型的气泡描述
-        has_bubbles = False
         if thought_entries:
             thought_text = " | ".join(thought_entries[:2])
             parts.append(f'想法气泡(云朵状): "{thought_text}"')
@@ -271,7 +248,15 @@ class PromptBuilder:
             parts.append(f'{narration_label}(方框): "{narration_text}"')
             has_bubbles = True
 
-        # 质量标签
+        # 4. 角色外观描述（用于角色一致性参考，只添加一次）
+        for char_name in panel.characters[:3]:
+            char_info = chapter_info.characters.get(char_name)
+            if char_info and char_info.appearance:
+                parts.append(f"{char_name}: {char_info.appearance[:150]}")
+            elif char_name in self.character_profiles:
+                parts.append(f"{char_name}: {self.character_profiles[char_name][:150]}")
+
+        # 5. 质量标签
         if has_bubbles:
             parts.append("漫画分格, 对话气泡, 高质量, 精细, 杰作")
         else:

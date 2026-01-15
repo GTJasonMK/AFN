@@ -608,16 +608,28 @@ class FilePromptService:
         return content
 
     async def _build_review_system_prompt(self, prompt_service) -> str:
-        """构建审查Prompt的系统提示词"""
-        if prompt_service:
-            try:
-                prompt = await prompt_service.get_prompt("file_review_generation")
-                if prompt:
-                    return prompt
-            except Exception:
-                pass
+        """构建审查Prompt的系统提示词
 
-        return """你是一位资深软件质量工程师，擅长编写清晰、完整的代码审查和测试Prompt。
+        P0修复: 遵循CLAUDE.md规范，提示词加载失败时直接报错，不使用硬编码回退
+        """
+        if not prompt_service:
+            raise ValueError(
+                "审查提示词生成需要PromptService，但未提供。"
+                "请确保正确注入依赖。"
+            )
+
+        prompt = await prompt_service.get_prompt("file_review_generation")
+        if not prompt:
+            raise ValueError(
+                "未找到提示词 'file_review_generation'。"
+                "请检查 backend/prompts/ 目录下是否存在对应的 .md 文件，"
+                "并确保已在 _registry.yaml 中注册。"
+            )
+        return prompt
+
+    # 以下为原硬编码模板，已废弃，仅保留作为参考
+    # 如需恢复，请在 backend/prompts/coding/ 目录创建 file_review_generation.md
+    _DEPRECATED_REVIEW_TEMPLATE = """你是一位资深软件质量工程师，擅长编写清晰、完整的代码审查和测试Prompt。
 
 输出原则：
 1. 可直接使用：输出的内容是可以直接复制给AI编程助手使用的审查/测试Prompt
@@ -1281,16 +1293,28 @@ class FilePromptService:
     # ------------------------------------------------------------------
 
     async def _build_system_prompt(self, prompt_service) -> str:
-        """构建系统提示词"""
-        if prompt_service:
-            try:
-                prompt = await prompt_service.get_prompt("file_prompt_generation")
-                if prompt:
-                    return prompt
-            except Exception:
-                pass
+        """构建系统提示词
 
-        return """你是一位资深软件工程师，擅长编写清晰、完整的功能实现Prompt。
+        P0修复: 遵循CLAUDE.md规范，提示词加载失败时直接报错，不使用硬编码回退
+        """
+        if not prompt_service:
+            raise ValueError(
+                "文件Prompt生成需要PromptService，但未提供。"
+                "请确保正确注入依赖。"
+            )
+
+        prompt = await prompt_service.get_prompt("file_prompt_generation")
+        if not prompt:
+            raise ValueError(
+                "未找到提示词 'file_prompt_generation'。"
+                "请检查 backend/prompts/ 目录下是否存在对应的 .md 文件，"
+                "并确保已在 _registry.yaml 中注册。"
+            )
+        return prompt
+
+    # 以下为原硬编码模板，已废弃，仅保留作为参考
+    # 如需恢复，请在 backend/prompts/coding/ 目录创建 file_prompt_generation.md
+    _DEPRECATED_PROMPT_TEMPLATE = """你是一位资深软件工程师，擅长编写清晰、完整的功能实现Prompt。
 
 输出原则：
 1. 可直接使用：输出的内容是可以直接复制给AI编程助手使用的Prompt

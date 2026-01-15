@@ -43,14 +43,16 @@ def build_page_prompt_for_generation(
     # 构建提示词
     lines = []
 
-    # 基础风格描述
-    style_map = {
+    # 基础风格描述（支持预设key或自定义字符串）
+    style_templates = {
         "manga": "manga style, professional manga page, black and white manga, panel layout",
         "anime": "anime style, professional anime page, colorful anime, panel layout",
         "comic": "comic book style, professional comic page, western comic, panel layout",
         "webtoon": "webtoon style, vertical scroll comic, korean webtoon, full color",
     }
-    lines.append(style_map.get(style, style_map["manga"]))
+    # 如果是预设key则使用模板，否则直接使用自定义字符串
+    style_desc = style_templates.get(style, style)
+    lines.append(style_desc)
     lines.append("")
 
     # 页面结构

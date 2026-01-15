@@ -12,6 +12,14 @@ from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QPainterPath
 
 from themes.theme_manager import theme_manager
+from .particle_constants import (
+    ParticleConfig,
+    BaseParticleConfig,
+    InkParticleConfig,
+    PaperParticleConfig,
+    SparkleParticleConfig,
+    StrokeParticleConfig,
+)
 
 
 class FloatingParticle:
@@ -25,12 +33,12 @@ class FloatingParticle:
         self.size = size
         self.color = color
         self.particle_type = particle_type
-        self.opacity = random.uniform(0.3, 0.7)
-        self.phase = random.uniform(0, math.pi * 2)  # 用于呼吸效果
-        self.rotation = random.uniform(0, 360)  # 旋转角度
-        self.rotation_speed = random.uniform(-1, 1)  # 旋转速度
-        self.life = 1.0  # 生命值（用于淡入淡出）
-        self.pulse_speed = random.uniform(0.02, 0.05)  # 脉冲速度
+        self.opacity = random.uniform(BaseParticleConfig.OPACITY_MIN, BaseParticleConfig.OPACITY_MAX)
+        self.phase = random.uniform(BaseParticleConfig.PHASE_MIN, BaseParticleConfig.PHASE_MAX)
+        self.rotation = random.uniform(BaseParticleConfig.ROTATION_MIN, BaseParticleConfig.ROTATION_MAX)
+        self.rotation_speed = random.uniform(BaseParticleConfig.ROTATION_SPEED_MIN, BaseParticleConfig.ROTATION_SPEED_MAX)
+        self.life = 1.0
+        self.pulse_speed = random.uniform(BaseParticleConfig.PULSE_SPEED_MIN, BaseParticleConfig.PULSE_SPEED_MAX)
 
     def update(self, width, height, time_tick):
         """更新粒子位置和状态"""
@@ -47,7 +55,7 @@ class FloatingParticle:
 
     def get_current_opacity(self):
         """获取当前透明度（带呼吸效果）"""
-        breath = 0.3 + 0.2 * math.sin(self.phase)
+        breath = BaseParticleConfig.BREATH_BASE + BaseParticleConfig.BREATH_AMPLITUDE * math.sin(self.phase)
         return self.opacity * breath * self.life
 
 
@@ -55,34 +63,34 @@ class InkParticle(FloatingParticle):
     """墨滴粒子 - 模拟墨水滴落扩散效果"""
 
     def __init__(self, x, y):
-        vx = random.uniform(-0.15, 0.15)
-        vy = random.uniform(-0.1, 0.2)  # 略向下飘
-        size = random.uniform(3, 8)
+        vx = random.uniform(InkParticleConfig.VX_MIN, InkParticleConfig.VX_MAX)
+        vy = random.uniform(InkParticleConfig.VY_MIN, InkParticleConfig.VY_MAX)
+        size = random.uniform(InkParticleConfig.SIZE_MIN, InkParticleConfig.SIZE_MAX)
         super().__init__(x, y, vx, vy, size, None, 'ink')
-        self.spread = 0  # 扩散程度
-        self.max_spread = random.uniform(0, 3)
+        self.spread = 0
+        self.max_spread = random.uniform(InkParticleConfig.MAX_SPREAD_MIN, InkParticleConfig.MAX_SPREAD_MAX)
 
     def update(self, width, height, time_tick):
         super().update(width, height, time_tick)
         # 缓慢扩散
         if self.spread < self.max_spread:
-            self.spread += 0.01
+            self.spread += InkParticleConfig.SPREAD_SPEED
 
 
 class PaperParticle(FloatingParticle):
     """纸片粒子 - 模拟飘落的书页碎片"""
 
     def __init__(self, x, y):
-        vx = random.uniform(-0.3, 0.3)
-        vy = random.uniform(-0.2, 0.1)  # 略向上飘
-        size = random.uniform(8, 15)
+        vx = random.uniform(PaperParticleConfig.VX_MIN, PaperParticleConfig.VX_MAX)
+        vy = random.uniform(PaperParticleConfig.VY_MIN, PaperParticleConfig.VY_MAX)
+        size = random.uniform(PaperParticleConfig.SIZE_MIN, PaperParticleConfig.SIZE_MAX)
         super().__init__(x, y, vx, vy, size, None, 'paper')
-        self.width_ratio = random.uniform(0.4, 0.8)  # 宽高比
-        self.flutter = random.uniform(0.5, 1.5)  # 飘动幅度
+        self.width_ratio = random.uniform(PaperParticleConfig.WIDTH_RATIO_MIN, PaperParticleConfig.WIDTH_RATIO_MAX)
+        self.flutter = random.uniform(PaperParticleConfig.FLUTTER_MIN, PaperParticleConfig.FLUTTER_MAX)
 
     def update(self, width, height, time_tick):
         # 添加飘动效果
-        self.x += math.sin(self.phase * 2) * self.flutter * 0.1
+        self.x += math.sin(self.phase * 2) * self.flutter * PaperParticleConfig.FLUTTER_FACTOR
         super().update(width, height, time_tick)
 
 
@@ -90,15 +98,15 @@ class SparkleParticle(FloatingParticle):
     """星光粒子 - 闪烁的小光点"""
 
     def __init__(self, x, y):
-        vx = random.uniform(-0.05, 0.05)
-        vy = random.uniform(-0.05, 0.05)
-        size = random.uniform(1, 3)
+        vx = random.uniform(SparkleParticleConfig.VX_MIN, SparkleParticleConfig.VX_MAX)
+        vy = random.uniform(SparkleParticleConfig.VY_MIN, SparkleParticleConfig.VY_MAX)
+        size = random.uniform(SparkleParticleConfig.SIZE_MIN, SparkleParticleConfig.SIZE_MAX)
         super().__init__(x, y, vx, vy, size, None, 'sparkle')
-        self.twinkle_speed = random.uniform(0.05, 0.15)
+        self.twinkle_speed = random.uniform(SparkleParticleConfig.TWINKLE_SPEED_MIN, SparkleParticleConfig.TWINKLE_SPEED_MAX)
 
     def get_current_opacity(self):
         """闪烁效果"""
-        twinkle = 0.2 + 0.8 * abs(math.sin(self.phase * 3))
+        twinkle = SparkleParticleConfig.TWINKLE_BASE + SparkleParticleConfig.TWINKLE_AMPLITUDE * abs(math.sin(self.phase * SparkleParticleConfig.TWINKLE_FREQUENCY))
         return self.opacity * twinkle * self.life
 
 
@@ -106,12 +114,12 @@ class CalligraphyStroke(FloatingParticle):
     """书法笔触粒子 - 优雅的曲线"""
 
     def __init__(self, x, y):
-        vx = random.uniform(-0.1, 0.1)
-        vy = random.uniform(-0.1, 0.1)
-        size = random.uniform(20, 40)  # 笔触长度
+        vx = random.uniform(StrokeParticleConfig.VX_MIN, StrokeParticleConfig.VX_MAX)
+        vy = random.uniform(StrokeParticleConfig.VY_MIN, StrokeParticleConfig.VY_MAX)
+        size = random.uniform(StrokeParticleConfig.SIZE_MIN, StrokeParticleConfig.SIZE_MAX)
         super().__init__(x, y, vx, vy, size, None, 'stroke')
-        self.curve_amount = random.uniform(0.2, 0.5)  # 弯曲程度
-        self.thickness = random.uniform(1, 2.5)  # 笔触粗细
+        self.curve_amount = random.uniform(StrokeParticleConfig.CURVE_AMOUNT_MIN, StrokeParticleConfig.CURVE_AMOUNT_MAX)
+        self.thickness = random.uniform(StrokeParticleConfig.THICKNESS_MIN, StrokeParticleConfig.THICKNESS_MAX)
 
 
 class ParticleBackground(QWidget):
@@ -199,27 +207,27 @@ class ParticleBackground(QWidget):
         self.particles = []
 
         # 墨滴粒子（主要）
-        for _ in range(15):
-            x = random.randint(0, 1200)
-            y = random.randint(0, 800)
+        for _ in range(ParticleConfig.INK_PARTICLE_COUNT):
+            x = random.randint(0, ParticleConfig.INITIAL_SPAWN_WIDTH)
+            y = random.randint(0, ParticleConfig.INITIAL_SPAWN_HEIGHT)
             self.particles.append(InkParticle(x, y))
 
         # 纸片粒子
-        for _ in range(8):
-            x = random.randint(0, 1200)
-            y = random.randint(0, 800)
+        for _ in range(ParticleConfig.PAPER_PARTICLE_COUNT):
+            x = random.randint(0, ParticleConfig.INITIAL_SPAWN_WIDTH)
+            y = random.randint(0, ParticleConfig.INITIAL_SPAWN_HEIGHT)
             self.particles.append(PaperParticle(x, y))
 
         # 星光粒子
-        for _ in range(20):
-            x = random.randint(0, 1200)
-            y = random.randint(0, 800)
+        for _ in range(ParticleConfig.SPARKLE_PARTICLE_COUNT):
+            x = random.randint(0, ParticleConfig.INITIAL_SPAWN_WIDTH)
+            y = random.randint(0, ParticleConfig.INITIAL_SPAWN_HEIGHT)
             self.particles.append(SparkleParticle(x, y))
 
         # 书法笔触
-        for _ in range(5):
-            x = random.randint(0, 1200)
-            y = random.randint(0, 800)
+        for _ in range(ParticleConfig.STROKE_PARTICLE_COUNT):
+            x = random.randint(0, ParticleConfig.INITIAL_SPAWN_WIDTH)
+            y = random.randint(0, ParticleConfig.INITIAL_SPAWN_HEIGHT)
             self.particles.append(CalligraphyStroke(x, y))
 
     def _update_particles(self):
@@ -253,7 +261,7 @@ class ParticleBackground(QWidget):
     def _draw_constellation_lines(self, painter, colors):
         """绘制星座连线效果"""
         line_color = colors['line']
-        max_distance = 150  # 最大连线距离
+        max_distance = ParticleConfig.CONSTELLATION_MAX_DISTANCE
 
         # 只连接墨滴和星光粒子
         connectable = [p for p in self.particles if p.particle_type in ('ink', 'sparkle')]
@@ -266,19 +274,18 @@ class ParticleBackground(QWidget):
 
                 if distance < max_distance:
                     # 距离越近，线越明显
-                    alpha = int(20 * (1 - distance / max_distance))
+                    alpha = int(ParticleConfig.CONSTELLATION_ALPHA_FACTOR * (1 - distance / max_distance))
                     if alpha > 0:
                         color = QColor(line_color)
                         color.setAlpha(alpha)
-                        painter.setPen(QPen(color, 0.5))
+                        painter.setPen(QPen(color, ParticleConfig.CONSTELLATION_LINE_WIDTH))
                         painter.drawLine(QPointF(p1.x, p1.y), QPointF(p2.x, p2.y))
 
     def _draw_ink_particle(self, painter, particle, colors):
         """绘制墨滴粒子"""
-        color = colors['ink'] if random.random() > 0.3 else colors['ink_alt']
+        color = colors['ink'] if random.random() > InkParticleConfig.COLOR_ALT_PROBABILITY else colors['ink_alt']
         opacity = particle.get_current_opacity()
-        # 提高透明度使粒子更可见（原值60）
-        color.setAlpha(int(opacity * 100))
+        color.setAlpha(int(opacity * InkParticleConfig.OPACITY_FACTOR))
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(color))
@@ -290,16 +297,15 @@ class ParticleBackground(QWidget):
         # 墨晕效果（更大更淡的外圈）
         if particle.spread > 0:
             halo_color = QColor(color)
-            halo_color.setAlpha(int(opacity * 25))
+            halo_color.setAlpha(int(opacity * InkParticleConfig.HALO_OPACITY_FACTOR))
             painter.setBrush(QBrush(halo_color))
-            painter.drawEllipse(QPointF(particle.x, particle.y), size * 1.8, size * 1.8)
+            painter.drawEllipse(QPointF(particle.x, particle.y), size * InkParticleConfig.HALO_SIZE_MULTIPLIER, size * InkParticleConfig.HALO_SIZE_MULTIPLIER)
 
     def _draw_paper_particle(self, painter, particle, colors):
         """绘制纸片粒子"""
         color = colors['paper']
         opacity = particle.get_current_opacity()
-        # 提高透明度使粒子更可见（原值40）
-        color.setAlpha(int(opacity * 70))
+        color.setAlpha(int(opacity * PaperParticleConfig.OPACITY_FACTOR))
 
         painter.save()
         painter.translate(particle.x, particle.y)
@@ -316,8 +322,8 @@ class ParticleBackground(QWidget):
 
         # 纸片边缘高光
         edge_color = QColor(color)
-        edge_color.setAlpha(int(opacity * 20))
-        painter.setPen(QPen(edge_color, 0.5))
+        edge_color.setAlpha(int(opacity * PaperParticleConfig.EDGE_OPACITY_FACTOR))
+        painter.setPen(QPen(edge_color, PaperParticleConfig.EDGE_LINE_WIDTH))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
 
@@ -327,7 +333,7 @@ class ParticleBackground(QWidget):
         """绘制星光粒子"""
         color = colors['sparkle']
         opacity = particle.get_current_opacity()
-        color.setAlpha(int(opacity * 180))
+        color.setAlpha(int(opacity * SparkleParticleConfig.OPACITY_FACTOR))
 
         painter.setPen(Qt.PenStyle.NoPen)
 
@@ -337,16 +343,17 @@ class ParticleBackground(QWidget):
 
         # 光晕
         glow_color = QColor(color)
-        glow_color.setAlpha(int(opacity * 30))
+        glow_color.setAlpha(int(opacity * SparkleParticleConfig.GLOW_OPACITY_FACTOR))
         painter.setBrush(QBrush(glow_color))
-        painter.drawEllipse(QPointF(particle.x, particle.y), particle.size * 3, particle.size * 3)
+        glow_size = particle.size * SparkleParticleConfig.GLOW_SIZE_MULTIPLIER
+        painter.drawEllipse(QPointF(particle.x, particle.y), glow_size, glow_size)
 
         # 十字星芒
-        if opacity > 0.5:
+        if opacity > SparkleParticleConfig.STAR_OPACITY_THRESHOLD:
             star_color = QColor(color)
-            star_color.setAlpha(int(opacity * 100))
-            painter.setPen(QPen(star_color, 0.5))
-            length = particle.size * 4
+            star_color.setAlpha(int(opacity * SparkleParticleConfig.STAR_OPACITY_FACTOR))
+            painter.setPen(QPen(star_color, SparkleParticleConfig.STAR_LINE_WIDTH))
+            length = particle.size * SparkleParticleConfig.STAR_LENGTH_MULTIPLIER
             painter.drawLine(
                 QPointF(particle.x - length, particle.y),
                 QPointF(particle.x + length, particle.y)
@@ -360,8 +367,7 @@ class ParticleBackground(QWidget):
         """绘制书法笔触"""
         color = colors['stroke']
         opacity = particle.get_current_opacity()
-        # 提高透明度使粒子更可见（原值35）
-        color.setAlpha(int(opacity * 60))
+        color.setAlpha(int(opacity * StrokeParticleConfig.OPACITY_FACTOR))
 
         painter.save()
         painter.translate(particle.x, particle.y)
@@ -390,7 +396,7 @@ class ParticleBackground(QWidget):
     def start(self):
         """启动粒子动画"""
         if not self.timer.isActive():
-            self.timer.start(33)  # ~30fps
+            self.timer.start(ParticleConfig.ANIMATION_INTERVAL_MS)
 
     def stop(self):
         """停止粒子动画"""

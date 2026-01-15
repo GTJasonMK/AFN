@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .config import BASE_DIR
 from .logging_setup import logger
+from .animation_config import AnimationConfig
 
 # Logo文件路径（位于当前模块目录下）
 LOGO_FILE = Path(__file__).parent / 'logo.txt'
@@ -128,11 +129,11 @@ class StartupProgress:
     CYAN = "\033[38;5;159m"
     WHITE = "\033[38;5;255m"
 
-    # 动画配置
-    NUM_FRAMES = 16          # 旋转帧数（越多越细腻）
-    FRAME_INTERVAL = 0.12    # 每帧间隔（秒），越大越慢
-    CANVAS_WIDTH = 100       # 画布宽度
-    CANVAS_HEIGHT = 22       # 画布高度
+    # 动画配置（从 AnimationConfig 读取）
+    NUM_FRAMES = AnimationConfig.NUM_FRAMES
+    FRAME_INTERVAL = AnimationConfig.FRAME_INTERVAL
+    CANVAS_WIDTH = AnimationConfig.CANVAS_WIDTH
+    CANVAS_HEIGHT = AnimationConfig.CANVAS_HEIGHT
 
     def __init__(self):
         self._current_stage_name = ""
@@ -152,14 +153,17 @@ class StartupProgress:
     def _generate_starfield(self):
         """生成随机星辰背景"""
         stars = []
-        # 生成50-80颗星星
-        num_stars = random.randint(50, 80)
+        # 生成随机数量的星星
+        num_stars = random.randint(
+            AnimationConfig.STAR_COUNT_MIN,
+            AnimationConfig.STAR_COUNT_MAX
+        )
 
         # 计算logo区域（避免星星覆盖logo）
         max_width = max(len(line) for line in self._front_view) if self._front_view else 40
         logo_start_col = (self.CANVAS_WIDTH - max_width) // 2
         logo_end_col = logo_start_col + max_width
-        logo_start_row = 2
+        logo_start_row = AnimationConfig.LOGO_START_ROW
         logo_end_row = logo_start_row + len(self._front_view)
 
         for _ in range(num_stars):
@@ -175,7 +179,7 @@ class StartupProgress:
             char = random.choice(self.STAR_CHARS)
             color = random.choice(self.STAR_COLORS)
             # 添加闪烁概率（某些星星会闪烁）
-            twinkle = random.random() < 0.3
+            twinkle = random.random() < AnimationConfig.STAR_TWINKLE_PROB
 
             stars.append({
                 'row': row,
@@ -197,7 +201,7 @@ class StartupProgress:
             row, col = star['row'], star['col']
             if 0 <= row < self.CANVAS_HEIGHT and 0 <= col < self.CANVAS_WIDTH:
                 # 闪烁效果：某些星星在特定帧不显示
-                if star['twinkle'] and (frame_idx + hash(f"{row}{col}")) % 4 == 0:
+                if star['twinkle'] and (frame_idx + hash(f"{row}{col}")) % AnimationConfig.STAR_TWINKLE_CYCLE == 0:
                     continue
                 canvas[row][col] = star['char']
                 color_map[row][col] = star['color']
@@ -295,12 +299,12 @@ class StartupProgress:
         for i in range(self.NUM_FRAMES):
             angle = (i * 360) / self.NUM_FRAMES
             ratio = abs(math.cos(math.radians(angle)))
-            side_threshold = 0.3
+            side_threshold = AnimationConfig.SIDE_VIEW_THRESHOLD
 
             if ratio < side_threshold:
                 # 侧视图模式
                 side_ratio = 1.0 - (ratio / side_threshold)
-                side_ratio = max(0.15, side_ratio)
+                side_ratio = max(AnimationConfig.MIN_COMPRESS_RATIO, side_ratio)
                 frame = []
                 for line in self._side_view:
                     padded = line.ljust(side_max_width)
@@ -315,7 +319,7 @@ class StartupProgress:
                 frames.append(centered_frame)
             else:
                 # 正面视图模式
-                ratio = max(0.15, ratio)
+                ratio = max(AnimationConfig.MIN_COMPRESS_RATIO, ratio)
                 frame = []
                 for line in self._front_view:
                     padded = line.ljust(max_width)
@@ -332,7 +336,7 @@ class StartupProgress:
 
     def _compress_line(self, line: str, ratio: float) -> str:
         """水平压缩一行文字（使用加权采样）"""
-        if ratio >= 0.99:
+        if ratio >= AnimationConfig.FULL_RATIO_THRESHOLD:
             return line
 
         original_width = len(line)
@@ -403,11 +407,11 @@ class StartupProgress:
         self._stop_animation = True
 
         if self._animation_thread:
-            # 最多等待3秒
-            for _ in range(30):
+            # 等待动画完成
+            for _ in range(AnimationConfig.STOP_WAIT_ITERATIONS):
                 if self._animation_complete:
                     break
-                time.sleep(0.1)
+                time.sleep(AnimationConfig.STOP_WAIT_INTERVAL)
             self._animation_thread = None
 
     def _draw_rotating_frame(self, frame_idx, stage_text):
@@ -427,7 +431,7 @@ class StartupProgress:
         logo_start_col = (self.CANVAS_WIDTH - max_width) // 2
         # 压缩帧需要额外的内部居中
         inner_padding = (max_width - frame_width) // 2
-        logo_start_row = 2
+        logo_start_row = AnimationConfig.LOGO_START_ROW
 
         # 将Logo叠加到画布上
         for line_idx, line in enumerate(current_frame):
@@ -480,14 +484,14 @@ class StartupProgress:
         out = self._get_stdout()
 
         # 展开动画参数
-        total_frames = 20
+        total_frames = AnimationConfig.EXPAND_TOTAL_FRAMES
         # 从当前帧索引获取起始压缩比例
         start_ratio = abs(math.cos(math.radians((self._frame_idx * 360) / self.NUM_FRAMES)))
-        start_ratio = max(0.15, start_ratio)
+        start_ratio = max(AnimationConfig.MIN_COMPRESS_RATIO, start_ratio)
 
         max_width = max(len(line) for line in self._front_view)
         logo_start_col = (self.CANVAS_WIDTH - max_width) // 2
-        logo_start_row = 2
+        logo_start_row = AnimationConfig.LOGO_START_ROW
 
         for frame in range(total_frames):
             self.clear_screen()
@@ -505,7 +509,7 @@ class StartupProgress:
             # 生成当前帧并叠加到画布
             for line_idx, line in enumerate(self._front_view):
                 padded = line.ljust(max_width)
-                if current_ratio < 0.99:
+                if current_ratio < AnimationConfig.FULL_RATIO_THRESHOLD:
                     compressed = self._compress_line(padded, current_ratio)
                     inner_padding = (max_width - len(compressed)) // 2
                     content = compressed
@@ -544,7 +548,7 @@ class StartupProgress:
             out.write(f"{' ' * hint_padding}{self.DIM}{hint_text}{self.R}\n")
             out.flush()
 
-            time.sleep(0.035)  # 每帧35ms，总时长约0.7秒
+            time.sleep(AnimationConfig.EXPAND_FRAME_INTERVAL)
 
     def _play_decoration_fade_in(self):
         """淡入标题（带星辰背景，无装饰线）"""
@@ -555,11 +559,11 @@ class StartupProgress:
         title_line2 = "AI 辅助长篇小说创作工具"
 
         # 淡入帧数
-        total_frames = 12
+        total_frames = AnimationConfig.FADE_IN_TOTAL_FRAMES
 
         max_width = max(len(line) for line in self._front_view)
         logo_start_col = (self.CANVAS_WIDTH - max_width) // 2
-        logo_start_row = 2
+        logo_start_row = AnimationConfig.LOGO_START_ROW
 
         # 计算标题居中位置
         title1_padding = (self.CANVAS_WIDTH - len(title_line1)) // 2
@@ -613,10 +617,10 @@ class StartupProgress:
 
             out.write(f"{' ' * title2_padding}{self.PEACH}{visible_title2}{self.R}\n")
             out.flush()
-            time.sleep(0.05)  # 每帧50ms，总时长约0.6秒
+            time.sleep(AnimationConfig.FADE_IN_FRAME_INTERVAL)
 
         # 最后暂停一下让用户看清
-        time.sleep(0.3)
+        time.sleep(AnimationConfig.FADE_IN_FINAL_PAUSE)
 
     def _show_final_logo(self):
         """显示最终Logo - 星辰背景+彩虹色"""
@@ -625,7 +629,7 @@ class StartupProgress:
 
         max_width = max(len(line) for line in self._front_view)
         logo_start_col = (self.CANVAS_WIDTH - max_width) // 2
-        logo_start_row = 2
+        logo_start_row = AnimationConfig.LOGO_START_ROW
 
         # 标题
         title_line1 = "Agents for Novel  <3"

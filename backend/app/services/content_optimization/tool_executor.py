@@ -61,6 +61,9 @@ class AgentState:
         # 分析总结
         self.summary = ""
 
+        # P0修复: 存储RAG检索结果，用于传递给深度检查
+        self.rag_results: List[Dict[str, Any]] = []
+
     def update_content(self, new_content: str) -> bool:
         """
         更新分析内容（当用户在前端应用了建议后）
@@ -361,6 +364,9 @@ class ToolExecutor:
                             "temporal_score": chunk.metadata.get("_temporal_score", 0) if chunk.metadata else 0,
                         })
 
+                    # P0修复: 存储RAG结果到state，供DEEP_CHECK使用
+                    state.rag_results = results
+
                     return {
                         "success": True,
                         "query": query,
@@ -370,8 +376,13 @@ class ToolExecutor:
                     }
 
                 except Exception as e:
-                    # 时序检索失败，记录并回退到简单检索
-                    logger.warning("时序感知检索失败，回退到简单检索: %s", e)
+                    # P0修复: 时序检索失败时不静默降级，而是抛出异常
+                    # 遵循CLAUDE.md规范："功能无法正常执行就直接报错"
+                    logger.error("时序感知检索失败: %s", e)
+                    raise RuntimeError(
+                        f"时序感知检索失败: {str(e)}。"
+                        "请检查嵌入服务配置是否正确。"
+                    ) from e
 
             # 回退到简单相似度检索
             chunks = await self.vector_store.similarity_search(
@@ -387,6 +398,9 @@ class ToolExecutor:
                     "content": chunk.get("content", "")[:300],
                     "score": chunk.get("score", 0),
                 })
+
+            # P0修复: 存储RAG结果到state，供DEEP_CHECK使用
+            state.rag_results = results
 
             return {
                 "success": True,
@@ -795,8 +809,10 @@ class ToolExecutor:
             {"character": name, "state": info.get("status", ""), **info}
             for name, info in state.character_states.items()
         ]
+        # P0修复: 使用state中存储的RAG检索结果，而非硬编码空列表
+        # RAG结果在RETRIEVE_CONTEXT工具执行时已存储到state.rag_results
         rag_context = RAGContext(
-            related_chunks=[],  # 可以从之前的RAG检索结果中获取
+            related_chunks=state.rag_results,
             character_states=character_states_list,
             foreshadowings=[],
         )
@@ -809,18 +825,14 @@ class ToolExecutor:
             blueprint_core="",  # 可以从外部传入
         )
 
-        # P1修复: 改进LLM服务可用性检查和降级策略
+        # P0修复: LLM服务未配置时直接抛出异常，不使用降级策略
+        # 遵循CLAUDE.md规范："功能无法正常执行就直接报错"
         if self.llm_service is None:
-            # LLM服务未注入，返回提示并建议使用快速检查
-            logger.warning("深度检查请求但LLM服务未注入")
-            return {
-                "success": False,
-                "message": "深度检查需要LLM服务，当前未配置。建议使用快速检查工具（check_coherence等）进行基础分析。",
-                "fallback": True,
-                "fallback_reason": "llm_service_not_configured",
-                "dimensions_requested": dimensions,  # 已经是字符串列表
-                "alternative_tools": ["check_coherence", "check_character", "check_timeline"],
-            }
+            logger.error("深度检查请求但LLM服务未注入")
+            raise ValueError(
+                "深度检查需要LLM服务，当前未配置。"
+                "请在设置页面配置LLM服务后重试。"
+            )
 
         try:
             # P1修复: 传入 prompt_service 以支持外部提示词加载

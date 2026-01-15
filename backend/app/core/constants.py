@@ -90,6 +90,25 @@ class VectorConstants:
     TAIL_EXCERPT_LENGTH = 1000  # 章节结尾摘录长度（字符）
 
 
+class ContextConstants:
+    """上下文构建相关常量"""
+
+    # 上下文压缩
+    MAX_CONTEXT_TOKENS = 4000  # 上下文最大tokens数
+
+    # 时序检索参数
+    RECENCY_WEIGHT = 0.3  # 时间接近度权重
+    SIMILARITY_WEIGHT = 0.7  # 相似度权重
+    NEARBY_BONUS = 0.15  # 相邻章节加成
+    NEARBY_RANGE = 5  # 相邻章节范围
+
+    # 角色检索参数
+    MAX_CHARACTER_QUERIES = 2  # 最多处理的角色查询数量
+    CHARACTER_RETRIEVAL_TOP_K = 3  # 角色检索的top_k
+    MAX_ADDITIONAL_CHUNKS = 3  # 最大额外检索chunk数量
+    CONTENT_DEDUP_PREFIX_LENGTH = 100  # 内容去重前缀长度
+
+
 class ChapterConstants:
     """章节相关常量"""
 
@@ -113,3 +132,13 @@ class HTTPConstants:
     HTTP_CONFLICT = 409
     HTTP_SERVER_ERROR = 500
     HTTP_SERVICE_UNAVAILABLE = 503
+
+
+class AvatarConstants:
+    """头像生成相关常量"""
+
+    # SVG安全限制
+    SVG_MAX_SIZE_BYTES = 50000  # SVG最大大小（50KB）
+
+    # 提示词构建
+    WORLD_RULES_PREVIEW_LENGTH = 200  # 世界观规则预览截取长度

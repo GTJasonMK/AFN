@@ -47,6 +47,31 @@ class Settings(BaseSettings):
     mysql_password: str = Field(default="", env="MYSQL_PASSWORD", description="MySQL 密码")
     mysql_database: str = Field(default="afn", env="MYSQL_DATABASE", description="MySQL 数据库名称")
 
+    # SQLite 特定配置
+    sqlite_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        env="SQLITE_TIMEOUT",
+        description="SQLite 连接超时时间（秒），避免 'database is locked' 错误",
+    )
+    sqlite_busy_timeout: int = Field(
+        default=30000,
+        ge=1000,
+        le=300000,
+        env="SQLITE_BUSY_TIMEOUT",
+        description="SQLite busy_timeout（毫秒），等待锁释放的最大时间",
+    )
+
+    # MySQL 连接池配置
+    mysql_pool_recycle: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        env="MYSQL_POOL_RECYCLE",
+        description="MySQL 连接池回收时间（秒）",
+    )
+
     # -------------------- LLM 相关配置 --------------------
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY", description="默认的 LLM API Key")
     openai_base_url: Optional[HttpUrl] = Field(

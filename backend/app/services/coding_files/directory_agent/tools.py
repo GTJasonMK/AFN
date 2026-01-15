@@ -396,7 +396,7 @@ def parse_tool_call(text: str) -> ToolCallParseResult:
     )
 
 
-def parse_tool_calls(text: str) -> BatchToolCallParseResult:
+def parse_tool_calls(text: str, max_calls: int = 5) -> BatchToolCallParseResult:
     """
     从Agent响应中解析多个工具调用
 
@@ -406,6 +406,7 @@ def parse_tool_calls(text: str) -> BatchToolCallParseResult:
 
     Args:
         text: Agent响应文本
+        max_calls: 单次最大工具调用数量，默认5个，防止一次调用过多工具
 
     Returns:
         BatchToolCallParseResult: 批量解析结果
@@ -433,6 +434,12 @@ def parse_tool_calls(text: str) -> BatchToolCallParseResult:
             errors=["未找到任何<tool_call>标签"],
             raw_text=text
         )
+
+    # 限制最大工具调用数量
+    original_count = len(matches)
+    if original_count > max_calls:
+        matches = matches[:max_calls]
+        errors.append(f"工具调用数量({original_count})超过限制({max_calls})，仅处理前{max_calls}个")
 
     # 解析每个工具调用
     for json_str in matches:

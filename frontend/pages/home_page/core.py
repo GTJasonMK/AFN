@@ -23,6 +23,7 @@ from components.loading_spinner import ListLoadingState
 
 from .constants import CREATIVE_QUOTES, get_title_sort_key
 from .particles import ParticleBackground
+from .particle_constants import HomeAnimationConfig
 from .cards import RecentProjectCard, TabBar
 
 
@@ -563,28 +564,28 @@ class HomePage(BasePage):
     def _animate_entrance(self):
         """入场动画"""
         title_anim = QPropertyAnimation(self.title_opacity, b"opacity")
-        title_anim.setDuration(600)
-        title_anim.setStartValue(0.0)
-        title_anim.setEndValue(1.0)
+        title_anim.setDuration(HomeAnimationConfig.TITLE_DURATION_MS)
+        title_anim.setStartValue(HomeAnimationConfig.TITLE_START_OPACITY)
+        title_anim.setEndValue(HomeAnimationConfig.TITLE_END_OPACITY)
         title_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         title_anim.start()
         self.title_animation = title_anim
 
         subtitle_anim = QPropertyAnimation(self.subtitle_opacity, b"opacity")
-        subtitle_anim.setDuration(600)
-        subtitle_anim.setStartValue(0.0)
-        subtitle_anim.setEndValue(1.0)
+        subtitle_anim.setDuration(HomeAnimationConfig.SUBTITLE_DURATION_MS)
+        subtitle_anim.setStartValue(HomeAnimationConfig.SUBTITLE_START_OPACITY)
+        subtitle_anim.setEndValue(HomeAnimationConfig.SUBTITLE_END_OPACITY)
         subtitle_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        QTimer.singleShot(150, subtitle_anim.start)
+        QTimer.singleShot(HomeAnimationConfig.SUBTITLE_DELAY_MS, subtitle_anim.start)
         self.subtitle_animation = subtitle_anim
 
         # 引言淡入动画 - 延迟更久，更缓慢地出现，增加诗意感
         quote_anim = QPropertyAnimation(self.quote_opacity, b"opacity")
-        quote_anim.setDuration(800)
-        quote_anim.setStartValue(0.0)
-        quote_anim.setEndValue(0.85)
+        quote_anim.setDuration(HomeAnimationConfig.QUOTE_DURATION_MS)
+        quote_anim.setStartValue(HomeAnimationConfig.QUOTE_START_OPACITY)
+        quote_anim.setEndValue(HomeAnimationConfig.QUOTE_END_OPACITY)
         quote_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        QTimer.singleShot(400, quote_anim.start)
+        QTimer.singleShot(HomeAnimationConfig.QUOTE_DELAY_MS, quote_anim.start)
         self.quote_animation = quote_anim
 
     def resizeEvent(self, event):

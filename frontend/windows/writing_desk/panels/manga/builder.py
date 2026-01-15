@@ -255,17 +255,12 @@ class MangaPanelBuilder(
 
     def get_current_settings(self) -> dict:
         """获取当前设置"""
-        style_map = {
-            "漫画": "manga",
-            "动漫": "anime",
-            "美漫": "comic",
-            "条漫": "webtoon",
-        }
-        style_text = self._style_combo.currentText() if self._style_combo else "漫画"
+        # 直接使用编辑框中的风格描述
+        style = self._style_edit.text().strip() if self._style_edit else "漫画风格, 黑白漫画, 网点纸, 日式漫画"
         min_pages = self._min_pages_spin.value() if self._min_pages_spin else 8
         max_pages = self._max_pages_spin.value() if self._max_pages_spin else 15
         return {
-            "style": style_map.get(style_text, "manga"),
+            "style": style,
             "min_pages": min_pages,
             "max_pages": max_pages,
         }

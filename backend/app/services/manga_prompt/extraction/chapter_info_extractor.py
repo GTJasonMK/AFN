@@ -37,12 +37,7 @@ from .prompts import (
     PROMPT_NAME_STEP2,
     PROMPT_NAME_STEP3,
     PROMPT_NAME_STEP4,
-    CHAPTER_INFO_EXTRACTION_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
-    STEP1_CHARACTERS_EVENTS_PROMPT,
-    STEP2_DIALOGUES_PROMPT,
-    STEP3_SCENES_PROMPT,
-    STEP4_ITEMS_SUMMARY_PROMPT,
     STEP_EXTRACTION_SYSTEM_PROMPT,
 )
 
@@ -376,10 +371,7 @@ class ChapterInfoExtractor:
         user_id: Optional[int] = None,
     ) -> dict:
         """步骤1：提取角色和事件"""
-        # 尝试从 PromptService 加载，失败则使用内置模板
-        prompt_template = await self._get_step_prompt(
-            PROMPT_NAME_STEP1, STEP1_CHARACTERS_EVENTS_PROMPT
-        )
+        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP1)
         prompt = prompt_template.format(content=content)
 
         response = await call_llm_json(
@@ -440,10 +432,7 @@ class ChapterInfoExtractor:
             events_data.append(event_data)
         events_json = json.dumps(events_data, ensure_ascii=False, indent=2)
 
-        # 尝试从 PromptService 加载，失败则使用内置模板
-        prompt_template = await self._get_step_prompt(
-            PROMPT_NAME_STEP2, STEP2_DIALOGUES_PROMPT
-        )
+        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP2)
         prompt = prompt_template.format(
             content=content,
             characters_json=characters_json,
@@ -486,10 +475,7 @@ class ChapterInfoExtractor:
             indent=2
         )
 
-        # 尝试从 PromptService 加载，失败则使用内置模板
-        prompt_template = await self._get_step_prompt(
-            PROMPT_NAME_STEP3, STEP3_SCENES_PROMPT
-        )
+        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP3)
         prompt = prompt_template.format(
             content=content,
             events_json=events_json,
@@ -524,10 +510,7 @@ class ChapterInfoExtractor:
         user_id: Optional[int] = None,
     ) -> dict:
         """步骤4：提取物品和摘要"""
-        # 尝试从 PromptService 加载，失败则使用内置模板
-        prompt_template = await self._get_step_prompt(
-            PROMPT_NAME_STEP4, STEP4_ITEMS_SUMMARY_PROMPT
-        )
+        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP4)
         prompt = prompt_template.format(
             content=content,
             event_count=event_count,
@@ -558,33 +541,29 @@ class ChapterInfoExtractor:
     async def _get_step_prompt(
         self,
         prompt_name: str,
-        fallback_template: str,
     ) -> str:
         """
         获取分步提取的提示词模板
 
-        优先从 PromptService 加载用户自定义提示词，
-        加载失败时回退到内置模板。
+        从 PromptService 加载提示词模板。
 
         Args:
             prompt_name: 提示词注册名称
-            fallback_template: 内置的回退模板
 
         Returns:
             提示词模板字符串
+
+        Raises:
+            ValueError: 如果无法加载提示词
         """
-        if self.prompt_service:
-            try:
-                prompt_content = await self.prompt_service.get_prompt(prompt_name)
-                if prompt_content:
-                    logger.debug("从 PromptService 加载提示词: %s", prompt_name)
-                    return prompt_content
-            except Exception as e:
-                logger.warning(
-                    "无法从 PromptService 加载 %s 提示词: %s，使用内置模板",
-                    prompt_name, e
-                )
-        return fallback_template
+        if not self.prompt_service:
+            raise ValueError("PromptService未配置，无法加载提示词")
+
+        prompt_content = await self.prompt_service.get_prompt(prompt_name)
+        if not prompt_content:
+            raise ValueError(f"提示词模板 '{prompt_name}' 不存在")
+        logger.debug("从 PromptService 加载提示词: %s", prompt_name)
+        return prompt_content
 
     def _combine_step_results(
         self,
@@ -712,18 +691,16 @@ class ChapterInfoExtractor:
 
         Returns:
             格式化后的提示词
-        """
-        # 尝试从PromptService加载可配置提示词
-        prompt_template = None
-        if self.prompt_service:
-            try:
-                prompt_template = await self.prompt_service.get_prompt(PROMPT_NAME)
-            except Exception as e:
-                logger.warning("无法加载 %s 提示词: %s", PROMPT_NAME, e)
 
-        # 使用内置提示词作为回退
+        Raises:
+            ValueError: 如果无法加载提示词
+        """
+        if not self.prompt_service:
+            raise ValueError("PromptService未配置，无法加载提示词")
+
+        prompt_template = await self.prompt_service.get_prompt(PROMPT_NAME)
         if not prompt_template:
-            prompt_template = CHAPTER_INFO_EXTRACTION_PROMPT
+            raise ValueError(f"提示词模板 '{PROMPT_NAME}' 不存在")
 
         return prompt_template.format(content=content)
 
@@ -792,49 +769,6 @@ class ChapterInfoExtractor:
             mood_progression=data.get("mood_progression", []),
             climax_event_indices=data.get("climax_event_indices", []),
             total_estimated_pages=data.get("total_estimated_pages", 0),
-        )
-
-    def _create_fallback_chapter_info(self, content: str) -> ChapterInfo:
-        """
-        创建回退的章节信息（当LLM提取失败时）
-
-        Args:
-            content: 章节内容
-
-        Returns:
-            基本的ChapterInfo对象
-        """
-        # 简单分段作为事件
-        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
-
-        events = []
-        for i, para in enumerate(paragraphs[:10]):  # 最多10个事件
-            events.append(EventInfo(
-                index=i,
-                type=EventType.DESCRIPTION,
-                description=para[:100] + "..." if len(para) > 100 else para,
-                participants=[],
-                scene_index=0,
-                importance=ImportanceLevel.NORMAL,
-            ))
-
-        # 创建一个默认场景
-        scenes = [SceneInfo(
-            index=0,
-            location="未知地点",
-            event_indices=list(range(len(events))),
-        )]
-
-        return ChapterInfo(
-            characters={},
-            dialogues=[],
-            scenes=scenes,
-            events=events,
-            items=[],
-            chapter_summary="信息提取失败，使用回退模式",
-            mood_progression=[],
-            climax_event_indices=[],
-            total_estimated_pages=max(5, len(events) // 2),
         )
 
 

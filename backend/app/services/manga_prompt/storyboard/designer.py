@@ -322,10 +322,14 @@ class StoryboardDesigner:
                     "bubble_type": dialogue.bubble_type,
                 })
 
-        # 收集页面相关的旁白
+        # 收集页面相关的旁白（只保留有效类型）
+        # 有效类型：time(时间跳转)、exposition(背景说明)、character_intro(人物介绍)、transition(场景转换)
+        valid_narration_types = ("time", "exposition", "character_intro", "transition")
         narrations_data = []
         for idx in page_plan.event_indices:
             for narration in chapter_info.get_narration_by_event(idx):
+                if narration.narration_type not in valid_narration_types:
+                    continue
                 narrations_data.append({
                     "content": narration.content,
                     "narration_type": narration.narration_type,
