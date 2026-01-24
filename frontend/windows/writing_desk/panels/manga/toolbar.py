@@ -711,6 +711,64 @@ class ToolbarMixin:
 
     # ==================== 工具栏加载状态控制 ====================
 
+    def _set_toolbar_buttons_enabled(self, enabled: bool):
+        """设置工具栏生成按钮的可用状态"""
+        if self._toolbar_generate_btn:
+            self._toolbar_generate_btn.setEnabled(enabled)
+        if self._toolbar_restart_btn:
+            self._toolbar_restart_btn.setEnabled(enabled)
+        if self._toolbar_regenerate_btn:
+            self._toolbar_regenerate_btn.setEnabled(enabled)
+
+    def _set_loading_state(self, btn_stack: Optional[QStackedWidget], label: Optional[QLabel],
+                           spinner: Optional[CircularSpinner], loading: bool, message: str) -> bool:
+        """统一处理加载状态切换"""
+        if not btn_stack:
+            return False
+
+        if loading:
+            btn_stack.setCurrentIndex(1)
+            if label:
+                label.setText(message)
+            if spinner:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(50, spinner.start)
+        else:
+            btn_stack.setCurrentIndex(0)
+            if spinner:
+                spinner.stop()
+        return True
+
+    def _set_status_with_restore(self, label: Optional[QLabel], spinner: Optional[CircularSpinner], message: str,
+                                 color: str, font_size: int, timer_attr: str,
+                                 restore_callback, delay_ms: int) -> bool:
+        """统一处理成功/失败状态与定时恢复"""
+        if not label:
+            return False
+
+        s = self._styler
+        if spinner:
+            spinner.stop()
+
+        label.setText(message)
+        label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(font_size)}px;
+            color: {color};
+            font-weight: 500;
+        """)
+
+        from PyQt6.QtCore import QTimer
+        restore_timer = getattr(self, timer_attr, None)
+        if restore_timer:
+            restore_timer.stop()
+        restore_timer = QTimer()
+        restore_timer.setSingleShot(True)
+        restore_timer.timeout.connect(restore_callback)
+        setattr(self, timer_attr, restore_timer)
+        restore_timer.start(delay_ms)
+        return True
+
     def set_toolbar_loading(self, loading: bool, message: str = "生成中..."):
         """设置工具栏的加载状态
 
@@ -719,29 +777,16 @@ class ToolbarMixin:
             message: 加载时显示的消息
         """
         try:
-            if not self._toolbar_btn_stack:
+            if not self._set_loading_state(
+                self._toolbar_btn_stack, self._toolbar_loading_label, self._toolbar_spinner, loading, message
+            ):
                 return
 
-            if loading:
-                self._toolbar_btn_stack.setCurrentIndex(1)
-                if self._toolbar_loading_label:
-                    self._toolbar_loading_label.setText(message)
-                if self._toolbar_spinner:
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(50, self._toolbar_spinner.start)
-            else:
-                self._toolbar_btn_stack.setCurrentIndex(0)
-                if self._toolbar_spinner:
-                    self._toolbar_spinner.stop()
+            if not loading:
                 # 重置生成标志
                 self._is_generating = False
                 # 恢复所有按钮状态
-                if self._toolbar_generate_btn:
-                    self._toolbar_generate_btn.setEnabled(True)
-                if self._toolbar_restart_btn:
-                    self._toolbar_restart_btn.setEnabled(True)
-                if self._toolbar_regenerate_btn:
-                    self._toolbar_regenerate_btn.setEnabled(True)
+                self._set_toolbar_buttons_enabled(True)
         except RuntimeError:
             # 组件已被删除（C++对象已销毁），忽略更新
             pass
@@ -751,27 +796,16 @@ class ToolbarMixin:
         try:
             if not self._toolbar_btn_stack or not self._toolbar_loading_label:
                 return
-
-            s = self._styler
-            if self._toolbar_spinner:
-                self._toolbar_spinner.stop()
-
-            self._toolbar_loading_label.setText(message)
-            self._toolbar_loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(12)}px;
-                color: {s.success};
-                font-weight: 500;
-            """)
-
-            from PyQt6.QtCore import QTimer
-            # 取消之前的定时器
-            if self._restore_timer:
-                self._restore_timer.stop()
-            self._restore_timer = QTimer()
-            self._restore_timer.setSingleShot(True)
-            self._restore_timer.timeout.connect(self._restore_toolbar_state)
-            self._restore_timer.start(2000)
+            self._set_status_with_restore(
+                self._toolbar_loading_label,
+                self._toolbar_spinner,
+                message,
+                self._styler.success,
+                12,
+                "_restore_timer",
+                self._restore_toolbar_state,
+                2000
+            )
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass
@@ -781,27 +815,16 @@ class ToolbarMixin:
         try:
             if not self._toolbar_btn_stack or not self._toolbar_loading_label:
                 return
-
-            s = self._styler
-            if self._toolbar_spinner:
-                self._toolbar_spinner.stop()
-
-            self._toolbar_loading_label.setText(message)
-            self._toolbar_loading_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(12)}px;
-                color: {s.error};
-                font-weight: 500;
-            """)
-
-            from PyQt6.QtCore import QTimer
-            # 取消之前的定时器
-            if self._restore_timer:
-                self._restore_timer.stop()
-            self._restore_timer = QTimer()
-            self._restore_timer.setSingleShot(True)
-            self._restore_timer.timeout.connect(self._restore_toolbar_state)
-            self._restore_timer.start(3000)
+            self._set_status_with_restore(
+                self._toolbar_loading_label,
+                self._toolbar_spinner,
+                message,
+                self._styler.error,
+                12,
+                "_restore_timer",
+                self._restore_toolbar_state,
+                3000
+            )
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass
@@ -829,12 +852,7 @@ class ToolbarMixin:
             self._is_generating = False
 
             # 恢复所有按钮启用状态
-            if self._toolbar_generate_btn:
-                self._toolbar_generate_btn.setEnabled(True)
-            if self._toolbar_restart_btn:
-                self._toolbar_restart_btn.setEnabled(True)
-            if self._toolbar_regenerate_btn:
-                self._toolbar_regenerate_btn.setEnabled(True)
+            self._set_toolbar_buttons_enabled(True)
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass
@@ -865,20 +883,13 @@ class ToolbarMixin:
             total: 总数
         """
         try:
-            if not self._generate_all_btn_stack:
-                return
-
-            if loading:
-                self._generate_all_btn_stack.setCurrentIndex(1)
-                if self._generate_all_progress_label:
-                    self._generate_all_progress_label.setText(f"生成中 {current}/{total}")
-                if self._generate_all_spinner:
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(50, self._generate_all_spinner.start)
-            else:
-                self._generate_all_btn_stack.setCurrentIndex(0)
-                if self._generate_all_spinner:
-                    self._generate_all_spinner.stop()
+            self._set_loading_state(
+                self._generate_all_btn_stack,
+                self._generate_all_progress_label,
+                self._generate_all_spinner,
+                loading,
+                f"生成中 {current}/{total}"
+            )
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass
@@ -902,26 +913,16 @@ class ToolbarMixin:
         try:
             if not self._generate_all_btn_stack or not self._generate_all_progress_label:
                 return
-
-            s = self._styler
-            if self._generate_all_spinner:
-                self._generate_all_spinner.stop()
-
-            self._generate_all_progress_label.setText(message)
-            self._generate_all_progress_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.success};
-                font-weight: 500;
-            """)
-
-            from PyQt6.QtCore import QTimer
-            if self._generate_all_restore_timer:
-                self._generate_all_restore_timer.stop()
-            self._generate_all_restore_timer = QTimer()
-            self._generate_all_restore_timer.setSingleShot(True)
-            self._generate_all_restore_timer.timeout.connect(self._restore_generate_all_state)
-            self._generate_all_restore_timer.start(2000)
+            self._set_status_with_restore(
+                self._generate_all_progress_label,
+                self._generate_all_spinner,
+                message,
+                self._styler.success,
+                11,
+                "_generate_all_restore_timer",
+                self._restore_generate_all_state,
+                2000
+            )
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass
@@ -931,26 +932,16 @@ class ToolbarMixin:
         try:
             if not self._generate_all_btn_stack or not self._generate_all_progress_label:
                 return
-
-            s = self._styler
-            if self._generate_all_spinner:
-                self._generate_all_spinner.stop()
-
-            self._generate_all_progress_label.setText(message)
-            self._generate_all_progress_label.setStyleSheet(f"""
-                font-family: {s.ui_font};
-                font-size: {sp(11)}px;
-                color: {s.error};
-                font-weight: 500;
-            """)
-
-            from PyQt6.QtCore import QTimer
-            if self._generate_all_restore_timer:
-                self._generate_all_restore_timer.stop()
-            self._generate_all_restore_timer = QTimer()
-            self._generate_all_restore_timer.setSingleShot(True)
-            self._generate_all_restore_timer.timeout.connect(self._restore_generate_all_state)
-            self._generate_all_restore_timer.start(3000)
+            self._set_status_with_restore(
+                self._generate_all_progress_label,
+                self._generate_all_spinner,
+                message,
+                self._styler.error,
+                11,
+                "_generate_all_restore_timer",
+                self._restore_generate_all_state,
+                3000
+            )
         except RuntimeError:
             # 组件已被删除，忽略更新
             pass

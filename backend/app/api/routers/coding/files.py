@@ -59,7 +59,7 @@ from ....services.coding_files.architect import (
 )
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
-from ....utils.sse_helpers import sse_event, create_sse_response
+from ....utils.sse_helpers import sse_event, create_sse_stream_response
 from ....repositories.coding_files_repository import CodingAgentStateRepository
 
 logger = logging.getLogger(__name__)
@@ -629,19 +629,16 @@ async def generate_file_prompt_stream(
         project_id, file_id
     )
 
-    async def event_generator():
-        async for event in file_service.generate_prompt_stream(
-            project_id=project_id,
-            user_id=desktop_user.id,
-            file_id=file_id,
-            writing_notes=request.writing_notes if request else None,
-            llm_service=llm_service,
-            prompt_service=prompt_service,
-            vector_store=vector_store,
-        ):
-            yield sse_event(event["event"], event["data"])
-
-    return create_sse_response(event_generator())
+    event_generator = file_service.generate_prompt_stream(
+        project_id=project_id,
+        user_id=desktop_user.id,
+        file_id=file_id,
+        writing_notes=request.writing_notes if request else None,
+        llm_service=llm_service,
+        prompt_service=prompt_service,
+        vector_store=vector_store,
+    )
+    return create_sse_stream_response(event_generator)
 
 
 @router.post("/coding/{project_id}/files/{file_id}/save")
@@ -741,19 +738,16 @@ async def generate_review_prompt_stream(
         project_id, file_id
     )
 
-    async def event_generator():
-        async for event in file_service.generate_review_prompt_stream(
-            project_id=project_id,
-            user_id=desktop_user.id,
-            file_id=file_id,
-            writing_notes=request.writing_notes if request else None,
-            llm_service=llm_service,
-            prompt_service=prompt_service,
-            vector_store=vector_store,
-        ):
-            yield sse_event(event["event"], event["data"])
-
-    return create_sse_response(event_generator())
+    event_generator = file_service.generate_review_prompt_stream(
+        project_id=project_id,
+        user_id=desktop_user.id,
+        file_id=file_id,
+        writing_notes=request.writing_notes if request else None,
+        llm_service=llm_service,
+        prompt_service=prompt_service,
+        vector_store=vector_store,
+    )
+    return create_sse_stream_response(event_generator)
 
 
 @router.post("/coding/{project_id}/files/{file_id}/save-review")

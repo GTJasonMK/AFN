@@ -13,6 +13,25 @@ from utils.dpi_utils import dp, sp
 
 from .config_groups import CONFIG_GROUPS
 
+
+def build_list_action_button_style(palette) -> str:
+    """构建配置列表操作按钮样式"""
+    return f"""
+        QPushButton#list_action_btn {{
+            font-family: {palette.ui_font};
+            font-size: {sp(12)}px;
+            color: {palette.text_secondary};
+            background-color: transparent;
+            border: 1px solid {palette.border_color};
+            border-radius: {dp(4)}px;
+            padding: {dp(6)}px {dp(12)}px;
+        }}
+        QPushButton#list_action_btn:hover {{
+            color: {palette.accent_color};
+            border-color: {palette.accent_color};
+        }}
+    """
+
 if TYPE_CHECKING:
     from .widget import ThemeSettingsWidget
 
@@ -143,21 +162,7 @@ class ThemeStylesMixin:
         """)
 
         # 列表操作按钮
-        list_btn_style = f"""
-            QPushButton#list_action_btn {{
-                font-family: {palette.ui_font};
-                font-size: {sp(12)}px;
-                color: {palette.text_secondary};
-                background-color: transparent;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-            }}
-            QPushButton#list_action_btn:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-            }}
-        """
+        list_btn_style = build_list_action_button_style(palette)
         self.duplicate_btn.setStyleSheet(list_btn_style)
         self.delete_btn.setStyleSheet(list_btn_style)
 

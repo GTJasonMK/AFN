@@ -75,6 +75,7 @@ from .schemas import (
     ImageGenerationResult,
     GeneratedImageInfo,
     PageImageGenerationRequest,
+    DEFAULT_MANGA_NEGATIVE_PROMPT,
 )
 from .providers import ImageProviderFactory
 from .providers.base import ReferenceImageInfo
@@ -86,6 +87,36 @@ if TYPE_CHECKING:
     from .config_service import ImageConfigService
 
 logger = logging.getLogger(__name__)
+
+NEGATIVE_PROMPT_QUALITY_KEYWORDS = [
+    "模糊",
+    "低质量",
+    "变形",
+    "扭曲",
+    "多余",
+    "禁止",
+]
+
+
+def _is_complete_negative_prompt(negative_prompt: str) -> bool:
+    """检测负面提示词是否足够完整（由 LLM 生成）"""
+    if not negative_prompt:
+        return False
+
+    prompt_lower = negative_prompt.lower()
+    match_count = sum(1 for kw in NEGATIVE_PROMPT_QUALITY_KEYWORDS if kw in prompt_lower)
+    return match_count >= 3
+
+
+def smart_merge_negative_prompt(user_negative: Optional[str]) -> str:
+    """智能合并负面提示词，避免重复追加默认值"""
+    if not user_negative:
+        return DEFAULT_MANGA_NEGATIVE_PROMPT
+
+    if _is_complete_negative_prompt(user_negative):
+        return user_negative
+
+    return f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {user_negative}"
 
 
 def get_images_root() -> Path:
@@ -180,6 +211,120 @@ class ImageGenerationService:
             from .config_service import ImageConfigService
             self._config_service = ImageConfigService(self.session)
         return self._config_service
+
+    async def _resolve_portrait_paths(
+        self,
+        project_id: str,
+        character_names: List[str],
+    ) -> List[str]:
+        """根据角色名获取当前激活的立绘路径"""
+        if not character_names:
+            return []
+
+        from ...repositories.character_portrait_repository import CharacterPortraitRepository
+
+        portrait_repo = CharacterPortraitRepository(self.session)
+        active_portraits = await portrait_repo.get_all_active_by_project(project_id)
+        portrait_map = {
+            p.character_name: str(settings.generated_images_dir / p.image_path)
+            for p in active_portraits
+            if p.image_path
+        }
+        return [
+            portrait_map[name] for name in character_names if name in portrait_map
+        ]
+
+    async def prepare_scene_request(
+        self,
+        project_id: str,
+        request: ImageGenerationRequest,
+    ) -> ImageGenerationRequest:
+        """合并负面提示词与立绘路径（场景生图）"""
+        merged_negative = smart_merge_negative_prompt(request.negative_prompt)
+        reference_image_paths = request.reference_image_paths or []
+
+        if request.characters:
+            dynamic_paths = await self._resolve_portrait_paths(
+                project_id, request.characters
+            )
+            if dynamic_paths:
+                reference_image_paths = dynamic_paths
+                logger.info(
+                    "动态获取立绘路径: characters=%s, paths=%d",
+                    request.characters, len(dynamic_paths)
+                )
+
+        return ImageGenerationRequest(
+            prompt=request.prompt,
+            negative_prompt=merged_negative,
+            style=request.style,
+            ratio=request.ratio,
+            resolution=request.resolution,
+            quality=request.quality,
+            count=request.count,
+            seed=request.seed,
+            chapter_version_id=request.chapter_version_id,
+            panel_id=request.panel_id,
+            reference_image_paths=reference_image_paths if reference_image_paths else None,
+            reference_strength=request.reference_strength,
+            dialogue=request.dialogue,
+            dialogue_speaker=request.dialogue_speaker,
+            dialogue_bubble_type=request.dialogue_bubble_type,
+            dialogue_emotion=request.dialogue_emotion,
+            dialogue_position=request.dialogue_position,
+            narration=request.narration,
+            narration_position=request.narration_position,
+            sound_effects=request.sound_effects,
+            sound_effect_details=request.sound_effect_details,
+            composition=request.composition,
+            camera_angle=request.camera_angle,
+            is_key_panel=request.is_key_panel,
+            characters=request.characters,
+            lighting=request.lighting,
+            atmosphere=request.atmosphere,
+            key_visual_elements=request.key_visual_elements,
+            dialogue_language=request.dialogue_language,
+        )
+
+    async def prepare_page_request(
+        self,
+        project_id: str,
+        request: PageImageGenerationRequest,
+    ) -> PageImageGenerationRequest:
+        """合并负面提示词与立绘路径（整页生图）"""
+        merged_negative = smart_merge_negative_prompt(request.negative_prompt)
+        reference_image_paths = request.reference_image_paths or []
+
+        all_characters = set()
+        for panel in request.panel_summaries or []:
+            characters = panel.get("characters", [])
+            all_characters.update(characters)
+
+        if all_characters:
+            dynamic_paths = await self._resolve_portrait_paths(
+                project_id, list(all_characters)
+            )
+            if dynamic_paths:
+                reference_image_paths = dynamic_paths
+                logger.info(
+                    "整页生成: 动态获取立绘路径, characters=%s, paths=%d",
+                    list(all_characters), len(dynamic_paths)
+                )
+
+        return PageImageGenerationRequest(
+            full_page_prompt=request.full_page_prompt,
+            negative_prompt=merged_negative,
+            layout_template=request.layout_template,
+            layout_description=request.layout_description,
+            ratio=request.ratio,
+            resolution=request.resolution,
+            style=request.style,
+            chapter_version_id=request.chapter_version_id,
+            reference_image_paths=reference_image_paths if reference_image_paths else None,
+            reference_strength=request.reference_strength,
+            panel_summaries=request.panel_summaries,
+            dialogue_language=request.dialogue_language,
+        )
 
     # ==================== 图片生成 ====================
 

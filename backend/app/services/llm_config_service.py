@@ -5,13 +5,12 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
 from ..exceptions import ResourceNotFoundError, ConflictError, InvalidParameterError
 from ..models import LLMConfig
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..schemas.llm_config import LLMConfigCreate, LLMConfigRead, LLMConfigUpdate, LLMConfigTestResponse
 from ..utils.llm_tool import ChatMessage, ContentCollectMode, LLMClient
-from ..utils.encryption import encrypt_api_key, decrypt_api_key
+from .config_service_base import BaseConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ async def _invalidate_llm_config_cache(user_id: int) -> None:
     logger.debug("LLM配置缓存已失效: user_id=%s", user_id)
 
 
-class LLMConfigService:
+class LLMConfigService(BaseConfigService):
     """
     用户自定义 LLM 配置服务，支持多配置管理和测试。
 
@@ -45,16 +44,7 @@ class LLMConfigService:
     """
 
     def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = LLMConfigRepository(session)
-
-    def _encrypt_key(self, api_key: Optional[str]) -> Optional[str]:
-        """加密API密钥"""
-        return encrypt_api_key(api_key, settings.secret_key)
-
-    def _decrypt_key(self, encrypted_key: Optional[str]) -> Optional[str]:
-        """解密API密钥"""
-        return decrypt_api_key(encrypted_key, settings.secret_key)
+        super().__init__(session, LLMConfigRepository(session), "LLM配置")
 
     async def list_configs(self, user_id: int) -> list[LLMConfigRead]:
         """获取用户的所有LLM配置列表。"""
@@ -63,9 +53,7 @@ class LLMConfigService:
 
     async def get_config(self, config_id: int, user_id: int) -> LLMConfigRead:
         """获取指定ID的配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("LLM配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
         return LLMConfigRead.from_orm_with_mask(config)
 
     async def get_active_config(self, user_id: int) -> Optional[LLMConfigRead]:
@@ -75,14 +63,10 @@ class LLMConfigService:
 
     async def create_config(self, user_id: int, payload: LLMConfigCreate) -> LLMConfigRead:
         """创建新的LLM配置。"""
-        # 检查配置名称是否重复
-        existing = await self.repo.get_by_name(user_id, payload.config_name)
-        if existing:
-            raise ConflictError(f"配置名称 '{payload.config_name}' 已存在")
+        await self._ensure_unique_name(user_id, payload.config_name)
 
         data = payload.model_dump(exclude_unset=True)
-        if "llm_provider_url" in data and data["llm_provider_url"] is not None:
-            data["llm_provider_url"] = str(data["llm_provider_url"])
+        self._normalize_url_field(data, "llm_provider_url")
 
         # 加密API密钥
         if "llm_provider_api_key" in data and data["llm_provider_api_key"]:
@@ -90,8 +74,7 @@ class LLMConfigService:
             logger.debug("API Key已加密存储")
 
         # 如果用户没有任何配置，则将新配置设为激活
-        configs = await self.repo.list_by_user(user_id)
-        is_first_config = len(configs) == 0
+        is_first_config = await self._is_first_config(user_id)
 
         instance = LLMConfig(
             user_id=user_id,
@@ -105,20 +88,15 @@ class LLMConfigService:
 
     async def update_config(self, config_id: int, user_id: int, payload: LLMConfigUpdate) -> LLMConfigRead:
         """更新LLM配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("LLM配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         data = payload.model_dump(exclude_unset=True)
 
         # 检查配置名称是否与其他配置重复
         if "config_name" in data:
-            existing = await self.repo.get_by_name(user_id, data["config_name"])
-            if existing and existing.id != config_id:
-                raise ConflictError(f"配置名称 '{data['config_name']}' 已被其他配置使用")
+            await self._ensure_unique_name(user_id, data["config_name"], config_id=config_id)
 
-        if "llm_provider_url" in data and data["llm_provider_url"] is not None:
-            data["llm_provider_url"] = str(data["llm_provider_url"])
+        self._normalize_url_field(data, "llm_provider_url")
 
         # 加密API密钥
         if "llm_provider_api_key" in data and data["llm_provider_api_key"]:
@@ -126,10 +104,10 @@ class LLMConfigService:
             logger.debug("API Key已加密存储")
 
         # 如果更新了配置信息，则重置验证状态
-        if any(key in data for key in ["llm_provider_url", "llm_provider_api_key", "llm_provider_model"]):
-            data["is_verified"] = False
-            data["test_status"] = None
-            data["test_message"] = None
+        self._reset_test_state(
+            data,
+            ["llm_provider_url", "llm_provider_api_key", "llm_provider_model"]
+        )
 
         await self.repo.update_fields(config, **data)
         await self.session.commit()
@@ -141,9 +119,7 @@ class LLMConfigService:
 
     async def activate_config(self, config_id: int, user_id: int) -> LLMConfigRead:
         """激活指定配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("LLM配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         await self.repo.activate_config(config_id, user_id)
         await self.session.commit()
@@ -154,9 +130,7 @@ class LLMConfigService:
 
     async def delete_config(self, config_id: int, user_id: int) -> bool:
         """删除LLM配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("LLM配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         # 不允许删除激活的配置
         if config.is_active:
@@ -170,9 +144,7 @@ class LLMConfigService:
 
     async def test_config(self, config_id: int, user_id: int) -> LLMConfigTestResponse:
         """测试LLM配置是否可用。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("LLM配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         # 解密API密钥用于测试
         decrypted_key = self._decrypt_key(config.llm_provider_api_key)

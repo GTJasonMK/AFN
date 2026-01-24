@@ -29,6 +29,7 @@ from utils.formatters import get_project_status_text
 from utils.async_worker import AsyncAPIWorker
 from utils.constants import WorkerTimeouts
 from utils.project_helpers import get_blueprint
+from utils.worker_manager import WorkerManager
 
 from .dirty_tracker import DirtyTracker
 from .mixins import (
@@ -85,6 +86,7 @@ class NovelDetail(
         self.section_widgets = {}
 
         # 异步任务管理
+        self.worker_manager = WorkerManager(self)
         self.refine_worker = None  # 蓝图优化异步worker
 
         # 脏数据追踪器
@@ -184,11 +186,8 @@ class NovelDetail(
         worker.success.connect(self._onProjectBasicInfoLoaded)
         worker.error.connect(self._onProjectBasicInfoError)
 
-        # 保持worker引用，防止被垃圾回收
-        if not hasattr(self, '_workers'):
-            self._workers = []
-        self._workers.append(worker)
-        worker.start()
+        # 使用WorkerManager统一管理
+        self.worker_manager.start(worker, 'project_basic_info')
 
     def _onProjectBasicInfoLoaded(self, response):
         """项目基本信息加载成功回调"""
@@ -395,6 +394,10 @@ class NovelDetail(
         except Exception as e:
             logger.warning("访问section_widgets时出错: %s", str(e))
 
+        # 停止当前页面的异步任务（保留WorkerManager可复用）
+        if hasattr(self, 'worker_manager') and self.worker_manager:
+            self.worker_manager.stop_all()
+
         logger.debug("NovelDetail.onHide() completed")
 
     def closeEvent(self, event):
@@ -405,6 +408,8 @@ class NovelDetail(
                 event.ignore()
                 return
         self.onHide()
+        if hasattr(self, 'worker_manager') and self.worker_manager:
+            self.worker_manager.cleanup_all()
         super().closeEvent(event)
 
 

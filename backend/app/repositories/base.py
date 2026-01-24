@@ -1,4 +1,4 @@
-from typing import Any, Generic, Iterable, List, Optional, TypeVar, Union
+from typing import Any, Generic, Iterable, List, Optional, TypeVar, Union, Tuple
 
 from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,56 @@ ModelType = TypeVar("ModelType")
 
 # 哨兵对象，用于区分"未传递参数"和"显式传递None"
 _UNSET = object()
+
+
+class SequenceRepositoryMixin(Generic[ModelType]):
+    """序列字段仓储能力
+
+    为带编号/序列字段的模型提供统一的排序与最大值查询。
+    """
+
+    sequence_field: str
+
+    async def get_by_project_ordered(self, project_id: str) -> List[ModelType]:
+        """按序列字段升序获取项目数据"""
+        items = await self.list_by_project(
+            project_id,
+            order_by=self.sequence_field,
+            order_desc=False,
+        )
+        return list(items)
+
+    async def get_max_number(self, project_id: str) -> int:
+        """获取项目的最大序列值（无记录时返回0）"""
+        if not hasattr(self.model, "project_id"):
+            raise ValueError(f"模型 {self.model.__name__} 没有 project_id 字段")
+        field = getattr(self.model, self.sequence_field, None)
+        if field is None:
+            raise ValueError(f"模型 {self.model.__name__} 没有字段 {self.sequence_field}")
+        stmt = select(func.max(field)).where(self.model.project_id == project_id)
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
+
+class RelationOptionsMixin(Generic[ModelType]):
+    """关系加载配置能力
+
+    为仓储提供统一的 options 应用入口，减少重复的关系加载列表维护。
+    """
+
+    def _apply_load_options(self, stmt, options: List[Any]):
+        """应用关系加载选项"""
+        if options:
+            return stmt.options(*options)
+        return stmt
+
+    def _detail_load_options(self) -> List[Any]:
+        """详情页关系加载选项（由子类覆写）"""
+        return []
+
+    def _summary_load_options(self) -> List[Any]:
+        """列表页关系加载选项（由子类覆写）"""
+        return []
 
 
 class BaseRepository(Generic[ModelType]):
@@ -72,6 +122,29 @@ class BaseRepository(Generic[ModelType]):
         """获取所有记录"""
         result = await self.session.execute(select(self.model))
         return result.scalars().all()
+
+    async def paginate(
+        self,
+        stmt,
+        count_stmt,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        max_page_size: int = 100,
+    ) -> Tuple[List[ModelType], int]:
+        """执行分页查询并返回总数"""
+        safe_page = max(page, 1)
+        safe_page_size = max(page_size, 1)
+        safe_page_size = min(safe_page_size, max_page_size)
+        offset = (safe_page - 1) * safe_page_size
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        result = await self.session.execute(
+            stmt.offset(offset).limit(safe_page_size)
+        )
+        return result.scalars().all(), total
 
     async def list_by_project(
         self,

@@ -7,7 +7,7 @@ RAG管理Mixin
 import logging
 from typing import TYPE_CHECKING
 
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService
 
 if TYPE_CHECKING:
@@ -32,6 +32,8 @@ class RAGManagerMixin:
             MessageService.show_warning(self, "请先选择项目")
             return
 
+        self.show_loading("正在检查RAG完整性...")
+
         # 禁用按钮，显示加载状态
         if hasattr(self, 'rag_sync_btn') and self.rag_sync_btn:
             self.rag_sync_btn.setEnabled(False)
@@ -42,13 +44,14 @@ class RAGManagerMixin:
 
     def _check_and_sync_rag(self: "NovelDetail"):
         """检查完整性并同步"""
-        self._rag_worker = AsyncAPIWorker(
+        run_async_action(
+            self.worker_manager,
             self.api_client.check_rag_completeness,
-            self.project_id
+            self.project_id,
+            task_name='rag_check',
+            on_success=self._on_completeness_check_done,
+            on_error=self._on_rag_error,
         )
-        self._rag_worker.success.connect(self._on_completeness_check_done)
-        self._rag_worker.error.connect(self._on_rag_error)
-        self._rag_worker.start()
 
     def _on_completeness_check_done(self: "NovelDetail", result: dict):
         """完整性检查完成"""
@@ -58,6 +61,7 @@ class RAGManagerMixin:
         if is_complete and not has_changes:
             # RAG数据已完整，无需同步
             MessageService.show_success(self, "RAG数据已完整，无需同步")
+            self.hide_loading()
             self._restore_rag_button()
             return
 
@@ -68,6 +72,7 @@ class RAGManagerMixin:
         logger.info("RAG需要同步: %s", changes_summary)
 
         # 开始入库
+        self.show_loading("正在执行RAG入库...")
         self._do_rag_ingest()
 
     def _format_changes_summary(self, type_details: dict) -> str:
@@ -90,17 +95,19 @@ class RAGManagerMixin:
 
     def _do_rag_ingest(self: "NovelDetail"):
         """执行RAG入库"""
-        self._rag_worker = AsyncAPIWorker(
+        run_async_action(
+            self.worker_manager,
             self.api_client.ingest_all_rag,
             self.project_id,
-            False  # force=False, 只入库缺失的数据
+            False,  # force=False, 只入库缺失的数据
+            task_name='rag_ingest',
+            on_success=self._on_rag_ingest_done,
+            on_error=self._on_rag_error,
         )
-        self._rag_worker.success.connect(self._on_rag_ingest_done)
-        self._rag_worker.error.connect(self._on_rag_error)
-        self._rag_worker.start()
 
     def _on_rag_ingest_done(self: "NovelDetail", result: dict):
         """RAG入库完成"""
+        self.hide_loading()
         self._restore_rag_button()
 
         # 统计入库结果
@@ -135,6 +142,7 @@ class RAGManagerMixin:
 
     def _on_rag_error(self: "NovelDetail", error_msg: str):
         """RAG操作错误"""
+        self.hide_loading()
         self._restore_rag_button()
         MessageService.show_error(self, f"RAG同步失败: {error_msg}")
         logger.error("RAG同步失败: %s", error_msg)

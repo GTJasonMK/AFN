@@ -35,8 +35,8 @@ class ImportProgressDialog(BaseDialog):
         'generating_analysis_data': '生成分析数据',  # 阶段1：最重要，作为后续步骤基础
         'analyzing_chapters': '生成章节摘要',        # 阶段2：利用analysis_data
         'generating_outlines': '更新章节大纲',       # 阶段3
-        'generating_part_outlines': '生成分部大纲',  # 阶段4（仅长篇）
-        'extracting_blueprint': '反推蓝图信息',      # 阶段5：利用analysis_data
+        'extracting_blueprint': '反推蓝图信息',      # 阶段4：利用analysis_data
+        'generating_part_outlines': '生成分部大纲',  # 阶段5（仅长篇）
     }
 
     def __init__(self, parent=None, project_id: str = "", api_client=None):

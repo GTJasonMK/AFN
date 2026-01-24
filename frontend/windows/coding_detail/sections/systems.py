@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
-from windows.base.sections import BaseSection
+from windows.base.sections import BaseSection, toggle_expand_state
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from api.manager import APIClientManager
@@ -311,24 +311,26 @@ class SystemNode(QFrame):
 
         self._apply_style()
 
+    def _create_modules_empty_hint(self) -> QLabel:
+        """创建模块空状态提示"""
+        empty_label = QLabel("暂无模块，点击「生成模块」添加")
+        empty_label.setObjectName("empty_hint")
+        return empty_label
+
     def _populate_modules(self, layout):
         """填充模块列表"""
-        for node in self._module_nodes:
-            node.deleteLater()
-        self._module_nodes.clear()
-
-        if not self.modules:
-            empty_label = QLabel("暂无模块，点击「生成模块」添加")
-            empty_label.setObjectName("empty_hint")
-            layout.addWidget(empty_label)
-            self._module_nodes.append(empty_label)
-            return
-
-        for module in self.modules:
+        def build_node(module):
             node = ModuleNode(module)
             node.clicked.connect(self.clicked.emit)
-            layout.addWidget(node)
-            self._module_nodes.append(node)
+            return node
+
+        self._render_card_list(
+            items=self.modules,
+            layout=layout,
+            cards=self._module_nodes,
+            card_factory=build_node,
+            empty_factory=self._create_modules_empty_hint,
+        )
 
     def _on_header_click(self, event):
         """头部点击事件"""
@@ -337,9 +339,11 @@ class SystemNode(QFrame):
 
     def _toggle_expand(self):
         """切换展开/折叠状态"""
-        self._expanded = not self._expanded
-        self.modules_container.setVisible(self._expanded)
-        self.expand_icon.setText("-" if self._expanded else "+")
+        self._expanded = toggle_expand_state(
+            self._expanded,
+            self.modules_container,
+            self.expand_icon,
+        )
 
     def _on_generate_modules(self):
         """生成模块按钮点击"""
@@ -450,7 +454,6 @@ class SystemsSection(BaseSection):
         self.systems = systems or []
         self.modules = modules or []
         self._system_nodes = []
-        self._workers = []
         self.api_client = APIClientManager.get_client()
 
         super().__init__([], editable, parent)
@@ -463,31 +466,22 @@ class SystemsSection(BaseSection):
         layout.setSpacing(dp(16))
 
         # 标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        title_label = QLabel("项目结构")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
-
-        # 统计信息
         stats_text = f"{len(self.systems)} 系统 / {len(self.modules)} 模块"
-        stats_label = QLabel(stats_text)
-        stats_label.setObjectName("stats_label")
-        header_layout.addWidget(stats_label)
-        self.stats_label = stats_label
 
-        header_layout.addStretch()
-
-        # 生成系统按钮
+        right_widgets = []
         if self._editable:
             gen_systems_btn = QPushButton("生成系统划分")
             gen_systems_btn.setObjectName("gen_systems_btn")
             gen_systems_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             gen_systems_btn.clicked.connect(self._on_generate_systems)
-            header_layout.addWidget(gen_systems_btn)
+            right_widgets.append(gen_systems_btn)
 
+        header, labels = self._build_section_header(
+            "项目结构",
+            stat_items=[(stats_text, "stats_label")],
+            right_widgets=right_widgets,
+        )
+        self.stats_label = labels.get("stats_label")
         layout.addWidget(header)
 
         # 系统列表容器
@@ -504,39 +498,26 @@ class SystemsSection(BaseSection):
 
     def _populate_systems(self):
         """填充系统列表"""
-        for node in self._system_nodes:
-            node.deleteLater()
-        self._system_nodes.clear()
-
-        if not self.systems:
-            empty_widget = QWidget()
-            empty_layout = QVBoxLayout(empty_widget)
-            empty_layout.setContentsMargins(dp(20), dp(40), dp(20), dp(40))
-            empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            empty_label = QLabel("暂无系统划分\n\n点击「生成系统划分」按钮，AI将自动将项目划分为多个子系统")
-            empty_label.setObjectName("empty_label")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_label.setWordWrap(True)
-            empty_layout.addWidget(empty_label)
-
-            self.systems_layout.addWidget(empty_widget)
-            self._system_nodes.append(empty_widget)
-            return
-
-        for system in self.systems:
+        def build_node(system):
             system_num = system.get('system_number', 0)
-            # 筛选该系统下的模块
             system_modules = [
                 m for m in self.modules
                 if m.get('system_number') == system_num
             ]
-
             node = SystemNode(system, system_modules)
             node.clicked.connect(self._on_item_clicked)
             node.generateModulesClicked.connect(self._on_generate_modules)
-            self.systems_layout.addWidget(node)
-            self._system_nodes.append(node)
+            return node
+
+        self._render_card_list(
+            items=self.systems,
+            layout=self.systems_layout,
+            cards=self._system_nodes,
+            card_factory=build_node,
+            empty_factory=lambda: self._create_empty_hint_widget(
+                "暂无系统划分\n\n点击「生成系统划分」按钮，AI将自动将项目划分为多个子系统"
+            ),
+        )
 
     def _apply_header_style(self):
         """应用标题样式"""
@@ -612,7 +593,7 @@ class SystemsSection(BaseSection):
         )
         worker.success.connect(self._on_systems_generated)
         worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_systems_generated(self, result):
@@ -659,7 +640,7 @@ class SystemsSection(BaseSection):
         )
         worker.success.connect(self._on_modules_generated)
         worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_modules_generated(self, result):
@@ -695,13 +676,7 @@ class SystemsSection(BaseSection):
 
     def cleanup(self):
         """清理资源"""
-        for worker in self._workers:
-            try:
-                if worker.isRunning():
-                    worker.cancel()
-            except Exception:
-                pass
-        self._workers.clear()
+        self._cleanup_workers()
 
 
 __all__ = ["SystemsSection"]

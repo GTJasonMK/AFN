@@ -5,16 +5,16 @@
 """
 
 import logging
-import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSpinBox, QFrame, QGridLayout, QGroupBox, QFileDialog
+    QSpinBox, QFrame, QGridLayout, QGroupBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
+from .config_io_helper import export_config_json, import_config_json
 
 logger = logging.getLogger(__name__)
 
@@ -380,52 +380,33 @@ class QueueSettingsWidget(QWidget):
 
     def _export_config(self):
         """导出队列配置"""
-        file_path, _ = QFileDialog.getSaveFileName(
+        def _on_success(file_path: str, _export_data: dict):
+            MessageService.show_info(self, f"配置已导出到：{file_path}")
+
+        export_config_json(
             self,
             "导出队列配置",
             "queue_config.json",
-            "JSON文件 (*.json)"
+            self.api_client.export_queue_config,
+            on_success=_on_success,
+            on_exception=lambda e: logger.error("导出队列配置失败: %s", e),
+            error_template="导出失败：{error}",
         )
-
-        if file_path:
-            try:
-                export_data = self.api_client.export_queue_config()
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(export_data, f, indent=2, ensure_ascii=False)
-                MessageService.show_info(self, f"配置已导出到：{file_path}")
-            except Exception as e:
-                MessageService.show_error(self, f"导出失败：{str(e)}")
-                logger.error("导出队列配置失败: %s", e)
 
     def _import_config(self):
         """导入队列配置"""
-        file_path, _ = QFileDialog.getOpenFileName(
+        def _on_success(result: dict):
+            MessageService.show_info(self, result.get('message', '导入成功'))
+            self._load_config()
+
+        import_config_json(
             self,
             "导入队列配置",
-            "",
-            "JSON文件 (*.json)"
+            "queue",
+            "队列配置导出文件",
+            self.api_client.import_queue_config,
+            on_success=_on_success,
+            on_exception=lambda e: logger.error("导入队列配置失败: %s", e),
+            error_template="导入失败：{error}",
+            warning_title="格式错误",
         )
-
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    import_data = json.load(f)
-
-                # 验证数据格式
-                if not isinstance(import_data, dict):
-                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
-                    return
-
-                if import_data.get('export_type') != 'queue':
-                    MessageService.show_warning(self, "导入文件类型不正确，需要队列配置导出文件", "格式错误")
-                    return
-
-                result = self.api_client.import_queue_config(import_data)
-                if result.get('success'):
-                    MessageService.show_info(self, result.get('message', '导入成功'))
-                    self._load_config()  # 重新加载配置到UI
-                else:
-                    MessageService.show_error(self, result.get('message', '导入失败'))
-            except Exception as e:
-                MessageService.show_error(self, f"导入失败：{str(e)}")
-                logger.error("导入队列配置失败: %s", e)

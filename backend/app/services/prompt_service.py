@@ -294,6 +294,102 @@ class PromptService:
         await self._cache.set(name, prompt_read)
         return prompt_read.content
 
+    async def get_prompt_or_fallback(
+        self,
+        name: str,
+        fallback: str,
+        *,
+        logger: Optional[logging.Logger] = None,
+    ) -> str:
+        """
+        获取提示词内容，失败或不存在时返回默认模板
+
+        Args:
+            name: 提示词名称
+            fallback: 默认模板内容
+            logger: 可选日志实例，用于记录加载异常
+        """
+        try:
+            prompt = await self.get_prompt(name)
+        except Exception as e:
+            if logger:
+                logger.warning("无法加载 %s 提示词: %s", name, e)
+            return fallback
+
+        if not prompt:
+            return fallback
+        return prompt
+
+    async def get_prompt_or_default(
+        self,
+        name: str,
+        *,
+        logger: Optional[logging.Logger] = None,
+    ) -> str:
+        """
+        获取提示词内容，失败时回退到默认模板
+
+        Args:
+            name: 提示词名称
+            logger: 可选日志实例，用于记录加载异常
+        """
+        try:
+            prompt = await self.get_prompt(name)
+        except Exception as e:
+            if logger:
+                logger.warning("无法加载 %s 提示词: %s", name, e)
+            prompt = None
+
+        if prompt:
+            return prompt
+
+        default_content = await self.get_default_content(name)
+        if default_content:
+            return default_content
+
+        if logger:
+            logger.warning("提示词不存在: %s", name)
+        return ""
+
+    async def get_prompt_or_fallback_name(
+        self,
+        name: str,
+        fallback_name: str,
+        *,
+        logger: Optional[logging.Logger] = None,
+    ) -> str:
+        """
+        获取提示词内容，失败时回退到另一个提示词名称
+
+        Args:
+            name: 首选提示词名称
+            fallback_name: 回退提示词名称
+            logger: 可选日志实例，用于记录加载异常
+        """
+        try:
+            prompt = await self.get_prompt(name)
+        except Exception as e:
+            if logger:
+                logger.warning("无法加载 %s 提示词: %s", name, e)
+            prompt = None
+
+        if prompt:
+            return prompt
+
+        try:
+            fallback_prompt = await self.get_prompt(fallback_name)
+        except Exception as e:
+            if logger:
+                logger.warning("无法加载 %s 提示词: %s", fallback_name, e)
+            fallback_prompt = None
+
+        if fallback_prompt:
+            return fallback_prompt
+
+        if logger:
+            logger.warning("提示词不存在: %s/%s", name, fallback_name)
+        return ""
+
     async def list_prompts(self) -> list[PromptRead]:
         """
         列出所有提示词

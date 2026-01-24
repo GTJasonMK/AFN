@@ -132,6 +132,45 @@ class ForeshadowingService:
 
         return suggestions[:max_suggestions]
 
+    async def get_pending_for_generation(
+        self,
+        project_id: str,
+        chapter_number: int,
+        outline_summary: Optional[str] = None,
+        outline_title: Optional[str] = None,
+        max_suggestions: int = 10,
+        keywords: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """获取待回收伏笔（统一入口，支持关键词过滤）"""
+        suggestions = await self.get_suggestions_for_chapter(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            outline_summary=outline_summary,
+            outline_title=outline_title,
+            max_suggestions=max_suggestions,
+        )
+
+        keyword_list = [kw for kw in (keywords or []) if kw]
+        results: List[Dict[str, Any]] = []
+        for suggestion in suggestions:
+            content = f"{suggestion.description} {' '.join(suggestion.related_entities)}"
+            if keyword_list and not any(kw in content for kw in keyword_list):
+                continue
+
+            results.append({
+                "id": suggestion.id,
+                "description": suggestion.description,
+                "priority": suggestion.priority,
+                "category": suggestion.category,
+                "planted_chapter": suggestion.planted_chapter,
+                "chapters_pending": suggestion.chapters_pending,
+                "urgency_score": suggestion.urgency_score,
+                "related_entities": suggestion.related_entities,
+                "reason": suggestion.reason,
+            })
+
+        return results
+
     def _calculate_urgency(self, priority: str, chapters_pending: int) -> float:
         """计算伏笔紧迫度
 

@@ -19,7 +19,7 @@ from ...schemas.protagonist import (
 )
 from ...services.llm_service import LLMService
 from ...services.prompt_service import PromptService
-from ...utils.json_utils import parse_llm_json_safe
+from ...utils.json_utils import parse_llm_json_with_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,28 +43,6 @@ class ProtagonistAnalysisService:
         self.llm_service = llm_service
         self.prompt_service = prompt_service
 
-    async def _load_prompt(self, name: str) -> str:
-        """加载提示词内容
-
-        Args:
-            name: 提示词名称（不含.md后缀）
-
-        Returns:
-            提示词内容
-        """
-        # 优先从数据库获取（支持用户修改）
-        content = await self.prompt_service.get_prompt(name)
-        if content:
-            return content
-
-        # 回退到默认文件
-        default_content = await self.prompt_service.get_default_content(name)
-        if default_content:
-            return default_content
-
-        logger.warning(f"提示词不存在: {name}")
-        return ""
-
     async def analyze_chapter(
         self,
         chapter_content: str,
@@ -83,7 +61,10 @@ class ProtagonistAnalysisService:
         Returns:
             章节分析结果
         """
-        system_prompt = await self._load_prompt("protagonist_analysis")
+        system_prompt = await self.prompt_service.get_prompt_or_default(
+            "protagonist_analysis",
+            logger=logger,
+        )
 
         # 构建用户提示
         user_prompt = f"""请分析以下章节内容，提取主角属性变化和行为记录。
@@ -109,9 +90,12 @@ class ProtagonistAnalysisService:
             )
 
             # 解析LLM返回的JSON
-            result_data = parse_llm_json_safe(response)
+            result_data = parse_llm_json_with_context(
+                response,
+                logger,
+                context=f"章节分析LLM返回解析失败: chapter={chapter_number}",
+            )
             if not result_data:
-                logger.warning(f"章节分析LLM返回解析失败: {response[:200]}")
                 return ChapterAnalysisResult()
 
             # 构建结果对象
@@ -160,7 +144,10 @@ class ProtagonistAnalysisService:
         Returns:
             分类结果
         """
-        system_prompt = await self._load_prompt("implicit_classification")
+        system_prompt = await self.prompt_service.get_prompt_or_default(
+            "implicit_classification",
+            logger=logger,
+        )
 
         user_prompt = f"""请判断以下行为是否符合已有的隐性属性。
 
@@ -183,9 +170,12 @@ class ProtagonistAnalysisService:
                 max_tokens=settings.llm_max_tokens_analysis,
             )
 
-            result_data = parse_llm_json_safe(response)
+            result_data = parse_llm_json_with_context(
+                response,
+                logger,
+                context="行为分类LLM返回解析失败",
+            )
             if not result_data:
-                logger.warning(f"行为分类LLM返回解析失败: {response[:200]}")
                 return BehaviorClassificationResult(
                     classifications={},
                     reasoning="LLM返回解析失败",
@@ -228,7 +218,10 @@ class ProtagonistAnalysisService:
         Returns:
             更新决策
         """
-        system_prompt = await self._load_prompt("implicit_update")
+        system_prompt = await self.prompt_service.get_prompt_or_default(
+            "implicit_update",
+            logger=logger,
+        )
 
         # 构建行为记录摘要
         records_summary = []
@@ -257,9 +250,12 @@ class ProtagonistAnalysisService:
                 max_tokens=settings.llm_max_tokens_analysis,
             )
 
-            result_data = parse_llm_json_safe(response)
+            result_data = parse_llm_json_with_context(
+                response,
+                logger,
+                context="隐性属性更新决策LLM返回解析失败",
+            )
             if not result_data:
-                logger.warning(f"隐性属性更新决策LLM返回解析失败: {response[:200]}")
                 return ImplicitUpdateDecision(
                     decision="keep",
                     reasoning="LLM返回解析失败，保持原值",

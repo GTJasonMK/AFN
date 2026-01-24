@@ -39,27 +39,26 @@ from typing import Dict, Any, List, Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QScrollArea, QTabWidget, QLineEdit,
+    QListWidget, QScrollArea, QTabWidget, QLineEdit,
     QGroupBox, QGridLayout, QComboBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
-from utils.async_worker import AsyncWorker
-from utils.message_service import MessageService
+from utils.worker_manager import WorkerManager
 from api.manager import APIClientManager
 from components.inputs import (
     ColorPickerWidget, SizeInputWidget, FontFamilySelector,
     SliderInputWidget, SwitchWidget
 )
-from components.dialogs import InputDialog
-
 from .v2_config_groups import (
     EFFECTS_CONFIG, COMPONENT_CONFIGS, TOKEN_CONFIGS,
     get_component_field_key, get_token_field_key, get_effect_field_key
 )
 from .v2_components import CollapsibleSection, VariantTabWidget, ComponentEditor
+from .config_editor import ThemeEditorBaseMixin
+from .styles import build_list_action_button_style
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +178,10 @@ class EffectsEditor(QWidget):
             """)
 
 
-class V2ThemeEditorWidget(QWidget):
+class V2ThemeEditorWidget(ThemeEditorBaseMixin, QWidget):
     """V2 主题配置编辑器主界面"""
+
+    _worker_key_prefix = "theme_v2_config"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -191,8 +192,8 @@ class V2ThemeEditorWidget(QWidget):
         self._current_config_id = None
         self._configs: List[Dict] = []
         self._is_modified = False
-        self._worker = None
         self._is_destroyed = False  # 标记widget是否已销毁
+        self.worker_manager = WorkerManager(self)
 
         # 编辑器组件
         self._effects_editor: Optional[EffectsEditor] = None
@@ -204,6 +205,36 @@ class V2ThemeEditorWidget(QWidget):
 
         theme_manager.theme_changed.connect(self._apply_theme)
 
+    def _request_config_list(self):
+        return self.api_client.get_theme_configs()
+
+    def _request_config_detail(self, config_id: int):
+        return self.api_client.get_unified_theme_config(config_id)
+
+    def _request_create_config(self, payload: Dict[str, Any]):
+        return self.api_client.create_theme_v2_config(payload)
+
+    def _request_duplicate_config(self, config_id: int):
+        return self.api_client.duplicate_theme_config(config_id)
+
+    def _request_delete_config(self, config_id: int):
+        return self.api_client.delete_theme_config(config_id)
+
+    def _request_save_config(self, config_id: int, payload: Dict[str, Any]):
+        return self.api_client.update_theme_v2_config(config_id, payload)
+
+    def _request_activate_config(self, config_id: int):
+        return self.api_client.activate_theme_config(config_id)
+
+    def _request_reset_config(self, config_id: int):
+        return self.api_client.reset_theme_v2_config(config_id)
+
+    def _handle_save_without_config(self) -> bool:
+        from utils.message_service import MessageService
+
+        MessageService.show_warning(self, "请先选择一个配置")
+        return True
+
     def closeEvent(self, event):
         """关闭事件：清理异步工作线程"""
         self._cleanup_worker()
@@ -212,23 +243,8 @@ class V2ThemeEditorWidget(QWidget):
     def _cleanup_worker(self):
         """清理异步工作线程"""
         self._is_destroyed = True
-        if self._worker is not None:
-            try:
-                # 尝试取消工作线程
-                if hasattr(self._worker, 'cancel'):
-                    self._worker.cancel()
-                # 断开所有信号连接
-                try:
-                    self._worker.success.disconnect()
-                    self._worker.error.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-                # 等待线程结束（最多100ms）
-                if self._worker.isRunning():
-                    self._worker.wait(100)
-            except RuntimeError:
-                pass
-            self._worker = None
+        if hasattr(self, 'worker_manager'):
+            self.worker_manager.cleanup_all()
 
     def _create_ui(self):
         """创建UI结构"""
@@ -415,95 +431,6 @@ class V2ThemeEditorWidget(QWidget):
 
         return bar
 
-    # ==================== 数据操作 ====================
-
-    def _on_mode_changed(self, index: int):
-        """模式切换处理"""
-        self._current_mode = "light" if index == 0 else "dark"
-        self._update_config_list()
-
-    def _on_config_selected(self, row: int):
-        """配置选中处理"""
-        if row < 0:
-            self._current_config_id = None
-            self._clear_editor()
-            return
-
-        item = self.config_list.item(row)
-        if item:
-            config_id = item.data(Qt.ItemDataRole.UserRole)
-            self._current_config_id = config_id
-            self._load_config_detail(config_id)
-
-    def _load_configs(self):
-        """加载配置列表"""
-        if self._is_destroyed:
-            return
-
-        def do_load():
-            return self.api_client.get_theme_configs()
-
-        def on_success(configs):
-            if self._is_destroyed:
-                return
-            self._configs = configs
-            self._update_config_list()
-
-        def on_error(error):
-            if self._is_destroyed:
-                return
-            logger.error(f"加载主题配置失败: {error}")
-
-        self._worker = AsyncWorker(do_load)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _update_config_list(self):
-        """更新配置列表显示"""
-        self.config_list.clear()
-
-        mode_configs = [c for c in self._configs if c.get("parent_mode") == self._current_mode]
-
-        for config in mode_configs:
-            item = QListWidgetItem()
-            name = config.get("config_name", "未命名")
-            if config.get("is_active"):
-                name = f"{name} *"
-            item.setText(name)
-            item.setData(Qt.ItemDataRole.UserRole, config.get("id"))
-            self.config_list.addItem(item)
-
-        if self.config_list.count() > 0:
-            self.config_list.setCurrentRow(0)
-        else:
-            self._clear_editor()
-
-    def _load_config_detail(self, config_id: int):
-        """加载V2配置详情"""
-        if self._is_destroyed:
-            return
-
-        def do_load():
-            # 优先使用统一格式API
-            return self.api_client.get_unified_theme_config(config_id)
-
-        def on_success(config):
-            if self._is_destroyed:
-                return
-            self._populate_editor(config)
-            self._is_modified = False
-
-        def on_error(error):
-            if self._is_destroyed:
-                return
-            logger.error(f"加载配置详情失败: {error}")
-
-        self._worker = AsyncWorker(do_load)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
     def _populate_editor(self, config: Dict[str, Any]):
         """填充编辑器"""
         self.name_input.setText(config.get("config_name", ""))
@@ -558,199 +485,6 @@ class V2ThemeEditorWidget(QWidget):
     def _mark_modified(self):
         """标记为已修改"""
         self._is_modified = True
-
-    # ==================== CRUD 操作 ====================
-
-    def _create_new_config(self):
-        """创建新配置"""
-        default_name = f"我的{'浅色' if self._current_mode == 'light' else '深色'}主题"
-        name, ok = InputDialog.getTextStatic(
-            parent=self,
-            title="新建子主题",
-            label="请输入子主题名称：",
-            text=default_name
-        )
-        if not ok or not name.strip():
-            return
-
-        def do_create():
-            return self.api_client.create_theme_v2_config({
-                "config_name": name.strip(),
-                "parent_mode": self._current_mode
-            })
-
-        def on_success(config):
-            MessageService.show_success(self, f"已创建子主题：{config.get('config_name')}")
-            self._load_configs()
-
-        def on_error(error):
-            MessageService.show_error(self, f"创建失败：{error}")
-
-        self._worker = AsyncWorker(do_create)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _duplicate_config(self):
-        """复制当前配置"""
-        if not self._current_config_id:
-            MessageService.show_warning(self, "请先选择一个配置")
-            return
-
-        def do_duplicate():
-            return self.api_client.duplicate_theme_config(self._current_config_id)
-
-        def on_success(config):
-            MessageService.show_success(self, f"已复制为：{config.get('config_name')}")
-            self._load_configs()
-
-        def on_error(error):
-            MessageService.show_error(self, f"复制失败：{error}")
-
-        self._worker = AsyncWorker(do_duplicate)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _delete_config(self):
-        """删除当前配置"""
-        if not self._current_config_id:
-            MessageService.show_warning(self, "请先选择一个配置")
-            return
-
-        if not MessageService.confirm(
-            self,
-            "确定要删除此配置吗？此操作不可恢复。",
-            "确认删除",
-            confirm_text="删除",
-            cancel_text="取消"
-        ):
-            return
-
-        def do_delete():
-            return self.api_client.delete_theme_config(self._current_config_id)
-
-        def on_success(result):
-            MessageService.show_success(self, "配置已删除")
-            self._current_config_id = None
-            self._load_configs()
-
-        def on_error(error):
-            MessageService.show_error(self, f"删除失败：{error}")
-
-        self._worker = AsyncWorker(do_delete)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _save_config(self):
-        """保存当前配置"""
-        if not self._current_config_id:
-            MessageService.show_warning(self, "请先选择一个配置")
-            return
-
-        data = self._collect_config_data()
-
-        def do_save():
-            return self.api_client.update_theme_v2_config(self._current_config_id, data)
-
-        def on_success(config):
-            MessageService.show_success(self, "配置已保存")
-            self._is_modified = False
-            self._load_configs()
-
-        def on_error(error):
-            MessageService.show_error(self, f"保存失败：{error}")
-
-        self._worker = AsyncWorker(do_save)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _activate_config(self):
-        """激活当前配置（应用主题和透明效果）"""
-        from themes.theme_manager import theme_manager
-
-        if not self._current_config_id:
-            MessageService.show_warning(self, "请先选择一个配置")
-            return
-
-        def do_activate():
-            return self.api_client.activate_theme_config(self._current_config_id)
-
-        def on_success(config):
-            MessageService.show_success(self, f"已激活：{config.get('config_name')}")
-            self._load_configs()
-            # 使用批量更新模式，避免多次信号发射
-            theme_manager.begin_batch_update()
-            try:
-                # 应用主题配置
-                self._apply_active_theme(config)
-                # 透明度配置已在主题应用中处理，无需单独调用
-            finally:
-                # 结束批量更新，统一发射一次信号
-                theme_manager.end_batch_update()
-
-        def on_error(error):
-            MessageService.show_error(self, f"激活失败：{error}")
-
-        self._worker = AsyncWorker(do_activate)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _reset_config(self):
-        """重置配置为默认值"""
-        if not self._current_config_id:
-            MessageService.show_warning(self, "请先选择一个配置")
-            return
-
-        if not MessageService.confirm(
-            self,
-            "确定要将此配置重置为默认值吗？",
-            "确认重置",
-            confirm_text="重置",
-            cancel_text="取消"
-        ):
-            return
-
-        def do_reset():
-            return self.api_client.reset_theme_v2_config(self._current_config_id)
-
-        def on_success(config):
-            MessageService.show_success(self, "配置已重置为默认值")
-            self._populate_editor(config)
-            self._is_modified = False
-
-        def on_error(error):
-            MessageService.show_error(self, f"重置失败：{error}")
-
-        self._worker = AsyncWorker(do_reset)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
-
-    def _apply_active_theme(self, config: Dict[str, Any]):
-        """应用激活的主题配置到主题管理器
-
-        支持V1和V2两种配置格式，根据config_version字段自动选择。
-        """
-        config_version = config.get("config_version", 1)
-
-        if config_version == 2 and config.get("effects"):
-            # V2配置：使用面向组件的配置
-            if hasattr(theme_manager, 'apply_v2_config'):
-                theme_manager.apply_v2_config(config)
-        else:
-            # V1配置：合并所有配置组为平面字典
-            from .config_groups import CONFIG_GROUPS
-            flat_config = {}
-            for group_key in CONFIG_GROUPS:
-                group_values = config.get(group_key, {}) or {}
-                flat_config.update(group_values)
-
-            if flat_config and hasattr(theme_manager, 'apply_custom_theme'):
-                theme_manager.apply_custom_theme(flat_config)
 
     def refresh(self):
         """刷新配置列表"""
@@ -850,21 +584,7 @@ class V2ThemeEditorWidget(QWidget):
         """)
 
         # 列表操作按钮
-        list_btn_style = f"""
-            QPushButton#list_action_btn {{
-                font-family: {palette.ui_font};
-                font-size: {sp(12)}px;
-                color: {palette.text_secondary};
-                background-color: transparent;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-            }}
-            QPushButton#list_action_btn:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-            }}
-        """
+        list_btn_style = build_list_action_button_style(palette)
         self.duplicate_btn.setStyleSheet(list_btn_style)
         self.delete_btn.setStyleSheet(list_btn_style)
 

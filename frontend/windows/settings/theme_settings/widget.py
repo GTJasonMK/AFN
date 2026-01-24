@@ -21,6 +21,7 @@ from PyQt6.QtCore import Qt
 
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
+from utils.worker_manager import WorkerManager
 from api.manager import APIClientManager
 from components.inputs import (
     ColorPickerWidget, SizeInputWidget, FontFamilySelector,
@@ -62,8 +63,8 @@ class ThemeSettingsWidget(ThemeStylesMixin, ThemeConfigEditorMixin, ThemeIOHandl
         self._configs: List[Dict] = []  # 配置列表缓存
         self._field_widgets: Dict[str, Dict[str, QWidget]] = {}  # 字段编辑器映射
         self._is_modified = False  # 是否有未保存的修改
-        self._worker = None  # AsyncWorker实例，防止垃圾回收
         self._is_destroyed = False  # 标记widget是否已销毁
+        self.worker_manager = WorkerManager(self)
 
         self._create_ui()
         self._apply_theme()
@@ -80,20 +81,8 @@ class ThemeSettingsWidget(ThemeStylesMixin, ThemeConfigEditorMixin, ThemeIOHandl
     def _cleanup_worker(self):
         """清理异步工作线程"""
         self._is_destroyed = True
-        if self._worker is not None:
-            try:
-                if hasattr(self._worker, 'cancel'):
-                    self._worker.cancel()
-                try:
-                    self._worker.success.disconnect()
-                    self._worker.error.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-                if self._worker.isRunning():
-                    self._worker.wait(100)
-            except RuntimeError:
-                pass
-            self._worker = None
+        if hasattr(self, 'worker_manager'):
+            self.worker_manager.cleanup_all()
 
     def _create_ui(self):
         """创建UI结构"""

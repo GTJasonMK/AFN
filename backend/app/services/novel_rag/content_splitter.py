@@ -18,6 +18,7 @@ from .chunk_strategy import (
     NovelChunkConfig,
     get_novel_strategy_manager,
 )
+from ..rag_common.markdown_splitter import split_markdown_sections
 
 logger = logging.getLogger(__name__)
 
@@ -451,53 +452,12 @@ class NovelContentSplitter:
         Returns:
             分割后的Section列表
         """
-        if not content or not content.strip():
-            return []
-
-        # 构建标题匹配正则：匹配 ## 到 ### 级别的标题
-        header_pattern = r'^(#{' + str(min_level) + ',' + str(max_level) + r'})\s+(.+)$'
-        lines = content.split('\n')
-
-        sections: List[Section] = []
-        current_title = ""
-        current_level = min_level
-        current_lines: List[str] = []
-        section_index = 0
-
-        for line in lines:
-            match = re.match(header_pattern, line)
-            if match:
-                # 保存之前的section
-                if current_lines:
-                    section_content = '\n'.join(current_lines).strip()
-                    if section_content:
-                        sections.append(Section(
-                            title=current_title,
-                            content=section_content,
-                            index=section_index,
-                            level=current_level
-                        ))
-                        section_index += 1
-
-                # 开始新section
-                current_level = len(match.group(1))
-                current_title = match.group(2).strip()
-                current_lines = []
-            else:
-                current_lines.append(line)
-
-        # 保存最后一个section
-        if current_lines:
-            section_content = '\n'.join(current_lines).strip()
-            if section_content:
-                sections.append(Section(
-                    title=current_title,
-                    content=section_content,
-                    index=section_index,
-                    level=current_level
-                ))
-
-        return sections
+        return split_markdown_sections(
+            content=content,
+            min_level=min_level,
+            max_level=max_level,
+            section_factory=Section,
+        )
 
     def split_by_paragraphs(
         self,

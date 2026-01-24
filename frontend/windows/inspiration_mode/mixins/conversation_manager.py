@@ -26,6 +26,69 @@ class ConversationManagerMixin:
     - Worker清理
     """
 
+    def _get_conversation_mode(self: "InspirationMode") -> str:
+        """获取对话模式类型（novel/coding）"""
+        return "novel"
+
+    def _create_conversation_project(self: "InspirationMode", message: str) -> str:
+        """创建对话项目并返回项目ID"""
+        mode = self._get_conversation_mode()
+        if mode == "coding":
+            response = self.api_client.create_coding_project(
+                title="未命名项目",
+                initial_prompt=message,
+                skip_conversation=False
+            )
+        else:
+            response = self.api_client.create_novel(
+                title="未命名项目",
+                initial_prompt=message,
+                skip_inspiration=False
+            )
+        project_id = response.get('id')
+        if not project_id:
+            raise ValueError("创建项目失败：未返回项目ID")
+        return project_id
+
+    def _build_conversation_stream_url(self: "InspirationMode", project_id: str) -> str:
+        """构建对话SSE地址"""
+        mode = self._get_conversation_mode()
+        if mode == "coding":
+            return f"{self.api_client.base_url}/api/coding/{project_id}/inspiration/converse-stream"
+        return f"{self.api_client.base_url}/api/novels/{project_id}/inspiration/converse-stream"
+
+    def _build_conversation_payload(self: "InspirationMode", message: str) -> dict:
+        """构建对话请求负载"""
+        return {
+            "user_input": {"message": message},
+            "conversation_state": {}
+        }
+
+    def _get_conversation_history_records(self: "InspirationMode", project_id: str):
+        """获取对话历史记录"""
+        mode = self._get_conversation_mode()
+        if mode == "coding":
+            return self.api_client.get_coding_inspiration_history(project_id)
+        return self.api_client.get_conversation_history(project_id)
+
+    def _get_conversation_error_prefix(self: "InspirationMode") -> str:
+        """获取对话失败提示前缀"""
+        mode = self._get_conversation_mode()
+        if mode == "coding":
+            return "对话出错"
+        return "对话失败"
+
+    def _handle_conversation_error_bubble(self: "InspirationMode", error_msg: str) -> None:
+        """处理对话错误气泡展示"""
+        if self.current_ai_bubble:
+            self.chat_layout.removeWidget(self.current_ai_bubble)
+            self.current_ai_bubble.deleteLater()
+            self.current_ai_bubble = None
+
+    def _after_stream_complete(self: "InspirationMode", metadata: dict) -> None:
+        """流式完成后的扩展处理（预留钩子）"""
+        return None
+
     def _start_sse_stream(self: "InspirationMode", message: str):
         """启动SSE流式监听"""
         from utils.message_service import MessageService
@@ -34,24 +97,15 @@ class ConversationManagerMixin:
         # 如果没有项目ID，先创建项目
         if not self._state.project_id:
             try:
-                response = self.api_client.create_novel(
-                    title="未命名项目",
-                    initial_prompt=message
-                )
-                self._state.project_id = response.get('id')
+                self._state.project_id = self._create_conversation_project(message)
             except Exception as e:
                 MessageService.show_error(self, f"创建项目失败：{str(e)}", "错误")
                 self.input_widget.setEnabled(True)
                 return
 
-        # 构造SSE URL
-        url = f"{self.api_client.base_url}/api/novels/{self._state.project_id}/inspiration/converse-stream"
-
-        # 构造请求负载
-        payload = {
-            "user_input": {"message": message},
-            "conversation_state": {}
-        }
+        # 构造SSE URL与请求负载
+        url = self._build_conversation_stream_url(self._state.project_id)
+        payload = self._build_conversation_payload(message)
 
         # 重置选项缓存和上一轮容器引用（用于错误恢复）
         self._state.pending_options = []
@@ -152,6 +206,11 @@ class ConversationManagerMixin:
         """流式响应完成（SSE回调）"""
         # 清理worker引用
         self.current_worker = None
+        if self.current_ai_bubble:
+            try:
+                self.current_ai_bubble.stop_loading()
+            except RuntimeError:
+                pass
         self.current_ai_bubble = None
 
         # 注意：不锁定当前选项容器，保持可点击状态
@@ -177,6 +236,7 @@ class ConversationManagerMixin:
         # 启用输入
         self.input_widget.setEnabled(True)
         self.input_widget.setFocus()
+        self._after_stream_complete(metadata)
 
     def _on_stream_error(self: "InspirationMode", error_msg: str):
         """流式响应错误（SSE回调）"""
@@ -220,13 +280,12 @@ class ConversationManagerMixin:
             self.back_btn.setEnabled(True)
 
         # 显示错误消息
-        MessageService.show_error(self, f"对话失败：{error_msg}", "错误")
-
-        # 移除空的AI气泡（如果存在）
-        if self.current_ai_bubble:
-            self.chat_layout.removeWidget(self.current_ai_bubble)
-            self.current_ai_bubble.deleteLater()
-            self.current_ai_bubble = None
+        MessageService.show_error(
+            self,
+            f"{self._get_conversation_error_prefix()}：{error_msg}",
+            "错误"
+        )
+        self._handle_conversation_error_bubble(error_msg)
 
         # 启用输入
         self.input_widget.setEnabled(True)
@@ -237,7 +296,7 @@ class ConversationManagerMixin:
 
         try:
             # 获取对话历史
-            history = self.api_client.get_conversation_history(project_id)
+            history = self._get_conversation_history_records(project_id)
 
             if not history:
                 # 没有历史，显示初始欢迎消息

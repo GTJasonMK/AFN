@@ -445,6 +445,33 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def parse_llm_json_with_context(
+    raw_text: str,
+    logger: logging.Logger,
+    context: str,
+    level: int = logging.WARNING,
+    preview_len: int = 200,
+) -> Optional[Dict[str, Any]]:
+    """
+    解析 LLM 返回 JSON，并在失败时输出带上下文的日志。
+
+    Args:
+        raw_text: LLM 返回的原始文本
+        logger: 记录日志的 logger
+        context: 业务上下文描述
+        level: 失败时的日志级别
+        preview_len: 失败时输出的文本预览长度
+
+    Returns:
+        解析成功返回字典，失败返回 None
+    """
+    data = parse_llm_json_safe(raw_text)
+    if not data:
+        preview = raw_text[:preview_len] if raw_text else ""
+        logger.log(level, "%s解析失败: %s", context, preview)
+    return data
+
+
 # 可能包含章节内容的字段名（按优先级排序）
 CONTENT_FIELD_NAMES = [
     "full_content",

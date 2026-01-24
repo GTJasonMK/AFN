@@ -18,7 +18,6 @@ from ...core.config import settings
 from ...core.dependencies import get_default_user, get_image_config_service
 from ...db.session import get_session
 from ...exceptions import ResourceNotFoundError, InvalidParameterError
-from ...repositories.character_portrait_repository import CharacterPortraitRepository
 
 logger = logging.getLogger(__name__)
 from ...schemas.user import UserInDB
@@ -38,7 +37,6 @@ from ...services.image_generation.schemas import (
     PDFExportResult,
     ChapterMangaPDFRequest,
     ChapterMangaPDFResponse,
-    DEFAULT_MANGA_NEGATIVE_PROMPT,
     PageImageGenerationRequest,
 )
 from ...services.image_generation.pdf_export import PDFExportService
@@ -200,65 +198,6 @@ async def import_image_configs(
 
 # ==================== 图片生成 ====================
 
-# 用于检测负面提示词是否已包含关键质量词的关键词列表
-# 如果包含这些关键词，说明是LLM生成的完整负面提示词，不需要再追加默认值
-NEGATIVE_PROMPT_QUALITY_KEYWORDS = [
-    "模糊",
-    "低质量",
-    "变形",
-    "扭曲",
-    "多余",
-    "禁止",
-]
-
-
-def _is_complete_negative_prompt(negative_prompt: str) -> bool:
-    """
-    检测负面提示词是否已经足够完整（由LLM生成）
-
-    判断标准：包含至少3个关键质量词，说明是经过智能生成的
-
-    Args:
-        negative_prompt: 负面提示词
-
-    Returns:
-        是否足够完整，不需要追加默认值
-    """
-    if not negative_prompt:
-        return False
-
-    prompt_lower = negative_prompt.lower()
-    match_count = sum(1 for kw in NEGATIVE_PROMPT_QUALITY_KEYWORDS if kw in prompt_lower)
-
-    # 如果匹配了至少3个关键词，认为是完整的LLM生成的负面提示词
-    return match_count >= 3
-
-
-def _smart_merge_negative_prompt(user_negative: str) -> str:
-    """
-    智能合并负面提示词
-
-    如果用户提供的负面提示词已经足够完整（包含关键质量词），
-    则直接使用，不追加默认值，避免重复。
-
-    Args:
-        user_negative: 用户/LLM提供的负面提示词
-
-    Returns:
-        合并后的负面提示词
-    """
-    if not user_negative:
-        # 没有提供，使用默认值
-        return DEFAULT_MANGA_NEGATIVE_PROMPT
-
-    if _is_complete_negative_prompt(user_negative):
-        # 已足够完整，直接使用（LLM生成的场景感知负面提示词）
-        return user_negative
-
-    # 不够完整，合并默认值
-    return f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {user_negative}"
-
-
 @router.post(
     "/novels/{project_id}/chapters/{chapter_number}/scenes/{scene_id}/generate",
     response_model=ImageGenerationResult,
@@ -271,82 +210,9 @@ async def generate_scene_image(
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
-    """为场景生成图片
-
-    智能合并负面提示词：
-    - 如果请求中的negative_prompt已包含关键质量词（说明是LLM智能生成的），则直接使用
-    - 否则，与默认漫画负面提示词合并，避免AI常见的渲染问题
-
-    动态获取立绘路径：
-    - 如果请求中包含characters列表，根据角色名动态查询当前激活的立绘路径
-    - 这样可以确保使用最新的立绘，即使用户重新生成了立绘
-    """
-    # 智能合并负面提示词
-    merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
-
-    # 动态获取立绘路径：根据characters列表查询当前激活的立绘
-    # 这解决了"存储的分镜数据引用旧立绘路径"的问题
-    reference_image_paths = request.reference_image_paths or []
-    if request.characters:
-        portrait_repo = CharacterPortraitRepository(session)
-        active_portraits = await portrait_repo.get_all_active_by_project(project_id)
-        # 构建角色名到立绘路径的映射
-        portrait_map = {
-            p.character_name: str(settings.generated_images_dir / p.image_path)
-            for p in active_portraits
-            if p.image_path
-        }
-        # 根据画格中的角色列表获取对应的立绘路径
-        dynamic_paths = []
-        for char_name in request.characters:
-            if char_name in portrait_map:
-                dynamic_paths.append(portrait_map[char_name])
-        if dynamic_paths:
-            reference_image_paths = dynamic_paths
-            logger.info(
-                "动态获取立绘路径: characters=%s, paths=%d",
-                request.characters, len(dynamic_paths)
-            )
-
-    # 创建合并后的请求（保留所有漫画元数据）
-    merged_request = ImageGenerationRequest(
-        prompt=request.prompt,
-        negative_prompt=merged_negative,
-        style=request.style,
-        ratio=request.ratio,
-        resolution=request.resolution,
-        quality=request.quality,
-        count=request.count,
-        seed=request.seed,
-        chapter_version_id=request.chapter_version_id,
-        panel_id=request.panel_id,
-        reference_image_paths=reference_image_paths if reference_image_paths else None,
-        reference_strength=request.reference_strength,
-        # 漫画画格元数据 - 对话相关
-        dialogue=request.dialogue,
-        dialogue_speaker=request.dialogue_speaker,
-        dialogue_bubble_type=request.dialogue_bubble_type,
-        dialogue_emotion=request.dialogue_emotion,
-        dialogue_position=request.dialogue_position,
-        # 漫画画格元数据 - 旁白相关
-        narration=request.narration,
-        narration_position=request.narration_position,
-        # 漫画画格元数据 - 音效相关
-        sound_effects=request.sound_effects,
-        sound_effect_details=request.sound_effect_details,
-        # 漫画画格元数据 - 视觉相关
-        composition=request.composition,
-        camera_angle=request.camera_angle,
-        is_key_panel=request.is_key_panel,
-        characters=request.characters,
-        lighting=request.lighting,
-        atmosphere=request.atmosphere,
-        key_visual_elements=request.key_visual_elements,
-        # 语言设置
-        dialogue_language=request.dialogue_language,
-    )
-
+    """为场景生成图片"""
     service = ImageGenerationService(session)
+    merged_request = await service.prepare_scene_request(project_id, request)
     result = await service.generate_image(
         user_id=desktop_user.id,
         project_id=project_id,
@@ -377,53 +243,8 @@ async def generate_page_image(
 
     请求体需要包含由 PromptBuilder.build_page_prompt() 生成的页面级提示词。
     """
-    # 智能合并负面提示词
-    merged_negative = _smart_merge_negative_prompt(request.negative_prompt)
-
-    # 动态获取立绘路径（如果有panel_summaries，提取角色列表）
-    reference_image_paths = request.reference_image_paths or []
-    if request.panel_summaries:
-        # 从所有panel摘要中收集角色
-        all_characters = set()
-        for panel in request.panel_summaries:
-            characters = panel.get("characters", [])
-            all_characters.update(characters)
-
-        if all_characters:
-            portrait_repo = CharacterPortraitRepository(session)
-            active_portraits = await portrait_repo.get_all_active_by_project(project_id)
-            portrait_map = {
-                p.character_name: str(settings.generated_images_dir / p.image_path)
-                for p in active_portraits
-                if p.image_path
-            }
-            dynamic_paths = [
-                portrait_map[char] for char in all_characters if char in portrait_map
-            ]
-            if dynamic_paths:
-                reference_image_paths = dynamic_paths
-                logger.info(
-                    "整页生成: 动态获取立绘路径, characters=%s, paths=%d",
-                    list(all_characters), len(dynamic_paths)
-                )
-
-    # 创建合并后的请求
-    merged_request = PageImageGenerationRequest(
-        full_page_prompt=request.full_page_prompt,
-        negative_prompt=merged_negative,
-        layout_template=request.layout_template,
-        layout_description=request.layout_description,
-        ratio=request.ratio,
-        resolution=request.resolution,
-        style=request.style,
-        chapter_version_id=request.chapter_version_id,
-        reference_image_paths=reference_image_paths if reference_image_paths else None,
-        reference_strength=request.reference_strength,
-        panel_summaries=request.panel_summaries,
-        dialogue_language=request.dialogue_language,
-    )
-
     service = ImageGenerationService(session)
+    merged_request = await service.prepare_page_request(project_id, request)
     result = await service.generate_page_image(
         user_id=desktop_user.id,
         project_id=project_id,

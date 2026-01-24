@@ -15,7 +15,7 @@ from ..schemas.novel import ChapterAnalysisData
 from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
-from ..utils.json_utils import parse_llm_json_safe, remove_think_tags
+from ..utils.json_utils import parse_llm_json_with_context
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,10 @@ class ChapterAnalysisService:
             return None
 
         # 获取分析提示词
-        system_prompt = await self.prompt_service.get_prompt("chapter_analysis")
+        system_prompt = await self.prompt_service.get_prompt_or_default(
+            "chapter_analysis",
+            logger=logger,
+        )
         if not system_prompt:
             logger.error("未找到chapter_analysis提示词，跳过章节分析")
             return None
@@ -113,15 +116,16 @@ class ChapterAnalysisService:
             )
 
             # 解析JSON响应
-            cleaned = remove_think_tags(response)
-            data = parse_llm_json_safe(cleaned)
-
+            data = parse_llm_json_with_context(
+                response,
+                logger,
+                context=(
+                    f"章节分析JSON解析失败: novel={novel_title} "
+                    f"chapter={chapter_number}"
+                ),
+                level=logging.ERROR,
+            )
             if not data:
-                logger.error(
-                    "章节分析JSON解析失败: novel=%s chapter=%d",
-                    novel_title,
-                    chapter_number,
-                )
                 return None
 
             # 验证并转换为Pydantic模型

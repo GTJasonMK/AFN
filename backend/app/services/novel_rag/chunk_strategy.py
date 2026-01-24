@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 from .data_types import NovelDataType
+from ..rag_common.chunk_strategy_base import BaseChunkStrategyManager
 
 
 class NovelChunkMethod(str, Enum):
@@ -304,187 +305,20 @@ OPTIMIZED_NOVEL_STRATEGIES: Dict[NovelDataType, NovelChunkConfig] = {
 }
 
 
-class NovelChunkStrategyManager:
+class NovelChunkStrategyManager(BaseChunkStrategyManager[NovelDataType, NovelChunkConfig, NovelChunkMethod]):
     """
     小说分块策略管理器
 
     管理各数据类型的分块配置，支持切换预设策略或自定义配置。
     """
 
-    # 预设策略集合
     PRESETS = {
         "default": DEFAULT_NOVEL_STRATEGIES,
         "optimized": OPTIMIZED_NOVEL_STRATEGIES,
     }
-
-    def __init__(self, preset: str = "default"):
-        """
-        初始化策略管理器
-
-        Args:
-            preset: 预设策略名称，可选 "default" 或 "optimized"
-        """
-        self._preset_name = preset
-        self._strategies: Dict[NovelDataType, NovelChunkConfig] = {}
-        self._load_preset(preset)
-
-    def _load_preset(self, preset: str):
-        """加载预设策略"""
-        if preset not in self.PRESETS:
-            raise ValueError(f"未知的预设策略: {preset}，可选: {list(self.PRESETS.keys())}")
-
-        # 深拷贝预设配置
-        for data_type, config in self.PRESETS[preset].items():
-            self._strategies[data_type] = NovelChunkConfig(
-                method=config.method,
-                md_min_level=config.md_min_level,
-                md_max_level=config.md_max_level,
-                min_chunk_length=config.min_chunk_length,
-                max_chunk_length=config.max_chunk_length,
-                with_overlap=config.with_overlap,
-                overlap_length=config.overlap_length,
-                long_field_threshold=config.long_field_threshold,
-                add_context_prefix=config.add_context_prefix,
-                fixed_chunk_size=config.fixed_chunk_size,
-                # 语义分块参数
-                semantic_gate_threshold=config.semantic_gate_threshold,
-                semantic_alpha=config.semantic_alpha,
-                semantic_gamma=config.semantic_gamma,
-                semantic_min_sentences=config.semantic_min_sentences,
-                semantic_max_sentences=config.semantic_max_sentences,
-                extra=dict(config.extra),
-            )
-
-    def get_config(self, data_type: NovelDataType) -> NovelChunkConfig:
-        """
-        获取指定数据类型的分块配置
-
-        Args:
-            data_type: 数据类型
-
-        Returns:
-            分块配置
-        """
-        if data_type not in self._strategies:
-            return NovelChunkConfig()
-        return self._strategies[data_type]
-
-    def set_config(self, data_type: NovelDataType, config: NovelChunkConfig):
-        """
-        设置指定数据类型的分块配置
-
-        Args:
-            data_type: 数据类型
-            config: 分块配置
-        """
-        self._strategies[data_type] = config
-
-    def set_method(self, data_type: NovelDataType, method: NovelChunkMethod):
-        """
-        快捷设置分块方法
-
-        Args:
-            data_type: 数据类型
-            method: 分块方法
-        """
-        if data_type in self._strategies:
-            self._strategies[data_type].method = method
-        else:
-            self._strategies[data_type] = NovelChunkConfig(method=method)
-
-    def switch_preset(self, preset: str):
-        """
-        切换预设策略
-
-        Args:
-            preset: 预设策略名称
-        """
-        self._load_preset(preset)
-        self._preset_name = preset
-
-    def get_current_preset(self) -> str:
-        """获取当前预设名称"""
-        return self._preset_name
-
-    def get_all_configs(self) -> Dict[NovelDataType, NovelChunkConfig]:
-        """获取所有数据类型的配置"""
-        return dict(self._strategies)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        导出配置为字典格式（用于序列化）
-
-        Returns:
-            配置字典
-        """
-        result = {
-            "preset": self._preset_name,
-            "strategies": {}
-        }
-        for data_type, config in self._strategies.items():
-            result["strategies"][data_type.value] = {
-                "method": config.method.value,
-                "md_min_level": config.md_min_level,
-                "md_max_level": config.md_max_level,
-                "min_chunk_length": config.min_chunk_length,
-                "max_chunk_length": config.max_chunk_length,
-                "with_overlap": config.with_overlap,
-                "overlap_length": config.overlap_length,
-                "long_field_threshold": config.long_field_threshold,
-                "add_context_prefix": config.add_context_prefix,
-                "fixed_chunk_size": config.fixed_chunk_size,
-                # 语义分块参数
-                "semantic_gate_threshold": config.semantic_gate_threshold,
-                "semantic_alpha": config.semantic_alpha,
-                "semantic_gamma": config.semantic_gamma,
-                "semantic_min_sentences": config.semantic_min_sentences,
-                "semantic_max_sentences": config.semantic_max_sentences,
-                "extra": config.extra,
-            }
-        return result
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "NovelChunkStrategyManager":
-        """
-        从字典创建策略管理器
-
-        Args:
-            data: 配置字典
-
-        Returns:
-            策略管理器实例
-        """
-        preset = data.get("preset", "optimized")
-        manager = cls(preset=preset)
-
-        strategies = data.get("strategies", {})
-        for type_str, config_dict in strategies.items():
-            try:
-                data_type = NovelDataType(type_str)
-                config = NovelChunkConfig(
-                    method=NovelChunkMethod(config_dict.get("method", "simple")),
-                    md_min_level=config_dict.get("md_min_level", 2),
-                    md_max_level=config_dict.get("md_max_level", 3),
-                    min_chunk_length=config_dict.get("min_chunk_length", 80),
-                    max_chunk_length=config_dict.get("max_chunk_length", 800),
-                    with_overlap=config_dict.get("with_overlap", True),
-                    overlap_length=config_dict.get("overlap_length", 100),
-                    long_field_threshold=config_dict.get("long_field_threshold", 300),
-                    add_context_prefix=config_dict.get("add_context_prefix", True),
-                    fixed_chunk_size=config_dict.get("fixed_chunk_size", 500),
-                    # 语义分块参数
-                    semantic_gate_threshold=config_dict.get("semantic_gate_threshold", 0.3),
-                    semantic_alpha=config_dict.get("semantic_alpha", 0.1),
-                    semantic_gamma=config_dict.get("semantic_gamma", 1.1),
-                    semantic_min_sentences=config_dict.get("semantic_min_sentences", 2),
-                    semantic_max_sentences=config_dict.get("semantic_max_sentences", 20),
-                    extra=config_dict.get("extra", {}),
-                )
-                manager.set_config(data_type, config)
-            except (ValueError, KeyError):
-                pass
-
-        return manager
+    DATA_TYPE_ENUM = NovelDataType
+    CONFIG_CLASS = NovelChunkConfig
+    METHOD_ENUM = NovelChunkMethod
 
 
 # 全局默认策略管理器实例

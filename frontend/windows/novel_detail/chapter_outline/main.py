@@ -22,8 +22,9 @@ from themes.theme_manager import theme_manager
 from utils.message_service import MessageService
 from utils.dpi_utils import dp, sp
 from utils.constants import WorkerTimeouts
+from utils.async_worker import AsyncAPIWorker
+from utils.worker_manager import WorkerManager
 
-from .utils import AsyncOperationHelper
 from .components import LongNovelEmptyState, ShortNovelEmptyState, OutlineActionBar, OutlineListView
 from .handlers import PartOutlineHandlerMixin, ChapterOutlineHandlerMixin
 
@@ -77,7 +78,7 @@ class ChapterOutlineSection(PartOutlineHandlerMixin, ChapterOutlineHandlerMixin,
 
         # 初始化服务
         self.api_client = APIClientManager.get_client()
-        self.async_helper = AsyncOperationHelper(self)
+        self.worker_manager = WorkerManager(self)
 
         # 初始化UI
         self.setupUI()
@@ -317,6 +318,57 @@ class ChapterOutlineSection(PartOutlineHandlerMixin, ChapterOutlineHandlerMixin,
             elif item.layout():
                 self._clear_layout(item.layout())
 
+    def _run_async_action(
+        self,
+        api_func,
+        *args,
+        loading_message: str = "正在处理...",
+        success_message: str = "操作成功",
+        error_context: str = "操作",
+        on_success=None,
+        on_error=None,
+        **kwargs
+    ):
+        """统一执行异步API调用"""
+        loading_dialog = LoadingDialog(
+            parent=self,
+            title="请稍候",
+            message=loading_message,
+            cancelable=True
+        )
+        loading_dialog.show()
+
+        worker = AsyncAPIWorker(api_func, *args, **kwargs)
+
+        def handle_success(result):
+            loading_dialog.close()
+            if success_message:
+                MessageService.show_operation_success(self, success_message)
+            if on_success:
+                on_success(result)
+
+        def handle_error(error_msg):
+            loading_dialog.close()
+            MessageService.show_api_error(self, error_msg, error_context)
+            if on_error:
+                on_error(error_msg)
+
+        def handle_cancel():
+            try:
+                if worker.isRunning():
+                    worker.cancel()
+                    worker.quit()
+                    worker.wait(WorkerTimeouts.DEFAULT_MS)
+            except RuntimeError:
+                pass
+            loading_dialog.close()
+
+        worker.success.connect(handle_success)
+        worker.error.connect(handle_error)
+        loading_dialog.rejected.connect(handle_cancel)
+        self.worker_manager.start(worker)
+        return worker
+
     # ========== 部分大纲操作（由PartOutlineHandlerMixin提供） ==========
     # ========== 章节大纲操作（由ChapterOutlineHandlerMixin提供） ==========
 
@@ -324,8 +376,8 @@ class ChapterOutlineSection(PartOutlineHandlerMixin, ChapterOutlineHandlerMixin,
         """清理所有资源（供父组件在页面隐藏时调用）"""
         self._cleanup_part_outline_sse()
         self._cleanup_chapter_outline_sse()
-        if self.async_helper:
-            self.async_helper.cleanup()
+        if self.worker_manager:
+            self.worker_manager.cleanup_all()
         super().cleanup()
 
     # ========== 状态检查 ==========
@@ -388,7 +440,8 @@ class ChapterOutlineSection(PartOutlineHandlerMixin, ChapterOutlineHandlerMixin,
         self._stop_progress_polling()
         self._cleanup_chapter_outline_sse()
         self._cleanup_part_outline_sse()
-        self.async_helper.stop_all()
+        if self.worker_manager:
+            self.worker_manager.stop_all()
 
         # 清理生成任务worker
         if self._generate_worker is not None:

@@ -238,22 +238,9 @@ class MangaPromptServiceV2:
             # 根据起始阶段清理相关图片
             # - extraction/planning/storyboard/prompt_building: 删除所有图片
             # - page_prompt_building: 只删除整页图片（panel图片保留）
-            if start_from_stage in ["planning", "storyboard", "prompt_building"]:
-                deleted_images = await self.image_service.delete_chapter_images(
-                    project_id, chapter_number
-                )
-                if deleted_images > 0:
-                    logger.debug(
-                        f"从{start_from_stage}阶段重新生成，已删除 {deleted_images} 张图片"
-                    )
-            elif start_from_stage == "page_prompt_building":
-                deleted_images = await self.image_service.delete_chapter_images_by_type(
-                    project_id, chapter_number, "page"
-                )
-                if deleted_images > 0:
-                    logger.debug(
-                        f"从page_prompt_building阶段重新生成，已删除 {deleted_images} 张整页图片"
-                    )
+            await self._result_persistence.cleanup_images_for_stage(
+                project_id, chapter_number, start_from_stage
+            )
 
         # ========== 特殊处理：仅重新生成整页提示词 ==========
         if start_stage == "page_prompt_building":
@@ -868,6 +855,53 @@ class MangaPromptServiceV2:
 
         return {"chapter_info": partial_chapter_info}
 
+    def _build_analysis_data(
+        self,
+        chapter_info: Optional[ChapterInfo],
+        page_plan: Optional[PagePlanResult],
+    ) -> Optional[dict]:
+        """构建 analysis_data 用于详细信息Tab展示"""
+        if not chapter_info and not page_plan:
+            return None
+
+        analysis_data = {}
+        if chapter_info:
+            analysis_data["chapter_info"] = chapter_info.to_dict()
+        if page_plan:
+            analysis_data["page_plan"] = page_plan.to_dict()
+        return analysis_data
+
+    async def _get_chapter_or_warn(
+        self,
+        project_id: str,
+        chapter_number: int,
+    ):
+        """获取章节，不存在则记录警告"""
+        chapter = await self.chapter_repo.get_by_project_and_number(
+            project_id, chapter_number
+        )
+        if not chapter:
+            logger.warning(f"未找到章节: {project_id}/{chapter_number}")
+        return chapter
+
+    async def _persist_result_data(
+        self,
+        chapter_id: int,
+        result_data: dict,
+        analysis_data: Optional[dict],
+        source_version_id: Optional[int],
+        is_complete: bool = True,
+    ):
+        """保存结果数据并提交事务"""
+        await self.manga_prompt_repo.save_result(
+            chapter_id=chapter_id,
+            result_data=result_data,
+            analysis_data=analysis_data,
+            is_complete=is_complete,
+            source_version_id=source_version_id,
+        )
+        await self.session.commit()
+
     def _rebuild_storyboard_from_db(
         self,
         manga_prompt,
@@ -886,21 +920,16 @@ class MangaPromptServiceV2:
         """
         from ..storyboard import PageStoryboard, PanelDesign, PanelShape, ShotType, WidthRatio, AspectRatio, DialogueBubble
 
-        # 按页码分组 panels
-        panels_by_page = {}
-        for panel in manga_prompt.panels or []:
-            page_num = panel.get("page_number", 1)
-            if page_num not in panels_by_page:
-                panels_by_page[page_num] = []
-            panels_by_page[page_num].append(panel)
+        pages = []
+        pages_data = MangaPromptRepository.build_pages_from_scenes_panels(
+            manga_prompt.scenes or [],
+            manga_prompt.panels or [],
+        )
 
         # 重建每页的 storyboard
-        pages = []
-        scenes_list = manga_prompt.scenes or []
-
-        for scene in scenes_list:
-            page_number = scene.get("page_number", 0)
-            page_panels = panels_by_page.get(page_number, [])
+        for page_data in pages_data:
+            page_number = page_data.get("page_number", 0)
+            page_panels = page_data.get("panels", [])
 
             # 重建 panel designs
             panel_designs = []
@@ -943,9 +972,9 @@ class MangaPromptServiceV2:
             page_sb = PageStoryboard(
                 page_number=page_number,
                 panels=panel_designs,
-                layout_description=scene.get("layout_description", ""),
-                gutter_horizontal=scene.get("gutter_horizontal", 8),
-                gutter_vertical=scene.get("gutter_vertical", 8),
+                layout_description=page_data.get("layout_description", ""),
+                gutter_horizontal=page_data.get("gutter_horizontal", 8),
+                gutter_vertical=page_data.get("gutter_vertical", 8),
             )
             pages.append(page_sb)
 
@@ -1045,6 +1074,9 @@ class MangaPromptServiceV2:
         generated_count = 0
         failed_count = 0
         total_pages = result.total_pages
+        page_prompts_map = {
+            pp.page_number: pp for pp in (result.page_prompts or [])
+        }
 
         # 收集角色立绘路径
         character_portraits = {}
@@ -1072,32 +1104,54 @@ class MangaPromptServiceV2:
             )
 
             try:
-                # 构建整页提示词
-                page_prompt_data = build_page_prompt_for_generation(
-                    page=page,
-                    chapter_info=chapter_info,
-                    style=result.style,
-                    character_portraits=character_portraits,
-                )
+                # 构建整页提示词（优先使用 LLM 结果）
+                page_prompt = page_prompts_map.get(page_number)
+                if page_prompt and page_prompt.full_page_prompt:
+                    page_prompt_data = {
+                        "full_page_prompt": page_prompt.full_page_prompt,
+                        "negative_prompt": page_prompt.negative_prompt,
+                        "aspect_ratio": page_prompt.aspect_ratio,
+                        "reference_image_paths": page_prompt.reference_image_paths or [],
+                        "layout_template": page_prompt.layout_template,
+                        "layout_description": page_prompt.layout_description,
+                        "panel_summaries": page_prompt.panel_summaries or [],
+                    }
+                else:
+                    logger.warning(
+                        "整页提示词缺失，回退使用规则拼装: page=%d",
+                        page_number
+                    )
+                    page_prompt_data = build_page_prompt_for_generation(
+                        page=page,
+                        chapter_info=chapter_info,
+                        style=result.style,
+                        character_portraits=character_portraits,
+                    )
 
                 # 调用图片生成服务
                 from app.services.image_generation.schemas import PageImageGenerationRequest
                 gen_request = PageImageGenerationRequest(
                     full_page_prompt=page_prompt_data["full_page_prompt"],
                     negative_prompt=page_prompt_data.get("negative_prompt", ""),
+                    layout_template=page_prompt_data.get("layout_template", ""),
+                    layout_description=page_prompt_data.get("layout_description", ""),
                     ratio=page_prompt_data.get("aspect_ratio", "3:4"),
                     style=result.style,
                     chapter_version_id=source_version_id,
                     reference_image_paths=page_prompt_data.get("reference_image_paths", []),
+                    panel_summaries=page_prompt_data.get("panel_summaries", []),
                     dialogue_language=result.dialogue_language or "chinese",
                 )
 
+                merged_request = await self.image_service.prepare_page_request(
+                    project_id, gen_request
+                )
                 gen_result = await self.image_service.generate_page_image(
                     user_id=user_id,
                     project_id=project_id,
                     chapter_number=chapter_number,
                     page_number=page_number,
-                    request=gen_request,
+                    request=merged_request,
                 )
 
                 if gen_result.success:
@@ -1155,11 +1209,8 @@ class MangaPromptServiceV2:
             dialogue_language: 对话语言
         """
         # 获取章节
-        chapter = await self.chapter_repo.get_by_project_and_number(
-            project_id, chapter_number
-        )
+        chapter = await self._get_chapter_or_warn(project_id, chapter_number)
         if not chapter:
-            logger.warning(f"未找到章节: {project_id}/{chapter_number}")
             return
 
         # 计算已完成的画格总数
@@ -1180,24 +1231,16 @@ class MangaPromptServiceV2:
         }
 
         # 构建分析数据（用于详细信息Tab展示）
-        analysis_data = None
-        if chapter_info or page_plan:
-            analysis_data = {}
-            if chapter_info:
-                analysis_data["chapter_info"] = chapter_info.to_dict()
-            if page_plan:
-                analysis_data["page_plan"] = page_plan.to_dict()
+        analysis_data = self._build_analysis_data(chapter_info, page_plan)
 
         # 保存到数据库（覆盖之前的部分结果）
-        await self.manga_prompt_repo.save_result(
-            chapter_id=chapter.id,
-            result_data=result_data,
-            analysis_data=analysis_data,
+        await self._persist_result_data(
+            chapter.id,
+            result_data,
+            analysis_data,
+            source_version_id,
             is_complete=is_complete,
-            source_version_id=source_version_id,
         )
-
-        await self.session.commit()
         logger.debug(f"增量保存: {len(completed_pages)}/{total_pages} 页")
 
     async def _save_result(
@@ -1227,31 +1270,21 @@ class MangaPromptServiceV2:
         result_data["completed_pages_count"] = result.total_pages
 
         # 获取章节
-        chapter = await self.chapter_repo.get_by_project_and_number(
-            project_id, chapter_number
-        )
+        chapter = await self._get_chapter_or_warn(project_id, chapter_number)
         if not chapter:
-            logger.warning(f"未找到章节: {project_id}/{chapter_number}")
             return
 
         # 构建分析数据（用于详细信息Tab展示）
-        analysis_data = None
-        if chapter_info or page_plan:
-            analysis_data = {}
-            if chapter_info:
-                analysis_data["chapter_info"] = chapter_info.to_dict()
-            if page_plan:
-                analysis_data["page_plan"] = page_plan.to_dict()
+        analysis_data = self._build_analysis_data(chapter_info, page_plan)
 
         # 保存到数据库
-        await self.manga_prompt_repo.save_result(
-            chapter_id=chapter.id,
-            result_data=result_data,
-            analysis_data=analysis_data,
-            source_version_id=source_version_id,
+        await self._persist_result_data(
+            chapter.id,
+            result_data,
+            analysis_data,
+            source_version_id,
+            is_complete=True,
         )
-
-        await self.session.commit()
 
     async def _regenerate_page_prompts_only(
         self,
@@ -1386,13 +1419,13 @@ class MangaPromptServiceV2:
         result_data["page_prompts"] = [pp.to_dict() for pp in page_prompts]
 
         # 7. 保存更新后的结果
-        await self.manga_prompt_repo.save_result(
-            chapter_id=chapter.id,
-            result_data=result_data,
-            analysis_data=analysis_data,  # 保留原有的分析数据
-            source_version_id=source_version_id,
+        await self._persist_result_data(
+            chapter.id,
+            result_data,
+            analysis_data,  # 保留原有的分析数据
+            source_version_id,
+            is_complete=True,
         )
-        await self.session.commit()
 
         # 8. 返回完整的 MangaPromptResult
         return MangaPromptResult.from_dict(result_data)

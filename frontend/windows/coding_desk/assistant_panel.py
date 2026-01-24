@@ -7,7 +7,7 @@
 """
 
 import logging
-from typing import Optional, List
+from typing import List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QFrame,
@@ -20,6 +20,7 @@ from components.base import ThemeAwareWidget, ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
+from utils.worker_manager import WorkerManager
 from api.manager import APIClientManager
 
 # 复用灵感模式的输入组件
@@ -183,13 +184,13 @@ class CodingAssistantPanel(ThemeAwareFrame):
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
         self.api_client = APIClientManager.get_client()
+        self.worker_manager = WorkerManager(self)
 
         # 当前模式: "rag" 或 "agent"
         self.current_mode = "rag"
 
         # 状态
         self.is_loading = False
-        self._worker: Optional[AsyncAPIWorker] = None
         self._result_widgets = []
 
         # UI组件引用
@@ -495,18 +496,16 @@ class CodingAssistantPanel(ThemeAwareFrame):
         self._add_info_message("正在检索...", "正在生成查询向量并检索相关内容...")
 
         # 异步请求
-        self._cleanup_worker()
-
         top_k = self.topk_spinner.value()
-        self._worker = AsyncAPIWorker(
+        worker = AsyncAPIWorker(
             self.api_client.query_coding_rag,
             self.project_id,
             text,
             top_k
         )
-        self._worker.success.connect(self._on_query_success)
-        self._worker.error.connect(self._on_query_error)
-        self._worker.start()
+        worker.success.connect(self._on_query_success)
+        worker.error.connect(self._on_query_error)
+        self.worker_manager.start(worker, "rag_query")
 
     def _on_query_success(self, response: dict):
         """处理查询成功"""
@@ -682,24 +681,9 @@ class CodingAssistantPanel(ThemeAwareFrame):
         """滚动到顶部"""
         QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))
 
-    def _cleanup_worker(self):
-        """清理异步Worker"""
-        if self._worker is None:
-            return
-
-        try:
-            if self._worker.isRunning():
-                self._worker.cancel()
-                self._worker.quit()
-                self._worker.wait(3000)
-        except RuntimeError:
-            pass
-        finally:
-            self._worker = None
-
     def cleanup(self):
         """清理资源"""
-        self._cleanup_worker()
+        self.worker_manager.cleanup_all()
         self._clear_results()
         if self.agent_content:
             self.agent_content.cleanup()

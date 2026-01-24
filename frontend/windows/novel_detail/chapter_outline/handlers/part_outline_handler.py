@@ -268,7 +268,7 @@ class PartOutlineHandlerMixin:
             return
 
         # 从第start_part部分开始重新生成（级联删除后续所有）
-        self.async_helper.execute(
+        self._run_async_action(
             self.api_client.regenerate_specific_part_outline,
             self.project_id,
             start_part,
@@ -309,7 +309,7 @@ class PartOutlineHandlerMixin:
         ):
             return
 
-        self.async_helper.execute(
+        self._run_async_action(
             self.api_client.delete_part_outlines,
             self.project_id,
             count,

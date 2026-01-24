@@ -55,6 +55,19 @@ class ContentPanelBuilder(BasePanelBuilder):
         """实现抽象方法 - 创建面板"""
         return self.create_content_tab(data)
 
+    def create_editor_panel(
+        self,
+        content: str,
+        read_only: bool = False,
+        empty_text: Optional[str] = None
+    ) -> QFrame:
+        """创建正文编辑器容器（可复用到只读场景）"""
+        return self._create_editor_container(
+            content,
+            read_only=read_only,
+            empty_text=empty_text
+        )
+
     def create_content_tab(self, chapter_data: dict, parent: QWidget = None) -> QWidget:
         """创建正文标签页 - 现代化设计（内容优先）
 
@@ -162,16 +175,24 @@ class ContentPanelBuilder(BasePanelBuilder):
 
         return toolbar
 
-    def _create_editor_container(self, content: str) -> QFrame:
+    def _create_editor_container(
+        self,
+        content: str,
+        read_only: bool = False,
+        empty_text: Optional[str] = None
+    ) -> QFrame:
         """创建编辑器容器
 
         Args:
             content: 章节内容
+            read_only: 是否只读
+            empty_text: 空内容提示文案
 
         Returns:
             编辑器容器Frame
         """
         s = self._styler
+        placeholder_text = empty_text or '暂无内容，请点击"生成章节"按钮'
 
         editor_container = QFrame()
         editor_container.setObjectName("editor_container")
@@ -190,9 +211,9 @@ class ContentPanelBuilder(BasePanelBuilder):
         # 文本编辑器
         self._content_text = QTextEdit()
         self._content_text.setPlainText(
-            content if content else '暂无内容，请点击"生成章节"按钮'
+            content if content else placeholder_text
         )
-        self._content_text.setReadOnly(False)
+        self._content_text.setReadOnly(read_only)
         self._content_text.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {s.bg_card};

@@ -4,9 +4,11 @@
 定义供应商接口规范，所有具体供应商都需要实现这些方法。
 """
 
+import base64
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import AsyncIterator, Dict, Any, List, Optional
 
 import httpx
@@ -283,6 +285,163 @@ class BaseImageProvider(ABC):
             headers["Accept"] = accept
         return headers
 
+    def _extract_error_message_from_data(
+        self,
+        error_data: Any,
+        default_message: str,
+        *,
+        paths: Optional[List[List[str]]] = None,
+        fallback: bool = True,
+    ) -> str:
+        """从错误响应数据中提取消息文本
+
+        Args:
+            error_data: 响应中的错误数据
+            default_message: 默认错误消息
+            paths: 优先匹配的字段路径列表（如 [["error", "message"]]）
+            fallback: 是否启用通用字段回退匹配
+
+        Returns:
+            解析后的错误消息
+        """
+        if not isinstance(error_data, dict):
+            return default_message
+
+        if paths:
+            for path in paths:
+                value: Any = error_data
+                for key in path:
+                    if isinstance(value, dict) and key in value:
+                        value = value[key]
+                    else:
+                        value = None
+                        break
+                if isinstance(value, str) and value:
+                    return value
+
+        if not fallback:
+            return default_message
+
+        error_block = error_data.get("error")
+        if isinstance(error_block, dict):
+            msg = error_block.get("message")
+            if isinstance(msg, str) and msg:
+                return msg
+
+        for key in ("message", "detail", "error"):
+            msg = error_data.get(key)
+            if isinstance(msg, str) and msg:
+                return msg
+
+        return default_message
+
+    def _build_error_message_from_response(
+        self,
+        response: httpx.Response,
+        default_message: str,
+        *,
+        paths: Optional[List[List[str]]] = None,
+        fallback: bool = True,
+        prefix: Optional[str] = None,
+    ) -> str:
+        """从响应中构建错误信息
+
+        Args:
+            response: httpx 响应对象
+            default_message: 默认错误消息
+            paths: 优先匹配的字段路径列表
+            fallback: 是否启用通用字段回退匹配
+            prefix: 可选前缀（用于拼接供应商标识）
+
+        Returns:
+            解析后的错误消息
+        """
+        try:
+            error_data = response.json()
+        except Exception:
+            return default_message
+
+        error_text = self._extract_error_message_from_data(
+            error_data,
+            default_message,
+            paths=paths,
+            fallback=fallback,
+        )
+
+        if prefix and error_text:
+            return f"{prefix}{error_text}"
+
+        return error_text or default_message
+
+    def _build_status_message(
+        self,
+        message: str,
+        status_code: int,
+        template: Optional[str] = None,
+    ) -> str:
+        """构建带状态码的错误消息"""
+        if template:
+            return template.format(message=message, status=status_code)
+        return f"{message}({status_code})"
+
+    async def _request_json(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Any = None,
+        data: Any = None,
+        files: Any = None,
+        success_statuses: Optional[List[int]] = None,
+        error_message: str = "请求失败",
+        status_message_template: Optional[str] = None,
+        error_paths: Optional[List[List[str]]] = None,
+        error_fallback: bool = True,
+    ) -> Dict[str, Any]:
+        """发送请求并返回 JSON 响应，统一错误消息拼装"""
+        if success_statuses is None:
+            success_statuses = [200]
+
+        request_kwargs: Dict[str, Any] = {}
+        if headers:
+            request_kwargs["headers"] = headers
+        if params:
+            request_kwargs["params"] = params
+        if json_body is not None:
+            request_kwargs["json"] = json_body
+        if data is not None:
+            request_kwargs["data"] = data
+        if files is not None:
+            request_kwargs["files"] = files
+
+        response = await client.request(method, url, **request_kwargs)
+
+        if response.status_code not in success_statuses:
+            status_message = self._build_status_message(
+                error_message,
+                response.status_code,
+                status_message_template,
+            )
+            error_msg = self._build_error_message_from_response(
+                response,
+                status_message,
+                paths=error_paths,
+                fallback=error_fallback,
+            )
+            raise Exception(error_msg)
+
+        return response.json()
+
+    def _load_reference_image_bytes(self, ref_image: "ReferenceImageInfo") -> bytes:
+        """读取参考图字节数据（支持base64与文件路径）"""
+        if ref_image.base64_data:
+            return base64.b64decode(ref_image.base64_data)
+
+        return Path(ref_image.file_path).read_bytes()
+
     @abstractmethod
     async def test_connection(self, config: ImageGenerationConfig) -> ProviderTestResult:
         """
@@ -441,6 +600,25 @@ class BaseImageProvider(ABC):
             prompt = f"{prompt}\n\n负面提示词: {request.negative_prompt}"
 
         return prompt
+
+    def _build_prompt_with_negative(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        add_context: bool,
+        default_negative_prompt: Optional[str] = None,
+    ) -> tuple[str, str]:
+        """构建提示词并返回负面提示词"""
+        prompt = self.build_prompt(request, add_context=add_context)
+
+        if request.negative_prompt:
+            negative_prompt = request.negative_prompt
+        elif default_negative_prompt is not None:
+            negative_prompt = default_negative_prompt
+        else:
+            negative_prompt = ""
+
+        return prompt, negative_prompt
 
     # 构图描述映射
     COMPOSITION_MAP = {

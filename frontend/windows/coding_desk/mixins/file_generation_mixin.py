@@ -7,7 +7,8 @@
 import logging
 from typing import Optional, TYPE_CHECKING
 
-from utils.sse_worker import SSEWorker
+from utils.async_worker import run_async_action
+from utils.sse_worker import SSEWorker, start_sse_worker, reset_sse_generation_state
 from utils.message_service import MessageService
 
 if TYPE_CHECKING:
@@ -53,12 +54,14 @@ class FileGenerationMixin:
         )
 
         # 启动SSE Worker
-        self._sse_worker = SSEWorker(url, {})
-        self._sse_worker.token_received.connect(self._on_generation_token)
-        self._sse_worker.progress_received.connect(self._on_generation_progress)
-        self._sse_worker.complete.connect(self._on_generation_complete)
-        self._sse_worker.error.connect(self._on_generation_error)
-        self._sse_worker.start()
+        self._sse_worker = start_sse_worker(
+            url,
+            {},
+            on_token=self._on_generation_token,
+            on_progress=self._on_generation_progress,
+            on_complete=self._on_generation_complete,
+            on_error=self._on_generation_error,
+        )
 
     def _on_generation_token(self: 'CodingDesk', token: str):
         """收到生成的token"""
@@ -71,8 +74,7 @@ class FileGenerationMixin:
 
     def _on_generation_complete(self: 'CodingDesk', data: dict):
         """生成完成"""
-        self._is_generating = False
-        self._sse_worker = None
+        reset_sse_generation_state(self)
 
         # 更新UI状态
         self.workspace.set_generate_complete()
@@ -85,8 +87,7 @@ class FileGenerationMixin:
 
     def _on_generation_error(self: 'CodingDesk', error_msg: str):
         """生成错误"""
-        self._is_generating = False
-        self._sse_worker = None
+        reset_sse_generation_state(self)
 
         # 更新UI状态
         self.workspace.set_status("生成失败")
@@ -109,15 +110,15 @@ class FileGenerationMixin:
 
         self.workspace.set_status("正在生成审查Prompt...")
 
-        from utils.async_worker import AsyncAPIWorker
-        worker = AsyncAPIWorker(
+        run_async_action(
+            self.worker_manager,
             self.api_client.generate_file_review,
             self.project_id,
-            self._current_file_id
+            self._current_file_id,
+            task_name='generate_review',
+            on_success=self._on_review_generated,
+            on_error=self._on_review_error,
         )
-        worker.success.connect(self._on_review_generated)
-        worker.error.connect(self._on_review_error)
-        self.worker_manager.start(worker, 'generate_review')
 
     def _on_review_generated(self: 'CodingDesk', data: dict):
         """审查Prompt生成完成"""
@@ -134,10 +135,7 @@ class FileGenerationMixin:
 
     def stop_generation(self: 'CodingDesk'):
         """停止生成"""
-        if self._sse_worker:
-            self._sse_worker.stop()
-            self._sse_worker = None
-        self._is_generating = False
+        reset_sse_generation_state(self)
 
 
 __all__ = ["FileGenerationMixin"]

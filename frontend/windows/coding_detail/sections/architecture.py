@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from windows.base.sections import BaseSection
+from windows.base.sections import BaseSection, toggle_expand_state
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from api.manager import APIClientManager
@@ -57,7 +57,6 @@ class ArchitectureSection(BaseSection):
         self.systems = systems or []
         self.modules = modules or []
         self._system_nodes = []
-        self._workers = []
         self._blueprint_expanded = True
         self.api_client = APIClientManager.get_client()
 
@@ -278,49 +277,35 @@ class ArchitectureSection(BaseSection):
 
     def _populate_systems(self):
         """填充系统列表"""
-        for node in self._system_nodes:
-            try:
-                node.deleteLater()
-            except RuntimeError:
-                pass
-        self._system_nodes.clear()
-
-        if not self.systems:
-            empty_widget = QWidget()
-            empty_layout = QVBoxLayout(empty_widget)
-            empty_layout.setContentsMargins(dp(20), dp(40), dp(20), dp(40))
-            empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            empty_label = QLabel("暂无系统划分\n\n点击「生成系统划分」按钮，AI将自动将项目划分为多个子系统")
-            empty_label.setObjectName("empty_label")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_label.setWordWrap(True)
-            empty_layout.addWidget(empty_label)
-
-            self.systems_layout.addWidget(empty_widget)
-            self._system_nodes.append(empty_widget)
-            return
-
-        for system in self.systems:
+        def build_node(system):
             system_num = system.get('system_number', 0)
-            # 筛选该系统下的模块
             system_modules = [
                 m for m in self.modules
                 if m.get('system_number') == system_num
             ]
-
             node = SystemNode(system, system_modules)
             node.clicked.connect(self._on_item_clicked)
             node.generateModulesClicked.connect(self._on_generate_modules)
-            self.systems_layout.addWidget(node)
-            self._system_nodes.append(node)
+            return node
+
+        self._render_card_list(
+            items=self.systems,
+            layout=self.systems_layout,
+            cards=self._system_nodes,
+            card_factory=build_node,
+            empty_factory=lambda: self._create_empty_hint_widget(
+                "暂无系统划分\n\n点击「生成系统划分」按钮，AI将自动将项目划分为多个子系统"
+            ),
+        )
 
     def _on_blueprint_header_click(self, event):
         """蓝图标题点击"""
         if event.button() == Qt.MouseButton.LeftButton:
-            self._blueprint_expanded = not self._blueprint_expanded
-            self.blueprint_content.setVisible(self._blueprint_expanded)
-            self.blueprint_expand_icon.setText("-" if self._blueprint_expanded else "+")
+            self._blueprint_expanded = toggle_expand_state(
+                self._blueprint_expanded,
+                self.blueprint_content,
+                self.blueprint_expand_icon,
+            )
 
     def _on_item_clicked(self, data: Dict):
         """项目点击处理"""
@@ -356,7 +341,7 @@ class ArchitectureSection(BaseSection):
         )
         worker.success.connect(self._on_systems_generated)
         worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_systems_generated(self, result):
@@ -402,7 +387,7 @@ class ArchitectureSection(BaseSection):
         )
         worker.success.connect(self._on_modules_generated)
         worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_modules_generated(self, result):
@@ -603,16 +588,6 @@ class ArchitectureSection(BaseSection):
             }}
         """)
 
-    def _apply_scroll_style(self, scroll: QScrollArea):
-        """应用滚动区域样式"""
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
     def _apply_theme(self):
         """应用主题"""
         if hasattr(self, 'blueprint_section'):
@@ -657,13 +632,7 @@ class ArchitectureSection(BaseSection):
             self._all_modules_sse_worker = None
 
         # 清理AsyncWorker
-        for worker in self._workers:
-            try:
-                if worker.isRunning():
-                    worker.cancel()
-            except Exception:
-                pass
-        self._workers.clear()
+        self._cleanup_workers()
 
 
 __all__ = ["ArchitectureSection"]

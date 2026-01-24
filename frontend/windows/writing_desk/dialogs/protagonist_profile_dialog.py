@@ -17,11 +17,11 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPixmap, QFont, QPainter, QBrush, QPen
 
 from components.base import ThemeAwareWidget
-from components.dialogs import ConfirmDialog, AlertDialog
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 from utils.async_worker import AsyncWorker
+from utils.message_service import MessageService
 from api.manager import APIClientManager
 
 logger = logging.getLogger(__name__)
@@ -893,12 +893,11 @@ class ProtagonistProfileDialog(QDialog):
 
         # 检查是否超出总章节数
         if chapter_number > self.total_chapters:
-            AlertDialog(
-                parent=self,
-                title="无法同步",
-                message="所有章节已同步完成",
-                dialog_type="info"
-            ).exec()
+            MessageService.show_info(
+                self,
+                "所有章节已同步完成",
+                title="无法同步"
+            )
             return
 
         if self.sync_btn:
@@ -915,12 +914,11 @@ class ProtagonistProfileDialog(QDialog):
         def on_success(result):
             changes = result.get('changes_applied', 0)
             behaviors = result.get('behaviors_recorded', 0)
-            AlertDialog(
-                parent=self,
-                title="同步完成",
-                message=f"第 {chapter_number} 章同步完成\n属性变更: {changes}\n行为记录: {behaviors}",
-                dialog_type="success"
-            ).exec()
+            MessageService.show_success(
+                self,
+                f"第 {chapter_number} 章同步完成\n属性变更: {changes}\n行为记录: {behaviors}",
+                title="同步完成"
+            )
             self._load_profile()
             self.profileUpdated.emit()
             if self.sync_btn:
@@ -929,12 +927,11 @@ class ProtagonistProfileDialog(QDialog):
 
         def on_error(error):
             logger.error(f"同步失败: {error}")
-            AlertDialog(
-                parent=self,
-                title="同步失败",
-                message=f"同步失败:\n{error}",
-                dialog_type="error"
-            ).exec()
+            MessageService.show_error(
+                self,
+                f"同步失败:\n{error}",
+                title="同步失败"
+            )
             if self.sync_btn:
                 self.sync_btn.setEnabled(True)
                 self.sync_btn.setText("同步")
@@ -957,26 +954,24 @@ class ProtagonistProfileDialog(QDialog):
             return
 
         if remaining <= 0:
-            AlertDialog(
-                parent=self,
-                title="无法同步",
-                message="所有章节已同步完成",
-                dialog_type="info"
-            ).exec()
+            MessageService.show_info(
+                self,
+                "所有章节已同步完成",
+                title="无法同步"
+            )
             return
 
         # 确认对话框
-        dialog = ConfirmDialog(
-            parent=self,
-            title="一键同步",
+        confirmed = MessageService.confirm(
+            self,
             message=f"将同步第 {last_synced + 1} 章到第 {self.total_chapters} 章，共 {remaining} 章。\n\n"
                     f"这可能需要较长时间，是否继续？",
+            title="一键同步",
             confirm_text="开始同步",
             cancel_text="取消",
-            dialog_type="info"
+            dialog_type="info",
         )
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not confirmed:
             return
 
         # 禁用同步按钮
@@ -992,12 +987,11 @@ class ProtagonistProfileDialog(QDialog):
         """递归同步剩余章节"""
         if current_chapter > self.total_chapters:
             # 全部同步完成
-            AlertDialog(
-                parent=self,
-                title="同步完成",
-                message="所有章节已同步完成",
-                dialog_type="success"
-            ).exec()
+            MessageService.show_success(
+                self,
+                "所有章节已同步完成",
+                title="同步完成"
+            )
             self._load_profile()
             self.profileUpdated.emit()
             if self.sync_btn:
@@ -1024,12 +1018,11 @@ class ProtagonistProfileDialog(QDialog):
 
         def on_error(error):
             logger.error(f"批量同步失败于第 {current_chapter} 章: {error}")
-            AlertDialog(
-                parent=self,
-                title="同步中断",
-                message=f"第 {current_chapter} 章同步失败:\n{error}\n\n已同步至第 {current_chapter - 1} 章",
-                dialog_type="error"
-            ).exec()
+            MessageService.show_error(
+                self,
+                f"第 {current_chapter} 章同步失败:\n{error}\n\n已同步至第 {current_chapter - 1} 章",
+                title="同步中断"
+            )
             self._load_profile()
             self.profileUpdated.emit()
             if self.sync_btn:
@@ -1245,42 +1238,41 @@ class ProtagonistProfileDialog(QDialog):
 
             if not available_snapshots:
                 # 没有可回滚的快照，只能回滚到初始状态
-                dialog = ConfirmDialog(
-                    parent=self,
-                    title="解决冲突",
+                confirmed = MessageService.confirm(
+                    self,
                     message=f"当前档案同步到第 {last_synced} 章，但项目只有 {max_chapter} 章。\n\n"
                             f"没有可用的快照，是否重置档案同步状态到第 0 章？\n"
                             f"（这不会删除已记录的属性，只是重置同步进度）",
+                    title="解决冲突",
                     confirm_text="重置",
                     cancel_text="取消",
-                    dialog_type="warning"
+                    dialog_type="warning",
                 )
-                if dialog.exec() == QDialog.DialogCode.Accepted:
+                if confirmed:
                     self._do_rollback(character_name, 0)
             else:
                 # 有可用快照，让用户选择
                 latest_snapshot = max(available_snapshots)
-                dialog = ConfirmDialog(
-                    parent=self,
-                    title="解决冲突",
+                confirmed = MessageService.confirm(
+                    self,
                     message=f"当前档案同步到第 {last_synced} 章，但项目只有 {max_chapter} 章。\n\n"
                             f"是否回滚到第 {latest_snapshot} 章的状态？\n"
                             f"（这将恢复到该章节同步时的属性状态）",
+                    title="解决冲突",
                     confirm_text="回滚",
                     cancel_text="取消",
-                    dialog_type="warning"
+                    dialog_type="warning",
                 )
-                if dialog.exec() == QDialog.DialogCode.Accepted:
+                if confirmed:
                     self._do_rollback(character_name, latest_snapshot)
 
         except Exception as e:
             logger.error(f"检测冲突失败: {e}")
-            AlertDialog(
-                parent=self,
-                title="错误",
-                message=f"检测冲突状态失败: {e}",
-                dialog_type="error"
-            ).exec()
+            MessageService.show_error(
+                self,
+                f"检测冲突状态失败: {e}",
+                title="错误"
+            )
 
     def _do_rollback(self, character_name: str, target_chapter: int):
         """执行回滚操作"""
@@ -1295,33 +1287,30 @@ class ProtagonistProfileDialog(QDialog):
 
         def on_success(result):
             if result.get('success'):
-                AlertDialog(
-                    parent=self,
-                    title="成功",
-                    message=f"已成功回滚到第 {target_chapter} 章的状态",
-                    dialog_type="success"
-                ).exec()
+                MessageService.show_success(
+                    self,
+                    f"已成功回滚到第 {target_chapter} 章的状态",
+                    title="成功"
+                )
                 self._load_profile()  # 重新加载档案
                 self.profileUpdated.emit()
             else:
-                AlertDialog(
-                    parent=self,
-                    title="失败",
-                    message=result.get('message', '回滚失败'),
-                    dialog_type="warning"
-                ).exec()
+                MessageService.show_warning(
+                    self,
+                    result.get('message', '回滚失败'),
+                    title="失败"
+                )
             if self.conflict_btn:
                 self.conflict_btn.setEnabled(True)
                 self.conflict_btn.setText("解决冲突")
 
         def on_error(error):
             logger.error(f"回滚失败: {error}")
-            AlertDialog(
-                parent=self,
-                title="错误",
-                message=f"回滚失败: {error}",
-                dialog_type="error"
-            ).exec()
+            MessageService.show_error(
+                self,
+                f"回滚失败: {error}",
+                title="错误"
+            )
             if self.conflict_btn:
                 self.conflict_btn.setEnabled(True)
                 self.conflict_btn.setText("解决冲突")

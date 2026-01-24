@@ -490,3 +490,80 @@ class SSEWorker(QThread):
     def is_stopped(self) -> bool:
         """检查是否已停止（线程安全）"""
         return self._stop_event.is_set()
+
+
+def start_sse_worker(
+    url: str,
+    payload: dict,
+    *,
+    parent=None,
+    on_token: Optional[Callable[[str], None]] = None,
+    on_progress: Optional[Callable[[dict], None]] = None,
+    on_complete: Optional[Callable[[dict], None]] = None,
+    on_error: Optional[Callable[[str], None]] = None,
+    on_cancelled: Optional[Callable[[dict], None]] = None,
+) -> SSEWorker:
+    """创建并启动SSE Worker"""
+    worker = SSEWorker(url, payload, parent)
+    if on_token:
+        worker.token_received.connect(on_token)
+    if on_progress:
+        worker.progress_received.connect(on_progress)
+    if on_complete:
+        worker.complete.connect(on_complete)
+    if on_error:
+        worker.error.connect(on_error)
+    if on_cancelled:
+        worker.cancelled.connect(on_cancelled)
+    worker.start()
+    return worker
+
+
+def stop_sse_worker(worker: Optional[SSEWorker], *, delete_later: bool = False) -> None:
+    """安全停止SSE Worker
+
+    Args:
+        worker: SSE Worker实例
+        delete_later: 是否调用deleteLater释放对象
+    """
+    if not worker:
+        return
+    try:
+        worker.stop()
+        if delete_later:
+            worker.deleteLater()
+    except RuntimeError:
+        pass
+
+
+def reset_sse_generation_state(
+    owner,
+    *,
+    delete_later: bool = False,
+    flag_attr: str = "_is_generating",
+) -> None:
+    """重置SSE生成状态
+
+    统一清理SSE Worker引用并重置生成状态标记，避免重复代码。
+
+    Args:
+        owner: 持有 `_sse_worker` 的对象
+        delete_later: 是否在停止后调用 deleteLater
+        flag_attr: 需要重置的生成状态字段名（默认 `_is_generating`）
+    """
+    if not owner:
+        return
+
+    if hasattr(owner, flag_attr):
+        try:
+            setattr(owner, flag_attr, False)
+        except Exception:
+            pass
+
+    stop_sse_worker(getattr(owner, "_sse_worker", None), delete_later=delete_later)
+
+    if hasattr(owner, "_sse_worker"):
+        try:
+            owner._sse_worker = None
+        except Exception:
+            pass

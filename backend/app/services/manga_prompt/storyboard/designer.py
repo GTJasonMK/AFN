@@ -288,16 +288,14 @@ class StoryboardDesigner:
         previous_panel: Optional[PanelDesign],
     ) -> str:
         """构建分镜设计提示词"""
-        # 尝试从PromptService加载
-        prompt_template = None
+        # 尝试从PromptService加载，失败时回退到默认模板
+        prompt_template = STORYBOARD_DESIGN_PROMPT
         if self.prompt_service:
-            try:
-                prompt_template = await self.prompt_service.get_prompt(PROMPT_NAME)
-            except Exception as e:
-                logger.warning("无法加载 %s 提示词: %s", PROMPT_NAME, e)
-
-        if not prompt_template:
-            prompt_template = STORYBOARD_DESIGN_PROMPT
+            prompt_template = await self.prompt_service.get_prompt_or_fallback(
+                PROMPT_NAME,
+                STORYBOARD_DESIGN_PROMPT,
+                logger=logger,
+            )
 
         # 收集页面相关的事件
         events_data = []

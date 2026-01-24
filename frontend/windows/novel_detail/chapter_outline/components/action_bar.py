@@ -133,90 +133,17 @@ class OutlineActionBar(QFrame):
         if self.editable:
             # 新增按钮 - 次要按钮样式（如果存在）
             if self.add_btn:
-                self.add_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {theme_manager.BG_SECONDARY};
-                        color: {theme_manager.PRIMARY};
-                        border: 1px solid {theme_manager.PRIMARY};
-                        border-radius: {dp(6)}px;
-                        padding: {dp(8)}px {dp(16)}px;
-                        font-size: {sp(13)}px;
-                        font-weight: 600;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {theme_manager.PRIMARY_PALE};
-                    }}
-                    QPushButton:disabled {{
-                        background-color: {theme_manager.BG_TERTIARY};
-                        color: {theme_manager.TEXT_DISABLED};
-                        border-color: {theme_manager.BORDER_LIGHT};
-                    }}
-                """)
+                self.add_btn.setStyleSheet(ButtonStyles.secondary("SM"))
 
             # 继续生成按钮 - 主按钮样式（如果存在）
             if self.continue_btn:
-                self.continue_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {theme_manager.PRIMARY};
-                        color: {theme_manager.BUTTON_TEXT};
-                        border: none;
-                        border-radius: {dp(6)}px;
-                        padding: {dp(8)}px {dp(16)}px;
-                        font-size: {sp(13)}px;
-                        font-weight: 600;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {theme_manager.PRIMARY_DARK};
-                    }}
-                    QPushButton:disabled {{
-                        background-color: {theme_manager.BG_TERTIARY};
-                        color: {theme_manager.TEXT_DISABLED};
-                    }}
-                """)
+                self.continue_btn.setStyleSheet(ButtonStyles.primary("SM"))
 
             # 重新生成按钮 - 警告样式
-            self.regenerate_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme_manager.WARNING_BG};
-                    color: {theme_manager.WARNING};
-                    border: 1px solid {theme_manager.WARNING};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(16)}px;
-                    font-size: {sp(13)}px;
-                    font-weight: 600;
-                }}
-                QPushButton:hover {{
-                    background-color: {theme_manager.WARNING};
-                    color: {theme_manager.BUTTON_TEXT};
-                }}
-                QPushButton:disabled {{
-                    background-color: {theme_manager.BG_TERTIARY};
-                    color: {theme_manager.TEXT_DISABLED};
-                    border-color: {theme_manager.BORDER_LIGHT};
-                }}
-            """)
+            self.regenerate_btn.setStyleSheet(ButtonStyles.warning("SM"))
 
             # 删除按钮 - 危险样式
-            self.delete_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme_manager.ERROR_BG};
-                    color: {theme_manager.ERROR};
-                    border: 1px solid {theme_manager.ERROR};
-                    border-radius: {dp(6)}px;
-                    padding: {dp(8)}px {dp(16)}px;
-                    font-size: {sp(13)}px;
-                    font-weight: 600;
-                }}
-                QPushButton:hover {{
-                    background-color: {theme_manager.ERROR};
-                    color: {theme_manager.BUTTON_TEXT};
-                }}
-                QPushButton:disabled {{
-                    background-color: {theme_manager.BG_TERTIARY};
-                    color: {theme_manager.TEXT_DISABLED};
-                    border-color: {theme_manager.BORDER_LIGHT};
-                }}
-            """)
+            self.delete_btn.setStyleSheet(ButtonStyles.outline_danger("SM"))
 
     def update_theme(self):
         """更新主题"""

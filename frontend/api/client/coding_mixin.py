@@ -28,9 +28,9 @@ class CodingMixin:
         Returns:
             项目列表
         """
-        return self._request(
+        return self._request_api(
             'GET',
-            '/api/coding',
+            'coding',
             params={'page': page, 'page_size': page_size}
         )
 
@@ -51,10 +51,10 @@ class CodingMixin:
         Returns:
             创建的项目信息
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            '/api/coding',
-            {
+            'coding',
+            data={
                 'title': title,
                 'initial_prompt': initial_prompt,
                 'skip_conversation': skip_conversation
@@ -71,7 +71,7 @@ class CodingMixin:
         Returns:
             项目详情
         """
-        return self._request('GET', f'/api/coding/{project_id}')
+        return self._request_api('GET', 'coding', project_id)
 
     def update_coding_project(
         self,
@@ -88,11 +88,9 @@ class CodingMixin:
         Returns:
             更新后的项目信息
         """
-        payload = {}
-        if title is not None:
-            payload['title'] = title
+        payload = self._build_payload(title=title)
 
-        return self._request('PATCH', f'/api/coding/{project_id}', payload)
+        return self._request_api('PATCH', 'coding', project_id, data=payload)
 
     def delete_coding_project(self, project_id: str) -> None:
         """
@@ -101,7 +99,7 @@ class CodingMixin:
         Args:
             project_id: 项目ID
         """
-        return self._request('DELETE', f'/api/coding/{project_id}')
+        return self._request_api('DELETE', 'coding', project_id)
 
     def delete_coding_projects(self, project_ids: List[str]) -> None:
         """
@@ -110,7 +108,7 @@ class CodingMixin:
         Args:
             project_ids: 项目ID列表
         """
-        return self._request('POST', '/api/coding/batch-delete', project_ids)
+        return self._request_api('POST', 'coding', 'batch-delete', data=project_ids)
 
     # ==================== 系统(System) API ====================
 
@@ -132,7 +130,7 @@ class CodingMixin:
             - generation_status: 生成状态
             - progress: 进度
         """
-        return self._request('GET', f'/api/coding/{project_id}/systems')
+        return self._request_api('GET', 'coding', project_id, 'systems')
 
     def get_coding_system(
         self,
@@ -149,9 +147,12 @@ class CodingMixin:
         Returns:
             系统详情数据
         """
-        return self._request(
+        return self._request_api(
             'GET',
-            f'/api/coding/{project_id}/systems/{system_number}'
+            'coding',
+            project_id,
+            'systems',
+            system_number
         )
 
     def create_coding_system(
@@ -181,7 +182,13 @@ class CodingMixin:
             'responsibilities': responsibilities or [],
             'tech_requirements': tech_requirements,
         }
-        return self._request('POST', f'/api/coding/{project_id}/systems', payload)
+        return self._request_api(
+            'POST',
+            'coding',
+            project_id,
+            'systems',
+            data=payload
+        )
 
     def update_coding_system(
         self,
@@ -206,20 +213,20 @@ class CodingMixin:
         Returns:
             更新后的系统数据
         """
-        payload = {}
-        if name is not None:
-            payload['name'] = name
-        if description is not None:
-            payload['description'] = description
-        if responsibilities is not None:
-            payload['responsibilities'] = responsibilities
-        if tech_requirements is not None:
-            payload['tech_requirements'] = tech_requirements
+        payload = self._build_payload(
+            name=name,
+            description=description,
+            responsibilities=responsibilities,
+            tech_requirements=tech_requirements,
+        )
 
-        return self._request(
+        return self._request_api(
             'PUT',
-            f'/api/coding/{project_id}/systems/{system_number}',
-            payload
+            'coding',
+            project_id,
+            'systems',
+            system_number,
+            data=payload
         )
 
     def delete_coding_system(
@@ -237,9 +244,12 @@ class CodingMixin:
         Returns:
             删除结果
         """
-        return self._request(
+        return self._request_api(
             'DELETE',
-            f'/api/coding/{project_id}/systems/{system_number}'
+            'coding',
+            project_id,
+            'systems',
+            system_number
         )
 
     def generate_coding_systems(
@@ -267,10 +277,13 @@ class CodingMixin:
         }
         if preference:
             payload['preference'] = preference
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/systems/generate',
-            payload,
+            'coding',
+            project_id,
+            'systems',
+            'generate',
+            data=payload,
             timeout=180
         )
 
@@ -303,7 +316,13 @@ class CodingMixin:
         if system_number is not None:
             params['system_number'] = system_number
 
-        return self._request('GET', f'/api/coding/{project_id}/modules', params=params)
+        return self._request_api(
+            'GET',
+            'coding',
+            project_id,
+            'modules',
+            params=params
+        )
 
     def get_coding_module(
         self,
@@ -320,9 +339,12 @@ class CodingMixin:
         Returns:
             模块详情数据
         """
-        return self._request(
+        return self._request_api(
             'GET',
-            f'/api/coding/{project_id}/modules/{module_number}'
+            'coding',
+            project_id,
+            'modules',
+            module_number
         )
 
     def create_coding_module(
@@ -358,7 +380,13 @@ class CodingMixin:
             'interface': interface,
             'dependencies': dependencies or [],
         }
-        return self._request('POST', f'/api/coding/{project_id}/modules', payload)
+        return self._request_api(
+            'POST',
+            'coding',
+            project_id,
+            'modules',
+            data=payload
+        )
 
     def update_coding_module(
         self,
@@ -385,22 +413,21 @@ class CodingMixin:
         Returns:
             更新后的模块数据
         """
-        payload = {}
-        if name is not None:
-            payload['name'] = name
-        if module_type is not None:
-            payload['type'] = module_type
-        if description is not None:
-            payload['description'] = description
-        if interface is not None:
-            payload['interface'] = interface
-        if dependencies is not None:
-            payload['dependencies'] = dependencies
+        payload = self._build_payload(
+            name=name,
+            type=module_type,
+            description=description,
+            interface=interface,
+            dependencies=dependencies,
+        )
 
-        return self._request(
+        return self._request_api(
             'PUT',
-            f'/api/coding/{project_id}/modules/{module_number}',
-            payload
+            'coding',
+            project_id,
+            'modules',
+            module_number,
+            data=payload
         )
 
     def delete_coding_module(
@@ -418,9 +445,12 @@ class CodingMixin:
         Returns:
             删除结果
         """
-        return self._request(
+        return self._request_api(
             'DELETE',
-            f'/api/coding/{project_id}/modules/{module_number}'
+            'coding',
+            project_id,
+            'modules',
+            module_number
         )
 
     def generate_coding_modules(
@@ -451,10 +481,13 @@ class CodingMixin:
         }
         if preference:
             payload['preference'] = preference
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/modules/generate',
-            payload,
+            'coding',
+            project_id,
+            'modules',
+            'generate',
+            data=payload,
             timeout=180
         )
 
@@ -482,7 +515,7 @@ class CodingMixin:
         Returns:
             依赖关系列表
         """
-        return self._request('GET', f'/api/coding/{project_id}/dependencies')
+        return self._request_api('GET', 'coding', project_id, 'dependencies')
 
     def create_coding_dependency(
         self,
@@ -503,10 +536,12 @@ class CodingMixin:
         Returns:
             创建的依赖关系
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/dependencies',
-            {
+            'coding',
+            project_id,
+            'dependencies',
+            data={
                 'from_module': from_module,
                 'to_module': to_module,
                 'description': description
@@ -532,9 +567,12 @@ class CodingMixin:
         Returns:
             删除结果
         """
-        return self._request(
+        return self._request_api(
             'DELETE',
-            f'/api/coding/{project_id}/dependencies/{dependency_id}',
+            'coding',
+            project_id,
+            'dependencies',
+            dependency_id,
             params={'from_module': from_module, 'to_module': to_module}
         )
 
@@ -554,9 +592,12 @@ class CodingMixin:
             - synced_count: 同步的依赖数量
             - dependencies: 同步的依赖列表
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/dependencies/sync'
+            'coding',
+            project_id,
+            'dependencies',
+            'sync'
         )
 
     # ==================== RAG 入库和检索 API ====================
@@ -577,9 +618,11 @@ class CodingMixin:
             - indexed_count: 入库的功能数量
             - message: 结果消息
         """
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/rag/reindex',
+        return self._request_rag(
+            'coding',
+            project_id,
+            'reindex',
+            method='POST',
             timeout=120
         )
 
@@ -616,10 +659,12 @@ class CodingMixin:
         if data_types:
             payload['data_types'] = data_types
 
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/rag/query',
-            payload
+        return self._request_rag(
+            'coding',
+            project_id,
+            'query',
+            method='POST',
+            data=payload
         )
 
     def check_rag_completeness(self, project_id: str) -> Dict[str, Any]:
@@ -639,9 +684,11 @@ class CodingMixin:
             - total_vector_count: 向量库总记录数
             - types: 各类型详情字典
         """
-        return self._request(
-            'GET',
-            f'/api/coding/{project_id}/rag/completeness'
+        return self._request_rag(
+            'coding',
+            project_id,
+            'completeness',
+            method='GET'
         )
 
     def ingest_all_rag_data(
@@ -680,10 +727,12 @@ class CodingMixin:
         payload = {'force': force}
         logger.info("发送请求到 /api/coding/%s/rag/ingest-all payload=%s", project_id, payload)
 
-        return self._request(
-            'POST',
-            f'/api/coding/{project_id}/rag/ingest-all',
-            payload,
+        return self._request_rag(
+            'coding',
+            project_id,
+            'ingest-all',
+            method='POST',
+            data=payload,
             timeout=300  # 完整入库可能需要较长时间
         )
 
@@ -706,9 +755,12 @@ class CodingMixin:
             - content: 消息内容
             - created_at: 创建时间
         """
-        return self._request(
+        return self._request_api(
             'GET',
-            f'/api/coding/{project_id}/inspiration/history'
+            'coding',
+            project_id,
+            'inspiration',
+            'history'
         )
 
     def generate_coding_blueprint(
@@ -738,10 +790,13 @@ class CodingMixin:
         if preference:
             payload['preference'] = preference
 
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/blueprint/generate',
-            payload,
+            'coding',
+            project_id,
+            'blueprint',
+            'generate',
+            data=payload,
             timeout=180
         )
 
@@ -761,7 +816,7 @@ class CodingMixin:
             - total_directories: 目录总数
             - total_files: 文件总数
         """
-        return self._request('GET', f'/api/coding/{project_id}/directories/tree')
+        return self._request_api('GET', 'coding', project_id, 'directories', 'tree')
 
     def generate_directory_structure(
         self,
@@ -795,10 +850,13 @@ class CodingMixin:
         if preference:
             payload['preference'] = preference
 
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/directories/generate',
-            payload,
+            'coding',
+            project_id,
+            'directories',
+            'generate',
+            data=payload,
             timeout=180
         )
 
@@ -832,7 +890,13 @@ class CodingMixin:
         if description:
             payload['description'] = description
 
-        return self._request('POST', f'/api/coding/{project_id}/directories', payload)
+        return self._request_api(
+            'POST',
+            'coding',
+            project_id,
+            'directories',
+            data=payload
+        )
 
     def update_directory(
         self,
@@ -855,15 +919,20 @@ class CodingMixin:
         Returns:
             更新后的目录节点数据
         """
-        payload = {}
-        if name is not None:
-            payload['name'] = name
-        if description is not None:
-            payload['description'] = description
-        if sort_order is not None:
-            payload['sort_order'] = sort_order
+        payload = self._build_payload(
+            name=name,
+            description=description,
+            sort_order=sort_order,
+        )
 
-        return self._request('PATCH', f'/api/coding/{project_id}/directories/{node_id}', payload)
+        return self._request_api(
+            'PATCH',
+            'coding',
+            project_id,
+            'directories',
+            node_id,
+            data=payload
+        )
 
     def delete_directory(self, project_id: str, node_id: int) -> Dict[str, Any]:
         """
@@ -876,7 +945,13 @@ class CodingMixin:
         Returns:
             删除结果
         """
-        return self._request('DELETE', f'/api/coding/{project_id}/directories/{node_id}')
+        return self._request_api(
+            'DELETE',
+            'coding',
+            project_id,
+            'directories',
+            node_id
+        )
 
     # ==================== 源文件 API ====================
 
@@ -905,7 +980,13 @@ class CodingMixin:
         if directory_id is not None:
             params['directory_id'] = directory_id
 
-        return self._request('GET', f'/api/coding/{project_id}/files', params=params)
+        return self._request_api(
+            'GET',
+            'coding',
+            project_id,
+            'files',
+            params=params
+        )
 
     def get_source_file(self, project_id: str, file_id: int) -> Dict[str, Any]:
         """
@@ -918,7 +999,7 @@ class CodingMixin:
         Returns:
             文件详情（包含内容）
         """
-        return self._request('GET', f'/api/coding/{project_id}/files/{file_id}')
+        return self._request_api('GET', 'coding', project_id, 'files', file_id)
 
     def create_source_file(
         self,
@@ -960,7 +1041,7 @@ class CodingMixin:
         if purpose:
             payload['purpose'] = purpose
 
-        return self._request('POST', f'/api/coding/{project_id}/files', payload)
+        return self._request_api('POST', 'coding', project_id, 'files', data=payload)
 
     def update_source_file(
         self,
@@ -987,19 +1068,22 @@ class CodingMixin:
         Returns:
             更新后的文件数据
         """
-        payload = {}
-        if filename is not None:
-            payload['filename'] = filename
-        if description is not None:
-            payload['description'] = description
-        if purpose is not None:
-            payload['purpose'] = purpose
-        if priority is not None:
-            payload['priority'] = priority
-        if sort_order is not None:
-            payload['sort_order'] = sort_order
+        payload = self._build_payload(
+            filename=filename,
+            description=description,
+            purpose=purpose,
+            priority=priority,
+            sort_order=sort_order,
+        )
 
-        return self._request('PATCH', f'/api/coding/{project_id}/files/{file_id}', payload)
+        return self._request_api(
+            'PATCH',
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            data=payload
+        )
 
     def delete_source_file(self, project_id: str, file_id: int) -> Dict[str, Any]:
         """
@@ -1012,7 +1096,7 @@ class CodingMixin:
         Returns:
             删除结果
         """
-        return self._request('DELETE', f'/api/coding/{project_id}/files/{file_id}')
+        return self._request_api('DELETE', 'coding', project_id, 'files', file_id)
 
     # ==================== 文件Prompt生成 API ====================
 
@@ -1041,10 +1125,14 @@ class CodingMixin:
         if writing_notes:
             payload['writing_notes'] = writing_notes
 
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/files/{file_id}/generate',
-            payload if payload else None,
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'generate',
+            data=payload if payload else None,
             timeout=300
         )
 
@@ -1091,10 +1179,14 @@ class CodingMixin:
         if version_label:
             payload['version_label'] = version_label
 
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/files/{file_id}/save',
-            payload
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'save',
+            data=payload
         )
 
     def get_file_versions(self, project_id: str, file_id: int) -> Dict[str, Any]:
@@ -1110,7 +1202,14 @@ class CodingMixin:
             - versions: 版本列表
             - selected_version_id: 当前选中的版本ID
         """
-        return self._request('GET', f'/api/coding/{project_id}/files/{file_id}/versions')
+        return self._request_api(
+            'GET',
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'versions'
+        )
 
     def select_file_version(
         self,
@@ -1131,10 +1230,14 @@ class CodingMixin:
             - success: 是否成功
             - selected_version_id: 选中的版本ID
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/files/{file_id}/select-version',
-            {'version_id': version_id}
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'select-version',
+            data={'version_id': version_id}
         )
 
     # ==================== 审查Prompt API ====================
@@ -1163,10 +1266,14 @@ class CodingMixin:
         if writing_notes:
             payload['writing_notes'] = writing_notes
 
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/files/{file_id}/generate-review',
-            payload if payload else None,
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'generate-review',
+            data=payload if payload else None,
             timeout=300
         )
 
@@ -1187,10 +1294,14 @@ class CodingMixin:
         Returns:
             保存结果
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/files/{file_id}/save-review',
-            {'content': content}
+            'coding',
+            project_id,
+            'files',
+            file_id,
+            'save-review',
+            data={'content': content}
         )
 
     # ==================== 目录规划Agent API ====================
@@ -1229,9 +1340,12 @@ class CodingMixin:
             - progress_message: 进度消息
             - paused_at: 暂停时间
         """
-        return self._request(
+        return self._request_api(
             'GET',
-            f'/api/coding/{project_id}/directories/agent-state'
+            'coding',
+            project_id,
+            'directories',
+            'agent-state'
         )
 
     def pause_directory_agent(
@@ -1255,10 +1369,13 @@ class CodingMixin:
             - total_files: 已生成文件数
             - current_phase: 当前阶段
         """
-        return self._request(
+        return self._request_api(
             'POST',
-            f'/api/coding/{project_id}/directories/pause-agent',
-            {'reason': reason}
+            'coding',
+            project_id,
+            'directories',
+            'pause-agent',
+            data={'reason': reason}
         )
 
     def clear_directory_agent_state(self, project_id: str) -> dict:
@@ -1275,7 +1392,10 @@ class CodingMixin:
             - success: 是否成功
             - deleted: 是否有状态被删除
         """
-        return self._request(
+        return self._request_api(
             'DELETE',
-            f'/api/coding/{project_id}/directories/agent-state'
+            'coding',
+            project_id,
+            'directories',
+            'agent-state'
         )

@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtSvgWidgets import QSvgWidget
 
 from themes.theme_manager import theme_manager
+from themes.button_styles import ButtonStyles
 from utils.dpi_utils import dp, sp
 
 if TYPE_CHECKING:
@@ -260,66 +261,18 @@ class HeaderManagerMixin:
             }}
         """)
 
-        # 操作按钮样式
-        btn_style = f"""
-            QPushButton {{
-                background-color: transparent;
-                color: {text_secondary};
-                border: 1px solid {border_color};
-                border-radius: {dp(4)}px;
-                font-family: {ui_font};
-                padding: {dp(6)}px {dp(12)}px;
-            }}
-            QPushButton:hover {{
-                color: {icon_color};
-                border-color: {icon_color};
-                background-color: rgba(0,0,0,0.05);
-            }}
-        """
-
-        primary_btn_style = f"""
-            QPushButton {{
-                background-color: {icon_color};
-                color: {theme_manager.BUTTON_TEXT};
-                border: 1px solid {icon_color};
-                border-radius: {dp(4)}px;
-                font-family: {ui_font};
-                padding: {dp(6)}px {dp(16)}px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {text_primary};
-                border-color: {text_primary};
-            }}
-        """
-
         if hasattr(self, 'back_btn') and self.back_btn:
-            self.back_btn.setStyleSheet(btn_style)
+            self.back_btn.setStyleSheet(ButtonStyles.secondary('SM'))
         if hasattr(self, 'export_btn') and self.export_btn:
-            self.export_btn.setStyleSheet(btn_style)
+            self.export_btn.setStyleSheet(ButtonStyles.secondary('SM'))
         if hasattr(self, 'refine_btn') and self.refine_btn:
-            self.refine_btn.setStyleSheet(btn_style)
+            self.refine_btn.setStyleSheet(ButtonStyles.secondary('SM'))
         if hasattr(self, 'rag_sync_btn') and self.rag_sync_btn:
-            self.rag_sync_btn.setStyleSheet(btn_style)
+            self.rag_sync_btn.setStyleSheet(ButtonStyles.secondary('SM'))
         if hasattr(self, 'analyze_btn') and self.analyze_btn:
-            # 分析按钮使用高亮样式
-            self.analyze_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme_manager.INFO};
-                    color: {theme_manager.BUTTON_TEXT};
-                    border: 1px solid {theme_manager.INFO};
-                    border-radius: {dp(4)}px;
-                    font-family: {ui_font};
-                    padding: {dp(6)}px {dp(12)}px;
-                    font-weight: bold;
-                }}
-                QPushButton:hover {{
-                    background-color: {text_primary};
-                    border-color: {text_primary};
-                }}
-            """)
+            self.analyze_btn.setStyleSheet(ButtonStyles.warning('SM'))
         if hasattr(self, 'create_btn') and self.create_btn:
-            self.create_btn.setStyleSheet(primary_btn_style)
+            self.create_btn.setStyleSheet(ButtonStyles.primary('SM'))
 
         # 保存按钮样式（特殊处理，有修改时高亮）
         if hasattr(self, 'save_btn') and self.save_btn:

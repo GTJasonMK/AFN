@@ -8,13 +8,9 @@
 import logging
 from typing import Optional, Dict, Any
 
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QSplitter
-from PyQt6.QtCore import Qt
-
-from pages.base_page import BasePage
+from windows.base import BaseWorkspacePage
 from api.manager import APIClientManager
 from utils.async_worker import AsyncAPIWorker
-from utils.worker_manager import WorkerManager
 from utils.message_service import MessageService
 from utils.dpi_utils import dp
 from themes.theme_manager import theme_manager
@@ -28,7 +24,7 @@ from .mixins import FileGenerationMixin, ContentManagementMixin
 logger = logging.getLogger(__name__)
 
 
-class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
+class CodingDesk(FileGenerationMixin, ContentManagementMixin, BaseWorkspacePage):
     """编程项目Prompt生成工作台
 
     布局（参考WritingDesk）：
@@ -42,12 +38,10 @@ class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
     """
 
     def __init__(self, project_id: str, file_id: int = None, parent=None):
-        super().__init__(parent)
-        self.project_id = project_id
+        super().__init__(project_id, parent)
         self.initial_file_id = file_id
 
         self.api_client = APIClientManager.get_client()
-        self.worker_manager = WorkerManager(self)
 
         # 项目数据
         self._project_data: Optional[Dict[str, Any]] = None
@@ -57,77 +51,64 @@ class CodingDesk(FileGenerationMixin, ContentManagementMixin, BasePage):
         self._init_generation_mixin()
         self._init_content_mixin()
 
-        # UI组件
-        self.header: Optional[CodingDeskHeader] = None
-        self.sidebar: Optional[CodingSidebar] = None
-        self.workspace: Optional[CodingWorkspace] = None
-        self.assistant_panel: Optional[CodingAssistantPanel] = None
-
         self._assistant_visible = True
 
         self.setupUI()
         self._load_project()
 
     def setupUI(self):
-        if not self.layout():
-            self._create_ui_structure()
-        self._apply_theme()
+        super().setupUI()
 
-    def _create_ui_structure(self):
-        """创建UI结构"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+    def create_header(self):
+        """创建Header组件"""
+        return CodingDeskHeader(self)
 
-        # Header
-        self.header = CodingDeskHeader(self)
-        self.header.goBackClicked.connect(self._go_back)
-        self.header.goToDetailClicked.connect(self._go_to_detail)
-        self.header.toggleAssistantClicked.connect(self._toggle_assistant)
-        main_layout.addWidget(self.header)
+    def create_sidebar(self):
+        """创建Sidebar组件"""
+        sidebar = CodingSidebar(self.project_id, self)
+        sidebar.setFixedWidth(dp(280))
+        return sidebar
 
-        # 主内容区
-        content = QWidget()
-        content_layout = QHBoxLayout(content)
-        content_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
-        content_layout.setSpacing(dp(12))
+    def create_workspace(self):
+        """创建Workspace组件"""
+        return CodingWorkspace(self)
 
-        # Sidebar
-        self.sidebar = CodingSidebar(self.project_id, self)
-        self.sidebar.setFixedWidth(dp(280))
-        self.sidebar.fileSelected.connect(self._on_file_selected)
-        self.sidebar.refreshRequested.connect(self._refresh_directory_tree)
-        content_layout.addWidget(self.sidebar)
+    def create_assistant_panel(self):
+        """创建辅助面板组件"""
+        panel = CodingAssistantPanel(self.project_id, self)
+        panel.setMinimumWidth(dp(280))
+        panel.setMaximumWidth(dp(500))
+        panel.setVisible(self._assistant_visible)
+        return panel
 
-        # MainSplitter (Workspace + AssistantPanel)
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setHandleWidth(dp(4))
+    def _configure_splitter(self, splitter):
+        """配置分割器"""
+        splitter.setHandleWidth(dp(4))
+        splitter.setSizes([dp(700), dp(300)])
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)
 
-        # Workspace
-        self.workspace = CodingWorkspace(self)
-        self.workspace.generateRequested.connect(self.start_file_generation)
-        self.workspace.saveRequested.connect(self.save_file_content)
-        self.workspace.generateReviewRequested.connect(self.start_review_generation)
-        self.main_splitter.addWidget(self.workspace)
+    def _connect_signals(self):
+        """连接信号"""
+        if self.header:
+            self.header.goBackClicked.connect(self._go_back)
+            self.header.goToDetailClicked.connect(self._go_to_detail)
+            self.header.toggleAssistantClicked.connect(self._toggle_assistant)
 
-        # AssistantPanel
-        self.assistant_panel = CodingAssistantPanel(self.project_id, self)
-        self.assistant_panel.setMinimumWidth(dp(280))
-        self.assistant_panel.setMaximumWidth(dp(500))
-        # 连接Agent信号
-        self.assistant_panel.structureUpdated.connect(self._on_structure_updated)
-        self.assistant_panel.refreshTreeRequested.connect(self._refresh_directory_tree)
-        self.assistant_panel.planningStarted.connect(self._on_planning_started)
-        self.assistant_panel.planningCompleted.connect(self._on_planning_completed)
-        self.main_splitter.addWidget(self.assistant_panel)
+        if self.sidebar:
+            self.sidebar.fileSelected.connect(self._on_file_selected)
+            self.sidebar.refreshRequested.connect(self._refresh_directory_tree)
 
-        # 设置Splitter比例 (7:3)
-        self.main_splitter.setSizes([dp(700), dp(300)])
-        self.main_splitter.setStretchFactor(0, 7)
-        self.main_splitter.setStretchFactor(1, 3)
+        if self.workspace:
+            self.workspace.generateRequested.connect(self.start_file_generation)
+            self.workspace.saveRequested.connect(self.save_file_content)
+            self.workspace.generateReviewRequested.connect(self.start_review_generation)
 
-        content_layout.addWidget(self.main_splitter, stretch=1)
-        main_layout.addWidget(content, stretch=1)
+        if self.assistant_panel:
+            self.assistant_panel.structureUpdated.connect(self._on_structure_updated)
+            self.assistant_panel.refreshTreeRequested.connect(self._refresh_directory_tree)
+            self.assistant_panel.planningStarted.connect(self._on_planning_started)
+            self.assistant_panel.planningCompleted.connect(self._on_planning_completed)
 
     def _apply_theme(self):
         """应用主题"""

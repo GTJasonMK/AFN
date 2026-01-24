@@ -9,6 +9,7 @@ import logging
 import os
 import subprocess
 import platform
+from typing import Any, Dict, List, Tuple
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
@@ -21,6 +22,186 @@ logger = logging.getLogger(__name__)
 
 class MangaHandlersMixin:
     """漫画相关处理方法的 Mixin"""
+
+    def _extract_panel_dialogue_fields(self, panel: dict) -> Dict[str, str]:
+        """提取对话字段，兼容 dialogues 列表与旧格式字段"""
+        dialogues = panel.get('dialogues', [])
+        if dialogues and len(dialogues) > 0:
+            first_dialogue = dialogues[0]
+            if isinstance(first_dialogue, dict):
+                return {
+                    'dialogue': first_dialogue.get('content', ''),
+                    'dialogue_speaker': first_dialogue.get('speaker', ''),
+                    'dialogue_bubble_type': first_dialogue.get('bubble_type', ''),
+                    'dialogue_emotion': first_dialogue.get('emotion', ''),
+                    'dialogue_position': first_dialogue.get('position', ''),
+                }
+
+        return {
+            'dialogue': panel.get('dialogue', ''),
+            'dialogue_speaker': panel.get('dialogue_speaker', ''),
+            'dialogue_bubble_type': panel.get('dialogue_bubble_type', ''),
+            'dialogue_emotion': panel.get('dialogue_emotion', ''),
+            'dialogue_position': panel.get('dialogue_position', ''),
+        }
+
+    def _normalize_sound_effects(self, panel: dict) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """规范化音效字段，兼容字符串与字典列表"""
+        raw_sound_effects = panel.get('sound_effects', [])
+        sound_effect_details = panel.get('sound_effect_details', [])
+
+        # Bug 23 修复: 只有当 details 为空时才从 raw_sound_effects 构建
+        should_build_details = not sound_effect_details
+
+        sound_effects = []
+        for sfx in raw_sound_effects:
+            if isinstance(sfx, dict):
+                sfx_text = sfx.get('text', '')
+                if sfx_text:
+                    sound_effects.append(sfx_text)
+                if should_build_details:
+                    sound_effect_details.append(sfx)
+            elif isinstance(sfx, str) and sfx:
+                sound_effects.append(sfx)
+
+        return sound_effects, sound_effect_details
+
+    def _resolve_panel_scene_id(self, panel_id: str, panel: dict) -> int:
+        """解析场景ID，优先使用 panel 内字段，缺失时从 panel_id 解析"""
+        scene_id = panel.get('scene_id')
+        if isinstance(scene_id, str) and scene_id.isdigit():
+            scene_id = int(scene_id)
+        if not isinstance(scene_id, int) or scene_id <= 0:
+            try:
+                parts = panel_id.split('_')
+                scene_id = int(parts[0].replace('scene', ''))
+            except (ValueError, IndexError):
+                scene_id = 0
+        return scene_id
+
+    def _build_panel_payload(self, panel: dict) -> Dict[str, Any]:
+        """构建画格通用字段载荷"""
+        panel_id = panel.get('panel_id', '')
+        prompt = panel.get('prompt', '')
+        negative_prompt = panel.get('negative_prompt', '')
+        aspect_ratio = panel.get('aspect_ratio', '16:9')
+        reference_image_paths = panel.get('reference_image_paths', [])
+
+        dialogue_fields = self._extract_panel_dialogue_fields(panel)
+        sound_effects, sound_effect_details = self._normalize_sound_effects(panel)
+
+        return {
+            'panel_id': panel_id,
+            'prompt': prompt,
+            'negative_prompt': negative_prompt,
+            'aspect_ratio': aspect_ratio,
+            'reference_image_paths': reference_image_paths,
+            'dialogue': dialogue_fields['dialogue'],
+            'dialogue_speaker': dialogue_fields['dialogue_speaker'],
+            'dialogue_bubble_type': dialogue_fields['dialogue_bubble_type'],
+            'dialogue_emotion': dialogue_fields['dialogue_emotion'],
+            'dialogue_position': dialogue_fields['dialogue_position'],
+            'narration': panel.get('narration', ''),
+            'narration_position': panel.get('narration_position', ''),
+            'sound_effects': sound_effects,
+            'sound_effect_details': sound_effect_details,
+            'composition': panel.get('composition', ''),
+            'camera_angle': panel.get('camera_angle', ''),
+            'is_key_panel': panel.get('is_key_panel', False),
+            'characters': panel.get('characters', []),
+            'lighting': panel.get('lighting', ''),
+            'atmosphere': panel.get('atmosphere', ''),
+            'key_visual_elements': panel.get('key_visual_elements', []),
+            'dialogue_language': panel.get('dialogue_language', ''),
+            'scene_id': self._resolve_panel_scene_id(panel_id, panel),
+        }
+
+    def _build_scene_image_kwargs(
+        self,
+        panel: dict = None,
+        chapter_version_id: int = None,
+        payload: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
+        """构建生成画格图片的API参数"""
+        if payload is None:
+            payload = self._build_panel_payload(panel)
+        return {
+            'scene_id': payload['scene_id'],
+            'prompt': payload['prompt'],
+            'negative_prompt': payload['negative_prompt'],
+            'panel_id': payload['panel_id'],
+            'aspect_ratio': payload['aspect_ratio'],
+            'reference_image_paths': payload['reference_image_paths'] if payload['reference_image_paths'] else None,
+            'chapter_version_id': chapter_version_id,
+            # 漫画元数据 - 对话相关
+            'dialogue': payload['dialogue'] if payload['dialogue'] else None,
+            'dialogue_speaker': payload['dialogue_speaker'] if payload['dialogue_speaker'] else None,
+            'dialogue_bubble_type': payload['dialogue_bubble_type'] if payload['dialogue_bubble_type'] else None,
+            'dialogue_emotion': payload['dialogue_emotion'] if payload['dialogue_emotion'] else None,
+            'dialogue_position': payload['dialogue_position'] if payload['dialogue_position'] else None,
+            # 漫画元数据 - 旁白相关
+            'narration': payload['narration'] if payload['narration'] else None,
+            'narration_position': payload['narration_position'] if payload['narration_position'] else None,
+            # 漫画元数据 - 音效相关
+            'sound_effects': payload['sound_effects'] if payload['sound_effects'] else None,
+            'sound_effect_details': (
+                payload['sound_effect_details'] if payload['sound_effect_details'] else None
+            ),
+            # 漫画元数据 - 视觉相关
+            'composition': payload['composition'] if payload['composition'] else None,
+            'camera_angle': payload['camera_angle'] if payload['camera_angle'] else None,
+            'is_key_panel': payload['is_key_panel'],
+            'characters': payload['characters'] if payload['characters'] else None,
+            'lighting': payload['lighting'] if payload['lighting'] else None,
+            'atmosphere': payload['atmosphere'] if payload['atmosphere'] else None,
+            'key_visual_elements': (
+                payload['key_visual_elements'] if payload['key_visual_elements'] else None
+            ),
+            # 语言设置
+            'dialogue_language': payload['dialogue_language'] if payload['dialogue_language'] else None,
+        }
+
+    def _build_preview_prompt_kwargs(
+        self,
+        panel: dict = None,
+        style: str = '',
+        payload: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
+        """构建提示词预览的API参数"""
+        if payload is None:
+            payload = self._build_panel_payload(panel)
+        return {
+            'prompt': payload['prompt'],
+            'negative_prompt': payload['negative_prompt'],
+            'style': style if style else None,
+            'ratio': payload['aspect_ratio'],
+            # 漫画元数据 - 对话相关
+            'dialogue': payload['dialogue'] if payload['dialogue'] else None,
+            'dialogue_speaker': payload['dialogue_speaker'] if payload['dialogue_speaker'] else None,
+            'dialogue_bubble_type': payload['dialogue_bubble_type'] if payload['dialogue_bubble_type'] else None,
+            'dialogue_emotion': payload['dialogue_emotion'] if payload['dialogue_emotion'] else None,
+            'dialogue_position': payload['dialogue_position'] if payload['dialogue_position'] else None,
+            # 漫画元数据 - 旁白相关
+            'narration': payload['narration'] if payload['narration'] else None,
+            'narration_position': payload['narration_position'] if payload['narration_position'] else None,
+            # 漫画元数据 - 音效相关
+            'sound_effects': payload['sound_effects'] if payload['sound_effects'] else None,
+            'sound_effect_details': (
+                payload['sound_effect_details'] if payload['sound_effect_details'] else None
+            ),
+            # 漫画元数据 - 视觉相关
+            'composition': payload['composition'] if payload['composition'] else None,
+            'camera_angle': payload['camera_angle'] if payload['camera_angle'] else None,
+            'is_key_panel': payload['is_key_panel'],
+            'characters': payload['characters'] if payload['characters'] else None,
+            'lighting': payload['lighting'] if payload['lighting'] else None,
+            'atmosphere': payload['atmosphere'] if payload['atmosphere'] else None,
+            'key_visual_elements': (
+                payload['key_visual_elements'] if payload['key_visual_elements'] else None
+            ),
+            # 语言设置
+            'dialogue_language': payload['dialogue_language'] if payload['dialogue_language'] else None,
+        }
 
     def _prepareMangaData(self, chapter_data: dict) -> dict:
         """
@@ -80,25 +261,9 @@ class MangaHandlersMixin:
                     # 整页提示词列表（用于整页生成）
                     manga_data['page_prompts'] = result.get('page_prompts', [])
 
-                    # 后端返回 pages，前端需要 scenes
-                    # 将 page_number 转换为 scene_id
-                    pages = result.get('pages', [])
-                    scenes = []
-                    for page in pages:
-                        scene = dict(page)
-                        scene['scene_id'] = page.get('page_number', 0)
-                        scenes.append(scene)
-                    manga_data['scenes'] = scenes
-
-                    # 为每个 panel 添加 scene_id 和 dialogue_language
-                    panels = result.get('panels', [])
-                    for panel in panels:
-                        if 'scene_id' not in panel:
-                            panel['scene_id'] = panel.get('page_number', 0)
-                        # 确保每个panel都有dialogue_language字段
-                        if 'dialogue_language' not in panel:
-                            panel['dialogue_language'] = dialogue_language
-                    manga_data['panels'] = panels
+                    # 后端直接返回 scenes/panels
+                    manga_data['scenes'] = result.get('scenes', [])
+                    manga_data['panels'] = result.get('panels', [])
             except Exception as e:
                 # 如果获取失败，记录错误并保持默认空状态
                 logger.warning("获取漫画分镜数据失败: %s", e)
@@ -707,95 +872,11 @@ class MangaHandlersMixin:
         if not self.project_id or not self.current_chapter:
             return
 
-        # 从画格数据中提取所有字段
-        panel_id = panel.get('panel_id', '')
-        prompt = panel.get('prompt', '')
-        negative_prompt = panel.get('negative_prompt', '')
-        aspect_ratio = panel.get('aspect_ratio', '16:9')
-        reference_image_paths = panel.get('reference_image_paths', [])
-
-        # 漫画元数据 - 对话相关
-        # Bug 22 修复: 后端返回 dialogues 列表，需要正确处理
-        dialogues = panel.get('dialogues', [])
-        # 为兼容旧格式，也支持单数形式
-        dialogue = ''
-        dialogue_speaker = ''
-        dialogue_bubble_type = ''
-        dialogue_emotion = ''
-        dialogue_position = ''
-        if dialogues and len(dialogues) > 0:
-            # 取第一条对话作为主对话（用于传统单对话接口）
-            first_dialogue = dialogues[0]
-            if isinstance(first_dialogue, dict):
-                dialogue = first_dialogue.get('content', '')
-                dialogue_speaker = first_dialogue.get('speaker', '')
-                dialogue_bubble_type = first_dialogue.get('bubble_type', '')
-                dialogue_emotion = first_dialogue.get('emotion', '')
-                dialogue_position = first_dialogue.get('position', '')
-        else:
-            # 兼容旧的单对话格式
-            dialogue = panel.get('dialogue', '')
-            dialogue_speaker = panel.get('dialogue_speaker', '')
-            dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
-            dialogue_emotion = panel.get('dialogue_emotion', '')
-            dialogue_position = panel.get('dialogue_position', '')
-
-        # 漫画元数据 - 旁白相关
-        narration = panel.get('narration', '')
-        narration_position = panel.get('narration_position', '')
-
-        # 漫画元数据 - 音效相关
-        # 注意：sound_effects 可能是字符串列表或字典列表
-        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
-        raw_sound_effects = panel.get('sound_effects', [])
-        sound_effect_details = panel.get('sound_effect_details', [])
-
-        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
-        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
-        should_build_details = not sound_effect_details
-
-        # 将 sound_effects 转换为纯文本列表
-        sound_effects = []
-        for sfx in raw_sound_effects:
-            if isinstance(sfx, dict):
-                # 字典格式：提取text字段
-                sfx_text = sfx.get('text', '')
-                if sfx_text:
-                    sound_effects.append(sfx_text)
-                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
-                if should_build_details:
-                    sound_effect_details.append(sfx)
-            elif isinstance(sfx, str) and sfx:
-                sound_effects.append(sfx)
-
-        # 漫画元数据 - 视觉相关
-        composition = panel.get('composition', '')
-        camera_angle = panel.get('camera_angle', '')
-        is_key_panel = panel.get('is_key_panel', False)
-        characters = panel.get('characters', [])
-        lighting = panel.get('lighting', '')
-        atmosphere = panel.get('atmosphere', '')
-        key_visual_elements = panel.get('key_visual_elements', [])
-
-        # 语言设置
-        dialogue_language = panel.get('dialogue_language', '')
-
-        # 优先使用画格数据中的 scene_id，缺失时再解析 panel_id
-        scene_id = panel.get('scene_id')
-        if isinstance(scene_id, str) and scene_id.isdigit():
-            scene_id = int(scene_id)
-        if not isinstance(scene_id, int) or scene_id <= 0:
-            try:
-                parts = panel_id.split('_')
-                scene_id = int(parts[0].replace('scene', ''))
-            except (ValueError, IndexError):
-                scene_id = 0
+        payload = self._build_panel_payload(panel)
+        panel_id = payload['panel_id']
 
         # 显示加载动画
         self._manga_builder.set_panel_loading(panel_id, True, "正在生成图片...")
-
-        # 准备参考图路径
-        ref_paths = reference_image_paths if reference_image_paths else []
 
         # 获取当前章节版本ID（用于版本追踪）
         chapter_version_id = None
@@ -806,35 +887,10 @@ class MangaHandlersMixin:
             return self.api_client.generate_scene_image(
                 project_id=self.project_id,
                 chapter_number=self.current_chapter,
-                scene_id=scene_id,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                panel_id=panel_id,
-                aspect_ratio=aspect_ratio,
-                reference_image_paths=ref_paths if ref_paths else None,
-                chapter_version_id=chapter_version_id,
-                # 漫画元数据 - 对话相关
-                dialogue=dialogue if dialogue else None,
-                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
-                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
-                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
-                dialogue_position=dialogue_position if dialogue_position else None,
-                # 漫画元数据 - 旁白相关
-                narration=narration if narration else None,
-                narration_position=narration_position if narration_position else None,
-                # 漫画元数据 - 音效相关
-                sound_effects=sound_effects if sound_effects else None,
-                sound_effect_details=sound_effect_details if sound_effect_details else None,
-                # 漫画元数据 - 视觉相关
-                composition=composition if composition else None,
-                camera_angle=camera_angle if camera_angle else None,
-                is_key_panel=is_key_panel,
-                characters=characters if characters else None,
-                lighting=lighting if lighting else None,
-                atmosphere=atmosphere if atmosphere else None,
-                key_visual_elements=key_visual_elements if key_visual_elements else None,
-                # 语言设置
-                dialogue_language=dialogue_language if dialogue_language else None,
+                **self._build_scene_image_kwargs(
+                    payload=payload,
+                    chapter_version_id=chapter_version_id,
+                ),
             )
 
         def on_success(result):
@@ -1389,69 +1445,8 @@ class MangaHandlersMixin:
         self._batch_generate_current += 1
         self._batch_generate_active += 1
 
-        # 提取画格数据 - 基础字段
-        panel_id = panel.get('panel_id', '')
-        prompt = panel.get('prompt', '')
-        negative_prompt = panel.get('negative_prompt', '')
-        panel_aspect_ratio = panel.get('aspect_ratio', '16:9')
-        ref_paths = panel.get('reference_image_paths', [])
-
-        # 漫画元数据 - 对话相关
-        dialogue = panel.get('dialogue', '')
-        dialogue_speaker = panel.get('dialogue_speaker', '')
-        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
-        dialogue_emotion = panel.get('dialogue_emotion', '')
-        dialogue_position = panel.get('dialogue_position', '')
-
-        # 漫画元数据 - 旁白相关
-        narration = panel.get('narration', '')
-        narration_position = panel.get('narration_position', '')
-
-        # 漫画元数据 - 音效相关
-        # 注意：sound_effects 可能是字符串列表或字典列表
-        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
-        raw_sound_effects = panel.get('sound_effects', [])
-        sound_effect_details = panel.get('sound_effect_details', [])
-
-        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
-        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
-        should_build_details = not sound_effect_details
-
-        # 将 sound_effects 转换为纯文本列表
-        sound_effects = []
-        for sfx in raw_sound_effects:
-            if isinstance(sfx, dict):
-                # 字典格式：提取text字段
-                sfx_text = sfx.get('text', '')
-                if sfx_text:
-                    sound_effects.append(sfx_text)
-                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
-                if should_build_details:
-                    sound_effect_details.append(sfx)
-            elif isinstance(sfx, str) and sfx:
-                sound_effects.append(sfx)
-
-        # 漫画元数据 - 视觉相关
-        composition = panel.get('composition', '')
-        camera_angle = panel.get('camera_angle', '')
-        is_key_panel = panel.get('is_key_panel', False)
-        characters = panel.get('characters', [])
-        lighting = panel.get('lighting', '')
-        atmosphere = panel.get('atmosphere', '')
-        key_visual_elements = panel.get('key_visual_elements', [])
-
-        # 语言设置
-        dialogue_language = panel.get('dialogue_language', '')
-
-        scene_id = panel.get('scene_id')
-        if isinstance(scene_id, str) and scene_id.isdigit():
-            scene_id = int(scene_id)
-        if not isinstance(scene_id, int) or scene_id <= 0:
-            try:
-                parts = panel_id.split('_')
-                scene_id = int(parts[0].replace('scene', ''))
-            except (ValueError, IndexError):
-                scene_id = 0
+        payload = self._build_panel_payload(panel)
+        panel_id = payload['panel_id']
 
         # 更新进度（显示已启动的任务数）
         if self._manga_builder:
@@ -1471,35 +1466,10 @@ class MangaHandlersMixin:
             return self.api_client.generate_scene_image(
                 project_id=self.project_id,
                 chapter_number=self.current_chapter,
-                scene_id=scene_id,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                panel_id=panel_id,
-                aspect_ratio=panel_aspect_ratio,
-                reference_image_paths=ref_paths if ref_paths else None,
-                chapter_version_id=chapter_version_id,
-                # 漫画元数据 - 对话相关
-                dialogue=dialogue if dialogue else None,
-                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
-                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
-                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
-                dialogue_position=dialogue_position if dialogue_position else None,
-                # 漫画元数据 - 旁白相关
-                narration=narration if narration else None,
-                narration_position=narration_position if narration_position else None,
-                # 漫画元数据 - 音效相关
-                sound_effects=sound_effects if sound_effects else None,
-                sound_effect_details=sound_effect_details if sound_effect_details else None,
-                # 漫画元数据 - 视觉相关
-                composition=composition if composition else None,
-                camera_angle=camera_angle if camera_angle else None,
-                is_key_panel=is_key_panel,
-                characters=characters if characters else None,
-                lighting=lighting if lighting else None,
-                atmosphere=atmosphere if atmosphere else None,
-                key_visual_elements=key_visual_elements if key_visual_elements else None,
-                # 语言设置
-                dialogue_language=dialogue_language if dialogue_language else None,
+                **self._build_scene_image_kwargs(
+                    payload=payload,
+                    chapter_version_id=chapter_version_id,
+                ),
             )
 
         def on_success(result):
@@ -1633,56 +1603,7 @@ class MangaHandlersMixin:
             dialog.exec()
             return
 
-        # 提取基础字段
-        negative_prompt = panel.get('negative_prompt', '')
-        aspect_ratio = panel.get('aspect_ratio', '16:9')
-
-        # 漫画元数据 - 对话相关
-        dialogue = panel.get('dialogue', '')
-        dialogue_speaker = panel.get('dialogue_speaker', '')
-        dialogue_bubble_type = panel.get('dialogue_bubble_type', '')
-        dialogue_emotion = panel.get('dialogue_emotion', '')
-        dialogue_position = panel.get('dialogue_position', '')
-
-        # 漫画元数据 - 旁白相关
-        narration = panel.get('narration', '')
-        narration_position = panel.get('narration_position', '')
-
-        # 漫画元数据 - 音效相关
-        # 注意：sound_effects 可能是字符串列表或字典列表
-        # API期望 sound_effects 是 List[str]，sound_effect_details 是 List[Dict]
-        raw_sound_effects = panel.get('sound_effects', [])
-        sound_effect_details = panel.get('sound_effect_details', [])
-
-        # Bug 23 修复: 判断是否需要从raw_sound_effects构建details
-        # 只有当 sound_effect_details 原本就为空时，才从raw_sound_effects中提取
-        should_build_details = not sound_effect_details
-
-        # 将 sound_effects 转换为纯文本列表
-        sound_effects = []
-        for sfx in raw_sound_effects:
-            if isinstance(sfx, dict):
-                # 字典格式：提取text字段
-                sfx_text = sfx.get('text', '')
-                if sfx_text:
-                    sound_effects.append(sfx_text)
-                # Bug 23 修复: 每个字典都添加到details（不仅是第一个）
-                if should_build_details:
-                    sound_effect_details.append(sfx)
-            elif isinstance(sfx, str) and sfx:
-                sound_effects.append(sfx)
-
-        # 漫画元数据 - 视觉相关
-        composition = panel.get('composition', '')
-        camera_angle = panel.get('camera_angle', '')
-        is_key_panel = panel.get('is_key_panel', False)
-        characters = panel.get('characters', [])
-        lighting = panel.get('lighting', '')
-        atmosphere = panel.get('atmosphere', '')
-        key_visual_elements = panel.get('key_visual_elements', [])
-
-        # 语言设置
-        dialogue_language = panel.get('dialogue_language', '')
+        payload = self._build_panel_payload(panel)
 
         # 获取当前风格设置
         current_style = ''
@@ -1692,32 +1613,10 @@ class MangaHandlersMixin:
 
         def do_preview():
             return self.api_client.preview_image_prompt(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                style=current_style if current_style else None,
-                ratio=aspect_ratio,
-                # 漫画元数据 - 对话相关
-                dialogue=dialogue if dialogue else None,
-                dialogue_speaker=dialogue_speaker if dialogue_speaker else None,
-                dialogue_bubble_type=dialogue_bubble_type if dialogue_bubble_type else None,
-                dialogue_emotion=dialogue_emotion if dialogue_emotion else None,
-                dialogue_position=dialogue_position if dialogue_position else None,
-                # 漫画元数据 - 旁白相关
-                narration=narration if narration else None,
-                narration_position=narration_position if narration_position else None,
-                # 漫画元数据 - 音效相关
-                sound_effects=sound_effects if sound_effects else None,
-                sound_effect_details=sound_effect_details if sound_effect_details else None,
-                # 漫画元数据 - 视觉相关
-                composition=composition if composition else None,
-                camera_angle=camera_angle if camera_angle else None,
-                is_key_panel=is_key_panel,
-                characters=characters if characters else None,
-                lighting=lighting if lighting else None,
-                atmosphere=atmosphere if atmosphere else None,
-                key_visual_elements=key_visual_elements if key_visual_elements else None,
-                # 语言设置
-                dialogue_language=dialogue_language if dialogue_language else None,
+                **self._build_preview_prompt_kwargs(
+                    payload=payload,
+                    style=current_style,
+                ),
             )
 
         def on_success(result):

@@ -28,6 +28,8 @@ from ....services.coding_rag import (
     CodingDataType,
     CompletenessReport,
 )
+from ..rag_helpers import build_type_details
+from ..rag_schemas import CompletenessResponseBase, TypeDetailBase
 
 logger = logging.getLogger(__name__)
 
@@ -89,21 +91,13 @@ class FullIngestionResponse(BaseModel):
     details: Dict[str, Any]
 
 
-class TypeCompletenessDetail(BaseModel):
+class TypeCompletenessDetail(TypeDetailBase):
     """类型完整性详情"""
-    db_count: int
-    vector_count: int
-    complete: bool
     missing: int
-    display_name: str
 
 
-class CompletenessResponse(BaseModel):
+class CompletenessResponse(CompletenessResponseBase):
     """完整性检查响应"""
-    project_id: str
-    complete: bool
-    total_db_count: int
-    total_vector_count: int
     types: Dict[str, TypeCompletenessDetail]
 
 
@@ -136,6 +130,17 @@ class RAGQueryResponse(BaseModel):
     """RAG查询响应"""
     chunks: List[RAGChunk]
     summaries: List[RAGSummary]
+
+
+def _build_type_detail(type_name: str, detail: Dict[str, Any]) -> TypeCompletenessDetail:
+    """构建类型完整性详情"""
+    return TypeCompletenessDetail(
+        db_count=detail["db_count"],
+        vector_count=detail["vector_count"],
+        complete=detail["complete"],
+        missing=detail["missing"],
+        display_name=detail["display_name"],
+    )
 
 
 # ==================== 诊断端点 ====================
@@ -301,15 +306,7 @@ async def check_rag_completeness(
     )
 
     # 转换为响应格式
-    types_detail = {}
-    for type_name, detail in report.type_details.items():
-        types_detail[type_name] = TypeCompletenessDetail(
-            db_count=detail["db_count"],
-            vector_count=detail["vector_count"],
-            complete=detail["complete"],
-            missing=detail["missing"],
-            display_name=detail["display_name"]
-        )
+    types_detail = build_type_details(report.type_details, _build_type_detail)
 
     return CompletenessResponse(
         project_id=project_id,

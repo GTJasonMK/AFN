@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from windows.base.sections import BaseSection
+from windows.base.sections import BaseSection, toggle_expand_state
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from api.manager import APIClientManager
@@ -24,7 +24,7 @@ from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
 
 # 复用现有组件
-from .dependencies import GroupedDependencyCard
+from .dependencies import GroupedDependencyCard, group_dependencies_by_source
 from .generated import GeneratedItemCard
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ class GenerationSection(BaseSection):
         self.features = features or []
         self._dep_cards = []
         self._item_cards = []
-        self._workers = []
         self._deps_expanded = True
         self._generated_expanded = True
         self.api_client = APIClientManager.get_client()
@@ -112,26 +111,20 @@ class GenerationSection(BaseSection):
         layout.setSpacing(dp(12))
 
         # 标题行
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(dp(8))
-
-        title = QLabel("RAG状态")
-        title.setObjectName("section_title")
-        header_layout.addWidget(title)
-
-        header_layout.addStretch()
-
-        # RAG同步按钮
+        right_widgets = []
         if self._editable:
             sync_btn = QPushButton("同步RAG")
             sync_btn.setObjectName("sync_rag_btn")
             sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             sync_btn.setToolTip("同步项目数据到向量数据库")
             sync_btn.clicked.connect(self._on_sync_rag)
-            header_layout.addWidget(sync_btn)
+            right_widgets.append(sync_btn)
 
+        header, _ = self._build_section_header(
+            "RAG状态",
+            right_widgets=right_widgets,
+            spacing=dp(8),
+        )
         layout.addWidget(header)
 
         # RAG统计卡片
@@ -210,37 +203,28 @@ class GenerationSection(BaseSection):
         layout.setSpacing(dp(12))
 
         # 标题栏（可折叠）
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(dp(8))
-
         self.deps_expand_icon = QLabel("-")
         self.deps_expand_icon.setObjectName("expand_icon")
         self.deps_expand_icon.setFixedWidth(dp(20))
-        header_layout.addWidget(self.deps_expand_icon)
 
-        title = QLabel("依赖关系")
-        title.setObjectName("section_title")
-        header_layout.addWidget(title)
-
-        # 依赖数量
-        count = len(self.dependencies)
-        self.deps_count_label = QLabel(f"({count})")
-        self.deps_count_label.setObjectName("count_label")
-        header_layout.addWidget(self.deps_count_label)
-
-        header_layout.addStretch()
-
-        # 同步依赖按钮
+        right_widgets = []
         if self._editable:
             sync_btn = QPushButton("同步依赖")
             sync_btn.setObjectName("sync_dep_btn")
             sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             sync_btn.setToolTip("根据模块定义同步依赖关系")
             sync_btn.clicked.connect(self._on_sync_dependencies)
-            header_layout.addWidget(sync_btn)
+            right_widgets.append(sync_btn)
 
+        count = len(self.dependencies)
+        header, labels = self._build_section_header(
+            "依赖关系",
+            left_widgets=[self.deps_expand_icon],
+            stat_items=[(f"({count})", "count_label")],
+            right_widgets=right_widgets,
+            spacing=dp(8),
+        )
+        self.deps_count_label = labels.get("count_label")
         header.setCursor(Qt.CursorShape.PointingHandCursor)
         header.mousePressEvent = self._on_deps_header_click
         layout.addWidget(header)
@@ -267,35 +251,27 @@ class GenerationSection(BaseSection):
         layout.setSpacing(dp(12))
 
         # 标题栏（可折叠）
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(dp(8))
-
         self.generated_expand_icon = QLabel("-")
         self.generated_expand_icon.setObjectName("expand_icon")
         self.generated_expand_icon.setFixedWidth(dp(20))
-        header_layout.addWidget(self.generated_expand_icon)
 
-        title = QLabel("已生成内容")
-        title.setObjectName("section_title")
-        header_layout.addWidget(title)
-
-        # 生成数量（从features中筛选has_content=True的）
         generated_features = [f for f in self.features if f.get('has_content')]
         count = len(generated_features)
-        self.generated_count_label = QLabel(f"({count})")
-        self.generated_count_label.setObjectName("count_label")
-        header_layout.addWidget(self.generated_count_label)
+        stat_items = [(f"({count})", "count_label")]
 
-        # 统计总版本数
         total_versions = sum(f.get('version_count', 0) or 0 for f in generated_features)
         if total_versions > 0:
-            self.versions_label = QLabel(f"{total_versions} 版本")
-            self.versions_label.setObjectName("words_label")
-            header_layout.addWidget(self.versions_label)
+            stat_items.append((f"{total_versions} 版本", "words_label"))
 
-        header_layout.addStretch()
+        header, labels = self._build_section_header(
+            "已生成内容",
+            left_widgets=[self.generated_expand_icon],
+            stat_items=stat_items,
+            spacing=dp(8),
+        )
+        self.generated_count_label = labels.get("count_label")
+        if "words_label" in labels:
+            self.versions_label = labels["words_label"]
 
         header.setCursor(Qt.CursorShape.PointingHandCursor)
         header.mousePressEvent = self._on_generated_header_click
@@ -316,58 +292,30 @@ class GenerationSection(BaseSection):
 
     def _populate_dependencies(self, layout: QVBoxLayout):
         """填充依赖关系列表"""
-        # 清除现有卡片
-        for card in self._dep_cards:
-            try:
-                card.deleteLater()
-            except RuntimeError:
-                pass
-        self._dep_cards.clear()
+        def build_card(group_data):
+            source_module, deps = group_data
+            return GroupedDependencyCard(source_module, deps)
 
-        if not self.dependencies:
+        def build_empty_label():
             empty_label = QLabel("暂无依赖关系")
             empty_label.setObjectName("empty_label")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(empty_label)
-            self._dep_cards.append(empty_label)
-            return
+            return empty_label
 
-        # 按源模块分组
-        grouped_deps = {}
-        for dep in self.dependencies:
-            source = dep.get('source') or dep.get('from_module', '未知模块')
-            if source not in grouped_deps:
-                grouped_deps[source] = []
-            grouped_deps[source].append(dep)
-
-        # 创建分组卡片
-        for source_module in sorted(grouped_deps.keys()):
-            deps = grouped_deps[source_module]
-            card = GroupedDependencyCard(source_module, deps)
-            layout.addWidget(card)
-            self._dep_cards.append(card)
+        grouped = list(group_dependencies_by_source(self.dependencies or []))
+        self._render_card_list(
+            items=grouped,
+            layout=layout,
+            cards=self._dep_cards,
+            card_factory=build_card,
+            empty_factory=build_empty_label,
+        )
 
     def _populate_generated(self, layout: QVBoxLayout):
         """填充已生成内容列表"""
-        # 清除现有卡片
-        for card in self._item_cards:
-            try:
-                card.deleteLater()
-            except RuntimeError:
-                pass
-        self._item_cards.clear()
-
-        # 筛选已生成内容的功能
         generated_features = [f for f in self.features if f.get('has_content')]
 
-        if not generated_features:
-            empty_widget = self._create_empty_generated_state()
-            layout.addWidget(empty_widget)
-            self._item_cards.append(empty_widget)
-            return
-
-        # 构建功能卡片
-        for feature in generated_features:
+        def build_card(feature):
             feature_number = feature.get('feature_number', 0)
             feature_title = feature.get('name') or feature.get('title') or f'功能 {feature_number}'
             feature_summary = feature.get('description') or ''
@@ -384,8 +332,15 @@ class GenerationSection(BaseSection):
             card = GeneratedItemCard(feature_number, item_data)
             card.viewClicked.connect(self._on_view_item)
             card.editClicked.connect(self._on_edit_item)
-            layout.addWidget(card)
-            self._item_cards.append(card)
+            return card
+
+        self._render_card_list(
+            items=generated_features,
+            layout=layout,
+            cards=self._item_cards,
+            card_factory=build_card,
+            empty_factory=self._create_empty_generated_state,
+        )
 
     def _create_empty_generated_state(self) -> QWidget:
         """创建空状态组件"""
@@ -412,16 +367,20 @@ class GenerationSection(BaseSection):
     def _on_deps_header_click(self, event):
         """依赖标题点击"""
         if event.button() == Qt.MouseButton.LeftButton:
-            self._deps_expanded = not self._deps_expanded
-            self.deps_content.setVisible(self._deps_expanded)
-            self.deps_expand_icon.setText("-" if self._deps_expanded else "+")
+            self._deps_expanded = toggle_expand_state(
+                self._deps_expanded,
+                self.deps_content,
+                self.deps_expand_icon,
+            )
 
     def _on_generated_header_click(self, event):
         """已生成标题点击"""
         if event.button() == Qt.MouseButton.LeftButton:
-            self._generated_expanded = not self._generated_expanded
-            self.generated_content.setVisible(self._generated_expanded)
-            self.generated_expand_icon.setText("-" if self._generated_expanded else "+")
+            self._generated_expanded = toggle_expand_state(
+                self._generated_expanded,
+                self.generated_content,
+                self.generated_expand_icon,
+            )
 
     def _on_sync_rag(self):
         """同步RAG数据"""
@@ -439,7 +398,7 @@ class GenerationSection(BaseSection):
         )
         worker.success.connect(self._on_rag_sync_success)
         worker.error.connect(self._on_rag_sync_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_rag_sync_success(self, result):
@@ -478,7 +437,7 @@ class GenerationSection(BaseSection):
         )
         worker.success.connect(self._on_deps_sync_success)
         worker.error.connect(self._on_deps_sync_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_deps_sync_success(self, result):
@@ -640,16 +599,6 @@ class GenerationSection(BaseSection):
             }}
         """)
 
-    def _apply_scroll_style(self, scroll: QScrollArea):
-        """应用滚动区域样式"""
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
     def _apply_theme(self):
         """应用主题"""
         if hasattr(self, 'rag_section'):
@@ -706,13 +655,7 @@ class GenerationSection(BaseSection):
 
     def cleanup(self):
         """清理资源"""
-        for worker in self._workers:
-            try:
-                if worker.isRunning():
-                    worker.cancel()
-            except Exception:
-                pass
-        self._workers.clear()
+        self._cleanup_workers()
 
 
 __all__ = ["GenerationSection"]

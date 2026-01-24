@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.novel import CharacterStateIndex, ForeshadowingIndex
 from ..schemas.novel import ChapterAnalysisData
+from .foreshadowing_service import ForeshadowingService
 
 logger = logging.getLogger(__name__)
 
@@ -306,34 +307,24 @@ class IncrementalIndexer:
         Returns:
             List[Dict]: 伏笔列表
         """
-        result = await self.session.execute(
-            select(ForeshadowingIndex)
-            .where(
-                ForeshadowingIndex.project_id == project_id,
-                ForeshadowingIndex.status == "pending",
-                ForeshadowingIndex.planted_chapter < current_chapter,
-            )
-            .order_by(
-                # 高优先级优先
-                ForeshadowingIndex.priority.desc(),
-                # 埋得越久越优先
-                ForeshadowingIndex.planted_chapter.asc(),
-            )
-            .limit(limit)
+        service = ForeshadowingService(self.session)
+        suggestions = await service.get_pending_for_generation(
+            project_id=project_id,
+            chapter_number=current_chapter,
+            max_suggestions=limit,
         )
-        records = result.scalars().all()
 
         return [
             {
-                "id": r.id,
-                "description": r.description,
-                "category": r.category,
-                "priority": r.priority,
-                "planted_chapter": r.planted_chapter,
-                "related_entities": r.related_entities or [],
-                "chapters_since_planted": current_chapter - r.planted_chapter,
+                "id": item["id"],
+                "description": item["description"],
+                "category": item["category"],
+                "priority": item["priority"],
+                "planted_chapter": item["planted_chapter"],
+                "related_entities": item.get("related_entities", []),
+                "chapters_since_planted": item["chapters_pending"],
             }
-            for r in records
+            for item in suggestions
         ]
 
     async def get_character_state_at_chapter(
@@ -365,14 +356,37 @@ class IncrementalIndexer:
 
         states = {}
         for r in records:
-            states[r.character_name] = {
-                "location": r.location,
-                "status": r.status,
-                "changes": r.changes or [],
-                "emotional_state": r.emotional_state,
-            }
+            states[r.character_name] = self._format_character_state_record(
+                r,
+                include_emotional=True,
+                include_relationships=False,
+            )
 
         return states
+
+    async def get_latest_character_state_before(
+        self,
+        project_id: str,
+        chapter_number: int,
+        character_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """获取指定章节之前最新的角色状态"""
+        query = select(CharacterStateIndex).where(
+            CharacterStateIndex.project_id == project_id,
+            CharacterStateIndex.character_name == character_name,
+            CharacterStateIndex.chapter_number < chapter_number,
+        ).order_by(CharacterStateIndex.chapter_number.desc()).limit(1)
+
+        result = await self.session.execute(query)
+        record = result.scalar_one_or_none()
+        if not record:
+            return None
+
+        return self._build_character_state_payload(
+            record,
+            character_name=character_name,
+            include_relationships=True,
+        )
 
     async def get_character_timeline(
         self,
@@ -409,12 +423,58 @@ class IncrementalIndexer:
         return [
             {
                 "chapter_number": r.chapter_number,
-                "location": r.location,
-                "status": r.status,
-                "changes": r.changes or [],
+                **self._format_character_state_record(
+                    r,
+                    include_emotional=False,
+                    include_relationships=False,
+                ),
             }
             for r in records
         ]
+
+    def _format_character_state_record(
+        self,
+        record: CharacterStateIndex,
+        *,
+        include_emotional: bool = True,
+        include_relationships: bool = False,
+    ) -> Dict[str, Any]:
+        """统一格式化角色状态记录"""
+        payload: Dict[str, Any] = {
+            "location": record.location,
+            "status": record.status,
+            "changes": record.changes or [],
+        }
+
+        if include_emotional:
+            payload["emotional_state"] = record.emotional_state
+
+        if include_relationships:
+            payload["relationships_snapshot"] = record.relationships_snapshot
+
+        return payload
+
+    def _build_character_state_payload(
+        self,
+        record: CharacterStateIndex,
+        *,
+        character_name: str,
+        include_relationships: bool,
+    ) -> Dict[str, Any]:
+        """构建带元信息的角色状态响应"""
+        payload = {
+            "character_name": character_name,
+            "found": True,
+            "last_chapter": record.chapter_number,
+        }
+        payload.update(
+            self._format_character_state_record(
+                record,
+                include_emotional=True,
+                include_relationships=include_relationships,
+            )
+        )
+        return payload
 
     async def cleanup_chapter_indexes(
         self,

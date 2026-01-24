@@ -73,6 +73,7 @@ class PanelResponse(BaseModel):
     panel_id: str
     page_number: int
     panel_number: int
+    scene_id: int = 0
     shape: str  # horizontal/vertical/square
     shot_type: str  # long/medium/close_up
 
@@ -95,12 +96,26 @@ class PanelResponse(BaseModel):
     # 参考图
     reference_image_paths: List[str] = []
 
+    # 对话语言（用于图片生成）
+    dialogue_language: str = "chinese"
+
 
 class PageResponse(BaseModel):
     """页面响应"""
     page_number: int
     panel_count: int
     layout_description: str = ""
+    gutter_horizontal: int = 8
+    gutter_vertical: int = 8
+
+
+class SceneResponse(BaseModel):
+    """场景响应（页面信息）"""
+    scene_id: int
+    page_number: int
+    panel_count: int
+    layout_description: str = ""
+    reading_flow: str = "right_to_left"
     gutter_horizontal: int = 8
     gutter_vertical: int = 8
 
@@ -125,6 +140,7 @@ class GenerateResponse(BaseModel):
     total_pages: int
     total_panels: int
     pages: List[PageResponse]
+    scenes: List[SceneResponse]
     panels: List[PanelResponse]
     # Bug 24 修复: 添加对话语言字段
     dialogue_language: str = "chinese"
@@ -532,11 +548,22 @@ async def get_manga_prompt_progress(
 def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
     """将生成结果转换为API响应格式"""
     pages = []
+    scenes = []
     for page in result.pages:
+        panel_count = len(page.panels)
         pages.append(PageResponse(
             page_number=page.page_number,
-            panel_count=len(page.panels),
+            panel_count=panel_count,
             layout_description=page.layout_description,
+            gutter_horizontal=page.gutter_horizontal,
+            gutter_vertical=page.gutter_vertical,
+        ))
+        scenes.append(SceneResponse(
+            scene_id=page.page_number,
+            page_number=page.page_number,
+            panel_count=panel_count,
+            layout_description=page.layout_description,
+            reading_flow="right_to_left",
             gutter_horizontal=page.gutter_horizontal,
             gutter_vertical=page.gutter_vertical,
         ))
@@ -547,6 +574,7 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             panel_id=prompt.panel_id,
             page_number=prompt.page_number,
             panel_number=prompt.panel_number,
+            scene_id=prompt.page_number,
             shape=prompt.shape,
             shot_type=prompt.shot_type,
             row_id=prompt.row_id,
@@ -558,6 +586,7 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
             dialogues=prompt.dialogues,
             characters=prompt.characters,
             reference_image_paths=prompt.reference_image_paths or [],
+            dialogue_language=result.dialogue_language,
         ))
 
     # 转换整页提示词
@@ -581,6 +610,7 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
         total_pages=result.total_pages,
         total_panels=result.total_panels,
         pages=pages,
+        scenes=scenes,
         panels=panels,
         dialogue_language=result.dialogue_language,
         # 从完整结果转换时，总是已完成状态
@@ -593,14 +623,26 @@ def _convert_to_response(result: MangaPromptResult) -> GenerateResponse:
 def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
     """将存储的字典数据转换为API响应格式"""
     pages = []
+    scenes = []
     all_panels = []  # 收集所有页面中的画格
+    dialogue_language = data.get("dialogue_language", "chinese")
 
     for page_data in data.get("pages", []):
         page_panels = page_data.get("panels", [])
+        panel_count = len(page_panels)
         pages.append(PageResponse(
             page_number=page_data.get("page_number", 0),
-            panel_count=len(page_panels),
+            panel_count=panel_count,
             layout_description=page_data.get("layout_description", ""),
+            gutter_horizontal=page_data.get("gutter_horizontal", 8),
+            gutter_vertical=page_data.get("gutter_vertical", 8),
+        ))
+        scenes.append(SceneResponse(
+            scene_id=page_data.get("page_number", 0),
+            page_number=page_data.get("page_number", 0),
+            panel_count=panel_count,
+            layout_description=page_data.get("layout_description", ""),
+            reading_flow=page_data.get("reading_flow", "right_to_left"),
             gutter_horizontal=page_data.get("gutter_horizontal", 8),
             gutter_vertical=page_data.get("gutter_vertical", 8),
         ))
@@ -615,10 +657,12 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
     for p in all_panels:
         # 兼容旧数据：优先读取 prompt，如果没有则尝试 prompt_en 或 prompt_zh
         prompt_value = p.get("prompt") or p.get("prompt_en") or p.get("prompt_zh") or ""
+        scene_id = p.get("scene_id") or p.get("page_number") or 0
         panels.append(PanelResponse(
             panel_id=p.get("panel_id") or "",
             page_number=p.get("page_number") or 0,
             panel_number=p.get("panel_number") or 0,
+            scene_id=scene_id,
             shape=p.get("shape") or "horizontal",
             shot_type=p.get("shot_type") or "medium",
             row_id=p.get("row_id") or 1,
@@ -630,6 +674,7 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
             dialogues=p.get("dialogues") or [],
             characters=p.get("characters") or [],
             reference_image_paths=p.get("reference_image_paths") or [],
+            dialogue_language=p.get("dialogue_language") or dialogue_language,
         ))
 
     # 转换整页提示词
@@ -653,8 +698,9 @@ def _convert_dict_to_response(data: Dict[str, Any]) -> GenerateResponse:
         total_pages=data.get("total_pages", 0),
         total_panels=data.get("total_panels", 0),
         pages=pages,
+        scenes=scenes,
         panels=panels,
-        dialogue_language=data.get("dialogue_language", "chinese"),
+        dialogue_language=dialogue_language,
         analysis_data=data.get("analysis_data"),
         # 增量更新状态
         is_complete=data.get("is_complete", True),

@@ -440,16 +440,6 @@ class CodingOverviewSection(BaseSection):
 
     # ========== 样式方法 ==========
 
-    def _apply_scroll_style(self, scroll: QScrollArea):
-        """应用滚动区域样式"""
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
     def _apply_progress_style(self, section: QFrame):
         """应用进度样式"""
         section.setStyleSheet(f"""

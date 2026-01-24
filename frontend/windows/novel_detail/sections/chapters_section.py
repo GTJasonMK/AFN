@@ -6,18 +6,21 @@
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QWidget,
-    QListView, QStackedWidget, QScrollArea, QFileDialog, QTextEdit,
+    QListView, QStackedWidget,
     QAbstractItemView
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from api.manager import APIClientManager
 from .chapter_list_model import ChapterListModel, ChapterItemDelegate, ChapterRoles
+from ..mixins.save_manager import select_open_file, select_save_file, read_text_file, write_text_file
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from utils.error_handler import handle_errors
 from utils.message_service import MessageService
-from utils.formatters import count_chinese_characters, format_word_count
+from utils.chapter_cache import get_chapter_cache
+from utils.formatters import count_chinese_characters
 from utils.dpi_utils import dp, sp
+from windows.writing_desk.panels.content_panel import ContentPanelBuilder
 
 
 class ChaptersSection(ThemeAwareWidget):
@@ -34,7 +37,8 @@ class ChaptersSection(ThemeAwareWidget):
         self.completed_chapters = []  # 过滤后的已完成章节
         self.api_client = APIClientManager.get_client()
         self.selected_chapter = None
-        self.chapter_cache = {}
+        self._chapter_cache = get_chapter_cache()
+        self._content_builder = ContentPanelBuilder()
         self.project_id = ''
 
         # 保存UI组件引用
@@ -197,6 +201,9 @@ class ChaptersSection(ThemeAwareWidget):
 
     def _apply_theme(self):
         """应用主题样式（可多次调用）"""
+        if self._content_builder:
+            self._content_builder.refresh_theme()
+
         # 使用现代UI字体
         ui_font = theme_manager.ui_font()
 
@@ -305,9 +312,10 @@ class ChaptersSection(ThemeAwareWidget):
             if current_index >= 0 and current_index < len(self.completed_chapters):
                 chapter = self.completed_chapters[current_index]
                 chapter_number = chapter.get('chapter_number')
-                if chapter_number in self.chapter_cache:
+                cached_detail = self._chapter_cache.get(self.project_id, chapter_number)
+                if cached_detail:
                     # 重新显示章节详情
-                    self._displayChapterDetail(self.chapter_cache[chapter_number])
+                    self._displayChapterDetail(cached_detail)
 
     def _onChapterSelected(self, row):
         """章节被选中"""
@@ -324,8 +332,9 @@ class ChaptersSection(ThemeAwareWidget):
     def _loadChapterDetail(self, chapter_number):
         """加载章节详情"""
         # 检查缓存
-        if chapter_number in self.chapter_cache:
-            self._displayChapterDetail(self.chapter_cache[chapter_number])
+        cached_detail = self._chapter_cache.get(self.project_id, chapter_number)
+        if cached_detail:
+            self._displayChapterDetail(cached_detail)
             return
 
         # 从API加载
@@ -334,7 +343,7 @@ class ChaptersSection(ThemeAwareWidget):
             return
 
         detail = self.api_client.get_chapter(self.project_id, chapter_number)
-        self.chapter_cache[chapter_number] = detail
+        self._chapter_cache.set(self.project_id, chapter_number, detail)
         self._displayChapterDetail(detail)
 
     def _displayChapterDetail(self, detail):
@@ -352,8 +361,6 @@ class ChaptersSection(ThemeAwareWidget):
 
     def _createChapterDetailWidget(self, detail):
         """创建章节详情widget - 只显示正文"""
-        # 使用书香风格字体
-        serif_font = theme_manager.serif_font()
         # 使用现代UI字体
         ui_font = theme_manager.ui_font()
 
@@ -432,54 +439,14 @@ class ChaptersSection(ThemeAwareWidget):
         layout.addWidget(header)
 
         # 正文内容区域
-        content_container = QFrame()
-        content_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: {theme_manager.BG_CARD};
-                border: 1px solid {theme_manager.BORDER_LIGHT};
-                border-radius: {dp(10)}px;
-            }}
-        """)
-        content_layout = QVBoxLayout(content_container)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
-        content_widget = QWidget()
-        content_widget.setStyleSheet(f"background-color: {theme_manager.BG_CARD};")
-        text_layout = QVBoxLayout(content_widget)
-        text_layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
-
-        # 使用QTextEdit显示正文（只读模式，支持更好的文本排版）
-        content_text = QTextEdit()
-        content_text.setReadOnly(True)
-        content_text.setPlainText(content if content else "暂无内容")
-        content_text.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: transparent;
-                border: none;
-                font-family: {serif_font};
-                font-size: {sp(15)}px;
-                color: {theme_manager.TEXT_PRIMARY};
-                line-height: 1.9;
-            }}
-        """)
-        content_text.setMinimumHeight(dp(400))
-        text_layout.addWidget(content_text)
-
-        scroll.setWidget(content_widget)
-        content_layout.addWidget(scroll)
-
-        layout.addWidget(content_container, stretch=1)
+        content_panel = self._content_builder.create_editor_panel(
+            content,
+            read_only=True,
+            empty_text="暂无内容"
+        )
+        if self._content_builder.content_text:
+            self._content_builder.content_text.setMinimumHeight(dp(400))
+        layout.addWidget(content_panel, stretch=1)
 
         return widget
 
@@ -488,7 +455,7 @@ class ChaptersSection(ThemeAwareWidget):
         chapter_num = detail.get('chapter_number', '')
         title = detail.get('title', f'第{chapter_num}章')
 
-        filename, _ = QFileDialog.getSaveFileName(
+        filename = select_save_file(
             self,
             "导出章节",
             f"第{chapter_num}章_{title}.txt",
@@ -498,9 +465,8 @@ class ChaptersSection(ThemeAwareWidget):
         if filename:
             @handle_errors("导出章节")
             def _export():
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(f"第{chapter_num}章  {title}\n\n")
-                    f.write(detail.get('content', ''))
+                content = f"第{chapter_num}章  {title}\n\n{detail.get('content', '')}"
+                write_text_file(filename, content)
                 MessageService.show_operation_success(self, "章节导出")
 
             _export()
@@ -510,8 +476,8 @@ class ChaptersSection(ThemeAwareWidget):
         if not self.project_id:
             return
 
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "导入章节文件", "", "文本文件 (*.txt);;所有文件 (*.*)"
+        file_path = select_open_file(
+            self, "导入章节文件", "文本文件 (*.txt);;所有文件 (*.*)"
         )
         if not file_path:
             return
@@ -538,8 +504,7 @@ class ChaptersSection(ThemeAwareWidget):
 
         # 读取内容
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = read_text_file(file_path)
         except Exception as e:
             MessageService.show_error(self, f"读取文件失败: {e}")
             return
@@ -548,7 +513,7 @@ class ChaptersSection(ThemeAwareWidget):
         @handle_errors("导入章节")
         def _do_import():
             self.api_client.import_chapter(self.project_id, chapter_num, title, content)
-            MessageService.show_success(self, "导入成功")
+            MessageService.show_operation_success(self, "章节导入")
             self.dataChanged.emit()
 
         _do_import()
@@ -561,7 +526,8 @@ class ChaptersSection(ThemeAwareWidget):
         new_count = len(self.completed_chapters)
 
         # 清空缓存
-        self.chapter_cache.clear()
+        if self.project_id:
+            self._chapter_cache.invalidate(self.project_id)
 
         # 如果布局已存在
         if self.layout():

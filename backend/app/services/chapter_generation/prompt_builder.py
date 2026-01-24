@@ -9,6 +9,9 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ...models.novel import ChapterOutline
+from ..rag.utils import format_character_positions
+from ..rag.context_builder import GenerationContext
+from ..rag.context_compressor import ContextCompressor
 from ..rag.scene_extractor import SceneState
 
 
@@ -183,10 +186,10 @@ class ChapterPromptBuilder:
                 prev_states = generation_context.get("important", {}).get("prev_character_states")
 
             if prev_states:
-                positions = []
-                for name, state in prev_states.items():
-                    if isinstance(state, dict) and state.get("location"):
-                        positions.append(f"{name}在{state['location']}")
+                positions = format_character_positions(
+                    prev_states,
+                    max_items=5,
+                )
                 if positions:
                     lines.append(f"角色位置: {'; '.join(positions)}")
                     has_content = True
@@ -215,57 +218,113 @@ class ChapterPromptBuilder:
 
         包含：涉及角色详情、主角档案约束、待回收伏笔、相关段落、前情摘要
         """
-        lines = ["## 关键参考"]
+        lines: List[str] = []
         has_content = False
 
-        # 1. 涉及角色详情（从 generation_context 获取）
-        involved_chars = self._get_involved_characters(blueprint_dict, generation_context)
-        if involved_chars:
-            lines.append("### 涉及角色")
-            for char in involved_chars[:5]:  # 最多5个
-                char_line = f"- {char.get('name', '未知')}"
-                if char.get("identity"):
-                    char_line += f" ({char['identity']})"
-                if char.get("personality"):
-                    char_line += f": {char['personality'][:50]}"
-                lines.append(char_line)
+        reference_text = self._format_reference_layers_from_context(
+            blueprint_dict=blueprint_dict,
+            rag_context=rag_context,
+            generation_context=generation_context,
+        )
+        if reference_text:
+            lines.append(reference_text)
             has_content = True
 
-        # 2. 主角档案约束（从 generation_context 获取）
+        # 主角档案约束（从 generation_context 获取）
         protagonist_section = self._format_protagonist_profiles(generation_context)
         if protagonist_section:
+            if not reference_text:
+                lines.append("## 关键参考")
             lines.append(protagonist_section)
             has_content = True
 
-        # 3. 待回收伏笔（从 generation_context 获取）
-        foreshadowing = self._get_foreshadowing(generation_context)
-        if foreshadowing:
-            lines.append("### 待回收伏笔")
-            for fs in foreshadowing[:3]:  # 最多3个
-                priority = fs.get("priority", "medium")
-                marker = "[重要]" if priority == "high" else ""
-                description = fs.get("description", fs.get("hint", ""))
-                if description:
-                    lines.append(f"- {marker} {description[:80]}")
-            has_content = True
-
-        # 4. 相关段落（RAG检索结果）
-        rag_text = self._format_rag_context(rag_context)
-        if rag_text:
-            lines.append("### 相关段落")
-            lines.append(rag_text)
-            has_content = True
-
-        # 5. 前情摘要（仅首次生成时）
+        # 前情摘要（仅首次生成时）
         if completed_chapters:
             from ...utils.writer_helpers import build_layered_summary
             summary_text = build_layered_summary(completed_chapters, chapter_number)
             if summary_text and summary_text != "暂无前情摘要":
+                if not reference_text and not protagonist_section:
+                    lines.append("## 关键参考")
                 lines.append("### 前情摘要")
                 lines.append(summary_text)
                 has_content = True
 
         return "\n".join(lines) if has_content else ""
+
+    def _format_reference_layers_from_context(
+        self,
+        blueprint_dict: Dict,
+        rag_context: Any,
+        generation_context: Optional[Any],
+    ) -> str:
+        """基于生成上下文格式化关键参考内容"""
+        important: Dict[str, Any] = {}
+        reference: Dict[str, Any] = {}
+
+        if isinstance(generation_context, GenerationContext):
+            important = dict(generation_context.important or {})
+            reference = dict(generation_context.reference or {})
+        elif isinstance(generation_context, dict):
+            important = dict(generation_context.get("important", {}) or {})
+            reference = dict(generation_context.get("reference", {}) or {})
+
+        if rag_context:
+            if not important.get("relevant_summaries"):
+                summaries = self._extract_relevant_summaries(rag_context)
+                if summaries:
+                    important["relevant_summaries"] = summaries
+            if not reference.get("relevant_passages"):
+                passages = self._extract_relevant_passages(rag_context)
+                if passages:
+                    reference["relevant_passages"] = passages
+
+        if not important.get("involved_characters"):
+            important["involved_characters"] = self._get_involved_characters(
+                blueprint_dict,
+                generation_context,
+            )
+
+        if not important.get("high_priority_foreshadowing"):
+            important["high_priority_foreshadowing"] = self._get_foreshadowing(
+                generation_context,
+            )
+
+        if not any(important.values()) and not any(reference.values()):
+            return ""
+
+        context = GenerationContext(
+            important=important,
+            reference=reference,
+        )
+
+        compressor = ContextCompressor(max_context_tokens=10000)
+        return compressor.format_reference_layers(context, include_reference=True)
+
+    def _extract_relevant_summaries(self, rag_context: Any) -> List[Dict[str, Any]]:
+        """从RAG上下文提取摘要列表，供压缩器统一格式化"""
+        summaries: List[Dict[str, Any]] = []
+        if hasattr(rag_context, "summaries") and rag_context.summaries:
+            for summary in rag_context.summaries[:3]:
+                if hasattr(summary, "chapter_number"):
+                    summaries.append({
+                        "chapter": summary.chapter_number,
+                        "title": getattr(summary, "title", ""),
+                        "summary": getattr(summary, "summary", ""),
+                    })
+        return summaries
+
+    def _extract_relevant_passages(self, rag_context: Any) -> List[Dict[str, Any]]:
+        """从RAG上下文提取段落列表，供压缩器统一格式化"""
+        passages: List[Dict[str, Any]] = []
+        if hasattr(rag_context, "chunks") and rag_context.chunks:
+            for chunk in rag_context.chunks[:3]:
+                if hasattr(chunk, "chapter_number") and hasattr(chunk, "content"):
+                    passages.append({
+                        "chapter": chunk.chapter_number,
+                        "title": getattr(chunk, "chapter_title", None),
+                        "content": getattr(chunk, "content", ""),
+                    })
+        return passages
 
     def _format_protagonist_profiles(self, generation_context: Optional[Any]) -> str:
         """
@@ -380,36 +439,6 @@ class ChapterPromptBuilder:
 
         return foreshadowing or []
 
-    def _format_rag_context(self, rag_context: Any) -> str:
-        """
-        格式化RAG上下文
-
-        将检索到的chunks和summaries格式化为简洁的文本
-        """
-        if not rag_context:
-            return ""
-
-        parts = []
-
-        # 处理chunks
-        if hasattr(rag_context, "chunks") and rag_context.chunks:
-            for chunk in rag_context.chunks[:3]:  # 最多3个片段
-                if hasattr(chunk, "chapter_number") and hasattr(chunk, "content"):
-                    title = getattr(chunk, "chapter_title", f"第{chunk.chapter_number}章")
-                    content = chunk.content[:200]  # 截断
-                    if len(chunk.content) > 200:
-                        content += "..."
-                    parts.append(f"[{title}] {content}")
-
-        # 处理summaries
-        if hasattr(rag_context, "summaries") and rag_context.summaries:
-            for summary in rag_context.summaries[:2]:  # 最多2个摘要
-                if hasattr(summary, "chapter_number"):
-                    title = getattr(summary, "title", f"第{summary.chapter_number}章")
-                    text = getattr(summary, "summary", "")[:100]
-                    parts.append(f"[{title}摘要] {text}")
-
-        return "\n".join(parts) if parts else ""
 
     def build_retry_prompt(
         self,

@@ -28,6 +28,107 @@ DEFAULT_NEGATIVE_PROMPT = (
 )
 
 
+def _resolve_panel_value(panel, attr: str, default):
+    """读取画格字段，兼容枚举与直接字符串"""
+    value = getattr(panel, attr, default)
+    if value is None:
+        return default
+    return getattr(value, "value", value)
+
+
+def _resolve_panel_int(panel, attr: str, default: int) -> int:
+    """读取画格整数字段，兼容字符串与缺省值"""
+    value = _resolve_panel_value(panel, attr, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def build_layout_template(panels: List) -> str:
+    """构建布局模板名称（兼容不同面板对象）"""
+    if not panels:
+        return "empty"
+
+    rows = {}
+    for panel in panels:
+        row_id = _resolve_panel_int(panel, "row_id", 1)
+        rows[row_id] = rows.get(row_id, 0) + 1
+
+    row_count = len(rows)
+    panel_counts = [str(rows[r]) for r in sorted(rows.keys())]
+    return f"{row_count}row_{'x'.join(panel_counts)}"
+
+
+def build_panel_summary(panel) -> dict:
+    """构建画格简要信息（兼容 PanelDesign/PanelPrompt）"""
+    summary = {
+        "panel_id": _resolve_panel_value(panel, "panel_id", ""),
+        "row_id": _resolve_panel_int(panel, "row_id", 1),
+        "row_span": _resolve_panel_int(panel, "row_span", 1),
+        "width_ratio": _resolve_panel_value(panel, "width_ratio", "half"),
+        "aspect_ratio": _resolve_panel_value(panel, "aspect_ratio", "4:3"),
+    }
+
+    shot_map = {"long": "远景", "medium": "中景", "close_up": "特写", "extreme_close_up": "超特写"}
+    shot_raw = _resolve_panel_value(panel, "shot_type", "medium")
+    summary["shot_type"] = shot_map.get(shot_raw, "中景")
+
+    visual_text = getattr(panel, "visual_description", "") or getattr(panel, "prompt", "")
+    summary["visual"] = visual_text[:100] if visual_text else ""
+
+    characters = getattr(panel, "characters", None) or []
+    summary["characters"] = characters[:3]
+
+    dialogues_data = getattr(panel, "dialogues", None) or []
+    if dialogues_data:
+        dialogues = []
+        for dialogue in dialogues_data[:2]:
+            if isinstance(dialogue, dict):
+                speaker = dialogue.get("speaker") or "角色"
+                content = dialogue.get("content") or ""
+                is_internal = dialogue.get("is_internal", False)
+                bubble_type = dialogue.get("bubble_type") or "normal"
+            else:
+                speaker = dialogue.speaker if getattr(dialogue, "speaker", None) else "角色"
+                content = getattr(dialogue, "content", "") or ""
+                is_internal = getattr(dialogue, "is_internal", False)
+                bubble_type = getattr(dialogue, "bubble_type", "normal")
+
+            content = content[:30] if len(content) > 30 else content
+
+            if is_internal or bubble_type == "thought":
+                dialogues.append(f'{speaker}(想法): ({content})')
+            elif bubble_type == "shout":
+                dialogues.append(f'{speaker}(喊): "{content}"')
+            elif bubble_type == "whisper":
+                dialogues.append(f'{speaker}(低语): "{content}"')
+            else:
+                dialogues.append(f'{speaker}: "{content}"')
+        summary["dialogues"] = dialogues
+
+    narration = getattr(panel, "narration", "") or ""
+    if narration:
+        narration_text = narration[:50] if len(narration) > 50 else narration
+        summary["narration"] = narration_text
+        summary["narration_type"] = getattr(panel, "narration_type", "") or "scene"
+
+    background = getattr(panel, "background", "") or ""
+    if background:
+        summary["background"] = background
+
+    atmosphere = getattr(panel, "atmosphere", "") or ""
+    if atmosphere:
+        summary["atmosphere"] = atmosphere
+
+    return summary
+
+
+def build_panel_summaries(panels: List) -> List[dict]:
+    """批量生成画格摘要列表"""
+    return [build_panel_summary(panel) for panel in panels]
+
+
 class PromptBuilder:
     """
     提示词构建器
@@ -302,8 +403,7 @@ class PromptBuilder:
         # 1. 分析页面布局，生成布局模板和描述
         layout_template, layout_desc = self._analyze_page_layout(page)
 
-        # 2. 为每个panel生成简要描述和完整提示词
-        panel_summaries = []
+        # 2. 为每个panel生成完整提示词
         panel_prompts = []
         all_characters = set()
 
@@ -312,12 +412,11 @@ class PromptBuilder:
             panel_prompt = self._build_panel_prompt(panel, page.page_number, chapter_info)
             panel_prompts.append(panel_prompt)
 
-            # 生成panel简要描述（用于整页prompt）
-            summary = self._build_panel_summary_for_page(panel, chapter_info)
-            panel_summaries.append(summary)
-
             # 收集所有角色
             all_characters.update(panel.characters)
+
+        # 生成panel简要描述（用于整页prompt）
+        panel_summaries = build_panel_summaries(page.panels)
 
         # 3. 组合成整页提示词
         full_prompt = self._compose_full_page_prompt(
@@ -380,15 +479,15 @@ class PromptBuilder:
                     "half": "1/2",
                     "third": "1/3"
                 }
-                width = width_map.get(p.width_ratio.value, "1/2")
-                ratio = p.aspect_ratio.value
+                width_key = _resolve_panel_value(p, "width_ratio", "half")
+                width = width_map.get(width_key, "1/2")
+                ratio = _resolve_panel_value(p, "aspect_ratio", "4:3")
                 span = f"跨{p.row_span}行" if p.row_span > 1 else ""
                 panel_descs.append(f"画格({width}, {ratio}{span})")
             desc_parts.append(f"第{row_id}行: {' + '.join(panel_descs)}")
 
         # 生成模板名称 (如 "3row_1x2x1")
-        row_panel_counts = [str(len(rows[r])) for r in sorted(rows.keys())]
-        template_name = f"{row_count}row_{'x'.join(row_panel_counts)}"
+        template_name = build_layout_template(panels)
 
         return template_name, "\n".join(desc_parts)
 
@@ -407,52 +506,7 @@ class PromptBuilder:
         Returns:
             dict: panel简要信息
         """
-        summary = {
-            "panel_id": panel.panel_id,
-            "row_id": panel.row_id,
-            "row_span": panel.row_span,
-            "width_ratio": panel.width_ratio.value,
-            "aspect_ratio": panel.aspect_ratio.value,
-        }
-
-        # 镜头类型
-        shot_map = {"long": "远景", "medium": "中景", "close_up": "特写"}
-        summary["shot_type"] = shot_map.get(panel.shot_type.value, "中景")
-
-        # 画面描述（截取前100字符）
-        summary["visual"] = panel.visual_description[:100] if panel.visual_description else ""
-
-        # 角色（最多3个）
-        summary["characters"] = panel.characters[:3]
-
-        # 对话（最多2条，每条截取前30字符，包含气泡类型信息）
-        if panel.dialogues:
-            dialogues = []
-            for d in panel.dialogues[:2]:
-                speaker = d.speaker if d.speaker else "角色"
-                content = d.content[:30] if len(d.content) > 30 else d.content
-                # 根据类型添加标记
-                if d.is_internal or d.bubble_type == "thought":
-                    dialogues.append(f'{speaker}(想法): ({content})')
-                elif d.bubble_type == "shout":
-                    dialogues.append(f'{speaker}(喊): "{content}"')
-                elif d.bubble_type == "whisper":
-                    dialogues.append(f'{speaker}(低语): "{content}"')
-                else:
-                    dialogues.append(f'{speaker}: "{content}"')
-            summary["dialogues"] = dialogues
-
-        # 旁白（与对话不同，是叙述性文字）
-        if panel.narration:
-            narration_text = panel.narration[:50] if len(panel.narration) > 50 else panel.narration
-            summary["narration"] = narration_text
-            summary["narration_type"] = panel.narration_type or "scene"
-
-        # 背景/氛围
-        summary["background"] = panel.background or ""
-        summary["atmosphere"] = panel.atmosphere or ""
-
-        return summary
+        return build_panel_summary(panel)
 
     def _compose_full_page_prompt(
         self,
@@ -542,4 +596,7 @@ class PromptBuilder:
 
 __all__ = [
     "PromptBuilder",
+    "build_layout_template",
+    "build_panel_summary",
+    "build_panel_summaries",
 ]

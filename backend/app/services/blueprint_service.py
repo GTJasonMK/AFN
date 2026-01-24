@@ -7,7 +7,6 @@
 import json
 import logging
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -17,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.constants import NovelConstants
 from ..models.novel import NovelProject, CharacterStateIndex, ForeshadowingIndex
-from ..models.part_outline import PartOutline
 from ..repositories.blueprint_repository import (
     BlueprintCharacterRepository,
     BlueprintRelationshipRepository,
@@ -30,6 +28,7 @@ from ..services.llm_service import LLMService
 from ..services.vector_store_service import VectorStoreService
 from ..services.chapter_ingest_service import ChapterIngestionService
 from ..utils.json_utils import parse_llm_json_safe
+from .blueprint_base import BlueprintServiceBase
 from ..utils.exception_helpers import log_exception
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ class BlueprintGenerationResult:
     total_chapters: int
 
 
-class BlueprintService:
+class BlueprintService(BlueprintServiceBase):
     """
     蓝图管理服务
 
@@ -62,6 +61,7 @@ class BlueprintService:
         Args:
             session: 数据库会话
         """
+        super().__init__(session)
         self.session = session
         self.blueprint_repo = NovelBlueprintRepository(session)
         self.character_repo = BlueprintCharacterRepository(session)
@@ -69,6 +69,30 @@ class BlueprintService:
         self.chapter_outline_repo = ChapterOutlineRepository(session)
         self.part_outline_repo = PartOutlineRepository(session)
         self.chapter_repo = ChapterRepository(session)
+
+        self._replace_field_map = {
+            "title": "title",
+            "target_audience": "target_audience",
+            "genre": "genre",
+            "style": "style",
+            "tone": "tone",
+            "one_sentence_summary": "one_sentence_summary",
+            "full_synopsis": "full_synopsis",
+            "world_setting": "world_setting",
+            "needs_part_outlines": "needs_part_outlines",
+            "total_chapters": "total_chapters",
+            "chapters_per_part": "chapters_per_part",
+        }
+        self._patch_field_map = {
+            "one_sentence_summary": "one_sentence_summary",
+            "full_synopsis": "full_synopsis",
+            "total_chapters": "total_chapters",
+            "genre": "genre",
+            "style": "style",
+            "tone": "tone",
+            "target_audience": "target_audience",
+            "title": "title",
+        }
 
     async def replace_blueprint(self, project_id: str, blueprint: Blueprint) -> None:
         """
@@ -80,20 +104,11 @@ class BlueprintService:
             project_id: 项目ID
             blueprint: 蓝图数据对象
         """
-        # 构建蓝图数据字典
-        blueprint_data = {
-            "title": blueprint.title,
-            "target_audience": blueprint.target_audience,
-            "genre": blueprint.genre,
-            "style": blueprint.style,
-            "tone": blueprint.tone,
-            "one_sentence_summary": blueprint.one_sentence_summary,
-            "full_synopsis": blueprint.full_synopsis,
-            "world_setting": blueprint.world_setting,
-            "needs_part_outlines": blueprint.needs_part_outlines,
-            "total_chapters": blueprint.total_chapters,
-            "chapters_per_part": blueprint.chapters_per_part,
-        }
+        blueprint_data = self._build_update_data(
+            blueprint.model_dump(),
+            self._replace_field_map,
+            allow_none=True,
+        )
 
         # 使用Repository创建或更新蓝图
         await self.blueprint_repo.create_or_update(project_id, blueprint_data)
@@ -116,36 +131,14 @@ class BlueprintService:
         # 获取现有蓝图（如果不存在会创建）
         blueprint = await self.blueprint_repo.get_by_project_id(project_id)
 
-        # 构建更新数据字典（只包含patch中的字段）
-        blueprint_data = {}
-
-        if "one_sentence_summary" in patch:
-            blueprint_data["one_sentence_summary"] = patch["one_sentence_summary"]
-        if "full_synopsis" in patch:
-            blueprint_data["full_synopsis"] = patch["full_synopsis"]
-        if "total_chapters" in patch:
-            blueprint_data["total_chapters"] = patch["total_chapters"]
-        if "genre" in patch:
-            blueprint_data["genre"] = patch["genre"]
-        if "style" in patch:
-            blueprint_data["style"] = patch["style"]
-        if "tone" in patch:
-            blueprint_data["tone"] = patch["tone"]
-        if "target_audience" in patch:
-            blueprint_data["target_audience"] = patch["target_audience"]
-        if "title" in patch:
-            blueprint_data["title"] = patch["title"]
-
-        # world_setting需要特殊处理：merge而不是替换
-        if "world_setting" in patch and patch["world_setting"] is not None:
-            existing = blueprint.world_setting if blueprint else {}
-            existing = existing or {}
-            existing.update(patch["world_setting"])
-            blueprint_data["world_setting"] = existing
-
-        # 更新蓝图主表字段（如果有）
-        if blueprint_data:
-            await self.blueprint_repo.create_or_update(project_id, blueprint_data)
+        await self.apply_patch_update(
+            project_id,
+            patch,
+            self._patch_field_map,
+            allow_none=True,
+            blueprint=blueprint,
+            transform=self._merge_world_setting_patch,
+        )
 
         # 更新关联表数据
         if "characters" in patch and patch["characters"] is not None:
@@ -171,103 +164,11 @@ class BlueprintService:
             project: 项目对象
             llm_service: LLM服务（用于初始化向量库清理）
         """
-        project_id = project.id
-
-        # 1. 删除所有部分大纲（PartOutline）
-        # 不依赖 project.part_outlines 属性（可能未加载），直接调用 repository 删除
-        # 先获取数量用于日志
-        existing_parts = await self.part_outline_repo.get_by_project_id(project_id)
-        if existing_parts:
-            await self.part_outline_repo.delete_by_project_id(project_id)
-            logger.info("项目 %s 重新生成蓝图，清除 %d 个部分大纲", project_id, len(existing_parts))
-
-        # 2. 删除所有已生成的章节（Chapter）
-        # 不依赖 project.chapters 属性（可能未加载），直接查询数据库
-        from sqlalchemy import delete, select, func
-        from ..models.novel import Chapter
-
-        # 查询该项目的所有章节号
-        stmt = select(Chapter.chapter_number).where(Chapter.project_id == project_id)
-        result = await self.session.execute(stmt)
-        chapter_numbers = [row[0] for row in result.fetchall()]
-
-        if chapter_numbers:
-            logger.info("项目 %s 重新生成蓝图，清除 %d 个已生成章节", project_id, len(chapter_numbers))
-
-            # 删除章节记录
-            await self.session.execute(
-                delete(Chapter).where(Chapter.project_id == project_id)
-            )
-
-            # 清理角色状态索引
-            await self.session.execute(
-                delete(CharacterStateIndex).where(
-                    CharacterStateIndex.project_id == project_id
-                )
-            )
-
-            # 清理伏笔索引（重新生成蓝图时删除所有伏笔记录）
-            await self.session.execute(
-                delete(ForeshadowingIndex).where(
-                    ForeshadowingIndex.project_id == project_id
-                )
-            )
-            logger.info("项目 %s 已清理角色状态和伏笔索引", project_id)
-
-            # 同步清理向量库
-            if settings.vector_store_enabled and llm_service:
-                try:
-                    vector_store = VectorStoreService()
-                    ingestion_service = ChapterIngestionService(
-                        llm_service=llm_service,
-                        vector_store=vector_store
-                    )
-                    await ingestion_service.delete_chapters(project_id, chapter_numbers)
-                    logger.info("项目 %s 已从向量库移除 %d 个章节", project_id, len(chapter_numbers))
-                except RuntimeError as exc:
-                    # 向量库依赖缺失或配置问题，不阻塞主流程
-                    logger.info("向量库未配置或不可用，跳过向量数据清理: %s", exc)
-                except (OSError, IOError) as exc:
-                    # 向量库连接或文件访问错误
-                    log_exception(
-                        exc,
-                        "清理向量库数据（连接错误）",
-                        level="warning",
-                        project_id=project_id,
-                        chapter_count=len(chapter_numbers),
-                    )
-                except ValueError as exc:
-                    # 数据格式错误
-                    log_exception(
-                        exc,
-                        "清理向量库数据（数据格式错误）",
-                        level="warning",
-                        project_id=project_id,
-                    )
-
-        # 3. 删除所有章节大纲（可能存在大纲但没有章节内容的情况）
-        try:
-            outline_count = await self.chapter_outline_repo.count_by_project(project_id)
-            if outline_count > 0:
-                logger.info("项目 %s 准备删除 %d 个章节大纲", project_id, outline_count)
-                await self.chapter_outline_repo.delete_by_project(project_id)
-                logger.info("项目 %s 重新生成蓝图，已清除 %d 个章节大纲", project_id, outline_count)
-        except Exception as exc:
-            # 章节大纲删除是核心操作，失败应该抛出让调用者处理
-            # 记录日志后重新抛出，确保事务回滚
-            log_exception(
-                exc,
-                "删除章节大纲",
-                level="error",
-                project_id=project_id,
-                outline_count=outline_count if 'outline_count' in locals() else 0
-            )
-            raise
-
-        # 4. 使 project 对象的关系缓存失效，确保后续查询获取最新数据
-        # 这非常重要：如果不刷新，ORM 可能返回缓存的旧数据
-        await self.session.refresh(project, ['part_outlines', 'chapters', 'outlines'])
-        logger.info("项目 %s 数据清理完成，ORM 缓存已刷新", project_id)
+        await self.cleanup_blueprint_data(
+            project.id,
+            project=project,
+            llm_service=llm_service,
+        )
 
     def extract_total_chapters(
         self,
@@ -331,6 +232,119 @@ class BlueprintService:
     # ------------------------------------------------------------------
     # 私有方法
     # ------------------------------------------------------------------
+
+    async def _apply_update_data(
+        self,
+        project_id: str,
+        update_data: Dict[str, Any],
+        blueprint: Optional[Any] = None,
+    ) -> None:
+        """应用蓝图字段更新"""
+        await self.blueprint_repo.create_or_update(project_id, update_data)
+
+    async def _cleanup_dependents(
+        self,
+        project_id: str,
+        *,
+        project: Optional[Any] = None,
+        llm_service: Optional[LLMService] = None,
+    ) -> None:
+        """清理蓝图关联数据"""
+        existing_parts = await self.part_outline_repo.get_by_project_id(project_id)
+        if existing_parts:
+            await self.part_outline_repo.delete_by_project_id(project_id)
+            logger.info("项目 %s 重新生成蓝图，清除 %d 个部分大纲", project_id, len(existing_parts))
+
+        from sqlalchemy import delete, select
+        from ..models.novel import Chapter
+
+        stmt = select(Chapter.chapter_number).where(Chapter.project_id == project_id)
+        result = await self.session.execute(stmt)
+        chapter_numbers = [row[0] for row in result.fetchall()]
+
+        if chapter_numbers:
+            logger.info("项目 %s 重新生成蓝图，清除 %d 个已生成章节", project_id, len(chapter_numbers))
+
+            await self.session.execute(
+                delete(Chapter).where(Chapter.project_id == project_id)
+            )
+
+            await self.session.execute(
+                delete(CharacterStateIndex).where(
+                    CharacterStateIndex.project_id == project_id
+                )
+            )
+
+            await self.session.execute(
+                delete(ForeshadowingIndex).where(
+                    ForeshadowingIndex.project_id == project_id
+                )
+            )
+            logger.info("项目 %s 已清理角色状态和伏笔索引", project_id)
+
+            if settings.vector_store_enabled and llm_service:
+                try:
+                    vector_store = VectorStoreService()
+                    ingestion_service = ChapterIngestionService(
+                        llm_service=llm_service,
+                        vector_store=vector_store
+                    )
+                    await ingestion_service.delete_chapters(project_id, chapter_numbers)
+                    logger.info("项目 %s 已从向量库移除 %d 个章节", project_id, len(chapter_numbers))
+                except RuntimeError as exc:
+                    logger.info("向量库未配置或不可用，跳过向量数据清理: %s", exc)
+                except (OSError, IOError) as exc:
+                    log_exception(
+                        exc,
+                        "清理向量库数据（连接错误）",
+                        level="warning",
+                        project_id=project_id,
+                        chapter_count=len(chapter_numbers),
+                    )
+                except ValueError as exc:
+                    log_exception(
+                        exc,
+                        "清理向量库数据（数据格式错误）",
+                        level="warning",
+                        project_id=project_id,
+                    )
+
+        try:
+            outline_count = await self.chapter_outline_repo.count_by_project(project_id)
+            if outline_count > 0:
+                logger.info("项目 %s 准备删除 %d 个章节大纲", project_id, outline_count)
+                await self.chapter_outline_repo.delete_by_project(project_id)
+                logger.info("项目 %s 重新生成蓝图，已清除 %d 个章节大纲", project_id, outline_count)
+        except Exception as exc:
+            log_exception(
+                exc,
+                "删除章节大纲",
+                level="error",
+                project_id=project_id,
+                outline_count=outline_count if 'outline_count' in locals() else 0
+            )
+            raise
+
+    async def _post_cleanup(self, project_id: str, *, project: Optional[Any] = None) -> None:
+        """清理后刷新 ORM 缓存"""
+        if not project:
+            return
+        await self.session.refresh(project, ['part_outlines', 'chapters', 'outlines'])
+        logger.info("项目 %s 数据清理完成，ORM 缓存已刷新", project_id)
+
+    @staticmethod
+    def _merge_world_setting_patch(
+        update_data: Dict[str, Any],
+        patch_data: Dict[str, Any],
+        blueprint: Optional[Any],
+    ) -> Dict[str, Any]:
+        """合并世界观字段"""
+        if "world_setting" in patch_data and patch_data["world_setting"] is not None:
+            existing = blueprint.world_setting if blueprint else {}
+            existing = existing or {}
+            existing.update(patch_data["world_setting"])
+            update_data["world_setting"] = existing
+        return update_data
 
     async def _replace_blueprint_characters(
         self,

@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioBut
 
 from api.manager import APIClientManager
 from components.dialogs import TextInputDialog
-from utils.async_worker import AsyncAPIWorker
-from utils.sse_worker import SSEWorker
+from utils.async_worker import run_async_action
+from utils.sse_worker import start_sse_worker, reset_sse_generation_state
 from utils.message_service import MessageService, confirm
 from utils.dpi_utils import dp
 from utils.chapter_error_formatter import format_chapter_error
@@ -133,15 +133,15 @@ class ChapterGenerationMixin:
             "writing_notes": writing_notes.strip() if writing_notes else None,
         }
 
-        self._sse_worker = SSEWorker(url, payload)
-        # token_received 信号发射的是字符串，直接追加到内容
-        self._sse_worker.token_received.connect(self._on_chapter_gen_token)
-        # progress_received 信号发射的是dict，包含状态信息
-        self._sse_worker.progress_received.connect(self._on_chapter_gen_progress)
-        self._sse_worker.complete.connect(self._on_chapter_gen_complete)
-        self._sse_worker.error.connect(self._on_chapter_gen_error)
-        self._sse_worker.cancelled.connect(self._on_chapter_gen_cancelled)
-        self._sse_worker.start()
+        self._sse_worker = start_sse_worker(
+            url,
+            payload,
+            on_token=self._on_chapter_gen_token,
+            on_progress=self._on_chapter_gen_progress,
+            on_complete=self._on_chapter_gen_complete,
+            on_error=self._on_chapter_gen_error,
+            on_cancelled=self._on_chapter_gen_cancelled,
+        )
 
         # 更新侧边栏状态
         self.sidebar.setChapterGenerating(chapter_number, True)
@@ -251,13 +251,7 @@ class ChapterGenerationMixin:
 
     def _cleanup_chapter_gen_sse(self):
         """清理章节生成的SSE连接"""
-        if self._sse_worker:
-            try:
-                self._sse_worker.stop()
-                self._sse_worker.deleteLater()
-            except RuntimeError:
-                pass
-            self._sse_worker = None
+        reset_sse_generation_state(self, delete_later=True)
 
         if self._progress_dialog:
             self._progress_dialog.close()
@@ -362,11 +356,13 @@ class ChapterGenerationMixin:
                 use_rag=use_rag,
                 writing_notes=writing_notes,
             )
-
-        worker = AsyncAPIWorker(do_preview)
-        worker.success.connect(lambda result: self.onPreviewPromptSuccess(result, chapter_number))
-        worker.error.connect(self.onPreviewPromptError)
-        self.worker_manager.start(worker, 'preview_prompt')
+        run_async_action(
+            self.worker_manager,
+            do_preview,
+            task_name='preview_prompt',
+            on_success=lambda result: self.onPreviewPromptSuccess(result, chapter_number),
+            on_error=self.onPreviewPromptError,
+        )
 
     def onPreviewPromptSuccess(self, result, chapter_number, is_retry=False):
         """提示词预览成功回调"""

@@ -13,12 +13,13 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.state_machine import ProjectStatus, ProjectStateMachine
-from ..exceptions import ResourceNotFoundError, PermissionDeniedError, InvalidParameterError
+from ..core.state_machine import ProjectStatus
+from ..exceptions import ResourceNotFoundError, InvalidParameterError
 from ..serializers.novel_serializer import NovelSerializer
 from ..models import Chapter, ChapterOutline, ChapterVersion, NovelBlueprint, NovelProject
 from ..repositories.novel_repository import NovelRepository
 from ..repositories.chapter_repository import ChapterOutlineRepository
+from .project_service_base import ProjectServiceBase
 from ..schemas.novel import (
     Chapter as ChapterSchema,
     NovelProject as NovelProjectSchema,
@@ -31,7 +32,7 @@ from ..services.chapter_version_service import ChapterVersionService
 logger = logging.getLogger(__name__)
 
 
-class NovelService:
+class NovelService(ProjectServiceBase):
     """
     小说项目服务
 
@@ -56,28 +57,19 @@ class NovelService:
         self.chapter_outline_repo = ChapterOutlineRepository(session)
         # 组合ChapterVersionService，委托章节版本管理
         self._chapter_version_service = ChapterVersionService(session)
+        super().__init__(
+            session,
+            self.repo,
+            resource_name="项目",
+            log_label="项目",
+            use_relations=False,
+        )
 
     # ------------------------------------------------------------------
     # 状态机管理
     # ------------------------------------------------------------------
 
-    async def transition_project_status(
-        self,
-        project: NovelProject,
-        new_status: str,
-        force: bool = False
-    ) -> None:
-        """
-        安全地转换项目状态
-
-        Args:
-            project: 项目实例
-            new_status: 目标状态
-            force: 是否强制转换（跳过验证）
-
-        Raises:
-            InvalidStateTransitionError: 非法状态转换
-        """
+    def _log_transition_start(self, project, new_status: str, force: bool) -> None:
         logger.info(
             "开始状态转换: project_id=%s user_id=%s title='%s' %s -> %s%s",
             project.id,
@@ -88,28 +80,8 @@ class NovelService:
             " (force=True)" if force else ""
         )
 
-        # 检测回退转换，执行数据清理
-        if self._is_backward_transition(project.status, new_status):
-            logger.warning(
-                "检测到状态回退: %s -> %s，开始清理相关数据",
-                project.status,
-                new_status
-            )
-            await self._cleanup_data_for_backward_transition(project, new_status)
-
-        state_machine = ProjectStateMachine(project.status)
-        project.status = state_machine.transition_to(new_status, force=force)
-        await self.session.commit()
-
-        logger.info(
-            "状态转换成功: project_id=%s 新状态=%s",
-            project.id,
-            project.status
-        )
-
-    def _is_backward_transition(self, current_status: str, new_status: str) -> bool:
-        """判断是否为回退转换（使用状态机统一定义）"""
-        return ProjectStateMachine.check_backward_transition(current_status, new_status)
+    async def _handle_backward_transition(self, project: NovelProject, new_status: str) -> None:
+        await self._cleanup_data_for_backward_transition(project, new_status)
 
     async def _cleanup_data_for_backward_transition(
         self,
@@ -245,15 +217,6 @@ class NovelService:
     # ------------------------------------------------------------------
     # 权限验证
     # ------------------------------------------------------------------
-
-    async def ensure_project_owner(self, project_id: str, user_id: int) -> NovelProject:
-        """确保项目归属于指定用户"""
-        project = await self.repo.get_by_id(project_id)
-        if not project:
-            raise ResourceNotFoundError("项目", project_id)
-        if project.user_id != user_id:
-            raise PermissionDeniedError("无权访问该项目")
-        return project
 
     async def ensure_blueprint_ready(
         self,

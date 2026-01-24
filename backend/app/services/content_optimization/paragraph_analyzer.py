@@ -9,6 +9,7 @@ import re
 from typing import List, Optional, Tuple
 
 from .schemas import ParagraphAnalysis
+from ..scene_descriptor import SceneDescriptor
 
 logger = logging.getLogger(__name__)
 
@@ -374,3 +375,7 @@ class ParagraphAnalyzer:
             return True, "可能存在场景转换"
 
         return False, None
+
+    def build_scene_descriptor(self, analysis: ParagraphAnalysis) -> dict:
+        """构建统一场景描述字典"""
+        return SceneDescriptor.from_paragraph_analysis(analysis).to_dict()

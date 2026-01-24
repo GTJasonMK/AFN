@@ -6,31 +6,24 @@
 
 import logging
 
-from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QFrame, QLabel, QPushButton,
-    QStackedWidget, QScrollArea
-)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from pages.base_page import BasePage
 from api.manager import APIClientManager
-from themes.theme_manager import theme_manager
 from utils.message_service import confirm
-from utils.dpi_utils import dp, sp
 
 from .components import (
     ChatBubble,
-    ConversationInput,
     BlueprintConfirmation,
     BlueprintDisplay,
     InspiredOptionsContainer,
 )
 from .services import ConversationState
-from .mixins import BlueprintHandlerMixin, ConversationManagerMixin
+from .mixins import InspirationBaseUIMixin, BlueprintHandlerMixin, ConversationManagerMixin
 
 logger = logging.getLogger(__name__)
 
 
-class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage):
+class InspirationMode(InspirationBaseUIMixin, BlueprintHandlerMixin, ConversationManagerMixin, BasePage):
     """灵感模式 - AI对话生成蓝图"""
 
     def __init__(self, parent=None):
@@ -55,231 +48,53 @@ class InspirationMode(BlueprintHandlerMixin, ConversationManagerMixin, BasePage)
 
         self.setupUI()
 
-    def setupUI(self):
-        """初始化UI"""
-        if not self.layout():
-            self._create_ui_structure()
-        self._apply_theme()
+    def _get_page_title(self) -> str:
+        """页面标题文案"""
+        return "灵感对话"
 
-    def _create_ui_structure(self):
-        """创建UI结构（只调用一次）"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+    def _get_generate_button_text(self) -> str:
+        """生成按钮文案"""
+        return "生成蓝图"
 
-        # Header
-        self.header = QFrame()
-        self.header.setFixedHeight(64)
-        header_layout = QHBoxLayout(self.header)
-        header_layout.setContentsMargins(24, 0, 24, 0)
+    def _get_generate_button_min_width(self) -> int:
+        """生成按钮最小宽度"""
+        return 100
 
-        self.title = QLabel("灵感对话")
-        header_layout.addWidget(self.title, stretch=1)
+    def _get_message_sent_handler(self):
+        """输入框消息发送回调"""
+        return self.onMessageSent
 
-        # 生成蓝图按钮
-        self.generate_btn = QPushButton("生成蓝图")
-        self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.generate_btn.clicked.connect(self.onGenerateBlueprint)
-        header_layout.addWidget(self.generate_btn)
+    def _get_transparent_containers(self):
+        """透明模式容器列表"""
+        return [
+            'header',
+            'stack',
+            'conversation_page',
+            'chat_container',
+            'confirmation_page',
+            'display_page',
+        ]
 
-        self.back_btn = QPushButton("返回")
-        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.back_btn.clicked.connect(self.goBack)
-        header_layout.addWidget(self.back_btn)
+    def _get_restore_containers(self):
+        """普通模式容器列表"""
+        return [
+            'header',
+            'stack',
+            'conversation_page',
+            'chat_container',
+            'confirmation_page',
+            'display_page',
+        ]
 
-        main_layout.addWidget(self.header)
-
-        # 主内容区（堆叠布局）
-        self.stack = QStackedWidget()
-
-        # 页面1: 对话页面
-        self.conversation_page = QWidget()
-        conv_layout = QVBoxLayout(self.conversation_page)
-        conv_layout.setContentsMargins(24, 16, 24, 16)
-        conv_layout.setSpacing(16)
-
-        # 对话历史滚动区
-        self.chat_scroll = QScrollArea()
-        self.chat_scroll.setWidgetResizable(True)
-        self.chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
-
-        self.chat_container = QWidget()
-        self.chat_layout = QVBoxLayout(self.chat_container)
-        self.chat_layout.setSpacing(12)
-        self.chat_layout.addStretch()
-
-        self.chat_scroll.setWidget(self.chat_container)
-        conv_layout.addWidget(self.chat_scroll, stretch=1)
-
-        # 输入框
-        self.input_widget = ConversationInput()
-        self.input_widget.messageSent.connect(self.onMessageSent)
-        conv_layout.addWidget(self.input_widget)
-
-        self.stack.addWidget(self.conversation_page)
-
-        # 页面2: 小说蓝图确认页面
+    def _add_extra_pages(self):
+        """追加蓝图确认与展示页面"""
         self.confirmation_page = BlueprintConfirmation()
         self.confirmation_page.confirmed.connect(self.onBlueprintConfirmed)
         self.confirmation_page.rejected.connect(self.onBlueprintRejected)
         self.stack.addWidget(self.confirmation_page)
 
-        # 页面3: 蓝图展示
         self.display_page = BlueprintDisplay()
         self.stack.addWidget(self.display_page)
-
-        main_layout.addWidget(self.stack, stretch=1)
-
-        # 初始化对话
-        self.initConversation()
-
-    def _apply_theme(self):
-        """应用主题样式（可多次调用） - 书香风格"""
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QWidget
-        from themes.modern_effects import ModernEffects
-
-        # 使用 theme_manager 的书香风格便捷方法
-        bg_color = theme_manager.book_bg_primary()
-        header_bg = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        border_color = theme_manager.book_border_color()
-        highlight_color = theme_manager.book_accent_color()
-        serif_font = theme_manager.serif_font()
-
-        # 获取透明效果配置
-        transparency_config = theme_manager.get_transparency_config()
-        transparency_enabled = transparency_config.get("enabled", False)
-        # 使用get_component_opacity获取透明度，自动应用主控透明度系数
-        content_opacity = theme_manager.get_component_opacity("content")
-
-        if transparency_enabled:
-            # 透明模式：页面背景使用RGBA实现半透明
-            bg_rgba = ModernEffects.hex_to_rgba(bg_color, content_opacity)
-            self.setStyleSheet(f"background-color: {bg_rgba};")
-
-            # 设置WA_TranslucentBackground使透明生效
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-            self.setAutoFillBackground(False)
-
-            # 指定容器设置透明（不使用findChildren避免影响其他页面）
-            transparent_containers = ['header', 'stack', 'conversation_page', 'chat_container', 'confirmation_page', 'display_page']
-            for container_name in transparent_containers:
-                container = getattr(self, container_name, None)
-                if container:
-                    container.setAutoFillBackground(False)
-        else:
-            # 普通模式：使用实色背景，恢复背景填充
-            self.setStyleSheet(f"background-color: {bg_color};")
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-            self.setAutoFillBackground(True)
-
-            # 恢复容器的背景填充
-            containers_to_restore = ['header', 'stack', 'conversation_page', 'chat_container', 'confirmation_page', 'display_page']
-            for container_name in containers_to_restore:
-                container = getattr(self, container_name, None)
-                if container:
-                    container.setAutoFillBackground(True)
-
-        # QStackedWidget - 透明背景
-        if hasattr(self, 'stack'):
-            self.stack.setStyleSheet("background: transparent;")
-
-        # Header - 简约风格（透明模式下使用半透明背景）
-        if hasattr(self, 'header'):
-            if transparency_enabled:
-                # 使用get_component_opacity获取透明度，自动应用主控透明度系数
-                header_opacity = theme_manager.get_component_opacity("header")
-                header_bg_rgba = ModernEffects.hex_to_rgba(header_bg, header_opacity)
-                border_rgba = ModernEffects.hex_to_rgba(border_color, 0.3)
-                self.header.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {header_bg_rgba};
-                        border: none;
-                        border-bottom: 1px solid {border_rgba};
-                    }}
-                """)
-            else:
-                self.header.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {header_bg};
-                        border: none;
-                        border-bottom: 1px solid {border_color};
-                    }}
-                """)
-
-        # 标题
-        if hasattr(self, 'title'):
-            self.title.setStyleSheet(f"""
-                font-family: {serif_font};
-                font-size: {sp(20)}px;
-                font-weight: bold;
-                color: {text_primary};
-                letter-spacing: {dp(2)}px;
-            """)
-
-        # 按钮通用样式
-        btn_style = f"""
-            QPushButton {{
-                background-color: transparent;
-                border: 1px solid {border_color};
-                border-radius: {dp(4)}px;
-                color: {text_primary};
-                font-family: {serif_font};
-                padding: {dp(4)}px {dp(12)}px;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                color: {highlight_color};
-                border-color: {highlight_color};
-                background-color: {theme_manager.PRIMARY_PALE};
-            }}
-        """
-
-        # 返回按钮
-        if hasattr(self, 'back_btn'):
-            self.back_btn.setStyleSheet(btn_style)
-
-        # 生成蓝图按钮 - 实心强调
-        if hasattr(self, 'generate_btn'):
-            self.generate_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {highlight_color};
-                    border: 1px solid {highlight_color};
-                    border-radius: {dp(4)}px;
-                    color: {theme_manager.BUTTON_TEXT};
-                    font-family: {serif_font};
-                    padding: {dp(4)}px {dp(12)}px;
-                    min-width: 100px;
-                }}
-                QPushButton:hover {{
-                    background-color: {text_primary};
-                    border-color: {text_primary};
-                }}
-            """)
-
-        # 对话页面和聊天区域 - 透明背景
-        if hasattr(self, 'conversation_page'):
-            self.conversation_page.setStyleSheet("background: transparent;")
-
-        if hasattr(self, 'chat_container'):
-            self.chat_container.setStyleSheet("background: transparent;")
-
-        # 聊天滚动区
-        if hasattr(self, 'chat_scroll'):
-            self.chat_scroll.setStyleSheet(f"""
-                QScrollArea {{
-                    background: transparent;
-                    border: none;
-                }}
-                QScrollArea > QWidget > QWidget {{
-                    background: transparent;
-                }}
-                {theme_manager.scrollbar()}
-            """)
-            # 设置viewport透明背景
-            if self.chat_scroll.viewport():
-                self.chat_scroll.viewport().setStyleSheet("background-color: transparent;")
 
     def initConversation(self):
         """初始化对话"""

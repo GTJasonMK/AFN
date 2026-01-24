@@ -429,6 +429,38 @@ class ImageMixin:
 
     # ==================== PDF导出 ====================
 
+    def _build_pdf_payload(
+        self,
+        *,
+        title: Optional[str],
+        page_size: str,
+        include_prompts: bool,
+        **extra_fields: Any
+    ) -> Dict[str, Any]:
+        """构建PDF导出通用payload"""
+        data: Dict[str, Any] = {
+            'page_size': page_size,
+            'include_prompts': include_prompts,
+        }
+        if title:
+            data['title'] = title
+        if extra_fields:
+            data.update(extra_fields)
+        return data
+
+    def _post_pdf_request(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """统一发起PDF导出请求"""
+        return self._request(
+            'POST',
+            path,
+            payload,
+            timeout=TimeoutConfig.READ_GENERATION
+        )
+
     def export_images_to_pdf(
         self,
         project_id: str,
@@ -452,21 +484,18 @@ class ImageMixin:
         Returns:
             导出结果，包含下载URL
         """
-        data = {
-            'project_id': project_id,
-            'image_ids': image_ids,
-            'page_size': page_size,
-            'images_per_page': images_per_page,
-            'include_prompts': include_prompts,
-        }
-        if title:
-            data['title'] = title
+        data = self._build_pdf_payload(
+            title=title,
+            page_size=page_size,
+            include_prompts=include_prompts,
+            project_id=project_id,
+            image_ids=image_ids,
+            images_per_page=images_per_page,
+        )
 
-        return self._request(
-            'POST',
+        return self._post_pdf_request(
             '/api/image-generation/export/pdf',
             data,
-            timeout=TimeoutConfig.READ_GENERATION
         )
 
     def get_image_file_url(
@@ -516,22 +545,17 @@ class ImageMixin:
         Returns:
             生成结果，包含下载URL
         """
-        data = {
-            'page_size': page_size,
-            'include_prompts': include_prompts,
-            'layout': layout,
-        }
-        if title:
-            data['title'] = title
-        # Bug 26 修复: 传递章节版本ID
-        if chapter_version_id is not None:
-            data['chapter_version_id'] = chapter_version_id
+        data = self._build_pdf_payload(
+            title=title,
+            page_size=page_size,
+            include_prompts=include_prompts,
+            layout=layout,
+            chapter_version_id=chapter_version_id,
+        )
 
-        return self._request(
-            'POST',
+        return self._post_pdf_request(
             f'/api/image-generation/novels/{project_id}/chapters/{chapter_number}/manga-pdf',
             data,
-            timeout=TimeoutConfig.READ_GENERATION
         )
 
     def get_latest_chapter_manga_pdf(

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QImage
 
+from api.manager import APIClientManager
 from themes.button_styles import ButtonStyles
 from components.empty_state import EmptyStateWithIllustration
 from components.loading_spinner import CircularSpinner
@@ -20,6 +21,15 @@ from utils.dpi_utils import dp, sp
 
 class PdfTabMixin:
     """PDF预览Tab功能混入类"""
+
+    def _get_export_download_url(self, file_name: str) -> str:
+        """构建导出下载URL"""
+        try:
+            api_client = APIClientManager.get_client()
+            return api_client.get_export_download_url(file_name)
+        except Exception:
+            api_base_url = getattr(self, '_api_base_url', 'http://127.0.0.1:8123')
+            return f"{api_base_url}/api/image-generation/export/download/{file_name}"
 
     def _init_pdf_state(self):
         """初始化PDF相关状态"""
@@ -315,9 +325,7 @@ class PdfTabMixin:
             file_name = os.path.basename(pdf_path)
 
             # 通过API下载PDF文件（支持远程/容器环境）
-            # 构建下载URL - 使用 builder 的 api_base_url
-            api_base_url = getattr(self, '_api_base_url', 'http://127.0.0.1:8123')
-            download_url = f"{api_base_url}/api/image-generation/export/download/{file_name}"
+            download_url = self._get_export_download_url(file_name)
 
             pdf_data = None
             if download_url:

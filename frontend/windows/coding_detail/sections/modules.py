@@ -199,30 +199,21 @@ class ModulesSection(BaseSection):
         layout.setSpacing(dp(16))
 
         # 标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        title_label = QLabel("模块列表")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
-
-        # 模块数量
         count = len(self._data) if self._data else 0
-        count_label = QLabel(f"共 {count} 个模块")
-        count_label.setObjectName("module_count")
-        header_layout.addWidget(count_label)
-        self.count_label = count_label
-
-        header_layout.addStretch()
-
+        right_widgets = []
         if self._editable:
             add_btn = QPushButton("添加模块")
             add_btn.setObjectName("add_module_btn")
             add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             add_btn.clicked.connect(self._on_add_module)
-            header_layout.addWidget(add_btn)
+            right_widgets.append(add_btn)
 
+        header, labels = self._build_section_header(
+            "模块列表",
+            stat_items=[(f"共 {count} 个模块", "module_count")],
+            right_widgets=right_widgets,
+        )
+        self.count_label = labels.get("module_count")
         layout.addWidget(header)
 
         # 模块列表容器
@@ -241,57 +232,36 @@ class ModulesSection(BaseSection):
 
     def _populate_modules(self):
         """填充模块卡片"""
-        # 清除现有卡片
-        for card in self._module_cards:
-            card.deleteLater()
-        self._module_cards.clear()
-
-        if not self._data:
-            empty_label = QLabel("暂无模块数据")
-            empty_label.setObjectName("empty_label")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_label.setStyleSheet(f"""
-                QLabel#empty_label {{
-                    color: {theme_manager.TEXT_TERTIARY};
-                    font-size: {dp(14)}px;
-                    padding: {dp(40)}px;
-                }}
-            """)
-            self.modules_layout.addWidget(empty_label)
-            self._module_cards.append(empty_label)
-            return
-
-        for module_data in self._data:
+        def build_card(module_data: Dict):
             card = ModuleCard(module_data)
             card.clicked.connect(self._on_module_clicked)
-            self.modules_layout.addWidget(card)
-            self._module_cards.append(card)
+            return card
+
+        self._render_card_list(
+            items=self._data,
+            layout=self.modules_layout,
+            cards=self._module_cards,
+            card_factory=build_card,
+            empty_factory=lambda: self._create_empty_label("暂无模块数据"),
+        )
 
     def _apply_header_style(self):
         """应用标题样式"""
-        self.setStyleSheet(f"""
-            QLabel#section_title {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(16)}px;
-                font-weight: 600;
-            }}
-            QLabel#module_count {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(13)}px;
-                margin-left: {dp(8)}px;
-            }}
-            QPushButton#add_module_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#add_module_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
-        """)
+        self.setStyleSheet(
+            self._build_basic_header_style("module_count") + f"""
+                QPushButton#add_module_btn {{
+                    background-color: {theme_manager.PRIMARY};
+                    color: white;
+                    border: none;
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-size: {dp(12)}px;
+                }}
+                QPushButton#add_module_btn:hover {{
+                    background-color: {theme_manager.PRIMARY_DARK};
+                }}
+            """
+        )
 
     def _apply_theme(self):
         """应用主题"""

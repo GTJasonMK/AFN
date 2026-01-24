@@ -6,6 +6,8 @@
 
 from typing import Dict, List, Optional, Any
 
+from ..prompt_builder.builder import build_layout_template, build_panel_summaries
+
 
 def build_page_prompt_for_generation(
     page: Any,
@@ -27,18 +29,12 @@ def build_page_prompt_for_generation(
     """
     character_portraits = character_portraits or {}
 
-    # 分析布局：按row_id分组
     panels = page.panels if hasattr(page, 'panels') else []
-    rows_map: Dict[int, List] = {}
-    for panel in panels:
-        row_id = panel.row_id if hasattr(panel, 'row_id') else 1
-        if row_id not in rows_map:
-            rows_map[row_id] = []
-        rows_map[row_id].append(panel)
 
     # 构建布局模板名，如 "3row_1x2x1"
-    row_counts = [len(rows_map.get(r, [])) for r in sorted(rows_map.keys())]
-    layout_template = f"{len(row_counts)}row_{'x'.join(map(str, row_counts))}" if row_counts else "1row_1"
+    layout_template = build_layout_template(panels)
+    if layout_template == "empty":
+        layout_template = "1row_1"
 
     # 构建提示词
     lines = []
@@ -127,6 +123,8 @@ def build_page_prompt_for_generation(
 
     full_page_prompt = "\n".join(lines)
 
+    panel_summaries = build_panel_summaries(panels)
+
     # 负面提示词（中文）
     negative_prompt = (
         "禁止：模糊低质量、变形扭曲、多余肢体、"
@@ -139,4 +137,6 @@ def build_page_prompt_for_generation(
         "aspect_ratio": "3:4",  # 漫画页标准比例
         "reference_image_paths": reference_image_paths,
         "layout_template": layout_template,
+        "layout_description": layout_description,
+        "panel_summaries": panel_summaries,
     }

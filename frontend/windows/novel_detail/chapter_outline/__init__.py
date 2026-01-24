@@ -15,12 +15,8 @@ chapter_outline/
 │   ├── outline_row.py
 │   ├── outline_list.py
 │   ├── action_bar.py
-│   ├── empty_states.py
-│   ├── chapter_card.py (旧版)
-│   ├── chapter_list.py (旧版)
-│   └── part_outline_card.py (旧版)
+│   └── empty_states.py
 └── utils/                  # 工具类
-    └── async_helper.py
 """
 
 # 主组件
@@ -43,14 +39,7 @@ from .components import (
     OutlineActionBar,
     LongNovelEmptyState,
     ShortNovelEmptyState,
-    # 旧组件（已弃用，保留兼容性）
-    ChapterOutlineCard,
-    ChapterOutlineList,
-    PartOutlineCard,
 )
-
-# Utils（从 utils/ 子目录导入，保持向后兼容）
-from .utils import AsyncOperationHelper
 
 __all__ = [
     # 主组件
@@ -68,10 +57,4 @@ __all__ = [
     'OutlineActionBar',
     'LongNovelEmptyState',
     'ShortNovelEmptyState',
-    # Utils
-    'AsyncOperationHelper',
-    # 旧组件（已弃用，保留兼容性）
-    'ChapterOutlineCard',
-    'ChapterOutlineList',
-    'PartOutlineCard',
 ]

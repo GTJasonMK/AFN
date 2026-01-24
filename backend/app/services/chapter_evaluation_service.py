@@ -21,6 +21,8 @@ from ..core.config import settings
 from ..core.constants import LLMConstants
 from ..models.novel import Chapter, ChapterEvaluation, ChapterOutline, NovelProject
 from ..utils.json_utils import remove_think_tags, unwrap_markdown_json
+from ..utils.rag_helpers import build_query_text, get_query_embedding
+from .evaluation_workflow_base import EvaluationPromptContext, EvaluationWorkflowBase
 from .llm_wrappers import call_llm, LLMProfile
 
 if TYPE_CHECKING:
@@ -37,6 +39,94 @@ class EvaluationContext:
     completed_chapters: List[Dict[str, Any]]
     relevant_chunks: List[Dict[str, Any]]
     relevant_summaries: List[Dict[str, Any]]
+
+
+class ChapterEvaluationWorkflow(EvaluationWorkflowBase):
+    """章节评估工作流"""
+
+    def __init__(
+        self,
+        service: "ChapterEvaluationService",
+        project: NovelProject,
+        chapter: Chapter,
+        evaluator_prompt: str,
+        user_id: int,
+        versions_to_evaluate: List[Dict[str, Any]],
+        blueprint_dict: Dict[str, Any],
+    ):
+        self._service = service
+        self._project = project
+        self._chapter = chapter
+        self._evaluator_prompt = evaluator_prompt
+        self._user_id = user_id
+        self._versions_to_evaluate = versions_to_evaluate
+        self._blueprint_dict = blueprint_dict
+        self._context: Optional[EvaluationContext] = None
+        self._failed = False
+
+    async def _prepare_context(self) -> EvaluationPromptContext:
+        context = await self._service.retrieve_evaluation_context(
+            project=self._project,
+            chapter_number=self._chapter.chapter_number,
+            versions_to_evaluate=self._versions_to_evaluate,
+            user_id=self._user_id,
+        )
+        self._context = context
+
+        logger.info(
+            "项目 %s 第 %s 章评估准备: 前序章节数=%d RAG片段=%d RAG摘要=%d",
+            self._project.id,
+            self._chapter.chapter_number,
+            len(context.completed_chapters),
+            len(context.relevant_chunks),
+            len(context.relevant_summaries),
+        )
+
+        evaluator_payload = self._service.build_evaluation_payload(
+            blueprint_dict=self._blueprint_dict,
+            chapter_number=self._chapter.chapter_number,
+            versions_to_evaluate=self._versions_to_evaluate,
+            context=context,
+        )
+
+        rag_context = None
+        if context.relevant_chunks or context.relevant_summaries:
+            rag_context = {
+                "relevant_chunks": context.relevant_chunks,
+                "relevant_summaries": context.relevant_summaries,
+            }
+
+        return EvaluationPromptContext(
+            system_prompt=self._evaluator_prompt,
+            user_prompt=json.dumps(evaluator_payload, ensure_ascii=False),
+            rag_context=rag_context,
+        )
+
+    async def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        return await call_llm(
+            self._service.llm_service,
+            LLMProfile.EVALUATION,
+            system_prompt=system_prompt,
+            user_content=user_prompt,
+            user_id=self._user_id,
+        )
+
+    async def _post_process(self, raw_content: str) -> str:
+        evaluation_clean = remove_think_tags(raw_content)
+        return unwrap_markdown_json(evaluation_clean)
+
+    async def _handle_llm_error(self, exc: Exception) -> str:
+        self._failed = True
+        logger.error(
+            "项目 %s 第 %s 章评估失败: %s",
+            self._project.id,
+            self._chapter.chapter_number,
+            exc,
+        )
+        return json.dumps(
+            {"error": "评估失败，请稍后重试", "details": str(exc)},
+            ensure_ascii=False,
+        )
 
 
 class ChapterEvaluationService:
@@ -155,13 +245,15 @@ class ChapterEvaluationService:
                     if versions_to_evaluate
                     else ""
                 )
-                query_text = f"{outline_text}\n{first_version_preview}".strip()
+                query_text = build_query_text([outline_text, first_version_preview])
 
                 if query_text:
                     # 生成查询向量
-                    query_embedding = await self.llm_service.get_embedding(
+                    query_embedding = await get_query_embedding(
+                        self.llm_service,
                         query_text,
-                        user_id=user_id,
+                        user_id,
+                        logger=logger,
                     )
 
                     if query_embedding:
@@ -302,60 +394,20 @@ class ChapterEvaluationService:
             )
         blueprint_dict = project_schema.blueprint.model_dump()
 
-        # 3. 检索评估上下文
-        context = await self.retrieve_evaluation_context(
+        workflow = ChapterEvaluationWorkflow(
+            service=self,
             project=project,
-            chapter_number=chapter.chapter_number,
-            versions_to_evaluate=versions_to_evaluate,
+            chapter=chapter,
+            evaluator_prompt=evaluator_prompt,
             user_id=user_id,
-        )
-
-        logger.info(
-            "项目 %s 第 %s 章评估准备: 前序章节数=%d RAG片段=%d RAG摘要=%d",
-            project.id,
-            chapter.chapter_number,
-            len(context.completed_chapters),
-            len(context.relevant_chunks),
-            len(context.relevant_summaries),
-        )
-
-        # 4. 构建评估payload
-        evaluator_payload = self.build_evaluation_payload(
-            blueprint_dict=blueprint_dict,
-            chapter_number=chapter.chapter_number,
             versions_to_evaluate=versions_to_evaluate,
-            context=context,
+            blueprint_dict=blueprint_dict,
         )
+        evaluation_json = await workflow.run()
 
-        # 5. 调用LLM进行评估
-        try:
-            evaluation_raw = await call_llm(
-                self.llm_service,
-                LLMProfile.EVALUATION,
-                system_prompt=evaluator_prompt,
-                user_content=json.dumps(evaluator_payload, ensure_ascii=False),
-                user_id=user_id,
-            )
-
-            # 清理响应
-            evaluation_clean = remove_think_tags(evaluation_raw)
-            evaluation_json = unwrap_markdown_json(evaluation_clean)
-
+        if not workflow._failed:
             logger.info("项目 %s 第 %s 章评估完成", project.id, chapter.chapter_number)
-            return evaluation_json
-
-        except Exception as exc:
-            logger.error(
-                "项目 %s 第 %s 章评估失败: %s",
-                project.id,
-                chapter.chapter_number,
-                exc,
-            )
-            # 返回失败标记
-            return json.dumps(
-                {"error": "评估失败，请稍后重试", "details": str(exc)},
-                ensure_ascii=False,
-            )
+        return evaluation_json
 
     async def add_evaluation(
         self,

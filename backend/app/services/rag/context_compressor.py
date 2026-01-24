@@ -10,6 +10,13 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .context_builder import GenerationContext
+from .utils import (
+    format_character_lines,
+    format_character_state_lines,
+    format_foreshadowing_lines,
+    format_rag_chunk_line,
+    truncate_text,
+)
 
 
 class ContextCompressor:
@@ -151,6 +158,41 @@ class ContextCompressor:
                 result_parts.append(reference_text)
 
         return "\n\n".join(result_parts)
+
+    def format_reference_layers(
+        self,
+        context: GenerationContext,
+        *,
+        include_reference: bool = True,
+        token_counter: Optional[Callable[[str], int]] = None,
+    ) -> str:
+        """格式化重要层与参考层为文本"""
+        if not context:
+            return ""
+
+        counter = token_counter or self.estimate_tokens
+        max_tokens = max(self.max_context_tokens, 10000)
+        sections = []
+
+        if context.important:
+            important_text = self._compress_important(
+                context.important,
+                max_tokens,
+                counter,
+            )
+            if important_text:
+                sections.append(important_text)
+
+        if include_reference and context.reference:
+            reference_text = self._compress_reference(
+                context.reference,
+                max_tokens,
+                counter,
+            )
+            if reference_text:
+                sections.append(reference_text)
+
+        return "\n\n".join(sections)
 
     def _compress_must_have(
         self,
@@ -331,11 +373,17 @@ class ContextCompressor:
             return ""
 
         lines = ["\n### 待回收伏笔"]
-        for fs in foreshadowing[:3]:
-            desc = fs.get("description", "")
-            if len(desc) > 60:
-                desc = desc[:57] + "..."
-            lines.append(f"- [重要] {desc}")
+        lines.extend(format_foreshadowing_lines(
+            foreshadowing,
+            max_items=3,
+            description_limit=60,
+            add_ellipsis=True,
+            use_priority_marker=False,
+            marker_for_high="[重要]",
+            default_marker="[重要]",
+            description_key="description",
+            fallback_key=None,
+        ))
 
         return "\n".join(lines)
 
@@ -350,20 +398,15 @@ class ContextCompressor:
             return ""
 
         lines = ["\n### 涉及角色"]
-        for char in characters[:3]:
-            name = char.get("name", "")
-            identity = char.get("identity", "")
-            line = f"- {name}"
-            if identity:
-                line += f" ({identity})"
-
-            # 简短的性格描述
-            if personality := char.get("personality"):
-                if len(personality) > 30:
-                    personality = personality[:27] + "..."
-                line += f": {personality}"
-
-            lines.append(line)
+        lines.extend(format_character_lines(
+            characters,
+            max_items=3,
+            default_name="",
+            identity_key="identity",
+            personality_key="personality",
+            personality_limit=30,
+            add_ellipsis=True,
+        ))
 
         return "\n".join(lines)
 
@@ -397,17 +440,12 @@ class ContextCompressor:
             return ""
 
         lines = ["\n### 角色状态"]
-        for name, state in list(states.items())[:4]:
-            parts = [name]
-            if isinstance(state, dict):
-                if state.get("location"):
-                    parts.append(f"在{state['location']}")
-                if state.get("status"):
-                    status = state["status"]
-                    if len(status) > 20:
-                        status = status[:17] + "..."
-                    parts.append(status)
-            lines.append(f"- {' '.join(parts)}")
+        lines.extend(format_character_state_lines(
+            states,
+            max_items=4,
+            status_limit=20,
+            add_ellipsis=True,
+        ))
 
         return "\n".join(lines)
 
@@ -424,8 +462,7 @@ class ContextCompressor:
         lines = ["\n### 相关摘要"]
         for s in summaries[:2]:
             summary_text = s.get("summary", "")
-            if len(summary_text) > 80:
-                summary_text = summary_text[:77] + "..."
+            summary_text = truncate_text(summary_text, 80)
             lines.append(f"- 第{s.get('chapter')}章: {summary_text}")
 
         return "\n".join(lines)
@@ -446,9 +483,12 @@ class ContextCompressor:
         for p in passages[:2]:
             content = p.get("content", "")
             max_len = int(budget_per_passage * self.chars_per_token * 0.8)
-            if len(content) > max_len:
-                content = content[:max_len - 3] + "..."
-            lines.append(f"[第{p.get('chapter')}章] {content}")
+            lines.append(format_rag_chunk_line(
+                p.get("chapter"),
+                None,
+                content,
+                max_content_length=max_len,
+            ))
 
         return "\n".join(lines)
 

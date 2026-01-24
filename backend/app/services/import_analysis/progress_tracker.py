@@ -28,8 +28,8 @@ class ProgressTracker:
         ('generating_analysis_data', '生成分析数据'),    # 阶段1: 逐章生成分析数据
         ('analyzing_chapters', '生成章节摘要'),          # 阶段2: 逐章生成摘要
         ('generating_outlines', '更新章节大纲'),         # 阶段3: 更新章节大纲
-        ('generating_part_outlines', '生成分部大纲'),    # 阶段4: 长篇才有
-        ('extracting_blueprint', '反推蓝图信息'),        # 阶段5: 利用分析数据反推蓝图
+        ('extracting_blueprint', '反推蓝图信息'),        # 阶段4: 利用分析数据反推蓝图
+        ('generating_part_outlines', '生成分部大纲'),    # 阶段5: 长篇才有
     ]
 
     # 状态常量

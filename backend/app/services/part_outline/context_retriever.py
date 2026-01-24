@@ -7,6 +7,8 @@
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from ..chapter_context_service import ChapterContextService
+
 if TYPE_CHECKING:
     from ..llm_service import LLMService
     from ..vector_store_service import VectorStoreService
@@ -39,6 +41,10 @@ class PartOutlineContextRetriever:
         self.chapter_outline_repo = chapter_outline_repo
         self.llm_service = llm_service
         self.vector_store = vector_store
+        self._chapter_context_service = ChapterContextService(
+            llm_service=llm_service,
+            vector_store=vector_store,
+        )
 
     async def get_previous_chapters(
         self,
@@ -102,21 +108,15 @@ class PartOutlineContextRetriever:
             # 构建查询文本：使用部分大纲的摘要 + 章节范围描述
             query_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{part_summary[:500]}"
 
-            # 生成查询向量
-            query_embedding = await self.llm_service.get_embedding(
-                query_text,
-                user_id=user_id,
-            )
-
-            if not query_embedding:
-                return []
-
-            # 检索相关摘要（只检索已完成章节）
-            summaries = await self.vector_store.query_summaries(
+            rag_context = await self._chapter_context_service.retrieve_for_generation(
                 project_id=project_id,
-                embedding=query_embedding,
-                top_k=5,
+                query_text=query_text,
+                user_id=user_id,
+                top_k_chunks=0,
+                top_k_summaries=5,
             )
+
+            summaries = rag_context.summaries
 
             # 过滤：只保留起始章节之前的已完成章节
             summaries = [s for s in summaries if s.chapter_number < start_chapter]

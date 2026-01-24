@@ -47,7 +47,6 @@ class DirectorySection(BaseSection):
         self.project_id = project_id
         self.modules = modules or []
         self.directory_tree = directory_tree or {}
-        self._workers = []
         self.api_client = APIClientManager.get_client()
         self._data_loaded = False
         self._has_paused_state = False  # 是否有暂停的Agent状态
@@ -70,24 +69,9 @@ class DirectorySection(BaseSection):
         layout.setSpacing(dp(16))
 
         # 标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        title_label = QLabel("目录结构")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
-
-        # 统计信息
         total_dirs = self.directory_tree.get('total_directories', 0)
         total_files = self.directory_tree.get('total_files', 0)
         stats_text = f"{total_dirs} 目录 / {total_files} 文件"
-        stats_label = QLabel(stats_text)
-        stats_label.setObjectName("stats_label")
-        header_layout.addWidget(stats_label)
-        self.stats_label = stats_label
-
-        header_layout.addStretch()
 
         # 继续规划按钮（默认隐藏）
         self.agent_continue_btn = QPushButton("继续规划")
@@ -95,7 +79,6 @@ class DirectorySection(BaseSection):
         self.agent_continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.agent_continue_btn.clicked.connect(self._on_agent_continue)
         self.agent_continue_btn.setVisible(False)
-        header_layout.addWidget(self.agent_continue_btn)
 
         # 放弃暂停状态按钮（默认隐藏）
         self.agent_discard_btn = QPushButton("重新开始")
@@ -103,14 +86,12 @@ class DirectorySection(BaseSection):
         self.agent_discard_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.agent_discard_btn.clicked.connect(self._on_agent_discard)
         self.agent_discard_btn.setVisible(False)
-        header_layout.addWidget(self.agent_discard_btn)
 
         # Agent规划按钮
         self.agent_plan_btn = QPushButton("Agent规划整个项目")
         self.agent_plan_btn.setObjectName("agent_plan_btn")
         self.agent_plan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.agent_plan_btn.clicked.connect(self._on_agent_plan)
-        header_layout.addWidget(self.agent_plan_btn)
 
         # 仅优化目录按钮（当有目录结构时显示）
         self.agent_optimize_btn = QPushButton("仅优化目录")
@@ -118,15 +99,25 @@ class DirectorySection(BaseSection):
         self.agent_optimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.agent_optimize_btn.clicked.connect(self._on_agent_optimize)
         self.agent_optimize_btn.setVisible(False)  # 默认隐藏，有目录时显示
-        header_layout.addWidget(self.agent_optimize_btn)
 
         # 刷新按钮
         refresh_btn = QPushButton("刷新")
         refresh_btn.setObjectName("refresh_btn")
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self._on_refresh)
-        header_layout.addWidget(refresh_btn)
 
+        header, labels = self._build_section_header(
+            "目录结构",
+            stat_items=[(stats_text, "stats_label")],
+            right_widgets=[
+                self.agent_continue_btn,
+                self.agent_discard_btn,
+                self.agent_plan_btn,
+                self.agent_optimize_btn,
+                refresh_btn,
+            ],
+        )
+        self.stats_label = labels.get("stats_label")
         layout.addWidget(header)
 
         # Agent思考过程面板（默认隐藏）
@@ -412,7 +403,7 @@ class DirectorySection(BaseSection):
         )
         worker.success.connect(self._on_directory_generated)
         worker.error.connect(self._on_generate_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _apply_styles(self):
@@ -613,7 +604,7 @@ class DirectorySection(BaseSection):
         )
         worker.success.connect(self._on_directory_tree_loaded)
         worker.error.connect(self._on_directory_tree_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_directory_tree_loaded(self, result):
@@ -773,16 +764,14 @@ class DirectorySection(BaseSection):
         # 检查是否已有目录结构
         total_dirs = self.directory_tree.get('total_directories', 0)
         if total_dirs > 0:
-            from PyQt6.QtWidgets import QDialog
-            from components.dialogs import ConfirmDialog
-            dialog = ConfirmDialog(
+            confirmed = MessageService.confirm(
                 self,
-                title="重新规划目录结构",
                 message="项目已有目录结构，重新规划将清除现有的所有目录和文件。\n\n确定要继续吗？",
+                title="重新规划目录结构",
                 confirm_text="确定",
-                cancel_text="取消"
+                cancel_text="取消",
             )
-            if dialog.exec() != QDialog.DialogCode.Accepted:
+            if not confirmed:
                 return
 
         logger.info(f"开始Agent规划: project_id={self.project_id}")
@@ -1185,7 +1174,7 @@ class DirectorySection(BaseSection):
         )
         worker.success.connect(self._on_agent_pause_success)
         worker.error.connect(self._on_agent_pause_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_agent_pause_success(self, result):
@@ -1253,7 +1242,7 @@ class DirectorySection(BaseSection):
             )
             worker.success.connect(self._on_panel_close_pause_success)
             worker.error.connect(self._on_panel_close_pause_error)
-            self._workers.append(worker)
+            self._register_worker(worker)
             worker.start()
         else:
             # 没有运行中的Agent，直接关闭
@@ -1295,7 +1284,7 @@ class DirectorySection(BaseSection):
         )
         worker.success.connect(self._on_agent_state_loaded)
         worker.error.connect(lambda e: logger.warning(f"检查Agent状态失败: {e}"))
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_agent_state_loaded(self, result):
@@ -1370,17 +1359,14 @@ class DirectorySection(BaseSection):
 
     def _on_agent_discard(self):
         """放弃暂停状态，重新开始"""
-        from PyQt6.QtWidgets import QDialog
-        from components.dialogs import ConfirmDialog
-
-        dialog = ConfirmDialog(
+        confirmed = MessageService.confirm(
             self,
-            title="放弃已有进度",
             message="确定要放弃已有的规划进度吗？\n\n这将删除保存的状态，您需要重新开始规划。",
+            title="放弃已有进度",
             confirm_text="确定放弃",
-            cancel_text="取消"
+            cancel_text="取消",
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not confirmed:
             return
 
         logger.info(f"放弃Agent状态: project_id={self.project_id}")
@@ -1391,7 +1377,7 @@ class DirectorySection(BaseSection):
         )
         worker.success.connect(self._on_agent_state_cleared)
         worker.error.connect(lambda e: MessageService.show_error(self, f"清除状态失败: {e}"))
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_agent_state_cleared(self, result):
@@ -1411,13 +1397,7 @@ class DirectorySection(BaseSection):
                 pass
             self._sse_worker = None
 
-        for worker in self._workers:
-            try:
-                if worker.isRunning():
-                    worker.cancel()
-            except Exception:
-                pass
-        self._workers.clear()
+        self._cleanup_workers()
 
 
 __all__ = ["DirectorySection"]

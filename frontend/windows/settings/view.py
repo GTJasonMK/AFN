@@ -5,7 +5,7 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QWidget, QListWidget, QStackedWidget, QListWidgetItem,
-    QGraphicsDropShadowEffect, QFileDialog, QApplication
+    QGraphicsDropShadowEffect, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import QColor, QPainter, QPen
@@ -13,9 +13,9 @@ from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
+from .config_io_helper import export_config_json, import_config_json
 from api.manager import APIClientManager
 from components.dialogs import LoadingDialog
-import json
 
 
 class LoadingSpinner(QWidget):
@@ -755,54 +755,35 @@ class SettingsView(BasePage):
 
     def _export_all_configs(self):
         """导出所有配置"""
-        file_path, _ = QFileDialog.getSaveFileName(
+        def _on_success(file_path: str, _export_data: dict):
+            MessageService.show_operation_success(self, "导出", f"已导出所有配置到：{file_path}")
+
+        export_config_json(
             self,
             "导出所有配置",
             "all_configs.json",
-            "JSON文件 (*.json)"
+            self.api_client.export_all_configs,
+            on_success=_on_success,
+            error_title="错误",
+            error_template="导出失败：{error}",
         )
-
-        if file_path:
-            try:
-                export_data = self.api_client.export_all_configs()
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(export_data, f, indent=2, ensure_ascii=False)
-                MessageService.show_operation_success(self, "导出", f"已导出所有配置到：{file_path}")
-            except Exception as e:
-                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
 
     def _import_all_configs(self):
         """导入所有配置"""
-        file_path, _ = QFileDialog.getOpenFileName(
+        def _on_success(result: dict):
+            details = result.get('details', [])
+            detail_text = '\n'.join(details) if details else '导入完成'
+            MessageService.show_success(self, f"{result.get('message', '导入成功')}\n\n{detail_text}")
+            self.refresh()
+
+        import_config_json(
             self,
             "导入配置",
-            "",
-            "JSON文件 (*.json)"
+            "all",
+            "全局配置导出文件",
+            self.api_client.import_all_configs,
+            on_success=_on_success,
+            error_title="错误",
+            error_template="导入失败：{error}",
+            warning_title="格式错误",
         )
-
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    import_data = json.load(f)
-
-                # 验证数据格式
-                if not isinstance(import_data, dict):
-                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
-                    return
-
-                if import_data.get('export_type') != 'all':
-                    MessageService.show_warning(self, "导入文件类型不正确，需要全局配置导出文件", "格式错误")
-                    return
-
-                result = self.api_client.import_all_configs(import_data)
-                if result.get('success'):
-                    # 显示详细导入结果
-                    details = result.get('details', [])
-                    detail_text = '\n'.join(details) if details else '导入完成'
-                    MessageService.show_success(self, f"{result.get('message', '导入成功')}\n\n{detail_text}")
-                    # 刷新所有设置页面
-                    self.refresh()
-                else:
-                    MessageService.show_error(self, result.get('message', '导入失败'), "错误")
-            except Exception as e:
-                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")

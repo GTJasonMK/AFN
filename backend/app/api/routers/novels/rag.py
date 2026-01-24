@@ -25,6 +25,9 @@ from ....services.novel_rag import (
     NovelDataType,
     NovelProjectIngestionService,
 )
+from ....core.constants import LLMConstants
+from ..rag_helpers import build_type_details
+from ..rag_schemas import CompletenessResponseBase, TypeDetailBase
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,24 +35,16 @@ router = APIRouter()
 
 # ==================== 响应模型 ====================
 
-class TypeDetail(BaseModel):
+class TypeDetail(TypeDetailBase):
     """单类型完整性详情"""
-    display_name: str = Field(description="显示名称")
-    db_count: int = Field(description="数据库记录数")
-    vector_count: int = Field(description="向量库记录数")
-    complete: bool = Field(description="是否完整")
     new_count: int = Field(default=0, description="新增记录数")
     modified_count: int = Field(default=0, description="修改记录数")
     deleted_count: int = Field(default=0, description="删除记录数")
     has_changes: bool = Field(default=False, description="是否有变动")
 
 
-class CompletenessResponse(BaseModel):
+class CompletenessResponse(CompletenessResponseBase):
     """完整性检查响应"""
-    project_id: str = Field(description="项目ID")
-    complete: bool = Field(description="总体是否完整")
-    total_db_count: int = Field(description="数据库总记录数")
-    total_vector_count: int = Field(description="向量库总记录数")
     total_new: int = Field(description="总新增数")
     total_modified: int = Field(description="总修改数")
     total_deleted: int = Field(description="总删除数")
@@ -85,6 +80,20 @@ class DiagnoseResponse(BaseModel):
     embedding_service_enabled: bool = Field(description="嵌入服务是否启用")
     completeness: Optional[CompletenessResponse] = Field(default=None, description="完整性报告")
     data_type_list: List[Dict[str, str]] = Field(description="数据类型列表")
+
+
+def _build_type_detail(type_name: str, detail: Dict[str, Any]) -> TypeDetail:
+    """构建单类型完整性详情"""
+    return TypeDetail(
+        display_name=detail.get("display_name", type_name),
+        db_count=detail.get("db_count", 0),
+        vector_count=detail.get("vector_count", 0),
+        complete=detail.get("complete", False),
+        new_count=detail.get("new_count", 0),
+        modified_count=detail.get("modified_count", 0),
+        deleted_count=detail.get("deleted_count", 0),
+        has_changes=detail.get("has_changes", False),
+    )
 
 
 # ==================== API端点 ====================
@@ -150,18 +159,7 @@ async def check_rag_completeness(
     report = await service.check_completeness(project_id)
 
     # 转换为响应格式
-    types_detail = {}
-    for type_name, detail in report.type_details.items():
-        types_detail[type_name] = TypeDetail(
-            display_name=detail.get("display_name", type_name),
-            db_count=detail.get("db_count", 0),
-            vector_count=detail.get("vector_count", 0),
-            complete=detail.get("complete", False),
-            new_count=detail.get("new_count", 0),
-            modified_count=detail.get("modified_count", 0),
-            deleted_count=detail.get("deleted_count", 0),
-            has_changes=detail.get("has_changes", False),
-        )
+    types_detail = build_type_details(report.type_details, _build_type_detail)
 
     logger.info(
         "项目 %s RAG完整性检查: complete=%s db=%d vector=%d new=%d mod=%d del=%d",
@@ -210,6 +208,7 @@ async def ingest_all_rag_data(
     from ....services.chapter_analysis_service import ChapterAnalysisService
     from ....services.summary_service import SummaryService
     from ....services.incremental_indexer import IncrementalIndexer
+    from ....repositories.chapter_outline_repository import ChapterOutlineRepository
     from ....schemas.novel import ChapterAnalysisData
 
     # 验证项目归属
@@ -248,6 +247,8 @@ async def ingest_all_rag_data(
         summary_service = SummaryService(llm_service)
         analysis_service = ChapterAnalysisService(session)
         indexer = IncrementalIndexer(session)
+        chapter_outline_repo = ChapterOutlineRepository(session)
+        novel_title = project.title or f"项目{project_id[:8]}"
 
         for chapter in chapters_with_content:
             content = chapter.selected_version.content
@@ -268,10 +269,15 @@ async def ingest_all_rag_data(
             )
             if not has_valid_summary:
                 try:
-                    summary = await summary_service.generate_summary(content, desktop_user.id)
-                    if summary:
-                        chapter.real_summary = summary
-                        logger.info("项目 %s 第 %s 章摘要已生成", project_id, chapter_number)
+                    await summary_service.generate_and_save_summary(
+                        chapter=chapter,
+                        content=content,
+                        project_id=project_id,
+                        user_id=desktop_user.id,
+                        chapter_outline_repo=chapter_outline_repo,
+                        chapter_title=chapter_title,
+                        use_fallback=False,
+                    )
                 except Exception as exc:
                     logger.error("项目 %s 第 %s 章摘要生成失败: %s", project_id, chapter_number, exc)
 
@@ -291,11 +297,12 @@ async def ingest_all_rag_data(
             if not has_valid_analysis:
                 try:
                     analysis_data = await analysis_service.analyze_chapter(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
                         content=content,
-                        llm_service=llm_service,
-                        user_id=desktop_user.id
+                        title=chapter_title,
+                        chapter_number=chapter_number,
+                        novel_title=novel_title,
+                        user_id=desktop_user.id,
+                        timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
                     )
                     if analysis_data:
                         chapter.analysis_data = analysis_data.model_dump()
@@ -506,18 +513,7 @@ async def diagnose_rag(
         )
         report = await service.check_completeness(project_id)
 
-        types_detail = {}
-        for type_name, detail in report.type_details.items():
-            types_detail[type_name] = TypeDetail(
-                display_name=detail.get("display_name", type_name),
-                db_count=detail.get("db_count", 0),
-                vector_count=detail.get("vector_count", 0),
-                complete=detail.get("complete", False),
-                new_count=detail.get("new_count", 0),
-                modified_count=detail.get("modified_count", 0),
-                deleted_count=detail.get("deleted_count", 0),
-                has_changes=detail.get("has_changes", False),
-            )
+        types_detail = build_type_details(report.type_details, _build_type_detail)
 
         completeness = CompletenessResponse(
             project_id=project_id,

@@ -373,6 +373,65 @@ class AFNAPIClient(
                 silent_status_codes=silent_status_codes,
             )
 
+    def _build_api_endpoint(self, resource: str, *segments: Any) -> str:
+        """构建标准 API 路径"""
+        parts = [str(resource).strip('/')]
+        for segment in segments:
+            if segment is None:
+                continue
+            parts.append(str(segment).strip('/'))
+        return f"/api/{'/'.join(parts)}"
+
+    def _request_api(
+        self,
+        method: str,
+        resource: str,
+        *segments: Any,
+        data: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+        timeout: Union[int, Tuple[int, int], None] = None,
+        silent_status_codes: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """发送标准资源请求（统一 API 路径拼接）"""
+        endpoint = self._build_api_endpoint(resource, *segments)
+        return self._request(
+            method,
+            endpoint,
+            data,
+            params,
+            timeout,
+            silent_status_codes,
+        )
+
+    def _build_payload(self, **fields: Any) -> Dict[str, Any]:
+        """构建更新 payload（过滤 None 值）"""
+        return {key: value for key, value in fields.items() if value is not None}
+
+    def _request_rag(
+        self,
+        resource: str,
+        project_id: str,
+        action: str,
+        *,
+        method: str = "GET",
+        data: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+        timeout: Union[int, Tuple[int, int], None] = None,
+    ) -> Dict[str, Any]:
+        """发送 RAG 相关请求
+
+        Args:
+            resource: 资源前缀（如 coding/novels）
+            project_id: 项目ID
+            action: RAG 子路径（如 completeness/ingest-all/query）
+            method: HTTP 方法
+            data: JSON 请求体
+            params: URL 参数
+            timeout: 超时配置
+        """
+        endpoint = f"/api/{resource}/{project_id}/rag/{action}"
+        return self._request(method, endpoint, data, params, timeout)
+
     def _request_raw(
         self,
         method: str,

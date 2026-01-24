@@ -7,13 +7,12 @@ Coding蓝图服务
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.state_machine import ProjectStatus
 from ...exceptions import ResourceNotFoundError
-from ...models.coding import CodingProject, CodingBlueprint
+from ...models.coding import CodingBlueprint
 from ...repositories.coding_repository import (
     CodingProjectRepository,
     CodingBlueprintRepository,
@@ -24,12 +23,13 @@ from ...schemas.coding import (
     CodingBlueprint as CodingBlueprintSchema,
     CodingBlueprintPatch,
 )
+from ..blueprint_base import BlueprintServiceBase
 from .project_service import CodingProjectService
 
 logger = logging.getLogger(__name__)
 
 
-class CodingBlueprintService:
+class CodingBlueprintService(BlueprintServiceBase):
     """
     Coding蓝图服务
 
@@ -46,12 +46,39 @@ class CodingBlueprintService:
         Args:
             session: 数据库会话
         """
+        super().__init__(session)
         self.session = session
         self.project_repo = CodingProjectRepository(session)
         self.blueprint_repo = CodingBlueprintRepository(session)
         self.system_repo = CodingSystemRepository(session)
         self.module_repo = CodingModuleRepository(session)
         self._project_service = CodingProjectService(session)
+        self._patch_field_map = {
+            "title": "title",
+            "one_sentence_summary": "one_sentence_summary",
+            "architecture_synopsis": "architecture_synopsis",
+            "tech_stack": "tech_stack",
+        }
+        self._generated_field_map = {
+            "title": ("title", ""),
+            "target_audience": ("target_audience", ""),
+            "project_type_desc": ("project_type_desc", ""),
+            "tech_style": ("tech_style", ""),
+            "project_tone": ("project_tone", ""),
+            "one_sentence_summary": ("one_sentence_summary", ""),
+            "architecture_synopsis": ("architecture_synopsis", ""),
+            "tech_stack": ("tech_stack", {}),
+            "system_suggestions": ("system_suggestions", []),
+            "core_requirements": ("core_requirements", []),
+            "technical_challenges": ("technical_challenges", []),
+            "non_functional_requirements": ("non_functional_requirements", None),
+            "risks": ("risks", []),
+            "milestones": ("milestones", []),
+            "dependencies": ("dependencies", []),
+            "total_systems": ("total_systems", 0),
+            "total_modules": ("total_modules", 0),
+            "needs_phased_design": ("needs_phased_design", False),
+        }
 
     async def get_blueprint(
         self,
@@ -97,19 +124,17 @@ class CodingBlueprintService:
         if not blueprint:
             raise ResourceNotFoundError("Coding蓝图", project_id)
 
-        # 更新字段
-        if updates.title is not None:
-            blueprint.title = updates.title
-            project.title = updates.title  # 同步更新项目标题
+        update_data = await self.apply_patch_update(
+            project_id,
+            updates.model_dump(exclude_unset=True),
+            self._patch_field_map,
+            allow_none=False,
+            blueprint=blueprint,
+            transform=self._transform_patch_update,
+        )
 
-        if updates.one_sentence_summary is not None:
-            blueprint.one_sentence_summary = updates.one_sentence_summary
-
-        if updates.architecture_synopsis is not None:
-            blueprint.architecture_synopsis = updates.architecture_synopsis
-
-        if updates.tech_stack is not None:
-            blueprint.tech_stack = updates.tech_stack.model_dump()
+        if "title" in update_data:
+            project.title = update_data["title"]
 
         await self.session.flush()
         return blueprint
@@ -136,33 +161,7 @@ class CodingBlueprintService:
             blueprint = CodingBlueprint(project_id=project_id)
             self.session.add(blueprint)
 
-        # 更新蓝图字段
-        blueprint.title = blueprint_data.get("title", "")
-        blueprint.target_audience = blueprint_data.get("target_audience", "")
-        blueprint.project_type_desc = blueprint_data.get("project_type_desc", "")
-        blueprint.tech_style = blueprint_data.get("tech_style", "")
-        blueprint.project_tone = blueprint_data.get("project_tone", "")
-        blueprint.one_sentence_summary = blueprint_data.get("one_sentence_summary", "")
-        blueprint.architecture_synopsis = blueprint_data.get("architecture_synopsis", "")
-
-        # 技术栈
-        blueprint.tech_stack = blueprint_data.get("tech_stack", {})
-
-        # 架构辅助信息
-        blueprint.system_suggestions = blueprint_data.get("system_suggestions", [])
-        blueprint.core_requirements = blueprint_data.get("core_requirements", [])
-        blueprint.technical_challenges = blueprint_data.get("technical_challenges", [])
-        blueprint.non_functional_requirements = blueprint_data.get("non_functional_requirements")
-        blueprint.risks = blueprint_data.get("risks", [])
-        blueprint.milestones = blueprint_data.get("milestones", [])
-
-        # 依赖关系
-        blueprint.dependencies = blueprint_data.get("dependencies", [])
-
-        # 统计信息
-        blueprint.total_systems = blueprint_data.get("total_systems", 0)
-        blueprint.total_modules = blueprint_data.get("total_modules", 0)
-        blueprint.needs_phased_design = blueprint_data.get("needs_phased_design", False)
+        self._apply_generated_mapping(blueprint, blueprint_data, self._generated_field_map)
 
         # 同步更新项目标题
         if project and blueprint.title:
@@ -183,13 +182,38 @@ class CodingBlueprintService:
             project_id: 项目ID
             user_id: 用户ID
         """
+        await self.cleanup_blueprint_data(project_id, user_id=user_id)
+
+    async def _ensure_project_owner(self, project_id: str, user_id: int) -> None:
+        """校验项目归属"""
         await self._project_service.ensure_project_owner(project_id, user_id)
 
-        # 删除所有系统、模块
+    async def _apply_update_data(
+        self,
+        project_id: str,
+        update_data: dict,
+        blueprint: Optional[CodingBlueprint] = None,
+    ) -> None:
+        """应用蓝图字段更新"""
+        if not blueprint:
+            blueprint = await self.blueprint_repo.get_by_project(project_id)
+        if not blueprint:
+            raise ResourceNotFoundError("Coding蓝图", project_id)
+        await self.blueprint_repo.update_fields(blueprint, **update_data)
+
+    async def _cleanup_dependents(
+        self,
+        project_id: str,
+        *,
+        project: Optional[Any] = None,
+        llm_service: Optional[Any] = None,
+    ) -> None:
+        """清理蓝图关联数据"""
         await self.system_repo.delete_by_project_id(project_id)
         await self.module_repo.delete_by_project_id(project_id)
 
-        # 重置蓝图数据
+    async def _reset_blueprint_state(self, project_id: str) -> None:
+        """重置蓝图聚合字段"""
         blueprint = await self.blueprint_repo.get_by_project(project_id)
         if blueprint:
             blueprint.systems = []
@@ -197,4 +221,13 @@ class CodingBlueprintService:
             blueprint.total_systems = 0
             blueprint.total_modules = 0
 
-        await self.session.flush()
+    @staticmethod
+    def _transform_patch_update(
+        update_data: dict,
+        patch_data: dict,
+        blueprint: Optional[CodingBlueprint],
+    ) -> dict:
+        """处理补丁字段转换"""
+        if "tech_stack" in update_data and update_data["tech_stack"] is not None:
+            update_data["tech_stack"] = update_data["tech_stack"].model_dump()
+        return update_data

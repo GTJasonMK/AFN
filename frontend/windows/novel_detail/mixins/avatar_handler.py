@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QByteArray
 
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService, confirm
 from utils.constants import WorkerTimeouts
 
@@ -105,22 +105,15 @@ class AvatarHandlerMixin:
         )
         self._avatar_loading_dialog.show()
 
-        # 创建异步worker
-        self._avatar_worker = AsyncAPIWorker(
+        self._avatar_worker = run_async_action(
+            self.worker_manager,
             self.api_client.generate_avatar,
-            self.project_id
+            self.project_id,
+            task_name='avatar_generate',
+            on_success=self._onAvatarGenerated,
+            on_error=self._onAvatarGenerateError,
         )
-
-        self._avatar_worker.success.connect(self._onAvatarGenerated)
-        self._avatar_worker.error.connect(self._onAvatarGenerateError)
         self._avatar_loading_dialog.rejected.connect(self._onAvatarGenerateCancelled)
-
-        # 保持worker引用
-        if not hasattr(self, '_workers'):
-            self._workers = []
-        self._workers.append(self._avatar_worker)
-
-        self._avatar_worker.start()
 
     def _onAvatarGenerated(self: "NovelDetail", result):
         """头像生成成功回调"""

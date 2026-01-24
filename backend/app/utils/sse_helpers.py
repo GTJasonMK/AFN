@@ -7,7 +7,7 @@ SSE (Server-Sent Events) 辅助工具
 import json
 import logging
 from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, TypeVar
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from .exception_helpers import get_safe_error_message
 
@@ -100,6 +100,42 @@ def create_sse_response(generator):
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
+
+
+async def sse_event_stream(
+    generator: AsyncGenerator[Dict[str, Any], None],
+    *,
+    mapper: Optional[Callable[[Dict[str, Any]], Tuple[str, Any]]] = None,
+) -> AsyncGenerator[str, None]:
+    """将事件字典流包装为 SSE 字符串流
+
+    Args:
+        generator: 事件字典的异步生成器
+        mapper: 事件映射函数（可选），用于将事件转换为 (event_type, data)
+
+    Yields:
+        SSE 格式化后的事件字符串
+    """
+    async for event in generator:
+        if mapper:
+            event_type, data = mapper(event)
+        else:
+            event_type = event.get("event", "")
+            data = event.get("data")
+        if event_type:
+            yield sse_event(event_type, data)
+
+
+def create_sse_stream_response(
+    generator: AsyncGenerator[Dict[str, Any], None],
+    *,
+    mapper: Optional[Callable[[Dict[str, Any]], Tuple[str, Any]]] = None,
+):
+    """创建事件字典流的SSE响应
+
+    统一事件流包装逻辑，避免路由层重复组合 create_sse_response 和 sse_event_stream。
+    """
+    return create_sse_response(sse_event_stream(generator, mapper=mapper))
 
 
 def sse_error_event(

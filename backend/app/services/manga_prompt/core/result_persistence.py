@@ -81,6 +81,47 @@ class ResultPersistence:
         # 提交清理操作
         await self.session.commit()
 
+    async def cleanup_images_for_stage(
+        self,
+        project_id: str,
+        chapter_number: int,
+        start_from_stage: str,
+    ) -> int:
+        """
+        按阶段清理旧图片
+
+        用于从指定阶段重新生成时清理图片，保留分镜提示词数据。
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号
+            start_from_stage: 起始阶段
+
+        Returns:
+            删除的图片数量
+        """
+        if start_from_stage in ["planning", "storyboard", "prompt_building"]:
+            deleted_images = await self.image_service.delete_chapter_images(
+                project_id, chapter_number
+            )
+            if deleted_images > 0:
+                logger.debug(
+                    f"从{start_from_stage}阶段重新生成，已删除 {deleted_images} 张图片"
+                )
+            return deleted_images
+
+        if start_from_stage == "page_prompt_building":
+            deleted_images = await self.image_service.delete_chapter_images_by_type(
+                project_id, chapter_number, "page"
+            )
+            if deleted_images > 0:
+                logger.debug(
+                    f"从page_prompt_building阶段重新生成，已删除 {deleted_images} 张整页图片"
+                )
+            return deleted_images
+
+        return 0
+
 
 __all__ = [
     "ResultPersistence",

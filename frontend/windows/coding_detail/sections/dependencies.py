@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
@@ -21,6 +21,18 @@ from utils.async_worker import AsyncAPIWorker
 from utils.message_service import MessageService
 
 logger = logging.getLogger(__name__)
+
+def group_dependencies_by_source(
+    dependencies: List[Dict[str, Any]]
+) -> List[Tuple[str, List[Dict[str, Any]]]]:
+    """按源模块分组依赖并排序"""
+    grouped = {}
+    for dep in dependencies:
+        source = dep.get('source') or dep.get('from_module', '未知模块')
+        if source not in grouped:
+            grouped[source] = []
+        grouped[source].append(dep)
+    return [(source, grouped[source]) for source in sorted(grouped.keys())]
 
 
 class GroupedDependencyCard(QFrame):
@@ -216,7 +228,6 @@ class DependenciesSection(BaseSection):
         self.modules = modules or []
         self.project_id = project_id
         self._dep_cards = []
-        self._workers = []
         self.api_client = APIClientManager.get_client()
         super().__init__(data or [], editable, parent)
         self.setupUI()
@@ -232,23 +243,8 @@ class DependenciesSection(BaseSection):
         layout.setSpacing(dp(16))
 
         # 标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        title_label = QLabel("模块依赖")
-        title_label.setObjectName("section_title")
-        header_layout.addWidget(title_label)
-
-        # 依赖数量
         count = len(self._data) if self._data else 0
-        count_label = QLabel(f"共 {count} 个依赖关系")
-        count_label.setObjectName("dep_count")
-        header_layout.addWidget(count_label)
-        self.count_label = count_label
-
-        header_layout.addStretch()
-
+        right_widgets = []
         if self._editable:
             # 同步依赖按钮
             sync_btn = QPushButton("同步依赖")
@@ -256,15 +252,21 @@ class DependenciesSection(BaseSection):
             sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             sync_btn.setToolTip("根据模块的dependencies字段同步依赖关系")
             sync_btn.clicked.connect(self._on_sync_dependencies)
-            header_layout.addWidget(sync_btn)
+            right_widgets.append(sync_btn)
 
             # 添加依赖按钮
             add_btn = QPushButton("添加依赖")
             add_btn.setObjectName("add_dep_btn")
             add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             add_btn.clicked.connect(self._on_add_dependency)
-            header_layout.addWidget(add_btn)
+            right_widgets.append(add_btn)
 
+        header, labels = self._build_section_header(
+            "模块依赖",
+            stat_items=[(f"共 {count} 个依赖关系", "dep_count")],
+            right_widgets=right_widgets,
+        )
+        self.count_label = labels.get("dep_count")
         layout.addWidget(header)
 
         # 依赖关系统计
@@ -350,80 +352,47 @@ class DependenciesSection(BaseSection):
 
     def _populate_dependencies(self):
         """填充依赖卡片（按源模块分组）"""
-        # 清除现有卡片
-        for card in self._dep_cards:
-            card.deleteLater()
-        self._dep_cards.clear()
+        def build_card(group_data):
+            source_module, deps = group_data
+            return GroupedDependencyCard(source_module, deps)
 
-        if not self._data:
-            empty_label = QLabel("暂无依赖关系")
-            empty_label.setObjectName("empty_label")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_label.setStyleSheet(f"""
-                QLabel#empty_label {{
-                    color: {theme_manager.TEXT_TERTIARY};
-                    font-size: {dp(14)}px;
-                    padding: {dp(40)}px;
-                }}
-            """)
-            self.deps_layout.addWidget(empty_label)
-            self._dep_cards.append(empty_label)
-            return
-
-        # 按源模块分组
-        grouped_deps = {}
-        for dep in self._data:
-            source = dep.get('source') or dep.get('from_module', '未知模块')
-            if source not in grouped_deps:
-                grouped_deps[source] = []
-            grouped_deps[source].append(dep)
-
-        # 按源模块名称排序
-        sorted_sources = sorted(grouped_deps.keys())
-
-        # 创建分组卡片
-        for source_module in sorted_sources:
-            deps = grouped_deps[source_module]
-            card = GroupedDependencyCard(source_module, deps)
-            self.deps_layout.addWidget(card)
-            self._dep_cards.append(card)
+        grouped = list(group_dependencies_by_source(self._data or []))
+        self._render_card_list(
+            items=grouped,
+            layout=self.deps_layout,
+            cards=self._dep_cards,
+            card_factory=build_card,
+            empty_factory=lambda: self._create_empty_label("暂无依赖关系"),
+        )
 
     def _apply_header_style(self):
         """应用标题样式"""
-        self.setStyleSheet(f"""
-            QLabel#section_title {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(16)}px;
-                font-weight: 600;
-            }}
-            QLabel#dep_count {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(13)}px;
-                margin-left: {dp(8)}px;
-            }}
-            QPushButton#add_dep_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#add_dep_btn:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
-            }}
-            QPushButton#sync_dep_btn {{
-                background-color: transparent;
-                color: {theme_manager.PRIMARY};
-                border: 1px solid {theme_manager.PRIMARY};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#sync_dep_btn:hover {{
-                background-color: {theme_manager.PRIMARY}10;
-            }}
-        """)
+        self.setStyleSheet(
+            self._build_basic_header_style("dep_count") + f"""
+                QPushButton#add_dep_btn {{
+                    background-color: {theme_manager.PRIMARY};
+                    color: white;
+                    border: none;
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-size: {dp(12)}px;
+                }}
+                QPushButton#add_dep_btn:hover {{
+                    background-color: {theme_manager.PRIMARY_DARK};
+                }}
+                QPushButton#sync_dep_btn {{
+                    background-color: transparent;
+                    color: {theme_manager.PRIMARY};
+                    border: 1px solid {theme_manager.PRIMARY};
+                    border-radius: {dp(4)}px;
+                    padding: {dp(6)}px {dp(12)}px;
+                    font-size: {dp(12)}px;
+                }}
+                QPushButton#sync_dep_btn:hover {{
+                    background-color: {theme_manager.PRIMARY}10;
+                }}
+            """
+        )
 
     def _apply_theme(self):
         """应用主题"""
@@ -451,7 +420,7 @@ class DependenciesSection(BaseSection):
         )
         worker.success.connect(self._on_sync_success)
         worker.error.connect(self._on_sync_error)
-        self._workers.append(worker)
+        self._register_worker(worker)
         worker.start()
 
     def _on_sync_success(self, result):
@@ -482,13 +451,7 @@ class DependenciesSection(BaseSection):
 
     def cleanup(self):
         """清理资源"""
-        for worker in self._workers:
-            try:
-                if worker.isRunning():
-                    worker.cancel()
-            except Exception:
-                pass
-        self._workers.clear()
+        self._cleanup_workers()
 
 
 __all__ = ["DependenciesSection"]

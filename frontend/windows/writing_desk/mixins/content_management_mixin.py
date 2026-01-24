@@ -12,8 +12,7 @@ import logging
 from PyQt6.QtCore import QTimer
 
 from api.manager import APIClientManager
-from components.dialogs import AlertDialog
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import AsyncAPIWorker, run_async_action
 from utils.message_service import MessageService
 
 logger = logging.getLogger(__name__)
@@ -86,11 +85,13 @@ class ContentManagementMixin:
                 trigger_rag=False,
             )
 
-        worker = AsyncAPIWorker(do_save)
-        worker.success.connect(lambda _: self.onSaveContentSuccess(chapter_number))
-        worker.error.connect(self.onSaveContentError)
-        # 使用 WorkerManager 启动
-        self.worker_manager.start(worker, 'save_content')
+        run_async_action(
+            self.worker_manager,
+            do_save,
+            task_name='save_content',
+            on_success=lambda _: self.onSaveContentSuccess(chapter_number),
+            on_error=self.onSaveContentError,
+        )
 
     def onSaveContentSuccess(self, chapter_number):
         """保存成功回调"""
@@ -98,29 +99,23 @@ class ContentManagementMixin:
 
         # 失效缓存 - 内容已变更
         from utils.chapter_cache import get_chapter_cache
-        get_chapter_cache().invalidate(self.project_id, chapter_number)
+        get_chapter_cache().invalidate_and_refresh(self.project_id, chapter_number)
 
-        # 使用对话框显示保存成功（更明显）
-        dialog = AlertDialog(
-            parent=self,
-            title="保存成功",
-            message=f"第{chapter_number}章内容已成功保存",
-            button_text="确定",
+        MessageService.show_success(
+            self,
+            f"第{chapter_number}章内容已成功保存",
+            title="保存成功"
         )
-        dialog.exec()
 
     def onSaveContentError(self, error_msg):
         """保存失败回调"""
         self.hide_loading()
 
-        # 使用对话框显示保存失败
-        dialog = AlertDialog(
-            parent=self,
-            title="保存失败",
-            message=f"保存章节内容时出错：{error_msg}",
-            button_text="确定",
+        MessageService.show_error(
+            self,
+            f"保存章节内容时出错：{error_msg}",
+            title="保存失败"
         )
-        dialog.exec()
 
     def onRagIngest(self, chapter_number, content):
         """RAG入库"""
@@ -138,11 +133,13 @@ class ContentManagementMixin:
                 content,
                 trigger_rag=True,
             )
-
-        worker = AsyncAPIWorker(do_ingest)
-        worker.success.connect(lambda _: self.onRagIngestSuccess(chapter_number))
-        worker.error.connect(self.onRagIngestError)
-        self.worker_manager.start(worker, 'rag_ingest')
+        run_async_action(
+            self.worker_manager,
+            do_ingest,
+            task_name='rag_ingest',
+            on_success=lambda _: self.onRagIngestSuccess(chapter_number),
+            on_error=self.onRagIngestError,
+        )
 
     def onRagIngestSuccess(self, chapter_number):
         """RAG入库成功回调"""
@@ -153,21 +150,18 @@ class ContentManagementMixin:
 
         # 失效缓存 - 内容和分析数据已变更
         from utils.chapter_cache import get_chapter_cache
-        get_chapter_cache().invalidate(self.project_id, chapter_number)
+        get_chapter_cache().invalidate_and_refresh(self.project_id, chapter_number)
 
-        # 使用对话框显示成功
-        dialog = AlertDialog(
-            parent=self,
-            title="RAG入库完成",
-            message=f"第{chapter_number}章已完成RAG处理：\n\n"
-                    "- 章节内容已保存\n"
-                    "- 摘要已生成\n"
-                    "- 文本已向量化入库\n"
-                    "- 角色状态已更新\n"
-                    "- 伏笔索引已建立",
-            button_text="确定",
+        MessageService.show_success(
+            self,
+            f"第{chapter_number}章已完成RAG处理：\n\n"
+            "- 章节内容已保存\n"
+            "- 摘要已生成\n"
+            "- 文本已向量化入库\n"
+            "- 角色状态已更新\n"
+            "- 伏笔索引已建立",
+            title="RAG入库完成"
         )
-        dialog.exec()
 
         # 刷新章节数据以显示更新后的摘要和分析
         # 使用 refreshCurrentChapter() 而不是 loadChapter()
@@ -189,14 +183,11 @@ class ContentManagementMixin:
 
         self.hide_loading()
 
-        # 使用对话框显示失败
-        dialog = AlertDialog(
-            parent=self,
-            title="RAG入库失败",
-            message=f"处理第{self.selected_chapter_number}章RAG入库时出错：\n\n{error_msg}",
-            button_text="确定",
+        MessageService.show_error(
+            self,
+            f"处理第{self.selected_chapter_number}章RAG入库时出错：\n\n{error_msg}",
+            title="RAG入库失败"
         )
-        dialog.exec()
 
     def onEditContent(self, new_content):
         """编辑当前版本内容"""
@@ -227,7 +218,10 @@ class ContentManagementMixin:
         # 失效缓存 - 内容已变更
         from utils.chapter_cache import get_chapter_cache
         if self.selected_chapter_number:
-            get_chapter_cache().invalidate(self.project_id, self.selected_chapter_number)
+            get_chapter_cache().invalidate_and_refresh(
+                self.project_id,
+                self.selected_chapter_number
+            )
 
         # 刷新workspace显示
         self.workspace.refreshCurrentChapter()

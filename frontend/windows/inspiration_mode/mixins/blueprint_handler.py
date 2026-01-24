@@ -49,6 +49,23 @@ class BlueprintHandlerMixin:
 
         self._do_generate_blueprint()
 
+    def _get_blueprint_loading_message(self: "InspirationMode") -> str:
+        """获取加载提示文案"""
+        return "正在生成蓝图..."
+
+    def _call_generate_blueprint(
+        self: "InspirationMode",
+        *,
+        force_regenerate: bool,
+        allow_incomplete: bool
+    ):
+        """调用蓝图生成接口"""
+        return self.api_client.generate_blueprint(
+            self._state.project_id,
+            force_regenerate=force_regenerate,
+            allow_incomplete=allow_incomplete,
+        )
+
     def _do_generate_blueprint(
         self: "InspirationMode",
         force_regenerate: bool = False,
@@ -73,7 +90,7 @@ class BlueprintHandlerMixin:
         self._blueprint_loading_dialog = LoadingDialog(
             parent=self,
             title="请稍候",
-            message="正在生成蓝图...",
+            message=self._get_blueprint_loading_message(),
             cancelable=True
         )
         self._blueprint_loading_dialog.show()
@@ -90,8 +107,7 @@ class BlueprintHandlerMixin:
 
         # 创建异步worker（传递force_regenerate和allow_incomplete参数）
         self.blueprint_worker = AsyncAPIWorker(
-            self.api_client.generate_blueprint,
-            self._state.project_id,
+            self._call_generate_blueprint,
             force_regenerate=force_regenerate,
             allow_incomplete=allow_incomplete
         )

@@ -6,7 +6,7 @@
 
 import logging
 import math
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from ...core.constants import LLMConstants
 from ...core.state_machine import ProjectStatus
@@ -14,6 +14,7 @@ from ...models.part_outline import PartOutline
 from ...schemas.novel import PartOutlineGenerationProgress
 from ...utils.exception_helpers import get_safe_error_message
 from ..llm_wrappers import call_llm_json, LLMProfile
+from ..workflow_base import GenerationWorkflowBase
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class PartOutlineWorkflow:
+class PartOutlineWorkflow(GenerationWorkflowBase):
     """
     部分大纲生成工作流
 
@@ -73,6 +74,7 @@ class PartOutlineWorkflow:
         self.count = count
         self.optimization_prompt = optimization_prompt
 
+        super().__init__()
         # 延迟导入避免循环依赖
         from .service import PartOutlineService
         self._part_service = PartOutlineService(session)
@@ -88,6 +90,14 @@ class PartOutlineWorkflow:
         self._start_part = 1
         self._end_part = self.target_total_parts
         self._existing_parts: List[PartOutline] = []
+
+    async def _resolve_system_prompt(self) -> str:
+        """获取系统提示词（优先单部分提示词，失败时回退批量提示词）"""
+        return await self._part_service.prompt_service.get_prompt_or_fallback_name(
+            "part_outline_single",
+            "part_outline",
+            logger=logger,
+        )
 
     async def _initialize(self) -> None:
         """阶段1：初始化和验证"""
@@ -194,104 +204,50 @@ class PartOutlineWorkflow:
             )
             await self.session.commit()
 
-    async def execute(self) -> PartOutlineGenerationProgress:
-        """
-        同步执行完整的部分大纲生成流程
-
-        Returns:
-            PartOutlineGenerationProgress: 生成进度和结果
-        """
-        await self._initialize()
-
-        # 检查是否需要生成
-        if self.continue_mode and len(self._existing_parts) >= self.target_total_parts:
-            return PartOutlineGenerationProgress(
-                parts=[self._part_service._to_schema(p) for p in self._existing_parts],
-                total_parts=len(self._existing_parts),
-                completed_parts=len(self._existing_parts),
-                status="completed",
-            )
-
-        # 获取系统提示词（使用新的单部分生成专用提示词，回退到旧版本）
-        system_prompt = await self._part_service.prompt_service.get_prompt("part_outline_single")
-        if not system_prompt:
-            system_prompt = await self._part_service.prompt_service.get_prompt("part_outline")
-
-        # 串行生成每个部分
-        part_outlines = list(self._existing_parts)
-
-        for current_part_num in range(self._start_part, self._end_part + 1):
-            part_outline = await self._generate_single_part(
-                part_number=current_part_num,
-                previous_parts=part_outlines,
-                system_prompt=system_prompt,
-            )
-            part_outlines.append(part_outline)
-            logger.info(
-                "第 %d/%d 部分生成成功：%s",
-                current_part_num,
-                self._end_part,
-                part_outline.title,
-            )
-
-        # 更新项目状态（仅在全新生成模式时）
-        if not self.continue_mode:
-            await self._update_project_status()
-
-        return PartOutlineGenerationProgress(
-            parts=[self._part_service._to_schema(p) for p in part_outlines],
-            total_parts=len(part_outlines),
-            completed_parts=len(part_outlines),
-            status="completed",
-        )
-
-    async def execute_with_progress(self):
-        """
-        流式执行部分大纲生成，通过yield返回进度
-
-        Yields:
-            Dict: 进度信息 {"status", "current_part", "total_parts", "message"}
-        """
-        saved_parts = []
+    async def _run_generation(self, streaming: bool):
+        """执行生成流程（同步/流式共用）"""
+        saved_parts: List[int] = []
 
         try:
-            # 阶段1：初始化
-            yield {
-                "status": "starting",
-                "current_part": 0,
-                "total_parts": self.target_total_parts,
-                "message": "正在初始化...",
-            }
+            if streaming:
+                yield {
+                    "status": "starting",
+                    "current_part": 0,
+                    "total_parts": self.target_total_parts,
+                    "message": "正在初始化...",
+                }
+
             await self._initialize()
 
-            # 检查是否已完成
             if self.continue_mode and len(self._existing_parts) >= self.target_total_parts:
-                yield {
-                    "status": "complete",
-                    "message": f"已有 {len(self._existing_parts)} 个部分大纲，无需继续生成",
-                    "total_parts": len(self._existing_parts),
-                    "new_parts_count": 0,
-                }
+                result = PartOutlineGenerationProgress(
+                    parts=[self._part_service._to_schema(p) for p in self._existing_parts],
+                    total_parts=len(self._existing_parts),
+                    completed_parts=len(self._existing_parts),
+                    status="completed",
+                )
+                self._set_final_result(result)
+                if streaming:
+                    yield {
+                        "status": "complete",
+                        "message": f"已有 {len(self._existing_parts)} 个部分大纲，无需继续生成",
+                        "total_parts": len(self._existing_parts),
+                        "new_parts_count": 0,
+                    }
                 return
 
-            # 获取系统提示词
-            system_prompt = await self._part_service.prompt_service.get_prompt(
-                "part_outline"
-            )
-
-            # 串行生成每个部分
+            system_prompt = await self._resolve_system_prompt()
             part_outlines = list(self._existing_parts)
 
             for current_part_num in range(self._start_part, self._end_part + 1):
-                # 发送进度更新
-                yield {
-                    "status": "generating",
-                    "current_part": current_part_num,
-                    "total_parts": self._end_part,
-                    "message": f"正在生成第 {current_part_num}/{self._end_part} 部分...",
-                }
+                if streaming:
+                    yield {
+                        "status": "generating",
+                        "current_part": current_part_num,
+                        "total_parts": self._end_part,
+                        "message": f"正在生成第 {current_part_num}/{self._end_part} 部分...",
+                    }
 
-                # 生成当前部分
                 part_outline = await self._generate_single_part(
                     part_number=current_part_num,
                     previous_parts=part_outlines,
@@ -308,37 +264,56 @@ class PartOutlineWorkflow:
                     part_outline.title,
                 )
 
-            # 更新项目状态（仅在全新生成模式时）
             if not self.continue_mode:
                 await self._update_project_status()
                 logger.info("串行生成完成，共 %d 个部分大纲", len(part_outlines))
 
-                yield {
-                    "status": "complete",
-                    "message": f"部分大纲生成完成，共 {self._end_part} 个部分",
-                    "total_parts": self._end_part,
-                }
+                result = PartOutlineGenerationProgress(
+                    parts=[self._part_service._to_schema(p) for p in part_outlines],
+                    total_parts=len(part_outlines),
+                    completed_parts=len(part_outlines),
+                    status="completed",
+                )
+                self._set_final_result(result)
+
+                if streaming:
+                    yield {
+                        "status": "complete",
+                        "message": f"部分大纲生成完成，共 {self._end_part} 个部分",
+                        "total_parts": self._end_part,
+                    }
             else:
                 new_parts_count = self._end_part - self._start_part + 1
                 logger.info("增量生成完成，新增 %d 个部分大纲", new_parts_count)
 
-                yield {
-                    "status": "complete",
-                    "message": f"继续生成完成，新增 {new_parts_count} 个部分（第 {self._start_part}-{self._end_part} 部分）",
-                    "total_parts": self._end_part,
-                    "new_parts_count": new_parts_count,
-                }
+                result = PartOutlineGenerationProgress(
+                    parts=[self._part_service._to_schema(p) for p in part_outlines],
+                    total_parts=len(part_outlines),
+                    completed_parts=len(part_outlines),
+                    status="completed",
+                )
+                self._set_final_result(result)
+
+                if streaming:
+                    yield {
+                        "status": "complete",
+                        "message": f"继续生成完成，新增 {new_parts_count} 个部分（第 {self._start_part}-{self._end_part} 部分）",
+                        "total_parts": self._end_part,
+                        "new_parts_count": new_parts_count,
+                    }
 
         except Exception as exc:
             logger.exception("部分大纲生成失败: %s", exc)
-            # 使用安全的错误消息过滤，避免泄露敏感信息
-            safe_message = get_safe_error_message(exc, "部分大纲生成失败，请稍后重试")
-            yield {
-                "status": "error",
-                "message": safe_message,
-                "saved_parts": saved_parts,
-                "saved_count": len(saved_parts),
-            }
+            if streaming:
+                safe_message = get_safe_error_message(exc, "部分大纲生成失败，请稍后重试")
+                yield {
+                    "status": "error",
+                    "message": safe_message,
+                    "saved_parts": saved_parts,
+                    "saved_count": len(saved_parts),
+                }
+            else:
+                raise
 
 
 __all__ = [

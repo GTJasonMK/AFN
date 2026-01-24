@@ -4,13 +4,13 @@ Coding项目Repository
 提供Coding项目相关的数据访问操作。
 """
 
-from typing import Iterable, Optional, List
+from typing import Iterable, Optional, List, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .base import BaseRepository
+from .base import BaseRepository, RelationOptionsMixin, SequenceRepositoryMixin
 from ..models.coding import (
     CodingProject,
     CodingConversation,
@@ -20,10 +20,23 @@ from ..models.coding import (
 )
 
 
-class CodingProjectRepository(BaseRepository[CodingProject]):
+class CodingProjectRepository(RelationOptionsMixin, BaseRepository[CodingProject]):
     """Coding项目仓储"""
 
     model = CodingProject
+
+    def _detail_load_options(self):
+        return [
+            selectinload(CodingProject.blueprint),
+            selectinload(CodingProject.conversations),
+            selectinload(CodingProject.systems),
+            selectinload(CodingProject.modules),
+        ]
+
+    def _summary_load_options(self):
+        return [
+            selectinload(CodingProject.blueprint),
+        ]
 
     async def get_by_id(self, project_id: str) -> Optional[CodingProject]:
         """根据ID获取项目"""
@@ -34,13 +47,8 @@ class CodingProjectRepository(BaseRepository[CodingProject]):
         stmt = (
             select(CodingProject)
             .where(CodingProject.id == project_id)
-            .options(
-                selectinload(CodingProject.blueprint),
-                selectinload(CodingProject.conversations),
-                selectinload(CodingProject.systems),
-                selectinload(CodingProject.modules),
-            )
         )
+        stmt = self._apply_load_options(stmt, self._detail_load_options())
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
@@ -60,50 +68,42 @@ class CodingProjectRepository(BaseRepository[CodingProject]):
     async def get_by_user_with_relations(
         self,
         user_id: int,
+        page: int = 1,
+        page_size: int = 20,
         order_by: str = "updated_at",
         order_desc: bool = True,
-    ) -> List[CodingProject]:
-        """获取用户的所有项目（包含关联数据）"""
+    ) -> Tuple[List[CodingProject], int]:
+        """分页获取用户的项目（包含关联数据）"""
+        count_stmt = select(func.count(CodingProject.id)).where(CodingProject.user_id == user_id)
         stmt = (
             select(CodingProject)
             .where(CodingProject.user_id == user_id)
-            .options(
-                selectinload(CodingProject.blueprint),
-            )
         )
+        stmt = self._apply_load_options(stmt, self._summary_load_options())
 
         if order_by:
             field = getattr(CodingProject, order_by, None)
             if field is not None:
                 stmt = stmt.order_by(field.desc() if order_desc else field)
 
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return await self.paginate(
+            stmt,
+            count_stmt,
+            page=page,
+            page_size=page_size,
+            max_page_size=100,
+        )
 
 
-class CodingConversationRepository(BaseRepository[CodingConversation]):
+class CodingConversationRepository(SequenceRepositoryMixin, BaseRepository[CodingConversation]):
     """Coding对话仓储"""
 
     model = CodingConversation
+    sequence_field = "seq"
 
     async def get_max_seq(self, project_id: str) -> int:
         """获取项目的最大对话序号"""
-        from sqlalchemy import func
-        stmt = (
-            select(func.max(CodingConversation.seq))
-            .where(CodingConversation.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
-
-    async def get_by_project_ordered(self, project_id: str) -> List[CodingConversation]:
-        """获取项目的对话列表（按序号排序）"""
-        conversations = await self.list(
-            filters={"project_id": project_id},
-            order_by="seq",
-            order_desc=False,
-        )
-        return list(conversations)
+        return await self.get_max_number(project_id)
 
 
 class CodingBlueprintRepository(BaseRepository[CodingBlueprint]):
@@ -116,10 +116,11 @@ class CodingBlueprintRepository(BaseRepository[CodingBlueprint]):
         return await self.get(project_id=project_id)
 
 
-class CodingSystemRepository(BaseRepository[CodingSystem]):
+class CodingSystemRepository(SequenceRepositoryMixin, BaseRepository[CodingSystem]):
     """Coding系统仓储"""
 
     model = CodingSystem
+    sequence_field = "system_number"
 
     async def get_by_project_and_number(
         self,
@@ -129,30 +130,12 @@ class CodingSystemRepository(BaseRepository[CodingSystem]):
         """根据项目ID和系统编号获取系统"""
         return await self.get(project_id=project_id, system_number=system_number)
 
-    async def get_by_project_ordered(self, project_id: str) -> List[CodingSystem]:
-        """获取项目的系统列表（按编号排序）"""
-        systems = await self.list(
-            filters={"project_id": project_id},
-            order_by="system_number",
-            order_desc=False,
-        )
-        return list(systems)
 
-    async def get_max_number(self, project_id: str) -> int:
-        """获取项目的最大系统编号"""
-        from sqlalchemy import func
-        stmt = (
-            select(func.max(CodingSystem.system_number))
-            .where(CodingSystem.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
-
-
-class CodingModuleRepository(BaseRepository[CodingModule]):
+class CodingModuleRepository(SequenceRepositoryMixin, BaseRepository[CodingModule]):
     """Coding模块仓储"""
 
     model = CodingModule
+    sequence_field = "module_number"
 
     async def get_by_project_and_number(
         self,
@@ -161,15 +144,6 @@ class CodingModuleRepository(BaseRepository[CodingModule]):
     ) -> Optional[CodingModule]:
         """根据项目ID和模块编号获取模块"""
         return await self.get(project_id=project_id, module_number=module_number)
-
-    async def get_by_project_ordered(self, project_id: str) -> List[CodingModule]:
-        """获取项目的模块列表（按编号排序）"""
-        modules = await self.list(
-            filters={"project_id": project_id},
-            order_by="module_number",
-            order_desc=False,
-        )
-        return list(modules)
 
     async def get_by_system(
         self,
@@ -186,12 +160,3 @@ class CodingModuleRepository(BaseRepository[CodingModule]):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_max_number(self, project_id: str) -> int:
-        """获取项目的最大模块编号"""
-        from sqlalchemy import func
-        stmt = (
-            select(func.max(CodingModule.module_number))
-            .where(CodingModule.project_id == project_id)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0

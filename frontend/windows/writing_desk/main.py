@@ -11,13 +11,11 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QFileDialog, QSizePolicy, QSplitter,
+    QFileDialog, QSizePolicy,
 )
-from PyQt6.QtCore import Qt
-from pages.base_page import BasePage
+from windows.base import BaseWorkspacePage
 from api.manager import APIClientManager
 from utils.async_worker import AsyncAPIWorker
-from utils.worker_manager import WorkerManager
 from utils.message_service import MessageService
 from utils.dpi_utils import dp
 from themes.theme_manager import theme_manager
@@ -43,7 +41,7 @@ class WritingDesk(
     ContentManagementMixin,
     VersionManagementMixin,
     EvaluationMixin,
-    BasePage,
+    BaseWorkspacePage,
 ):
     """写作台页面 - 禅意风格
 
@@ -55,17 +53,15 @@ class WritingDesk(
     """
 
     def __init__(self, project_id, parent=None):
-        super().__init__(parent)
-        self.project_id = project_id
+        super().__init__(project_id, parent)
 
         self.api_client = APIClientManager.get_client()
         self.project = None
         self.selected_chapter_number = None
         self.generating_chapter = None
 
-        # 异步任务管理 - 使用 WorkerManager 统一管理
-        self.worker_manager = WorkerManager(self)
-        self._sse_worker = None  # SSE Worker 单独管理（需要特殊的 stop 方法）
+        # SSE Worker 单独管理（需要特殊的 stop 方法）
+        self._sse_worker = None
         self._progress_dialog = None  # 进度对话框
 
         self.setupUI()
@@ -73,71 +69,36 @@ class WritingDesk(
 
     def setupUI(self):
         """初始化UI"""
-        logger.info("WritingDesk.setupUI 被调用")
-        # 如果布局不存在，创建UI结构
-        if not self.layout():
-            logger.info("布局不存在，调用 _create_ui_structure")
-            self._create_ui_structure()
-        else:
-            logger.info("布局已存在，跳过 _create_ui_structure")
-        # 总是应用主题样式
-        logger.info("应用主题样式")
-        self._apply_theme()
+        super().setupUI()
 
-    def _create_ui_structure(self):
-        """创建UI结构（只调用一次，优化版：批量创建后处理事件）"""
-        from PyQt6.QtWidgets import QApplication
+    def create_header(self):
+        """创建Header组件"""
+        return WDHeader()
 
-        logger.info("WritingDesk._create_ui_structure 开始执行")
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+    def create_sidebar(self):
+        """创建Sidebar组件"""
+        return WDSidebar()
 
-        # Header（轻量组件，快速创建）
-        self.header = WDHeader()
-        main_layout.addWidget(self.header)
+    def create_workspace(self):
+        """创建Workspace组件"""
+        workspace = WDWorkspace()
+        workspace.setProjectId(self.project_id)
+        workspace.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        workspace.setMinimumWidth(dp(400))
+        return workspace
 
-        # 主内容区
-        self.content_widget = QWidget()
-        content_layout = QHBoxLayout(self.content_widget)
-        content_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
-        content_layout.setSpacing(dp(12))
+    def create_assistant_panel(self):
+        """创建辅助面板组件"""
+        panel = AssistantPanel(self.project_id)
+        panel.setMinimumWidth(dp(280))
+        panel.setVisible(False)
+        return panel
 
-        # Sidebar（固定宽度）- 可能包含大量章节卡片
-        self.sidebar = WDSidebar()
-        content_layout.addWidget(self.sidebar)
-
-        # 使用分割器管理 Workspace 和 AssistantPanel
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setChildrenCollapsible(False)  # 防止完全折叠
-
-        # Workspace（占据主要空间）
-        self.workspace = WDWorkspace()
-        self.workspace.setProjectId(self.project_id)
-        self.workspace.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.workspace.setMinimumWidth(dp(400))  # 设置最小宽度
-        self.main_splitter.addWidget(self.workspace)
-
-        # RAG Assistant Panel（初始隐藏，可调节宽度）
-        self.assistant_panel = AssistantPanel(self.project_id)
-        self.assistant_panel.setMinimumWidth(dp(280))  # 设置最小宽度
-        self.assistant_panel.setVisible(False)
-        self.main_splitter.addWidget(self.assistant_panel)
-
-        # 设置分割器手柄宽度
-        self.main_splitter.setHandleWidth(dp(6))
-        # 设置初始比例（工作区:助手面板 = 7:3）
-        self.main_splitter.setSizes([dp(700), dp(320)])
-
-        content_layout.addWidget(self.main_splitter, stretch=1)
-
-        main_layout.addWidget(self.content_widget, stretch=1)
-
-        # 所有主要组件创建完成后，处理一次事件循环
-        QApplication.processEvents()
-
-        # 统一连接所有信号
-        self._connect_signals()
+    def _configure_splitter(self, splitter):
+        """配置分割器"""
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(dp(6))
+        splitter.setSizes([dp(700), dp(320)])
 
     def _connect_signals(self):
         """统一管理所有信号连接"""
@@ -179,56 +140,8 @@ class WritingDesk(
 
     def _apply_theme(self):
         """应用主题样式（可多次调用） - 书香风格"""
-        from PyQt6.QtCore import Qt
-        from themes.modern_effects import ModernEffects
-
-        bg_color = theme_manager.book_bg_primary()
-
-        # 获取透明效果配置
-        transparency_config = theme_manager.get_transparency_config()
-        transparency_enabled = transparency_config.get("enabled", False)
-        # 使用get_component_opacity获取透明度，自动应用主控透明度系数
-        content_opacity = theme_manager.get_component_opacity("content")
-
-        if transparency_enabled:
-            # 透明模式：使用RGBA背景色实现半透明效果
-            # 当content_opacity=0时，页面完全透明，能看到桌面
-            bg_rgba = ModernEffects.hex_to_rgba(bg_color, content_opacity)
-            self.setStyleSheet(f"background-color: {bg_rgba};")
-
-            # 设置WA_TranslucentBackground使透明生效（真正的窗口透明）
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-            self.setAutoFillBackground(False)
-
-            # 指定容器设置透明（不使用findChildren避免影响其他页面）
-            transparent_containers = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel', 'main_splitter']
-            for container_name in transparent_containers:
-                container = getattr(self, container_name, None)
-                if container:
-                    container.setAutoFillBackground(False)
-
-            # content_widget 必须完全透明
-            if hasattr(self, 'content_widget') and self.content_widget:
-                self.content_widget.setStyleSheet("background-color: transparent;")
-        else:
-            # 普通模式：使用实色背景，恢复背景填充
-            self.setStyleSheet(f"background-color: {bg_color};")
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-            self.setAutoFillBackground(True)
-
-            # 恢复容器的背景填充
-            containers_to_restore = ['header', 'content_widget', 'sidebar', 'workspace', 'assistant_panel', 'main_splitter']
-            for container_name in containers_to_restore:
-                container = getattr(self, container_name, None)
-                if container:
-                    container.setAutoFillBackground(True)
-
-            # content_widget 恢复透明样式（因为它是内容容器）
-            if hasattr(self, 'content_widget') and self.content_widget:
-                self.content_widget.setStyleSheet("background-color: transparent;")
-
-        # 分割器样式 - 添加可见的拖动手柄
-        if hasattr(self, 'main_splitter') and self.main_splitter:
+        super()._apply_theme()
+        if self.main_splitter:
             self.main_splitter.setStyleSheet(f"""
                 QSplitter::handle:horizontal {{
                     background-color: {theme_manager.BORDER_LIGHT};
@@ -445,11 +358,11 @@ class WritingDesk(
 
         def _on_export_success(result):
             self.hide_loading()
-            MessageService.show_success(self, f"导出成功：{file_path}")
+            MessageService.show_operation_success(self, "导出小说", details=file_path)
 
         def _on_export_error(error_msg):
             self.hide_loading()
-            MessageService.show_error(self, f"导出失败：{error_msg}")
+            MessageService.show_api_error(self, error_msg, "导出小说")
 
         worker = AsyncAPIWorker(
             self.api_client.export_novel,

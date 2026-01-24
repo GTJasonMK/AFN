@@ -35,7 +35,7 @@ class NovelMixin:
         Returns:
             项目信息
         """
-        return self._request('POST', '/api/novels', {
+        return self._request_api('POST', 'novels', data={
             'title': title,
             'initial_prompt': initial_prompt,
             'skip_inspiration': skip_inspiration
@@ -43,7 +43,7 @@ class NovelMixin:
 
     def get_novels(self) -> List[Dict[str, Any]]:
         """获取项目列表"""
-        return self._request('GET', '/api/novels')
+        return self._request_api('GET', 'novels')
 
     def get_novel(self, project_id: str) -> Dict[str, Any]:
         """
@@ -55,7 +55,7 @@ class NovelMixin:
         Returns:
             项目详细信息
         """
-        return self._request('GET', f'/api/novels/{project_id}')
+        return self._request_api('GET', 'novels', project_id)
 
     def get_section(self, project_id: str, section_type: str) -> Dict[str, Any]:
         """
@@ -68,7 +68,13 @@ class NovelMixin:
         Returns:
             section数据
         """
-        return self._request('GET', f'/api/novels/{project_id}/sections/{section_type}')
+        return self._request_api(
+            'GET',
+            'novels',
+            project_id,
+            'sections',
+            section_type
+        )
 
     def get_chapter(self, project_id: str, chapter_number: int) -> Dict[str, Any]:
         """
@@ -81,7 +87,13 @@ class NovelMixin:
         Returns:
             章节详细信息
         """
-        return self._request('GET', f'/api/novels/{project_id}/chapters/{chapter_number}')
+        return self._request_api(
+            'GET',
+            'novels',
+            project_id,
+            'chapters',
+            chapter_number
+        )
 
     def export_novel(self, project_id: str, format_type: str = 'txt') -> str:
         """
@@ -113,7 +125,7 @@ class NovelMixin:
         Returns:
             更新后的项目信息
         """
-        return self._request('PATCH', f'/api/novels/{project_id}', data)
+        return self._request_api('PATCH', 'novels', project_id, data=data)
 
     def delete_novels(self, project_ids: List[str]) -> Dict[str, Any]:
         """
@@ -126,7 +138,7 @@ class NovelMixin:
             删除结果
         """
         # 后端使用 Body(...) 不带 embed=True,期望裸JSON数组
-        return self._request('DELETE', '/api/novels', project_ids)
+        return self._request_api('DELETE', 'novels', data=project_ids)
 
     # ==================== RAG入库管理 ====================
 
@@ -161,7 +173,13 @@ class NovelMixin:
                 }
             }
         """
-        return self._request('GET', f'/api/novels/{project_id}/rag/completeness', timeout=120)
+        return self._request_rag(
+            'novels',
+            project_id,
+            'completeness',
+            method='GET',
+            timeout=120
+        )
 
     def ingest_all_rag(self, project_id: str, force: bool = False) -> Dict[str, Any]:
         """
@@ -187,9 +205,11 @@ class NovelMixin:
             }
         """
         params = {'force': force} if force else None
-        return self._request(
-            'POST',
-            f'/api/novels/{project_id}/rag/ingest-all',
+        return self._request_rag(
+            'novels',
+            project_id,
+            'ingest-all',
+            method='POST',
             params=params,
             timeout=300  # 完整入库可能需要较长时间
         )
@@ -214,9 +234,11 @@ class NovelMixin:
                 "error_message": null
             }
         """
-        return self._request(
-            'POST',
-            f'/api/novels/{project_id}/rag/ingest',
+        return self._request_rag(
+            'novels',
+            project_id,
+            'ingest',
+            method='POST',
             params={'data_type': data_type},
             timeout=120
         )
@@ -240,4 +262,10 @@ class NovelMixin:
                 "data_type_list": [...]
             }
         """
-        return self._request('GET', f'/api/novels/{project_id}/rag/diagnose', timeout=120)
+        return self._request_rag(
+            'novels',
+            project_id,
+            'diagnose',
+            method='GET',
+            timeout=120
+        )

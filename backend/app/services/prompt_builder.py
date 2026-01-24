@@ -4,12 +4,12 @@ Prompt构建服务
 专门负责构建各种LLM提示词，保持提示词逻辑的集中管理和可维护性。
 """
 
-import json
 from typing import Dict, List, Optional
 
 from ..models.novel import NovelProject
 from ..models.part_outline import PartOutline
 from ..repositories.part_outline_repository import PartOutlineRepository
+from ..utils.prompt_helpers import format_prompt_json
 
 
 class PromptBuilder:
@@ -80,11 +80,11 @@ class PromptBuilder:
 
 ## 世界观设定
 
-{json.dumps(world_setting, ensure_ascii=False, indent=2)}
+{format_prompt_json(world_setting)}
 
 ## 角色档案
 
-{json.dumps(characters, ensure_ascii=False, indent=2)}
+{format_prompt_json(characters)}
 
 ## 主要剧情
 
@@ -99,9 +99,9 @@ class PromptBuilder:
 - 章节：第 {part.start_chapter}-{part.end_chapter} 章
 - 主题：{part.theme or ""}
 - 摘要：{part.summary or ""}
-- 关键事件：{json.dumps(part.key_events or [], ensure_ascii=False)}
-- 角色发展：{json.dumps(part.character_arcs or {}, ensure_ascii=False)}
-- 冲突：{json.dumps(part.conflicts or [], ensure_ascii=False)}
+- 关键事件：{format_prompt_json(part.key_events or [])}
+- 角色发展：{format_prompt_json(part.character_arcs or {})}
+- 冲突：{format_prompt_json(part.conflicts or [])}
 - 结尾钩子：{part.ending_hook or ""}
 """
 
@@ -218,9 +218,9 @@ class PromptBuilder:
 - 范围：第 {part_outline.start_chapter}-{part_outline.end_chapter} 章
 - 主题：{part_outline.theme or ""}
 - 摘要：{part_outline.summary or ""}
-- 关键事件：{json.dumps(part_outline.key_events or [], ensure_ascii=False)}
-- 冲突：{json.dumps(part_outline.conflicts or [], ensure_ascii=False)}
-- 角色发展：{json.dumps(part_outline.character_arcs or {}, ensure_ascii=False)}
+- 关键事件：{format_prompt_json(part_outline.key_events or [])}
+- 冲突：{format_prompt_json(part_outline.conflicts or [])}
+- 角色发展：{format_prompt_json(part_outline.character_arcs or {})}
 - 结尾钩子：{part_outline.ending_hook or ""}"""
 
         # 添加前面已生成的章节
@@ -250,10 +250,10 @@ class PromptBuilder:
 
 ## 世界观设定
 
-{json.dumps(world_setting, ensure_ascii=False, indent=2)}
+{format_prompt_json(world_setting)}
 
 ## 角色档案
 
-{json.dumps(characters, ensure_ascii=False, indent=2)}"""
+{format_prompt_json(characters)}"""
 
         return prompt

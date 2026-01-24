@@ -11,6 +11,7 @@ from typing import Optional, TYPE_CHECKING
 
 from app.exceptions import JSONParseError
 from app.services.llm_wrappers import call_llm_json, LLMProfile
+from app.services.scene_descriptor import SceneDescriptor
 from app.utils.json_utils import parse_llm_json_safe
 
 from ..extraction import ChapterInfo
@@ -134,16 +135,14 @@ class PagePlanner:
         max_pages: int,
     ) -> str:
         """构建规划提示词"""
-        # 尝试从PromptService加载
-        prompt_template = None
+        # 尝试从PromptService加载，失败时回退到默认模板
+        prompt_template = PAGE_PLANNING_PROMPT
         if self.prompt_service:
-            try:
-                prompt_template = await self.prompt_service.get_prompt(PROMPT_NAME)
-            except Exception as e:
-                logger.warning("无法加载 %s 提示词: %s", PROMPT_NAME, e)
-
-        if not prompt_template:
-            prompt_template = PAGE_PLANNING_PROMPT
+            prompt_template = await self.prompt_service.get_prompt_or_fallback(
+                PROMPT_NAME,
+                PAGE_PLANNING_PROMPT,
+                logger=logger,
+            )
 
         # 准备事件列表JSON - 增加复杂度信息
         events_data = []
@@ -173,6 +172,7 @@ class PagePlanner:
                 "index": scene.index,
                 "location": scene.location,
                 "event_indices": scene.event_indices,
+                "scene_descriptor": SceneDescriptor.from_scene_info(scene).to_dict(),
             })
 
         # 准备角色列表

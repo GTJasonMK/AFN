@@ -12,6 +12,7 @@ from .context import ChapterGenerationResult
 from .prompt_builder import ChapterPromptBuilder
 from ...schemas.novel import ChapterGenerationStatus
 from ...utils.exception_helpers import get_safe_error_message
+from ..workflow_base import GenerationWorkflowBase
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ChapterGenerationWorkflow:
+class ChapterGenerationWorkflow(GenerationWorkflowBase):
     """
     章节生成工作流
 
@@ -51,6 +52,7 @@ class ChapterGenerationWorkflow:
         writing_notes: Optional[str] = None,
         vector_store: Optional[Any] = None,
     ):
+        super().__init__()
         self.session = session
         self.llm_service = llm_service
         self.novel_service = novel_service
@@ -305,122 +307,93 @@ class ChapterGenerationWorkflow:
             except Exception as reset_error:
                 logger.error("重置章节状态失败: %s", reset_error)
 
-    async def execute(self) -> ChapterGenerationResult:
-        """
-        同步执行完整的章节生成流程
+    async def _run_generation(self, streaming: bool):
+        """执行生成流程（同步/流式共用）"""
+        if streaming:
+            try:
+                yield {
+                    "stage": "initializing",
+                    "message": "正在初始化...",
+                    "current": 0,
+                    "total": 0,
+                }
+                await self._initialize()
 
-        Returns:
-            ChapterGenerationResult: 生成结果
-        """
-        try:
-            # 1. 初始化
-            await self._initialize()
+                yield {
+                    "stage": "collecting_context",
+                    "message": "正在收集历史章节上下文...",
+                    "current": 0,
+                    "total": self._version_count,
+                }
+                completed_chapters, previous_summary, previous_tail = await self._collect_context()
 
-            # 2. 收集上下文
-            completed_chapters, previous_summary, previous_tail = await self._collect_context()
+                yield {
+                    "stage": "preparing_prompt",
+                    "message": "正在准备提示词和RAG检索...",
+                    "current": 0,
+                    "total": self._version_count,
+                }
+                writer_prompt, prompt_input = await self._prepare_prompt(
+                    completed_chapters, previous_summary, previous_tail
+                )
 
-            # 3. 准备提示词
-            writer_prompt, prompt_input = await self._prepare_prompt(
-                completed_chapters, previous_summary, previous_tail
-            )
+                yield {
+                    "stage": "generating",
+                    "message": f"正在生成第{self.chapter_number}章（共{self._version_count}个版本）...",
+                    "current": 0,
+                    "total": self._version_count,
+                }
+                raw_versions = await self._generate_versions(writer_prompt, prompt_input)
 
-            # 4. 生成版本
-            raw_versions = await self._generate_versions(writer_prompt, prompt_input)
+                yield {
+                    "stage": "saving",
+                    "message": "正在保存生成结果...",
+                    "current": self._version_count,
+                    "total": self._version_count,
+                }
+                result = await self._save_results(raw_versions)
+                self._set_final_result(result)
 
-            # 5. 保存结果
-            return await self._save_results(raw_versions)
+                yield {
+                    "stage": "complete",
+                    "message": f"第{self.chapter_number}章生成完成",
+                    "chapter_number": self.chapter_number,
+                    "version_count": result.version_count,
+                }
 
-        except Exception as exc:
-            logger.exception("章节生成失败: %s", exc)
-            await self._reset_chapter_status()
-            raise
+            except asyncio.CancelledError:
+                logger.info(
+                    "项目 %s 第 %s 章生成被用户取消",
+                    self.project_id, self.chapter_number
+                )
+                await self._reset_chapter_status_safe()
+                yield {
+                    "stage": "cancelled",
+                    "message": "生成已取消",
+                }
 
-    async def execute_with_progress(self):
-        """
-        流式执行章节生成，通过yield返回进度
-
-        Yields:
-            Dict: 进度信息 {"stage", "message", "current", "total"}
-        """
-        try:
-            # 阶段1: 初始化
-            yield {
-                "stage": "initializing",
-                "message": "正在初始化...",
-                "current": 0,
-                "total": 0,
-            }
-            await self._initialize()
-
-            # 阶段2: 收集上下文
-            yield {
-                "stage": "collecting_context",
-                "message": "正在收集历史章节上下文...",
-                "current": 0,
-                "total": self._version_count,
-            }
-            completed_chapters, previous_summary, previous_tail = await self._collect_context()
-
-            # 阶段3: 准备提示词
-            yield {
-                "stage": "preparing_prompt",
-                "message": "正在准备提示词和RAG检索...",
-                "current": 0,
-                "total": self._version_count,
-            }
-            writer_prompt, prompt_input = await self._prepare_prompt(
-                completed_chapters, previous_summary, previous_tail
-            )
-
-            # 阶段4: 生成版本
-            yield {
-                "stage": "generating",
-                "message": f"正在生成第{self.chapter_number}章（共{self._version_count}个版本）...",
-                "current": 0,
-                "total": self._version_count,
-            }
-            raw_versions = await self._generate_versions(writer_prompt, prompt_input)
-
-            # 阶段5: 保存结果
-            yield {
-                "stage": "saving",
-                "message": "正在保存生成结果...",
-                "current": self._version_count,
-                "total": self._version_count,
-            }
-            result = await self._save_results(raw_versions)
-
-            # 完成
-            yield {
-                "stage": "complete",
-                "message": f"第{self.chapter_number}章生成完成",
-                "chapter_number": self.chapter_number,
-                "version_count": result.version_count,
-            }
-
-        except asyncio.CancelledError:
-            # 用户取消操作 - 这是预期行为，不记录为错误
-            logger.info(
-                "项目 %s 第 %s 章生成被用户取消",
-                self.project_id, self.chapter_number
-            )
-            # 尝试重置章节状态（使用独立的异常处理避免二次错误）
-            await self._reset_chapter_status_safe()
-            # 返回取消事件，不重新抛出异常（让生成器正常结束）
-            yield {
-                "stage": "cancelled",
-                "message": "生成已取消",
-            }
-
-        except Exception as exc:
-            logger.exception("章节生成失败: %s", exc)
-            await self._reset_chapter_status()
-            # 使用安全的错误消息过滤，避免泄露敏感信息
-            safe_message = get_safe_error_message(exc, "章节生成失败，请稍后重试")
-            yield {
-                "stage": "error",
-                "message": safe_message,
-            }
+            except Exception as exc:
+                logger.exception("章节生成失败: %s", exc)
+                await self._reset_chapter_status()
+                safe_message = get_safe_error_message(exc, "章节生成失败，请稍后重试")
+                yield {
+                    "stage": "error",
+                    "message": safe_message,
+                }
+        else:
+            try:
+                await self._initialize()
+                completed_chapters, previous_summary, previous_tail = await self._collect_context()
+                writer_prompt, prompt_input = await self._prepare_prompt(
+                    completed_chapters, previous_summary, previous_tail
+                )
+                raw_versions = await self._generate_versions(writer_prompt, prompt_input)
+                result = await self._save_results(raw_versions)
+                self._set_final_result(result)
+            except Exception as exc:
+                logger.exception("章节生成失败: %s", exc)
+                await self._reset_chapter_status()
+                raise
 
     async def _reset_chapter_status_safe(self) -> None:
         """安全地重置章节状态（用于取消场景，不抛出异常）"""

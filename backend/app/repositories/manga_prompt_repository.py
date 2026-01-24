@@ -302,28 +302,7 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
 
         # 将 pages 转换为 scenes 和 panels 格式
         pages = result_data.get("pages", [])
-        scenes = []  # 页面信息作为场景存储
-        panels = []  # 扁平化的画格列表
-
-        for page_data in pages:
-            page_number = page_data.get("page_number", 0)
-
-            # 构建场景（页面）信息
-            scene_info = {
-                "page_number": page_number,
-                "layout_description": page_data.get("layout_description", ""),
-                "reading_flow": page_data.get("reading_flow", "right_to_left"),
-                "panel_count": len(page_data.get("panels", [])),
-                # 保存间隙配置
-                "gutter_horizontal": page_data.get("gutter_horizontal", 8),
-                "gutter_vertical": page_data.get("gutter_vertical", 8),
-            }
-            scenes.append(scene_info)
-
-            # 收集画格信息
-            for panel_data in page_data.get("panels", []):
-                panel_data["page_number"] = page_number  # 确保页码正确
-                panels.append(panel_data)
+        scenes, panels = self.build_scenes_panels_from_pages(pages)
 
         # 根据 is_complete 决定状态
         generation_status = "completed" if is_complete else "generating"
@@ -370,30 +349,10 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             return None
 
         # 将 scenes 和 panels 转换回 pages 格式
-        panels_by_page = {}
-        for panel in manga_prompt.panels or []:
-            page_num = panel.get("page_number", 1)
-            if page_num not in panels_by_page:
-                panels_by_page[page_num] = []
-            panels_by_page[page_num].append(panel)
-
-        # 构建 pages 列表
-        pages = []
-        for scene in manga_prompt.scenes or []:
-            page_number = scene.get("page_number", 0)
-            page_data = {
-                "page_number": page_number,
-                "panels": panels_by_page.get(page_number, []),
-                "layout_description": scene.get("layout_description", ""),
-                "reading_flow": scene.get("reading_flow", "right_to_left"),
-                # 恢复间隙配置
-                "gutter_horizontal": scene.get("gutter_horizontal", 8),
-                "gutter_vertical": scene.get("gutter_vertical", 8),
-            }
-            pages.append(page_data)
-
-        # 按页码排序
-        pages.sort(key=lambda p: p.get("page_number", 0))
+        pages = self.build_pages_from_scenes_panels(
+            manga_prompt.scenes or [],
+            manga_prompt.panels or [],
+        )
 
         # 判断是否完成
         is_complete = manga_prompt.generation_status == "completed"
@@ -416,3 +375,55 @@ class MangaPromptRepository(BaseRepository[ChapterMangaPrompt]):
             # 当前生成状态
             "generation_status": manga_prompt.generation_status,
         }
+
+    @staticmethod
+    def build_scenes_panels_from_pages(pages: list) -> tuple[list, list]:
+        """从 pages 构建 scenes/panels（存储格式）"""
+        scenes = []
+        panels = []
+
+        for page_data in pages:
+            page_number = page_data.get("page_number", 0)
+            page_panels = page_data.get("panels", [])
+
+            scene_info = {
+                "page_number": page_number,
+                "layout_description": page_data.get("layout_description", ""),
+                "reading_flow": page_data.get("reading_flow", "right_to_left"),
+                "panel_count": len(page_panels),
+                "gutter_horizontal": page_data.get("gutter_horizontal", 8),
+                "gutter_vertical": page_data.get("gutter_vertical", 8),
+            }
+            scenes.append(scene_info)
+
+            for panel_data in page_panels:
+                panel_copy = dict(panel_data)
+                panel_copy["page_number"] = page_number
+                panels.append(panel_copy)
+
+        return scenes, panels
+
+    @staticmethod
+    def build_pages_from_scenes_panels(scenes: list, panels: list) -> list:
+        """从 scenes/panels 构建 pages（响应格式）"""
+        panels_by_page: dict = {}
+        for panel in panels:
+            page_num = panel.get("page_number", 1)
+            if page_num not in panels_by_page:
+                panels_by_page[page_num] = []
+            panels_by_page[page_num].append(panel)
+
+        pages = []
+        for scene in scenes:
+            page_number = scene.get("page_number", 0)
+            pages.append({
+                "page_number": page_number,
+                "panels": panels_by_page.get(page_number, []),
+                "layout_description": scene.get("layout_description", ""),
+                "reading_flow": scene.get("reading_flow", "right_to_left"),
+                "gutter_horizontal": scene.get("gutter_horizontal", 8),
+                "gutter_vertical": scene.get("gutter_vertical", 8),
+            })
+
+        pages.sort(key=lambda p: p.get("page_number", 0))
+        return pages

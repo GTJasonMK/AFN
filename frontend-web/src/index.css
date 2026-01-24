@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600;700&display=swap');
+
+:root {
+  /* 默认为 Light Mode (Organic) */
+  --color-primary: #8B4513;
+  --color-primary-light: #A0522D;
+  --color-text-primary: #2C1810;
+  --color-text-secondary: #5D4037;
+  --color-text-tertiary: #6D6560;
+  --color-bg-primary: #F9F5F0;
+  --color-bg-secondary: #FFFBF0;
+  --color-bg-glass: rgba(249, 245, 240, 0.85);
+  --color-border: #D7CCC8;
+  --shadow-card: 0 4px 20px -2px rgba(139,69,19,0.10);
+  --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.dark {
+  /* Dark Mode (Academia) */
+  --color-primary: #E89B6C;
+  --color-primary-light: #F0B088;
+  --color-text-primary: #E8DFD4;
+  --color-text-secondary: #9C8B7A;
+  --color-text-tertiary: #7A6B5A;
+  --color-bg-primary: #1C1714;
+  --color-bg-secondary: #251E19;
+  --color-bg-glass: rgba(37, 30, 25, 0.85);
+  --color-border: #4A3F35;
+  --shadow-card: 0 4px 20px -2px rgba(0,0,0,0.3);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+body {
+  @apply bg-book-bg text-book-text-main font-sans transition-colors duration-300;
+}
+
+/* 玻璃态效果工具类 */
+.glass-panel {
+  @apply bg-book-bg-glass backdrop-blur-md border border-book-border/30 shadow-glass;
+}

@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Optional, Any
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy,
+    QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy, QSplitter,
 )
 from PyQt6.QtCore import Qt
 
@@ -58,7 +58,9 @@ class BaseWorkspacePage(BasePage):
         self.header: Optional[QWidget] = None
         self.sidebar: Optional[QWidget] = None
         self.workspace: Optional[QWidget] = None
+        self.assistant_panel: Optional[QWidget] = None
         self.content_widget: Optional[QWidget] = None
+        self.main_splitter: Optional[QSplitter] = None
 
     def setupUI(self):
         """初始化UI"""
@@ -97,7 +99,21 @@ class BaseWorkspacePage(BasePage):
                 QSizePolicy.Policy.Expanding,
                 QSizePolicy.Policy.Expanding
             )
+
+        # AssistantPanel（可选）
+        self.assistant_panel = self.create_assistant_panel()
+
+        if self.workspace and self.assistant_panel:
+            self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+            self.main_splitter.setChildrenCollapsible(False)
+            self.main_splitter.addWidget(self.workspace)
+            self.main_splitter.addWidget(self.assistant_panel)
+            self._configure_splitter(self.main_splitter)
+            content_layout.addWidget(self.main_splitter, stretch=1)
+        elif self.workspace:
             content_layout.addWidget(self.workspace, stretch=1)
+        elif self.assistant_panel:
+            content_layout.addWidget(self.assistant_panel, stretch=1)
 
         main_layout.addWidget(self.content_widget, stretch=1)
 
@@ -130,7 +146,15 @@ class BaseWorkspacePage(BasePage):
             self.setAutoFillBackground(False)
 
             # 透明容器
-            for container in [self.header, self.content_widget, self.sidebar, self.workspace]:
+            containers = [
+                self.header,
+                self.content_widget,
+                self.sidebar,
+                self.workspace,
+                self.assistant_panel,
+                self.main_splitter,
+            ]
+            for container in containers:
                 if container:
                     container.setAutoFillBackground(False)
 
@@ -141,12 +165,23 @@ class BaseWorkspacePage(BasePage):
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
             self.setAutoFillBackground(True)
 
-            for container in [self.header, self.content_widget, self.sidebar, self.workspace]:
+            containers = [
+                self.header,
+                self.content_widget,
+                self.sidebar,
+                self.workspace,
+                self.assistant_panel,
+                self.main_splitter,
+            ]
+            for container in containers:
                 if container:
                     container.setAutoFillBackground(True)
 
             if self.content_widget:
                 self.content_widget.setStyleSheet("background-color: transparent;")
+
+        if self.main_splitter:
+            self._apply_splitter_style(self.main_splitter)
 
     # ==================== 生命周期 ====================
 
@@ -196,6 +231,22 @@ class BaseWorkspacePage(BasePage):
             Workspace组件
         """
         raise NotImplementedError("子类必须实现 create_workspace()")
+
+    def create_assistant_panel(self) -> Optional[QWidget]:
+        """创建辅助面板组件（可选）
+
+        Returns:
+            辅助面板组件
+        """
+        return None
+
+    def _configure_splitter(self, splitter: QSplitter):
+        """配置分割器（可选重写）"""
+        pass
+
+    def _apply_splitter_style(self, splitter: QSplitter):
+        """应用分割器样式（可选重写）"""
+        pass
 
     def get_blueprint(self) -> Dict[str, Any]:
         """获取蓝图数据

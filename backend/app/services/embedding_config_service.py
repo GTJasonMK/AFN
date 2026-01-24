@@ -11,7 +11,6 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
 from ..exceptions import ResourceNotFoundError, ConflictError, InvalidParameterError
 from ..models import EmbeddingConfig
 from ..repositories.embedding_config_repository import EmbeddingConfigRepository
@@ -21,12 +20,12 @@ from ..schemas.embedding_config import (
     EmbeddingConfigUpdate,
     EmbeddingConfigTestResponse,
 )
-from ..utils.encryption import encrypt_api_key, decrypt_api_key
+from .config_service_base import BaseConfigService
 
 logger = logging.getLogger(__name__)
 
 
-class EmbeddingConfigService:
+class EmbeddingConfigService(BaseConfigService):
     """
     嵌入模型配置服务，支持多配置管理和测试。
 
@@ -37,16 +36,7 @@ class EmbeddingConfigService:
     """
 
     def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = EmbeddingConfigRepository(session)
-
-    def _encrypt_key(self, api_key: Optional[str]) -> Optional[str]:
-        """加密API密钥"""
-        return encrypt_api_key(api_key, settings.secret_key)
-
-    def _decrypt_key(self, encrypted_key: Optional[str]) -> Optional[str]:
-        """解密API密钥"""
-        return decrypt_api_key(encrypted_key, settings.secret_key)
+        super().__init__(session, EmbeddingConfigRepository(session), "嵌入模型配置")
 
     async def list_configs(self, user_id: int) -> list[EmbeddingConfigRead]:
         """获取用户的所有嵌入模型配置列表。"""
@@ -55,9 +45,7 @@ class EmbeddingConfigService:
 
     async def get_config(self, config_id: int, user_id: int) -> EmbeddingConfigRead:
         """获取指定ID的配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("嵌入模型配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
         return EmbeddingConfigRead.from_orm_with_mask(config)
 
     async def get_active_config(self, user_id: int) -> Optional[EmbeddingConfigRead]:
@@ -71,16 +59,12 @@ class EmbeddingConfigService:
 
     async def create_config(self, user_id: int, payload: EmbeddingConfigCreate) -> EmbeddingConfigRead:
         """创建新的嵌入模型配置。"""
-        # 检查配置名称是否重复
-        existing = await self.repo.get_by_name(user_id, payload.config_name)
-        if existing:
-            raise ConflictError(f"配置名称 '{payload.config_name}' 已存在")
+        await self._ensure_unique_name(user_id, payload.config_name)
 
         data = payload.model_dump(exclude_unset=True)
 
         # 处理 URL
-        if "api_base_url" in data and data["api_base_url"] is not None:
-            data["api_base_url"] = str(data["api_base_url"])
+        self._normalize_url_field(data, "api_base_url")
 
         # 加密API密钥
         if "api_key" in data and data["api_key"]:
@@ -88,8 +72,7 @@ class EmbeddingConfigService:
             logger.debug("API Key已加密存储")
 
         # 如果用户没有任何配置，则将新配置设为激活
-        configs = await self.repo.list_by_user(user_id)
-        is_first_config = len(configs) == 0
+        is_first_config = await self._is_first_config(user_id)
 
         instance = EmbeddingConfig(
             user_id=user_id,
@@ -103,20 +86,15 @@ class EmbeddingConfigService:
 
     async def update_config(self, config_id: int, user_id: int, payload: EmbeddingConfigUpdate) -> EmbeddingConfigRead:
         """更新嵌入模型配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("嵌入模型配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         data = payload.model_dump(exclude_unset=True)
 
         # 检查配置名称是否与其他配置重复
         if "config_name" in data:
-            existing = await self.repo.get_by_name(user_id, data["config_name"])
-            if existing and existing.id != config_id:
-                raise ConflictError(f"配置名称 '{data['config_name']}' 已被其他配置使用")
+            await self._ensure_unique_name(user_id, data["config_name"], config_id=config_id)
 
-        if "api_base_url" in data and data["api_base_url"] is not None:
-            data["api_base_url"] = str(data["api_base_url"])
+        self._normalize_url_field(data, "api_base_url")
 
         # 加密API密钥
         if "api_key" in data and data["api_key"]:
@@ -124,10 +102,10 @@ class EmbeddingConfigService:
             logger.debug("API Key已加密存储")
 
         # 如果更新了配置信息，则重置验证状态
-        if any(key in data for key in ["api_base_url", "api_key", "model_name", "provider"]):
-            data["is_verified"] = False
-            data["test_status"] = None
-            data["test_message"] = None
+        self._reset_test_state(
+            data,
+            ["api_base_url", "api_key", "model_name", "provider"]
+        )
 
         await self.repo.update_fields(config, **data)
         await self.session.commit()
@@ -136,9 +114,7 @@ class EmbeddingConfigService:
 
     async def activate_config(self, config_id: int, user_id: int) -> EmbeddingConfigRead:
         """激活指定配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("嵌入模型配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         await self.repo.activate_config(config_id, user_id)
         await self.session.commit()
@@ -147,9 +123,7 @@ class EmbeddingConfigService:
 
     async def delete_config(self, config_id: int, user_id: int) -> bool:
         """删除嵌入模型配置。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("嵌入模型配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         # 不允许删除激活的配置
         if config.is_active:
@@ -161,9 +135,7 @@ class EmbeddingConfigService:
 
     async def test_config(self, config_id: int, user_id: int) -> EmbeddingConfigTestResponse:
         """测试嵌入模型配置是否可用。"""
-        config = await self.repo.get_by_id(config_id, user_id)
-        if not config:
-            raise ResourceNotFoundError("嵌入模型配置", f"ID={config_id}")
+        config = await self._get_config_or_404(config_id, user_id)
 
         provider = config.provider or "openai"
         model_name = config.model_name

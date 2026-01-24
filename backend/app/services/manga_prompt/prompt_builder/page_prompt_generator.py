@@ -13,17 +13,10 @@ from app.utils.json_utils import parse_llm_json_safe
 
 from ..storyboard import PageStoryboard, StoryboardResult
 from ..extraction import ChapterInfo
-from .models import PagePrompt, PanelPrompt
+from .models import PagePrompt
+from .builder import build_layout_template, build_panel_summaries
 
 logger = logging.getLogger(__name__)
-
-# 风格模板（用户可基于这些模板自定义）
-STYLE_TEMPLATES = {
-    "manga": "漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度",
-    "anime": "动漫风格, 鲜艳色彩, 日本动画, 柔和阴影, 大眼睛",
-    "comic": "美漫风格, 粗线条, 动感, 强烈阴影, 肌肉感",
-    "webtoon": "条漫风格, 全彩, 韩国漫画, 柔和渐变, 现代感",
-}
 
 # 镜头类型映射（中文）
 SHOT_TYPE_CHINESE = {
@@ -459,7 +452,7 @@ class PagePromptGenerator:
             raise ValueError(f"LLM未生成有效的整页提示词，返回内容: {llm_result}")
 
         # 构建布局模板名称
-        layout_template = self._build_layout_template(page)
+        layout_template = build_layout_template(page.panels)
 
         # 获取所有角色的立绘路径
         all_characters = set()
@@ -468,7 +461,7 @@ class PagePromptGenerator:
         reference_paths = self._get_reference_paths(list(all_characters))
 
         # 构建panel简要信息
-        panel_summaries = self._build_panel_summaries(page, chapter_info)
+        panel_summaries = build_panel_summaries(page.panels)
 
         return PagePrompt(
             page_number=page.page_number,
@@ -481,62 +474,6 @@ class PagePromptGenerator:
             panels=[],  # 画格级提示词由PromptBuilder单独生成
             reference_image_paths=reference_paths,
         )
-
-    def _build_layout_template(self, page: PageStoryboard) -> str:
-        """构建布局模板名称"""
-        if not page.panels:
-            return "empty"
-
-        rows = {}
-        for p in page.panels:
-            if p.row_id not in rows:
-                rows[p.row_id] = 0
-            rows[p.row_id] += 1
-
-        row_count = len(rows)
-        panel_counts = [str(rows[r]) for r in sorted(rows.keys())]
-        return f"{row_count}row_{'x'.join(panel_counts)}"
-
-    def _build_panel_summaries(
-        self,
-        page: PageStoryboard,
-        chapter_info: ChapterInfo,
-    ) -> List[dict]:
-        """构建画格简要信息列表"""
-        summaries = []
-
-        for panel in page.panels:
-            summary = {
-                "panel_id": panel.panel_id,
-                "row_id": panel.row_id,
-                "row_span": panel.row_span,
-                "width_ratio": panel.width_ratio.value,
-                "aspect_ratio": panel.aspect_ratio.value,
-                "shot_type": panel.shot_type.value,
-                "visual": panel.visual_description[:100] if panel.visual_description else "",
-                "characters": panel.characters[:3],
-            }
-
-            # 对话（包含气泡类型信息）
-            if panel.dialogues:
-                dialogues = []
-                for d in panel.dialogues[:2]:
-                    speaker = d.speaker if d.speaker else "角色"
-                    content = d.content[:30] if len(d.content) > 30 else d.content
-                    # 根据类型添加标记
-                    if d.is_internal or d.bubble_type == "thought":
-                        dialogues.append(f'{speaker}(想法): ({content})')
-                    elif d.bubble_type == "shout":
-                        dialogues.append(f'{speaker}(喊): "{content}"')
-                    elif d.bubble_type == "whisper":
-                        dialogues.append(f'{speaker}(低语): "{content}"')
-                    else:
-                        dialogues.append(f'{speaker}: "{content}"')
-                summary["dialogues"] = dialogues
-
-            summaries.append(summary)
-
-        return summaries
 
     def _get_reference_paths(self, characters: List[str]) -> Optional[List[str]]:
         """获取角色立绘路径"""

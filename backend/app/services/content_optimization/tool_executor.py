@@ -11,8 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .tools import ToolName, ToolCall, ToolResult
 from .paragraph_analyzer import ParagraphAnalyzer
+from ..foreshadowing_service import ForeshadowingService
+from ..incremental_indexer import IncrementalIndexer
 from ..vector_store_service import VectorStoreService
 from ..rag.temporal_retriever import TemporalAwareRetriever
+from ..agent_tool_executor_base import BaseToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +216,7 @@ class AgentState:
         return False
 
 
-class ToolExecutor:
+class ToolExecutor(BaseToolExecutor):
     """工具执行器"""
 
     def __init__(
@@ -242,54 +245,11 @@ class ToolExecutor:
         self.temporal_retriever: Optional[TemporalAwareRetriever] = None
         if vector_store:
             self.temporal_retriever = TemporalAwareRetriever(vector_store)
+        super().__init__()
 
-    async def execute(self, tool_call: ToolCall, state: AgentState) -> ToolResult:
-        """
-        执行工具调用
-
-        Args:
-            tool_call: 工具调用请求
-            state: Agent状态
-
-        Returns:
-            工具执行结果
-        """
-        logger.info(
-            "执行工具: %s, 参数: %s, 理由: %s",
-            tool_call.tool_name.value,
-            tool_call.parameters,
-            tool_call.reasoning,
-        )
-
-        try:
-            handler = self._get_handler(tool_call.tool_name)
-            if handler is None:
-                return ToolResult(
-                    tool_name=tool_call.tool_name,
-                    success=False,
-                    result=None,
-                    error=f"未知工具: {tool_call.tool_name.value}",
-                )
-
-            result = await handler(tool_call.parameters, state)
-            return ToolResult(
-                tool_name=tool_call.tool_name,
-                success=True,
-                result=result,
-            )
-
-        except Exception as e:
-            logger.error("工具执行失败: %s - %s", tool_call.tool_name.value, e, exc_info=True)
-            return ToolResult(
-                tool_name=tool_call.tool_name,
-                success=False,
-                result=None,
-                error=str(e),
-            )
-
-    def _get_handler(self, tool_name: ToolName):
-        """获取工具处理器"""
-        handlers = {
+    def _build_handlers(self) -> Dict[ToolName, Any]:
+        """构建工具处理器映射"""
+        return {
             ToolName.RAG_RETRIEVE: self._handle_rag_retrieve,
             ToolName.GET_CHARACTER_STATE: self._handle_get_character_state,
             ToolName.GET_FORESHADOWING: self._handle_get_foreshadowing,
@@ -305,7 +265,46 @@ class ToolExecutor:
             ToolName.FINISH_ANALYSIS: self._handle_finish_analysis,
             ToolName.COMPLETE_WORKFLOW: self._handle_complete_workflow,
         }
-        return handlers.get(tool_name)
+
+    def _get_tool_name(self, tool_call: ToolCall) -> ToolName:
+        """获取工具名称"""
+        return tool_call.tool_name
+
+    def _get_tool_params(self, tool_call: ToolCall) -> Dict[str, Any]:
+        """获取工具参数"""
+        return tool_call.parameters
+
+    def _build_result(
+        self,
+        tool_name: ToolName,
+        success: bool,
+        result: Any = None,
+        error: Optional[str] = None,
+    ) -> ToolResult:
+        """构建工具结果"""
+        return ToolResult(
+            tool_name=tool_name,
+            success=success,
+            result=result,
+            error=error,
+        )
+
+    def _format_unknown_tool_error(self, tool_name: ToolName) -> str:
+        """格式化未知工具错误信息"""
+        return f"未知工具: {tool_name.value}"
+
+    def _log_tool_call(self, tool_call: ToolCall) -> None:
+        """记录工具调用日志"""
+        logger.info(
+            "执行工具: %s, 参数: %s, 理由: %s",
+            tool_call.tool_name.value,
+            tool_call.parameters,
+            tool_call.reasoning,
+        )
+
+    def _log_execute_error(self, tool_name: ToolName, error: Exception) -> None:
+        """记录工具执行错误"""
+        logger.error("工具执行失败: %s - %s", tool_name.value, error, exc_info=True)
 
     # ==================== 信息获取工具 ====================
 
@@ -436,30 +435,13 @@ class ToolExecutor:
 
         # 从索引中查询
         if self.enable_character_index:
-            from ...models.novel import CharacterStateIndex
-            from sqlalchemy import select
-
-            stmt = select(CharacterStateIndex).where(
-                CharacterStateIndex.project_id == state.project_id,
-                CharacterStateIndex.character_name == character_name,
-                CharacterStateIndex.chapter_number < state.chapter_number,
-            ).order_by(CharacterStateIndex.chapter_number.desc()).limit(1)
-
-            result = await self.session.execute(stmt)
-            record = result.scalar_one_or_none()
-
-            if record:
-                char_state = {
-                    "character_name": character_name,
-                    "found": True,
-                    "last_chapter": record.chapter_number,
-                    "location": record.location,
-                    "status": record.status,
-                    "changes": record.changes or [],
-                    "emotional_state": record.emotional_state,
-                    "relationships_snapshot": record.relationships_snapshot,
-                }
-                # 使用新的缓存方法
+            indexer = IncrementalIndexer(self.session)
+            char_state = await indexer.get_latest_character_state_before(
+                project_id=state.project_id,
+                chapter_number=state.chapter_number,
+                character_name=character_name,
+            )
+            if char_state:
                 state.cache_character_state(character_name, char_state)
                 return char_state
 
@@ -478,38 +460,24 @@ class ToolExecutor:
         keywords = params.get("keywords", [])
 
         if self.enable_foreshadowing_index:
-            from ...models.novel import ForeshadowingIndex
-            from sqlalchemy import select
+            service = ForeshadowingService(self.session)
+            suggestions = await service.get_pending_for_generation(
+                project_id=state.project_id,
+                chapter_number=state.chapter_number,
+                max_suggestions=10,
+                keywords=keywords,
+            )
 
-            # 构建查询条件：只查询pending状态的伏笔
-            conditions = [
-                ForeshadowingIndex.project_id == state.project_id,
-                ForeshadowingIndex.planted_chapter < state.chapter_number,
-                ForeshadowingIndex.status == "pending",  # 只返回未解决的伏笔
-            ]
-
-            stmt = select(ForeshadowingIndex).where(*conditions).order_by(
-                # 高优先级优先，埋得越久越优先
-                ForeshadowingIndex.priority.desc(),
-                ForeshadowingIndex.planted_chapter.asc(),
-            ).limit(10)
-            result = await self.session.execute(stmt)
-            records = result.scalars().all()
-
-            # 简单关键词匹配过滤
             foreshadows = []
-            for record in records:
-                # 检查关键词匹配（使用description和original_text）
-                content = f"{record.description} {record.original_text or ''}"
-                if any(kw in content for kw in keywords) or not keywords:
-                    foreshadows.append({
-                        "description": record.description,
-                        "planted_chapter": record.planted_chapter,
-                        "is_resolved": record.status == "resolved",
-                        "resolved_chapter": record.resolved_chapter,
-                        "priority": record.priority,
-                        "category": record.category,
-                    })
+            for item in suggestions:
+                foreshadows.append({
+                    "description": item["description"],
+                    "planted_chapter": item["planted_chapter"],
+                    "is_resolved": False,
+                    "resolved_chapter": None,
+                    "priority": item["priority"],
+                    "category": item["category"],
+                })
 
             return {
                 "keywords": keywords,
@@ -588,6 +556,7 @@ class ToolExecutor:
             "time_marker": analysis.time_marker,
             "emotion_tone": analysis.emotion_tone,
             "key_actions": analysis.key_actions,
+            "scene_descriptor": self.paragraph_analyzer.build_scene_descriptor(analysis),
             "text_preview": paragraph[:200] + "..." if len(paragraph) > 200 else paragraph,
             "full_text": paragraph,  # 完整段落文本，用于生成建议时精确匹配
         }

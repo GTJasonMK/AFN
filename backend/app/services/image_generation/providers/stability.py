@@ -134,23 +134,16 @@ class StabilityProvider(BaseImageProvider):
             request_body["style_preset"] = extra_params["style_preset"]
 
         async with self.create_http_client(config) as client:
-            response = await client.post(
+            result = await self._request_json(
+                client,
+                "POST",
                 f"{api_host.rstrip('/')}/v1/generation/{model}/text-to-image",
                 headers=self.get_auth_headers(config),
-                json=request_body,
+                json_body=request_body,
+                error_message="Stability API错误",
+                error_paths=[["message"]],
+                error_fallback=False,
             )
-
-            if response.status_code != 200:
-                error_msg = f"Stability API错误({response.status_code})"
-                try:
-                    error_data = response.json()
-                    if "message" in error_data:
-                        error_msg = error_data["message"]
-                except Exception:
-                    pass
-                raise Exception(error_msg)
-
-            result = response.json()
             urls = []
 
             # 从响应中提取Base64图片数据
@@ -216,8 +209,6 @@ class StabilityProvider(BaseImageProvider):
         ref_image: ReferenceImageInfo,
     ) -> List[str]:
         """调用Stability AI image-to-image 端点生成图片"""
-        import base64
-
         api_host = config.api_base_url or self.API_HOST
         model = config.model_name or "stable-diffusion-xl-1024-v1-0"
 
@@ -228,11 +219,7 @@ class StabilityProvider(BaseImageProvider):
         extra_params = config.extra_params or {}
 
         # 准备参考图数据
-        if ref_image.base64_data:
-            init_image_data = base64.b64decode(ref_image.base64_data)
-        else:
-            from pathlib import Path
-            init_image_data = Path(ref_image.file_path).read_bytes()
+        init_image_data = self._load_reference_image_bytes(ref_image)
 
         # 计算 image_strength (与 denoise 相反)
         # strength 0.7 表示参考图影响 70%，对应 image_strength 0.7
@@ -266,24 +253,17 @@ class StabilityProvider(BaseImageProvider):
                 "Accept": "application/json",
             }
 
-            response = await client.post(
+            result = await self._request_json(
+                client,
+                "POST",
                 f"{api_host.rstrip('/')}/v1/generation/{model}/image-to-image",
                 headers=headers,
                 files=files,
                 data=data,
+                error_message="Stability API错误",
+                error_paths=[["message"]],
+                error_fallback=False,
             )
-
-            if response.status_code != 200:
-                error_msg = f"Stability API错误({response.status_code})"
-                try:
-                    error_data = response.json()
-                    if "message" in error_data:
-                        error_msg = error_data["message"]
-                except Exception:
-                    pass
-                raise Exception(error_msg)
-
-            result = response.json()
             urls = []
 
             # 从响应中提取Base64图片数据

@@ -18,6 +18,7 @@ from components.base import ThemeAwareWidget, ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from utils.async_worker import AsyncAPIWorker
+from utils.worker_manager import WorkerManager
 from api.manager import APIClientManager
 
 logger = logging.getLogger(__name__)
@@ -248,6 +249,7 @@ class DirectoryTree(ThemeAwareWidget):
     def __init__(self, project_id: str, parent=None):
         self.project_id = project_id
         self.api_client = APIClientManager.get_client()
+        self.worker_manager = WorkerManager(self)
 
         # 数据
         self._tree_data: Dict[str, Any] = {}
@@ -259,7 +261,6 @@ class DirectoryTree(ThemeAwareWidget):
         # UI组件引用
         self._tree_items: List[TreeNodeItem] = []
         self._file_items_map: Dict[int, TreeNodeItem] = {}  # file_id -> TreeNodeItem
-        self._worker: Optional[AsyncAPIWorker] = None
 
         super().__init__(parent)
         self.setupUI()
@@ -316,14 +317,13 @@ class DirectoryTree(ThemeAwareWidget):
         """刷新目录树"""
         self.loadingStarted.emit()
 
-        self._cleanup_worker()
-        self._worker = AsyncAPIWorker(
+        worker = AsyncAPIWorker(
             self.api_client.get_directory_tree,
             self.project_id
         )
-        self._worker.success.connect(self._on_tree_loaded)
-        self._worker.error.connect(self._on_tree_error)
-        self._worker.start()
+        worker.success.connect(self._on_tree_loaded)
+        worker.error.connect(self._on_tree_error)
+        self.worker_manager.start(worker, "load_directory_tree")
 
     def _on_tree_loaded(self, data: Dict):
         """目录树加载完成"""
@@ -508,23 +508,9 @@ class DirectoryTree(ThemeAwareWidget):
         self._rebuild_tree()
         logger.info("目录树UI已从Agent数据更新")
 
-    def _cleanup_worker(self):
-        """清理异步Worker"""
-        if self._worker is None:
-            return
-        try:
-            if self._worker.isRunning():
-                self._worker.cancel()
-                self._worker.quit()
-                self._worker.wait(3000)
-        except RuntimeError:
-            pass
-        finally:
-            self._worker = None
-
     def cleanup(self):
         """清理资源"""
-        self._cleanup_worker()
+        self.worker_manager.cleanup_all()
         for item in self._tree_items:
             try:
                 item.deleteLater()

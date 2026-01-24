@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,7 +16,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
-from utils.async_worker import AsyncAPIWorker
 from api.manager import APIClientManager
 
 from .components import DirectoryTree, ProjectInfoCard
@@ -44,9 +43,6 @@ class CodingSidebar(ThemeAwareFrame):
         self._project_data: Dict[str, Any] = {}
         self._modules: List[Dict] = []
         self._tree_data: Dict[str, Any] = {}
-
-        # Worker
-        self._worker: Optional[AsyncAPIWorker] = None
 
         super().__init__(parent)
         self.setupUI()
@@ -181,12 +177,6 @@ class CodingSidebar(ThemeAwareFrame):
 
     def cleanup(self):
         """清理资源"""
-        if self._worker:
-            try:
-                if self._worker.isRunning():
-                    self._worker.cancel()
-            except RuntimeError:
-                pass
         self.directory_tree.cleanup()
 
 

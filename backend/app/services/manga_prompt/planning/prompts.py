@@ -5,6 +5,8 @@
 简化版：专注于简单的页面分配。
 """
 
+from ..prompts_shared import EVENT_FIELDS_BASE
+
 # 提示词名称（用于从 PromptService 加载）
 PROMPT_NAME = "manga_page_planning"
 
@@ -20,11 +22,7 @@ PAGE_PLANNING_PROMPT = """你是漫画分镜师，请根据章节信息规划页
 {events_json}
 
 **事件字段说明**：
-- index: 事件索引
-- type: 事件类型（action动作/dialogue对话/conflict冲突/climax高潮等）
-- description: 事件描述
-- participants: 参与角色
-- importance: 重要程度（critical关键/high高/normal普通/low低）
+""" + EVENT_FIELDS_BASE + """- importance: 重要程度（critical关键/high高/normal普通/low低）
 - dialogue_count: 关联对话数量
 - is_climax: 是否是高潮场景
 

@@ -8,7 +8,7 @@ import logging
 import traceback
 from typing import TYPE_CHECKING
 
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService, confirm
 
 if TYPE_CHECKING:
@@ -103,15 +103,14 @@ class ImportAnalyzerMixin:
                 else:
                     self.analyze_btn.setText("开始分析")
 
-        worker = AsyncAPIWorker(start_analysis)
-        worker.success.connect(on_success)
-        worker.error.connect(on_error)
-
-        if not hasattr(self, '_workers'):
-            self._workers = []
-        self._workers.append(worker)
-        logger.info("启动 AsyncAPIWorker...")
-        worker.start()
+        logger.info("启动异步分析任务...")
+        run_async_action(
+            self.worker_manager,
+            start_analysis,
+            task_name='import_analysis',
+            on_success=on_success,
+            on_error=on_error,
+        )
 
     def _showAnalysisProgressDialog(self: "NovelDetail"):
         """显示分析进度对话框"""

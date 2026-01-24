@@ -365,15 +365,15 @@ class ChapterInfoExtractor:
         except Exception as e:
             logger.warning("步骤%d完成回调执行失败: %s", step, e)
 
-    async def _extract_step1_characters_events(
+    async def _run_extraction_step(
         self,
-        content: str,
+        step: int,
+        label: str,
+        context_label: str,
+        prompt: str,
         user_id: Optional[int] = None,
     ) -> dict:
-        """步骤1：提取角色和事件"""
-        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP1)
-        prompt = prompt_template.format(content=content)
-
+        """执行单步提取并统一错误处理"""
         response = await call_llm_json(
             self.llm_service,
             LLMProfile.ANALYTICAL,
@@ -386,15 +386,52 @@ class ChapterInfoExtractor:
         if not data:
             error_preview = response[:200] if response else "(empty)"
             logger.error(
-                "步骤1提取失败: 角色和事件。响应长度: %d, 预览: %s",
+                "步骤%d提取失败: %s。响应长度: %d, 预览: %s",
+                step,
+                label,
                 len(response) if response else 0,
                 error_preview
             )
             raise JSONParseError(
-                context="章节信息提取-步骤1(角色和事件)",
+                context=context_label,
                 detail_msg="AI返回的数据格式错误，请重试。"
             )
         return data
+
+    async def _execute_step(
+        self,
+        step: int,
+        label: str,
+        context_label: str,
+        prompt_name: str,
+        format_kwargs: Dict[str, Any],
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """统一执行分步提取：加载模板并格式化"""
+        prompt_template = await self._get_step_prompt(prompt_name)
+        prompt = prompt_template.format(**format_kwargs)
+        return await self._run_extraction_step(
+            step,
+            label,
+            context_label,
+            prompt,
+            user_id=user_id,
+        )
+
+    async def _extract_step1_characters_events(
+        self,
+        content: str,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """步骤1：提取角色和事件"""
+        return await self._execute_step(
+            1,
+            "角色和事件",
+            "章节信息提取-步骤1(角色和事件)",
+            PROMPT_NAME_STEP1,
+            {"content": content},
+            user_id=user_id,
+        )
 
     async def _extract_step2_dialogues(
         self,
@@ -432,34 +469,18 @@ class ChapterInfoExtractor:
             events_data.append(event_data)
         events_json = json.dumps(events_data, ensure_ascii=False, indent=2)
 
-        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP2)
-        prompt = prompt_template.format(
-            content=content,
-            characters_json=characters_json,
-            events_json=events_json,
-        )
-
-        response = await call_llm_json(
-            self.llm_service,
-            LLMProfile.ANALYTICAL,
-            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
-            user_content=prompt,
+        return await self._execute_step(
+            2,
+            "对话",
+            "章节信息提取-步骤2(对话)",
+            PROMPT_NAME_STEP2,
+            {
+                "content": content,
+                "characters_json": characters_json,
+                "events_json": events_json,
+            },
             user_id=user_id,
         )
-
-        data = parse_llm_json_safe(response)
-        if not data:
-            error_preview = response[:200] if response else "(empty)"
-            logger.error(
-                "步骤2提取失败: 对话。响应长度: %d, 预览: %s",
-                len(response) if response else 0,
-                error_preview
-            )
-            raise JSONParseError(
-                context="章节信息提取-步骤2(对话)",
-                detail_msg="AI返回的数据格式错误，请重试。"
-            )
-        return data
 
     async def _extract_step3_scenes(
         self,
@@ -475,33 +496,17 @@ class ChapterInfoExtractor:
             indent=2
         )
 
-        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP3)
-        prompt = prompt_template.format(
-            content=content,
-            events_json=events_json,
-        )
-
-        response = await call_llm_json(
-            self.llm_service,
-            LLMProfile.ANALYTICAL,
-            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
-            user_content=prompt,
+        return await self._execute_step(
+            3,
+            "场景",
+            "章节信息提取-步骤3(场景)",
+            PROMPT_NAME_STEP3,
+            {
+                "content": content,
+                "events_json": events_json,
+            },
             user_id=user_id,
         )
-
-        data = parse_llm_json_safe(response)
-        if not data:
-            error_preview = response[:200] if response else "(empty)"
-            logger.error(
-                "步骤3提取失败: 场景。响应长度: %d, 预览: %s",
-                len(response) if response else 0,
-                error_preview
-            )
-            raise JSONParseError(
-                context="章节信息提取-步骤3(场景)",
-                detail_msg="AI返回的数据格式错误，请重试。"
-            )
-        return data
 
     async def _extract_step4_items_summary(
         self,
@@ -510,33 +515,17 @@ class ChapterInfoExtractor:
         user_id: Optional[int] = None,
     ) -> dict:
         """步骤4：提取物品和摘要"""
-        prompt_template = await self._get_step_prompt(PROMPT_NAME_STEP4)
-        prompt = prompt_template.format(
-            content=content,
-            event_count=event_count,
-        )
-
-        response = await call_llm_json(
-            self.llm_service,
-            LLMProfile.ANALYTICAL,
-            system_prompt=STEP_EXTRACTION_SYSTEM_PROMPT,
-            user_content=prompt,
+        return await self._execute_step(
+            4,
+            "物品和摘要",
+            "章节信息提取-步骤4(物品和摘要)",
+            PROMPT_NAME_STEP4,
+            {
+                "content": content,
+                "event_count": event_count,
+            },
             user_id=user_id,
         )
-
-        data = parse_llm_json_safe(response)
-        if not data:
-            error_preview = response[:200] if response else "(empty)"
-            logger.error(
-                "步骤4提取失败: 物品和摘要。响应长度: %d, 预览: %s",
-                len(response) if response else 0,
-                error_preview
-            )
-            raise JSONParseError(
-                context="章节信息提取-步骤4(物品和摘要)",
-                detail_msg="AI返回的数据格式错误，请重试。"
-            )
-        return data
 
     async def _get_step_prompt(
         self,

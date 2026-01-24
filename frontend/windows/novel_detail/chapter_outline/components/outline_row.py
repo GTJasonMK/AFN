@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from themes.theme_manager import theme_manager
+from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 
 
@@ -182,37 +183,10 @@ class OutlineRow(QFrame):
 
         # 编辑按钮样式（仅章节大纲有）
         if hasattr(self, 'edit_btn'):
-            self.edit_btn.setStyleSheet(f"""
-                QPushButton {{
-                    font-family: {self.ui_font};
-                    background-color: transparent;
-                    color: {theme_manager.PRIMARY};
-                    border: 1px solid {theme_manager.PRIMARY};
-                    border-radius: {dp(4)}px;
-                    font-size: {sp(11)}px;
-                }}
-                QPushButton:hover {{
-                    background-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.BUTTON_TEXT};
-                }}
-            """)
+            self.edit_btn.setStyleSheet(ButtonStyles.outline_primary("XS"))
 
         # 详情按钮样式
-        self.detail_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {self.ui_font};
-                background-color: transparent;
-                color: {theme_manager.TEXT_SECONDARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
-                font-size: {sp(11)}px;
-            }}
-            QPushButton:hover {{
-                background-color: {theme_manager.PRIMARY_PALE};
-                color: {theme_manager.PRIMARY};
-                border-color: {theme_manager.PRIMARY};
-            }}
-        """)
+        self.detail_btn.setStyleSheet(ButtonStyles.secondary("XS"))
 
     def update_theme(self):
         """更新主题"""

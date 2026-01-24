@@ -67,7 +67,7 @@ class ChapterOutlineHandlerMixin:
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_title, new_summary = dialog.get_values()
 
-            self.async_helper.execute(
+            self._run_async_action(
                 self.api_client.update_chapter_outline,
                 self.project_id,
                 next_chapter_number,
@@ -106,7 +106,7 @@ class ChapterOutlineHandlerMixin:
 
     def _save_total_chapters_then_generate(self: "ChapterOutlineSection", total_chapters: int):
         """保存总章节数后生成大纲"""
-        self.async_helper.execute(
+        self._run_async_action(
             self.api_client.update_blueprint,
             self.project_id,
             {'total_chapters': total_chapters},
@@ -371,7 +371,7 @@ class ChapterOutlineHandlerMixin:
         if not ok:
             return
 
-        self.async_helper.execute(
+        self._run_async_action(
             self.api_client.regenerate_chapter_outline,
             self.project_id, start_chapter,
             prompt=prompt if prompt else None,
@@ -407,7 +407,7 @@ class ChapterOutlineHandlerMixin:
         ):
             return
 
-        self.async_helper.execute(
+        self._run_async_action(
             self.api_client.delete_chapter_outlines,
             self.project_id, count,
             loading_message=f"正在删除 {count} 个章节大纲...",

@@ -106,6 +106,42 @@ class OpenAICompatibleProvider(BaseImageProvider):
             "img2img": True,  # 支持 img2img（通过聊天API的图片输入）
         }
 
+    def _extract_image_urls_from_content(
+        self,
+        content: str,
+        api_base_url: str,
+        *,
+        log_details: bool = False,
+    ) -> List[str]:
+        """从聊天内容中提取图片URL"""
+        urls: List[str] = []
+
+        # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
+        full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content or "")
+        urls.extend(full_urls)
+        if log_details:
+            logger.debug("提取到的完整URL: %s", full_urls)
+
+        # 提取本地路径: ![xxx](/images/xxx/xxx.png)
+        local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content or "")
+        for path in local_paths:
+            urls.append(f"{api_base_url.rstrip('/')}{path}")
+        if log_details:
+            logger.debug("提取到的本地路径: %s", local_paths)
+
+        # 如果没有找到Markdown格式的URL，尝试提取纯URL
+        if not urls:
+            plain_urls = re.findall(
+                r'(https?://[^\s\"\'\)]+\.(?:png|jpg|jpeg|gif|webp))',
+                content or "",
+                re.IGNORECASE
+            )
+            urls.extend(plain_urls)
+            if log_details:
+                logger.debug("提取到的纯URL: %s", plain_urls)
+
+        return urls
+
     async def test_connection(self, config: ImageGenerationConfig) -> ProviderTestResult:
         """测试OpenAI兼容接口连接"""
         if not config.api_base_url or not config.api_key:
@@ -232,8 +268,12 @@ class OpenAICompatibleProvider(BaseImageProvider):
                 try:
                     error_data = response.json()
                     logger.error("图片生成API错误响应: %s", error_data)
-                    if "error" in error_data:
-                        error_msg = error_data["error"].get("message", error_msg)
+                    error_msg = self._extract_error_message_from_data(
+                        error_data,
+                        error_msg,
+                        paths=[["error", "message"]],
+                        fallback=False,
+                    )
                 except Exception:
                     logger.error("图片生成API错误响应(非JSON): %s", response.text[:500])
                 raise Exception(error_msg)
@@ -295,8 +335,12 @@ class OpenAICompatibleProvider(BaseImageProvider):
                 try:
                     error_data = response.json()
                     logger.error("聊天API错误响应: %s", error_data)
-                    if "error" in error_data:
-                        error_msg = error_data["error"].get("message", error_msg)
+                    error_msg = self._extract_error_message_from_data(
+                        error_data,
+                        error_msg,
+                        paths=[["error", "message"]],
+                        fallback=False,
+                    )
                 except Exception:
                     logger.error("聊天API错误响应(非JSON): %s", response.text[:500])
                 raise Exception(error_msg)
@@ -308,25 +352,11 @@ class OpenAICompatibleProvider(BaseImageProvider):
             logger.info("聊天API返回内容(前500字符): %s", content[:500] if content else "(空)")
 
             # 从Markdown格式中提取图片URL
-            urls = []
-
-            # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
-            full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content)
-            urls.extend(full_urls)
-            logger.debug("提取到的完整URL: %s", full_urls)
-
-            # 提取本地路径: ![xxx](/images/xxx/xxx.png)
-            local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content)
-            for path in local_paths:
-                urls.append(f"{config.api_base_url.rstrip('/')}{path}")
-            logger.debug("提取到的本地路径: %s", local_paths)
-
-            # 如果没有找到Markdown格式的URL，尝试提取纯URL
-            if not urls:
-                # 尝试提取任何http(s)图片URL
-                plain_urls = re.findall(r'(https?://[^\s\"\'\)]+\.(?:png|jpg|jpeg|gif|webp))', content, re.IGNORECASE)
-                urls.extend(plain_urls)
-                logger.debug("提取到的纯URL: %s", plain_urls)
+            urls = self._extract_image_urls_from_content(
+                content,
+                config.api_base_url,
+                log_details=True,
+            )
 
             logger.info("最终提取到的图片URL数量: %d", len(urls))
             return urls
@@ -473,8 +503,12 @@ class OpenAICompatibleProvider(BaseImageProvider):
                 try:
                     error_data = response.json()
                     logger.error("img2img API错误响应: %s", error_data)
-                    if "error" in error_data:
-                        error_msg = error_data["error"].get("message", error_msg)
+                    error_msg = self._extract_error_message_from_data(
+                        error_data,
+                        error_msg,
+                        paths=[["error", "message"]],
+                        fallback=False,
+                    )
                 except Exception:
                     logger.error("img2img API错误响应(非JSON): %s", response.text[:500])
                 raise Exception(error_msg)
@@ -486,21 +520,11 @@ class OpenAICompatibleProvider(BaseImageProvider):
             logger.info("img2img API返回内容(前500字符): %s", content[:500] if content else "(空)")
 
             # 从Markdown格式中提取图片URL（与普通生成相同）
-            urls = []
-
-            # 提取完整URL: ![xxx](https://xxx.xxx/xxx.png)
-            full_urls = re.findall(r'!\[.*?\]\((https?://[^\s\)]+)\)', content)
-            urls.extend(full_urls)
-
-            # 提取本地路径: ![xxx](/images/xxx/xxx.png)
-            local_paths = re.findall(r'!\[.*?\]\((/images/[^\s\)]+)\)', content)
-            for path in local_paths:
-                urls.append(f"{config.api_base_url.rstrip('/')}{path}")
-
-            # 如果没有找到Markdown格式的URL，尝试提取纯URL
-            if not urls:
-                plain_urls = re.findall(r'(https?://[^\s\"\'\)]+\.(?:png|jpg|jpeg|gif|webp))', content, re.IGNORECASE)
-                urls.extend(plain_urls)
+            urls = self._extract_image_urls_from_content(
+                content,
+                config.api_base_url,
+                log_details=False,
+            )
 
             logger.info("img2img最终提取到的图片URL数量: %d", len(urls))
             return urls

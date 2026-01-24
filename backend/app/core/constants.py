@@ -137,8 +137,5 @@ class HTTPConstants:
 class AvatarConstants:
     """头像生成相关常量"""
 
-    # SVG安全限制
-    SVG_MAX_SIZE_BYTES = 50000  # SVG最大大小（50KB）
-
     # 提示词构建
     WORLD_RULES_PREVIEW_LENGTH = 200  # 世界观规则预览截取长度

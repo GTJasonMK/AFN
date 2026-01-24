@@ -136,6 +136,67 @@ class PDFExportService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def _ensure_export_dir(self) -> None:
+        """确保导出目录存在"""
+        await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
+
+    def _build_export_file(self, prefix: str, project_id: str, chapter_number: int) -> tuple:
+        """生成导出文件名与路径"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_name = f"{prefix}_{project_id}_ch{chapter_number}_{timestamp}.pdf"
+        return file_name, get_export_dir() / file_name
+
+    def _create_canvas(self, file_path: Path, title: str, page_size: tuple):
+        """创建PDF画布并写入元数据"""
+        from reportlab.pdfgen import canvas
+
+        c = canvas.Canvas(str(file_path), pagesize=page_size)
+        c.setTitle(title)
+        c.setAuthor("AFN Novel Writing Assistant")
+        return c
+
+    async def _fetch_chapter_images(
+        self,
+        project_id: str,
+        chapter_number: int,
+        chapter_version_id: Optional[int],
+        created_at_desc: bool = False,
+        fallback_log: Optional[str] = None,
+    ) -> List[GeneratedImage]:
+        """获取章节图片（支持版本过滤与回退）"""
+        query = select(GeneratedImage).where(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
+        )
+
+        if chapter_version_id is not None:
+            query = query.where(
+                GeneratedImage.chapter_version_id == chapter_version_id
+            )
+
+        created_at_order = (
+            GeneratedImage.created_at.desc()
+            if created_at_desc
+            else GeneratedImage.created_at
+        )
+        result = await self.session.execute(
+            query.order_by(GeneratedImage.scene_id, created_at_order)
+        )
+        images = list(result.scalars().all())
+
+        if not images and chapter_version_id is not None:
+            if fallback_log:
+                logger.info(fallback_log, chapter_version_id)
+            fallback_query = select(GeneratedImage).where(
+                GeneratedImage.project_id == project_id,
+                GeneratedImage.chapter_number == chapter_number,
+                GeneratedImage.chapter_version_id.is_(None),
+            ).order_by(GeneratedImage.scene_id, created_at_order)
+            result = await self.session.execute(fallback_query)
+            images = list(result.scalars().all())
+
+        return images
+
     async def export_images_to_pdf(
         self,
         request: PDFExportRequest,
@@ -353,38 +414,13 @@ class PDFExportService:
                 )
 
             # 获取章节所有图片（支持版本过滤）
-            query = select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
+            images = await self._fetch_chapter_images(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                chapter_version_id=request.chapter_version_id,
+                created_at_desc=False,
+                fallback_log="版本 %s 无图片，尝试回退到历史图片",
             )
-
-            # Bug 42 修复: 版本过滤逻辑优化
-            # - 如果指定了版本ID，只查询该版本的图片
-            # - 如果未指定版本ID，返回所有图片（包括新旧数据）
-            if request.chapter_version_id is not None:
-                query = query.where(
-                    GeneratedImage.chapter_version_id == request.chapter_version_id
-                )
-            # 未指定版本时，不添加版本过滤条件，返回所有图片
-
-            result = await self.session.execute(
-                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
-            )
-            images = list(result.scalars().all())
-
-            # 如果指定版本没有图片，尝试回退到历史图片（仅作为降级策略）
-            if not images and request.chapter_version_id is not None:
-                logger.info(
-                    "版本 %s 无图片，尝试回退到历史图片",
-                    request.chapter_version_id
-                )
-                fallback_query = select(GeneratedImage).where(
-                    GeneratedImage.project_id == project_id,
-                    GeneratedImage.chapter_number == chapter_number,
-                    GeneratedImage.chapter_version_id.is_(None),
-                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at)
-                result = await self.session.execute(fallback_query)
-                images = list(result.scalars().all())
 
             if not images:
                 return ChapterMangaPDFResponse(
@@ -393,24 +429,22 @@ class PDFExportService:
                 )
 
             # 确保导出目录存在（异步）
-            await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
+            await self._ensure_export_dir()
 
             # 生成文件名
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             title = request.title or f"第{chapter_number}章"
-            file_name = f"manga_{project_id}_ch{chapter_number}_{timestamp}.pdf"
-            file_path = get_export_dir() / file_name
+            file_name, file_path = self._build_export_file(
+                "manga",
+                project_id,
+                chapter_number,
+            )
 
             # P2修复: 使用统一的页面尺寸定义
             page_size = get_page_size(request.page_size)
             page_width, page_height = page_size
 
             # 创建PDF
-            c = canvas.Canvas(str(file_path), pagesize=page_size)
-
-            # 设置元数据
-            c.setTitle(title)
-            c.setAuthor("AFN Novel Writing Assistant")
+            c = self._create_canvas(file_path, title, page_size)
 
             page_count = 0
 
@@ -568,36 +602,13 @@ class PDFExportService:
 
             # 获取章节所有图片
             # Bug 20 修复: 添加章节版本过滤，与简单模式保持一致
-            query = select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
+            all_images = await self._fetch_chapter_images(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                chapter_version_id=request.chapter_version_id,
+                created_at_desc=True,
+                fallback_log="专业模式: 版本 %s 无图片，尝试回退到历史图片",
             )
-
-            # 版本过滤逻辑（与简单模式一致）
-            if request.chapter_version_id is not None:
-                query = query.where(
-                    GeneratedImage.chapter_version_id == request.chapter_version_id
-                )
-
-            # Bug 32 修复: 按 created_at 降序排序，确保最新图片在前
-            result = await self.session.execute(
-                query.order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
-            )
-            all_images = list(result.scalars().all())
-
-            # 如果指定版本没有图片，尝试回退到历史图片
-            if not all_images and request.chapter_version_id is not None:
-                logger.info(
-                    "专业模式: 版本 %s 无图片，尝试回退到历史图片",
-                    request.chapter_version_id
-                )
-                fallback_query = select(GeneratedImage).where(
-                    GeneratedImage.project_id == project_id,
-                    GeneratedImage.chapter_number == chapter_number,
-                    GeneratedImage.chapter_version_id.is_(None),
-                ).order_by(GeneratedImage.scene_id, GeneratedImage.created_at.desc())
-                result = await self.session.execute(fallback_query)
-                all_images = list(result.scalars().all())
 
             if not all_images:
                 return ChapterMangaPDFResponse(
@@ -626,16 +637,17 @@ class PDFExportService:
             logger.info(f"图片索引: panel_id={len(panel_image_map)}, page_id={len(page_image_map)}")
 
             # 确保导出目录存在
-            await async_mkdir(get_export_dir(), parents=True, exist_ok=True)
+            await self._ensure_export_dir()
 
             # 生成文件名
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"manga_pro_{project_id}_ch{chapter_number}_{timestamp}.pdf"
-            file_path = get_export_dir() / file_name
+            file_name, file_path = self._build_export_file(
+                "manga_pro",
+                project_id,
+                chapter_number,
+            )
 
             # 获取页面尺寸
-            page_size_name = request.page_size or "A4"
-            page_size = PAGE_SIZES.get(page_size_name, PAGE_SIZES["A4"])
+            page_size = get_page_size(request.page_size)
             page_width, page_height = page_size
 
             # 默认边距（PDF边距）
@@ -646,9 +658,7 @@ class PDFExportService:
             content_height = page_height - 2 * margin
 
             # 创建PDF
-            c = canvas.Canvas(str(file_path), pagesize=page_size)
-            c.setTitle(f"第{chapter_number}章 漫画")
-            c.setAuthor("AFN Novel Writing Assistant")
+            c = self._create_canvas(file_path, f"第{chapter_number}章 漫画", page_size)
 
             # 构建页面gutter信息索引
             page_gutter_map: Dict[int, Dict[str, int]] = {}

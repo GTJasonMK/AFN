@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from .data_types import CodingDataType, BLUEPRINT_INGESTION_TYPES
 from .ingestion_service import CodingProjectIngestionService
+from ..rag_common.auto_ingestion import run_ingestion_task
 
 logger = logging.getLogger(__name__)
 
@@ -45,31 +46,32 @@ async def trigger_async_ingestion(
         return
 
     try:
-        # 创建独立的数据库会话，避免与路由会话冲突
-        from ...db.session import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as session:
-            service = CodingProjectIngestionService(
+        result = await run_ingestion_task(
+            project_id=project_id,
+            user_id=user_id,
+            data_type=data_type,
+            vector_store=vector_store,
+            llm_service=llm_service,
+            service_factory=lambda session, store, llm, uid: CodingProjectIngestionService(
                 session=session,
-                vector_store=vector_store,
-                llm_service=llm_service,
-                user_id=user_id
+                vector_store=store,
+                llm_service=llm,
+                user_id=uid
+            ),
+        )
+
+        if result.success:
+            logger.info(
+                "自动入库成功: project=%s type=%s total=%d added=%d updated=%d skipped=%d",
+                project_id, data_type.value,
+                result.total_records, result.added_count,
+                result.updated_count, result.skipped_count
             )
-
-            result = await service.ingest_by_type(project_id, data_type)
-
-            if result.success:
-                logger.info(
-                    "自动入库成功: project=%s type=%s total=%d added=%d updated=%d skipped=%d",
-                    project_id, data_type.value,
-                    result.total_records, result.added_count,
-                    result.updated_count, result.skipped_count
-                )
-            else:
-                logger.warning(
-                    "自动入库失败: project=%s type=%s error=%s",
-                    project_id, data_type.value, result.error_message
-                )
+        else:
+            logger.warning(
+                "自动入库失败: project=%s type=%s error=%s",
+                project_id, data_type.value, result.error_message
+            )
 
     except Exception as e:
         # 入库失败不影响主流程

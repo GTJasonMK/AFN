@@ -7,7 +7,7 @@
 import logging
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService
 
 if TYPE_CHECKING:
@@ -47,14 +47,15 @@ class ContentManagementMixin:
         self.sidebar.select_file(self._current_file_id)
 
         # 加载文件详情
-        worker = AsyncAPIWorker(
+        run_async_action(
+            self.worker_manager,
             self.api_client.get_source_file,
             self.project_id,
-            self._current_file_id
+            self._current_file_id,
+            task_name='load_file_content',
+            on_success=self._on_file_content_loaded,
+            on_error=self._on_file_content_error,
         )
-        worker.success.connect(self._on_file_content_loaded)
-        worker.error.connect(self._on_file_content_error)
-        self.worker_manager.start(worker, 'load_file_content')
 
     def _on_file_content_loaded(self: 'CodingDesk', data: Dict[str, Any]):
         """文件内容加载完成"""
@@ -89,15 +90,16 @@ class ContentManagementMixin:
 
         self.workspace.set_status("保存中...")
 
-        worker = AsyncAPIWorker(
+        run_async_action(
+            self.worker_manager,
             self.api_client.save_file_prompt,
             self.project_id,
             self._current_file_id,
-            content
+            content,
+            task_name='save_content',
+            on_success=self._on_save_success,
+            on_error=self._on_save_error,
         )
-        worker.success.connect(self._on_save_success)
-        worker.error.connect(self._on_save_error)
-        self.worker_manager.start(worker, 'save_content')
 
     def _on_save_success(self: 'CodingDesk', data: Dict):
         """保存成功"""

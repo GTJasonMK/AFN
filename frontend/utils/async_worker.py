@@ -263,5 +263,24 @@ class AsyncAPIWorker(QThread):
         return self._cancel_event.is_set()
 
 
+def run_async_action(
+    worker_manager,
+    func: Callable,
+    *args,
+    task_name: str,
+    on_success: Optional[Callable[[Any], None]] = None,
+    on_error: Optional[Callable[[str], None]] = None,
+    **kwargs
+) -> AsyncAPIWorker:
+    """统一执行异步API调用并注册到WorkerManager"""
+    worker = AsyncAPIWorker(func, *args, **kwargs)
+    if on_success:
+        worker.success.connect(on_success)
+    if on_error:
+        worker.error.connect(on_error)
+    worker_manager.start(worker, task_name)
+    return worker
+
+
 # 向后兼容的别名
 AsyncWorker = AsyncAPIWorker

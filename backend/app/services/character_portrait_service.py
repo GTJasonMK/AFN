@@ -107,14 +107,9 @@ class CharacterPortraitService:
         )
 
         # 2. 调用图片生成服务
-        image_request = ImageGenerationRequest(
+        image_request = self._build_image_request(
             prompt=prompt,
-            negative_prompt=self._get_portrait_negative_prompt(),
             style=request.style,
-            ratio="1:1",  # 立绘使用1:1比例
-            resolution="1K",
-            quality="high",
-            count=1,
         )
 
         # 使用特殊的场景ID 0 表示立绘
@@ -134,56 +129,22 @@ class CharacterPortraitService:
 
         # 3. 移动图片到立绘目录并创建记录
         generated_image = gen_result.images[0]
-
-        # 创建立绘专用目录
-        safe_name = self._safe_character_name(request.character_name)
-        portrait_dir = get_portraits_root() / project_id / "portraits" / safe_name
-        portrait_dir.mkdir(parents=True, exist_ok=True)
-
-        # 生成唯一文件名
-        portrait_id = str(uuid.uuid4())
-        file_name = f"portrait_{portrait_id[:8]}_{request.style}.png"
-        new_path = portrait_dir / file_name
-
-        # 移动文件
-        old_path = Path(generated_image.file_path)
-        if old_path.exists():
-            old_path.rename(new_path)
-        else:
-            logger.warning("原始图片文件不存在: %s", old_path)
-
-        # 4. 取消同一角色的其他立绘激活状态
-        existing_portraits = await self.repo.get_by_character(project_id, request.character_name)
-        for p in existing_portraits:
-            p.is_active = False
-        await self.session.flush()
-
-        # 5. 创建立绘记录
-        # 使用正斜杠存储路径，确保URL兼容
-        relative_path = str(new_path.relative_to(get_portraits_root())).replace("\\", "/")
-        portrait = CharacterPortrait(
-            id=portrait_id,
+        portrait = await self._persist_generated_portrait(
+            user_id=user_id,
             project_id=project_id,
             character_name=request.character_name,
             character_description=request.character_description,
             style=request.style,
             prompt=prompt,
             custom_prompt=request.custom_prompt,
-            image_path=relative_path,
-            file_name=file_name,
-            file_size=generated_image.width * generated_image.height * 4 if generated_image.width else None,
-            width=generated_image.width,
-            height=generated_image.height,
-            model_name=self.image_service.config_service and await self._get_model_name(user_id),
-            is_active=True,
+            generated_image=generated_image,
+            is_secondary=False,
+            auto_generated=False,
         )
-
-        await self.repo.add(portrait)
-        await self.session.flush()
 
         logger.info(
             "角色立绘生成成功: id=%s, character=%s, path=%s",
-            portrait_id, request.character_name, relative_path
+            portrait.id, request.character_name, portrait.image_path
         )
 
         return portrait
@@ -353,9 +314,99 @@ class CharacterPortraitService:
             "文字Logo、边框"
         )
 
+    def _build_image_request(self, prompt: str, style: str) -> ImageGenerationRequest:
+        """构建立绘图片生成请求"""
+        return ImageGenerationRequest(
+            prompt=prompt,
+            negative_prompt=self._get_portrait_negative_prompt(),
+            style=style,
+            ratio="1:1",
+            resolution="1K",
+            quality="high",
+            count=1,
+        )
+
     def _safe_character_name(self, character_name: str) -> str:
         """清理角色名用于文件路径"""
         return "".join(c if c.isalnum() or c in "-_" else "_" for c in character_name)
+
+    def _prepare_portrait_storage(
+        self,
+        project_id: str,
+        character_name: str,
+        style: str,
+    ):
+        """准备立绘文件存储信息"""
+        safe_name = self._safe_character_name(character_name)
+        portrait_dir = get_portraits_root() / project_id / "portraits" / safe_name
+        portrait_dir.mkdir(parents=True, exist_ok=True)
+
+        portrait_id = str(uuid.uuid4())
+        file_name = f"portrait_{portrait_id[:8]}_{style}.png"
+        new_path = portrait_dir / file_name
+        return portrait_id, file_name, new_path
+
+    def _move_generated_image(self, generated_image, new_path: Path):
+        """移动生成图片到目标路径"""
+        old_path = Path(generated_image.file_path)
+        if old_path.exists():
+            old_path.rename(new_path)
+        else:
+            logger.warning("原始图片文件不存在: %s", old_path)
+
+    async def _deactivate_character_portraits(self, project_id: str, character_name: str):
+        """取消同一角色的其他立绘激活状态"""
+        existing_portraits = await self.repo.get_by_character(project_id, character_name)
+        for portrait in existing_portraits:
+            portrait.is_active = False
+        await self.session.flush()
+
+    async def _persist_generated_portrait(
+        self,
+        *,
+        user_id: int,
+        project_id: str,
+        character_name: str,
+        character_description: Optional[str],
+        style: str,
+        prompt: str,
+        custom_prompt: Optional[str],
+        generated_image,
+        is_secondary: bool,
+        auto_generated: bool,
+    ) -> CharacterPortrait:
+        """保存生成的立绘记录并返回对象"""
+        portrait_id, file_name, new_path = self._prepare_portrait_storage(
+            project_id,
+            character_name,
+            style,
+        )
+        self._move_generated_image(generated_image, new_path)
+        await self._deactivate_character_portraits(project_id, character_name)
+
+        relative_path = str(new_path.relative_to(get_portraits_root())).replace("\\", "/")
+        portrait = CharacterPortrait(
+            id=portrait_id,
+            project_id=project_id,
+            character_name=character_name,
+            character_description=character_description,
+            style=style,
+            prompt=prompt,
+            custom_prompt=custom_prompt,
+            image_path=relative_path,
+            file_name=file_name,
+            file_size=generated_image.width * generated_image.height * 4 if generated_image.width else None,
+            width=generated_image.width,
+            height=generated_image.height,
+            model_name=self.image_service.config_service and await self._get_model_name(user_id),
+            is_active=True,
+            is_secondary=is_secondary,
+            auto_generated=auto_generated,
+        )
+
+        await self.repo.add(portrait)
+        await self.session.flush()
+        return portrait
 
     async def _get_model_name(self, user_id: int) -> Optional[str]:
         """获取当前激活的模型名称"""
@@ -501,14 +552,9 @@ class CharacterPortraitService:
         )
 
         # 2. 调用图片生成服务
-        image_request = ImageGenerationRequest(
+        image_request = self._build_image_request(
             prompt=prompt,
-            negative_prompt=self._get_portrait_negative_prompt(),
             style=style,
-            ratio="1:1",
-            resolution="1K",
-            quality="high",
-            count=1,
         )
 
         gen_result = await self.image_service.generate_image(
@@ -527,54 +573,22 @@ class CharacterPortraitService:
 
         # 3. 移动图片到立绘目录并创建记录
         generated_image = gen_result.images[0]
-
-        safe_name = self._safe_character_name(character_name)
-        portrait_dir = get_portraits_root() / project_id / "portraits" / safe_name
-        portrait_dir.mkdir(parents=True, exist_ok=True)
-
-        portrait_id = str(uuid.uuid4())
-        file_name = f"portrait_{portrait_id[:8]}_{style}.png"
-        new_path = portrait_dir / file_name
-
-        old_path = Path(generated_image.file_path)
-        if old_path.exists():
-            old_path.rename(new_path)
-        else:
-            logger.warning("原始图片文件不存在: %s", old_path)
-
-        # 4. 取消同一角色的其他立绘激活状态
-        existing_portraits = await self.repo.get_by_character(project_id, character_name)
-        for p in existing_portraits:
-            p.is_active = False
-        await self.session.flush()
-
-        # 5. 创建立绘记录（标记为次要角色和自动生成）
-        relative_path = str(new_path.relative_to(get_portraits_root())).replace("\\", "/")
-        portrait = CharacterPortrait(
-            id=portrait_id,
+        portrait = await self._persist_generated_portrait(
+            user_id=user_id,
             project_id=project_id,
             character_name=character_name,
             character_description=character_description,
             style=style,
             prompt=prompt,
             custom_prompt=None,
-            image_path=relative_path,
-            file_name=file_name,
-            file_size=generated_image.width * generated_image.height * 4 if generated_image.width else None,
-            width=generated_image.width,
-            height=generated_image.height,
-            model_name=self.image_service.config_service and await self._get_model_name(user_id),
-            is_active=True,
-            is_secondary=True,  # 标记为次要角色
-            auto_generated=True,  # 标记为自动生成
+            generated_image=generated_image,
+            is_secondary=True,
+            auto_generated=True,
         )
-
-        await self.repo.add(portrait)
-        await self.session.flush()
 
         logger.info(
             "次要角色立绘生成成功: id=%s, character=%s, path=%s",
-            portrait_id, character_name, relative_path
+            portrait.id, character_name, portrait.image_path
         )
 
         return portrait

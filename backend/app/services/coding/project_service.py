@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.state_machine import ProjectStatus, ProjectStateMachine
+from ...core.state_machine import ProjectStatus
 from ...exceptions import ResourceNotFoundError, PermissionDeniedError
 from ...models.coding import CodingProject, CodingBlueprint
 from ...repositories.coding_repository import (
@@ -27,11 +27,12 @@ from ...schemas.coding import (
     CodingProjectResponse,
     CodingProjectSummary,
 )
+from ..project_service_base import ProjectServiceBase
 
 logger = logging.getLogger(__name__)
 
 
-class CodingProjectService:
+class CodingProjectService(ProjectServiceBase):
     """
     Coding项目服务
 
@@ -55,42 +56,18 @@ class CodingProjectService:
         self.blueprint_repo = CodingBlueprintRepository(session)
         self.system_repo = CodingSystemRepository(session)
         self.module_repo = CodingModuleRepository(session)
+        self.repo = self.project_repo
+        super().__init__(
+            session,
+            self.repo,
+            resource_name="Coding项目",
+            log_label="Coding项目",
+            use_relations=True,
+        )
 
     # ------------------------------------------------------------------
     # 状态机管理
     # ------------------------------------------------------------------
-
-    async def transition_project_status(
-        self,
-        project: CodingProject,
-        new_status: str,
-        force: bool = False
-    ) -> None:
-        """
-        安全地转换项目状态
-
-        Args:
-            project: 项目实例
-            new_status: 目标状态
-            force: 是否强制转换（跳过验证）
-        """
-        logger.info(
-            "Coding项目状态转换: project_id=%s %s -> %s%s",
-            project.id,
-            project.status,
-            new_status,
-            " (force=True)" if force else ""
-        )
-
-        state_machine = ProjectStateMachine(project.status)
-        project.status = state_machine.transition_to(new_status, force=force)
-        await self.session.commit()
-
-        logger.info(
-            "Coding项目状态转换成功: project_id=%s 新状态=%s",
-            project.id,
-            project.status
-        )
 
     # ------------------------------------------------------------------
     # 项目CRUD
@@ -185,15 +162,6 @@ class CodingProjectService:
     # 权限验证
     # ------------------------------------------------------------------
 
-    async def ensure_project_owner(self, project_id: str, user_id: int) -> CodingProject:
-        """确保项目归属于指定用户（带关系加载）"""
-        project = await self.project_repo.get_with_relations(project_id)
-        if not project:
-            raise ResourceNotFoundError("Coding项目", project_id)
-        if project.user_id != user_id:
-            raise PermissionDeniedError("无权访问该项目")
-        return project
-
     async def ensure_blueprint_ready(
         self,
         project_id: str,
@@ -202,12 +170,7 @@ class CodingProjectService:
         """确保项目蓝图已就绪"""
         from ...exceptions import BlueprintNotReadyError
 
-        project = await self.project_repo.get_with_relations(project_id)
-        if not project:
-            raise ResourceNotFoundError("Coding项目", project_id)
-        if project.user_id != user_id:
-            raise PermissionDeniedError("无权访问该项目")
-
+        project = await self.ensure_project_owner(project_id, user_id)
         project_schema = await CodingSerializer.serialize_project(project)
 
         if not project_schema.blueprint:
@@ -265,17 +228,15 @@ class CodingProjectService:
         Returns:
             (项目摘要列表, 总数)
         """
-        projects = await self.project_repo.get_by_user_with_relations(user_id)
-
-        # 计算分页
-        total = len(projects)
-        start = (page - 1) * page_size
-        end = start + page_size
-        paged_projects = projects[start:end]
+        projects, total = await self.project_repo.get_by_user_with_relations(
+            user_id,
+            page=page,
+            page_size=page_size,
+        )
 
         summaries = [
             CodingSerializer.serialize_project_summary(project)
-            for project in paged_projects
+            for project in projects
         ]
 
         return summaries, total

@@ -168,6 +168,26 @@ class ChapterCache:
                 if keys_to_remove:
                     logger.debug(f"项目缓存失效: {project_id}, 共{len(keys_to_remove)}章")
 
+    def invalidate_and_refresh(
+        self,
+        project_id: str,
+        chapter_number: Optional[int] = None,
+        refresh_callback: Optional[Callable[[], None]] = None,
+    ):
+        """失效缓存并触发刷新回调
+
+        Args:
+            project_id: 项目ID
+            chapter_number: 章节号，为None时失效该项目所有章节
+            refresh_callback: 可选刷新回调
+        """
+        self.invalidate(project_id, chapter_number)
+        if refresh_callback:
+            try:
+                refresh_callback()
+            except Exception as exc:
+                logger.warning("章节刷新回调执行失败: %s", exc)
+
     def invalidate_all(self):
         """清空所有缓存"""
         with self._lock:

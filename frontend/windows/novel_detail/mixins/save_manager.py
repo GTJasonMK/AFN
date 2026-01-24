@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QFileDialog
 
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
 
@@ -17,6 +17,39 @@ if TYPE_CHECKING:
     from ..main import NovelDetail
 
 logger = logging.getLogger(__name__)
+
+def select_save_file(parent, title: str, default_name: str, file_filter: str) -> str:
+    """选择保存路径"""
+    file_path, _ = QFileDialog.getSaveFileName(
+        parent,
+        title,
+        default_name,
+        file_filter
+    )
+    return file_path
+
+
+def select_open_file(parent, title: str, file_filter: str) -> str:
+    """选择打开文件路径"""
+    file_path, _ = QFileDialog.getOpenFileName(
+        parent,
+        title,
+        "",
+        file_filter
+    )
+    return file_path
+
+
+def read_text_file(file_path: str, encoding: str = "utf-8") -> str:
+    """读取文本文件内容"""
+    with open(file_path, "r", encoding=encoding) as file_handle:
+        return file_handle.read()
+
+
+def write_text_file(file_path: str, content: str, encoding: str = "utf-8"):
+    """写入文本文件内容"""
+    with open(file_path, "w", encoding=encoding) as file_handle:
+        file_handle.write(content)
 
 
 class SaveManagerMixin:
@@ -48,27 +81,7 @@ class SaveManagerMixin:
 
     def _doSaveAll(self: "NovelDetail", dirty_data):
         """执行批量保存（异步）"""
-        from components.dialogs import LoadingDialog
-
-        # 创建加载对话框
-        loading_dialog = LoadingDialog(
-            parent=self,
-            title="请稍候",
-            message="正在保存修改...",
-            cancelable=False
-        )
-        loading_dialog.show()
-
-        # 创建异步worker
-        worker = AsyncAPIWorker(
-            self.api_client.batch_update_blueprint,
-            self.project_id,
-            dirty_data.get("blueprint_updates"),
-            dirty_data.get("chapter_outline_updates")
-        )
-
         def on_success(result):
-            loading_dialog.close()
             # 重置脏数据追踪器
             self.dirty_tracker.reset()
             # 更新保存按钮状态
@@ -77,19 +90,21 @@ class SaveManagerMixin:
             self.project_data = result
             # 刷新当前section
             self._refreshCurrentSection()
-            MessageService.show_success(self, "保存成功")
+            MessageService.show_operation_success(self, "保存修改")
 
         def on_error(error_msg):
-            loading_dialog.close()
             MessageService.show_api_error(self, error_msg, "保存修改")
 
-        worker.success.connect(on_success)
-        worker.error.connect(on_error)
-
-        if not hasattr(self, '_workers'):
-            self._workers = []
-        self._workers.append(worker)
-        worker.start()
+        self._run_with_loading(
+            "正在保存修改...",
+            self.api_client.batch_update_blueprint,
+            self.project_id,
+            dirty_data.get("blueprint_updates"),
+            dirty_data.get("chapter_outline_updates"),
+            task_name='save_all',
+            on_success=on_success,
+            on_error=on_error,
+        )
 
     def _checkUnsavedChanges(self: "NovelDetail") -> bool:
         """检查未保存的修改，返回是否可以继续
@@ -240,26 +255,67 @@ class SaveManagerMixin:
         """导出小说"""
         @handle_errors("导出小说")
         def _export():
-            response = self.api_client.export_novel(self.project_id, format_type)
-
             file_filter = "文本文件 (*.txt)" if format_type == 'txt' else "Markdown文件 (*.md)"
             default_name = f"{self.project_data.get('title', '小说')}.{format_type if format_type == 'md' else 'txt'}"
 
-            file_path, _ = QFileDialog.getSaveFileName(
-                self,
-                "保存导出文件",
-                default_name,
-                file_filter
-            )
+            file_path = select_save_file(self, "保存导出文件", default_name, file_filter)
 
-            if file_path:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(response)
+            if not file_path:
+                return
+
+            def on_success(response):
+                write_text_file(file_path, response)
                 MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
 
+            def on_error(error_msg):
+                MessageService.show_api_error(self, error_msg, "导出")
+
+            self._run_with_loading(
+                "正在导出...",
+                self.api_client.export_novel,
+                self.project_id,
+                format_type,
+                task_name='export_novel',
+                on_success=on_success,
+                on_error=on_error,
+            )
+
         _export()
+
+    def _run_with_loading(
+        self: "NovelDetail",
+        loading_text: str,
+        func,
+        *args,
+        task_name: str,
+        on_success,
+        on_error,
+    ):
+        """统一异步执行入口，复用 LoadingOverlay"""
+        self.show_loading(loading_text)
+
+        def _on_success(result):
+            self.hide_loading()
+            on_success(result)
+
+        def _on_error(error_msg):
+            self.hide_loading()
+            on_error(error_msg)
+
+        run_async_action(
+            self.worker_manager,
+            func,
+            *args,
+            task_name=task_name,
+            on_success=_on_success,
+            on_error=_on_error,
+        )
 
 
 __all__ = [
     "SaveManagerMixin",
+    "select_save_file",
+    "select_open_file",
+    "read_text_file",
+    "write_text_file",
 ]

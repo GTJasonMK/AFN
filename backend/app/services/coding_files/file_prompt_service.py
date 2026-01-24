@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Callable, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,8 +28,120 @@ from ...schemas.coding_files import (
 )
 from ...services.coding import CodingProjectService
 from ...services.coding_rag.data_types import CodingDataType
+from ...utils.prompt_helpers import (
+    build_prompt_block,
+    build_prompt_section,
+    format_prompt_json,
+    join_prompt_lines,
+)
+from ...utils.rag_helpers import build_query_text, get_query_embedding
+from ..evaluation_workflow_base import EvaluationPromptContext, EvaluationWorkflowBase
 
 logger = logging.getLogger(__name__)
+
+
+class FileReviewWorkflow(EvaluationWorkflowBase):
+    """文件审查Prompt生成工作流"""
+
+    def __init__(
+        self,
+        service: "FilePromptService",
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        *,
+        commit: bool,
+        progress_messages: Optional[Dict[str, str]] = None,
+    ):
+        self._service = service
+        self._project = project
+        self._file = file
+        self._writing_notes = writing_notes
+        self._llm_service = llm_service
+        self._prompt_service = prompt_service
+        self._vector_store = vector_store
+        self._user_id = user_id
+        self._commit = commit
+        self._progress_messages = progress_messages or {}
+
+    async def _prepare_context(self) -> EvaluationPromptContext:
+        rag_context, system_prompt, user_prompt = await self._service._prepare_prompt_inputs(
+            project=self._project,
+            file=self._file,
+            writing_notes=self._writing_notes,
+            llm_service=self._llm_service,
+            prompt_service=self._prompt_service,
+            vector_store=self._vector_store,
+            user_id=self._user_id,
+            build_system_prompt=self._service._build_review_system_prompt,
+            build_user_prompt=self._service._build_review_user_prompt,
+        )
+
+        return EvaluationPromptContext(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            rag_context=rag_context,
+        )
+
+    async def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        from ...core.config import settings
+
+        return await self._service._call_llm_content(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            llm_service=self._llm_service,
+            user_id=self._user_id,
+            max_tokens=settings.llm_max_tokens_coding_prompt,
+        )
+
+    async def _iter_llm_tokens(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> AsyncGenerator[str, None]:
+        from ...core.config import settings
+
+        async for token in self._service._iter_llm_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            llm_service=self._llm_service,
+            user_id=self._user_id,
+            max_tokens=settings.llm_max_tokens_coding_prompt,
+        ):
+            yield token
+
+    async def _save_result(self, result: str) -> None:
+        await self._service._finalize_prompt_result(
+            file=self._file,
+            content=result,
+            is_review=True,
+            commit=self._commit,
+        )
+
+    async def _ingest_result(self, result: str) -> None:
+        await self._service._ingest_review_prompt(
+            file=self._file,
+            content=result,
+            vector_store=self._vector_store,
+            llm_service=self._llm_service,
+            user_id=self._user_id,
+        )
+
+    def _get_progress_messages(self) -> Dict[str, str]:
+        return self._progress_messages
+
+    async def _build_complete_payload(self, result: str) -> Dict[str, Any]:
+        return {
+            "file_id": self._file.id,
+            "content": result,
+        }
+
+    def _should_emit_indexing(self) -> bool:
+        return bool(self._vector_store)
 
 
 class FilePromptService:
@@ -161,6 +273,260 @@ class FilePromptService:
     # Prompt生成
     # ------------------------------------------------------------------
 
+    async def _prepare_prompt_inputs(
+        self,
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        build_system_prompt: Callable[[Any], Any],
+        build_user_prompt: Callable[..., Any],
+    ) -> Tuple[Dict[str, Any], str, str]:
+        """准备RAG上下文与提示词"""
+        rag_context = await self._retrieve_rag_context(
+            project_id=project.id,
+            file=file,
+            vector_store=vector_store,
+            llm_service=llm_service,
+            user_id=user_id,
+        )
+
+        system_prompt = await build_system_prompt(prompt_service)
+        user_prompt = await build_user_prompt(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            rag_context=rag_context,
+        )
+
+        return rag_context, system_prompt, user_prompt
+
+    async def _run_llm_prompt(
+        self,
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        build_system_prompt: Callable[[Any], Any],
+        build_user_prompt: Callable[..., Any],
+    ) -> str:
+        """执行非流式Prompt生成并返回内容"""
+        _, system_prompt, user_prompt = await self._prepare_prompt_inputs(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            llm_service=llm_service,
+            prompt_service=prompt_service,
+            vector_store=vector_store,
+            user_id=user_id,
+            build_system_prompt=build_system_prompt,
+            build_user_prompt=build_user_prompt,
+        )
+
+        from ...core.config import settings
+        return await self._call_llm_content(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            llm_service=llm_service,
+            user_id=user_id,
+            max_tokens=settings.llm_max_tokens_coding_prompt,
+        )
+
+    async def _call_llm_content(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        llm_service: Any,
+        user_id: int,
+        max_tokens: int,
+    ) -> str:
+        """执行LLM调用并提取内容"""
+        response = await llm_service.get_llm_response(
+            system_prompt=system_prompt,
+            conversation_history=[{"role": "user", "content": user_prompt}],
+            user_id=user_id,
+            max_tokens=max_tokens,
+            response_format=None,
+        )
+
+        from ...utils.json_utils import extract_llm_content
+        content, _ = extract_llm_content(response)
+        return content
+
+    async def _generate_prompt_non_stream(
+        self,
+        *,
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        build_system_prompt: Callable[[Any], Any],
+        build_user_prompt: Callable[..., Any],
+        ingest_func: Callable[..., Any],
+        is_review: bool,
+        commit: bool,
+    ) -> Tuple[str, Optional[CodingFileVersion]]:
+        """执行非流式Prompt生成并保存结果"""
+        content = await self._run_llm_prompt(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            llm_service=llm_service,
+            prompt_service=prompt_service,
+            vector_store=vector_store,
+            user_id=user_id,
+            build_system_prompt=build_system_prompt,
+            build_user_prompt=build_user_prompt,
+        )
+
+        version = await self._finalize_prompt_result(
+            file=file,
+            content=content,
+            is_review=is_review,
+            commit=commit,
+        )
+
+        await ingest_func(
+            file=file,
+            content=content,
+            vector_store=vector_store,
+            llm_service=llm_service,
+            user_id=user_id,
+        )
+
+        return content, version
+
+    async def _stream_prompt_generation(
+        self,
+        *,
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        build_system_prompt: Callable[[Any], Any],
+        build_user_prompt: Callable[..., Any],
+        ingest_func: Callable[..., Any],
+        is_review: bool,
+        progress_messages: Dict[str, str],
+        complete_builder: Callable[[CodingSourceFile, Optional[CodingFileVersion], str], Dict[str, Any]],
+        include_version_count: bool = False,
+    ) -> AsyncGenerator[Dict, None]:
+        """流式生成Prompt并输出事件"""
+        yield {"event": "progress", "data": {"stage": "preparing", "message": progress_messages["preparing"]}}
+
+        rag_context, system_prompt, user_prompt = await self._prepare_prompt_inputs(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            llm_service=llm_service,
+            prompt_service=prompt_service,
+            vector_store=vector_store,
+            user_id=user_id,
+            build_system_prompt=build_system_prompt,
+            build_user_prompt=build_user_prompt,
+        )
+
+        if rag_context:
+            yield {"event": "progress", "data": {"stage": "rag", "message": progress_messages["rag"]}}
+
+        yield {"event": "progress", "data": {"stage": "generating", "message": progress_messages["generating"]}}
+
+        from ...core.config import settings
+        full_content = ""
+        async for token in self._iter_llm_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            llm_service=llm_service,
+            user_id=user_id,
+            max_tokens=settings.llm_max_tokens_coding_prompt,
+        ):
+            full_content += token
+            yield {"event": "token", "data": {"token": token}}
+
+        yield {"event": "progress", "data": {"stage": "saving", "message": progress_messages["saving"]}}
+
+        version = await self._finalize_prompt_result(
+            file=file,
+            content=full_content,
+            is_review=is_review,
+            commit=True,
+        )
+
+        if vector_store:
+            yield {"event": "progress", "data": {"stage": "indexing", "message": progress_messages["indexing"]}}
+            await ingest_func(
+                file=file,
+                content=full_content,
+                vector_store=vector_store,
+                llm_service=llm_service,
+                user_id=user_id,
+            )
+
+        complete_payload = complete_builder(file, version, full_content)
+        if include_version_count:
+            complete_payload["version_count"] = await self.version_repo.count_by_file(file.id)
+        yield {"event": "complete", "data": complete_payload}
+
+    async def _iter_llm_tokens(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        llm_service: Any,
+        user_id: int,
+        max_tokens: int,
+    ) -> AsyncGenerator[str, None]:
+        """流式迭代LLM生成的token片段"""
+        conversation_history = [{"role": "user", "content": user_prompt}]
+        async for chunk in llm_service.stream_llm_response(
+            system_prompt=system_prompt,
+            conversation_history=conversation_history,
+            user_id=user_id,
+            response_format=None,
+            max_tokens=max_tokens,
+        ):
+            content = chunk.get("content", "")
+            if content:
+                yield content
+
+    async def _finalize_prompt_result(
+        self,
+        file: CodingSourceFile,
+        content: str,
+        *,
+        is_review: bool,
+        commit: bool,
+    ) -> Optional[CodingFileVersion]:
+        """保存生成结果并处理事务提交"""
+        if is_review:
+            file.review_prompt = content
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
+            return None
+
+        version = await self._save_version(file, content)
+        file.status = "generated"
+        file.selected_version_id = version.id
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return version
+
     async def generate_prompt(
         self,
         project_id: str,
@@ -200,53 +566,19 @@ class FilePromptService:
         await self.session.flush()
 
         try:
-            # RAG检索上下文
-            rag_context = await self._retrieve_rag_context(
-                project_id=project_id,
-                file=file,
-                vector_store=vector_store,
-                llm_service=llm_service,
-                user_id=user_id,
-            )
-
-            # 构建提示词
-            system_prompt = await self._build_system_prompt(prompt_service)
-            user_prompt = await self._build_user_prompt(
+            _, version = await self._generate_prompt_non_stream(
                 project=project,
                 file=file,
                 writing_notes=writing_notes,
-                rag_context=rag_context,
-            )
-
-            # 调用LLM
-            from ...core.config import settings
-            response = await llm_service.get_llm_response(
-                system_prompt=system_prompt,
-                conversation_history=[{"role": "user", "content": user_prompt}],
-                user_id=user_id,
-                max_tokens=settings.llm_max_tokens_coding_prompt,
-                response_format=None,
-            )
-
-            # 提取内容
-            from ...utils.json_utils import extract_llm_content
-            content, _ = extract_llm_content(response)
-
-            # 保存版本
-            version = await self._save_version(file, content)
-
-            # 更新状态
-            file.status = "generated"
-            file.selected_version_id = version.id
-            await self.session.flush()
-
-            # 自动入库到向量库
-            await self._ingest_file_prompt(
-                file=file,
-                content=content,
-                vector_store=vector_store,
                 llm_service=llm_service,
+                prompt_service=prompt_service,
+                vector_store=vector_store,
                 user_id=user_id,
+                build_system_prompt=self._build_system_prompt,
+                build_user_prompt=self._build_user_prompt,
+                ingest_func=self._ingest_file_prompt,
+                is_review=False,
+                commit=False,
             )
 
             return version
@@ -291,78 +623,33 @@ class FilePromptService:
         await self.session.flush()
 
         try:
-            yield {"event": "progress", "data": {"stage": "preparing", "message": "准备提示词..."}}
-
-            # RAG检索上下文
-            rag_context = await self._retrieve_rag_context(
-                project_id=project_id,
-                file=file,
-                vector_store=vector_store,
-                llm_service=llm_service,
-                user_id=user_id,
-            )
-
-            if rag_context:
-                yield {"event": "progress", "data": {"stage": "rag", "message": "已检索相关上下文..."}}
-
-            # 构建提示词
-            system_prompt = await self._build_system_prompt(prompt_service)
-            user_prompt = await self._build_user_prompt(
+            async for event in self._stream_prompt_generation(
                 project=project,
                 file=file,
                 writing_notes=writing_notes,
-                rag_context=rag_context,
-            )
-
-            yield {"event": "progress", "data": {"stage": "generating", "message": "正在生成..."}}
-
-            # 流式生成
-            from ...core.config import settings
-            full_content = ""
-            conversation_history = [{"role": "user", "content": user_prompt}]
-
-            async for chunk in llm_service.stream_llm_response(
-                system_prompt=system_prompt,
-                conversation_history=conversation_history,
+                llm_service=llm_service,
+                prompt_service=prompt_service,
+                vector_store=vector_store,
                 user_id=user_id,
-                response_format=None,
-                max_tokens=settings.llm_max_tokens_coding_prompt,
+                build_system_prompt=self._build_system_prompt,
+                build_user_prompt=self._build_user_prompt,
+                ingest_func=self._ingest_file_prompt,
+                is_review=False,
+                progress_messages={
+                    "preparing": "准备提示词...",
+                    "rag": "已检索相关上下文...",
+                    "generating": "正在生成...",
+                    "saving": "保存结果...",
+                    "indexing": "更新索引...",
+                },
+                complete_builder=lambda f, v, content: {
+                    "file_id": f.id,
+                    "version_id": v.id if v else None,
+                    "content": content,
+                },
+                include_version_count=True,
             ):
-                content = chunk.get("content", "")
-                if content:
-                    full_content += content
-                    yield {"event": "token", "data": {"token": content}}
-
-            yield {"event": "progress", "data": {"stage": "saving", "message": "保存结果..."}}
-
-            # 保存版本
-            version = await self._save_version(file, full_content)
-
-            # 更新状态
-            file.status = "generated"
-            file.selected_version_id = version.id
-            await self.session.commit()
-
-            # 自动入库到向量库
-            if vector_store:
-                yield {"event": "progress", "data": {"stage": "indexing", "message": "更新索引..."}}
-                await self._ingest_file_prompt(
-                    file=file,
-                    content=full_content,
-                    vector_store=vector_store,
-                    llm_service=llm_service,
-                    user_id=user_id,
-                )
-
-            yield {
-                "event": "complete",
-                "data": {
-                    "file_id": file.id,
-                    "version_id": version.id,
-                    "content": full_content,
-                    "version_count": await self.version_repo.count_by_file(file.id),
-                }
-            }
+                yield event
 
         except Exception as e:
             file.status = "failed"
@@ -427,50 +714,18 @@ class FilePromptService:
             raise InvalidParameterError("LLM服务不可用", parameter="llm_service")
 
         try:
-            # RAG检索上下文
-            rag_context = await self._retrieve_rag_context(
-                project_id=project_id,
-                file=file,
-                vector_store=vector_store,
-                llm_service=llm_service,
-                user_id=user_id,
-            )
-
-            # 构建提示词
-            system_prompt = await self._build_review_system_prompt(prompt_service)
-            user_prompt = await self._build_review_user_prompt(
+            workflow = FileReviewWorkflow(
+                service=self,
                 project=project,
                 file=file,
                 writing_notes=writing_notes,
-                rag_context=rag_context,
-            )
-
-            # 调用LLM
-            from ...core.config import settings
-            response = await llm_service.get_llm_response(
-                system_prompt=system_prompt,
-                conversation_history=[{"role": "user", "content": user_prompt}],
-                user_id=user_id,
-                max_tokens=settings.llm_max_tokens_coding_prompt,
-                response_format=None,
-            )
-
-            # 提取内容
-            from ...utils.json_utils import extract_llm_content
-            content, _ = extract_llm_content(response)
-
-            # 保存到文件的review_prompt字段
-            file.review_prompt = content
-            await self.session.flush()
-
-            # 自动入库到向量库
-            await self._ingest_review_prompt(
-                file=file,
-                content=content,
-                vector_store=vector_store,
                 llm_service=llm_service,
+                prompt_service=prompt_service,
+                vector_store=vector_store,
                 user_id=user_id,
+                commit=False,
             )
+            content = await workflow.run()
 
             return content
 
@@ -506,72 +761,26 @@ class FilePromptService:
             return
 
         try:
-            yield {"event": "progress", "data": {"stage": "preparing", "message": "准备提示词..."}}
-
-            # RAG检索上下文
-            rag_context = await self._retrieve_rag_context(
-                project_id=project_id,
-                file=file,
-                vector_store=vector_store,
-                llm_service=llm_service,
-                user_id=user_id,
-            )
-
-            if rag_context:
-                yield {"event": "progress", "data": {"stage": "rag", "message": "已检索相关上下文..."}}
-
-            # 构建提示词
-            system_prompt = await self._build_review_system_prompt(prompt_service)
-            user_prompt = await self._build_review_user_prompt(
+            workflow = FileReviewWorkflow(
+                service=self,
                 project=project,
                 file=file,
                 writing_notes=writing_notes,
-                rag_context=rag_context,
-            )
-
-            yield {"event": "progress", "data": {"stage": "generating", "message": "正在生成审查Prompt..."}}
-
-            # 流式生成
-            from ...core.config import settings
-            full_content = ""
-            conversation_history = [{"role": "user", "content": user_prompt}]
-
-            async for chunk in llm_service.stream_llm_response(
-                system_prompt=system_prompt,
-                conversation_history=conversation_history,
+                llm_service=llm_service,
+                prompt_service=prompt_service,
+                vector_store=vector_store,
                 user_id=user_id,
-                response_format=None,
-                max_tokens=settings.llm_max_tokens_coding_prompt,
-            ):
-                content = chunk.get("content", "")
-                if content:
-                    full_content += content
-                    yield {"event": "token", "data": {"token": content}}
-
-            yield {"event": "progress", "data": {"stage": "saving", "message": "保存结果..."}}
-
-            # 保存到文件的review_prompt字段
-            file.review_prompt = full_content
-            await self.session.commit()
-
-            # 自动入库到向量库
-            if vector_store:
-                yield {"event": "progress", "data": {"stage": "indexing", "message": "更新索引..."}}
-                await self._ingest_review_prompt(
-                    file=file,
-                    content=full_content,
-                    vector_store=vector_store,
-                    llm_service=llm_service,
-                    user_id=user_id,
-                )
-
-            yield {
-                "event": "complete",
-                "data": {
-                    "file_id": file.id,
-                    "content": full_content,
-                }
-            }
+                commit=True,
+                progress_messages={
+                    "preparing": "准备提示词...",
+                    "rag": "已检索相关上下文...",
+                    "generating": "正在生成审查Prompt...",
+                    "saving": "保存结果...",
+                    "indexing": "更新索引...",
+                },
+            )
+            async for event in workflow.run_stream():
+                yield event
 
         except Exception as e:
             logger.exception("文件审查Prompt生成失败: %s", str(e))
@@ -675,27 +884,21 @@ class FilePromptService:
 
 直接输出Markdown格式，不要任何前缀说明。"""
 
-    async def _build_review_user_prompt(
+    async def _build_prompt_input_data(
         self,
         project,
         file: CodingSourceFile,
-        writing_notes: Optional[str] = None,
-        rag_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """构建审查Prompt的用户提示词"""
-        import json
+        writing_notes: Optional[str],
+        include_module: bool,
+        include_tech_constraints: bool,
+    ) -> Dict[str, Any]:
+        """构建用户提示词输入数据"""
         from ...serializers.coding_serializer import CodingSerializer
 
         # 获取蓝图信息
         blueprint_schema = CodingSerializer.build_blueprint_schema(project)
         blueprint = blueprint_schema.model_dump() if blueprint_schema else {}
 
-        # 获取文件的实现Prompt（如果有）
-        implementation_prompt = None
-        if file.selected_version_id and file.selected_version:
-            implementation_prompt = file.selected_version.content
-
-        # 构建输入数据
         input_data = {
             "project": {
                 "name": blueprint.get("title", ""),
@@ -711,40 +914,126 @@ class FilePromptService:
             },
         }
 
+        if include_tech_constraints:
+            tech_stack = blueprint.get("tech_stack", {})
+            input_data["tech_stack"] = {
+                "constraints": tech_stack.get("core_constraints", "")[:500] if isinstance(tech_stack, dict) else "",
+            }
+
+        if include_module:
+            module = None
+            if file.module_number:
+                module = await self.module_repo.get_by_project_and_number(
+                    file.project_id,
+                    file.module_number
+                )
+            input_data["module"] = {
+                "name": module.name if module else "",
+                "type": module.module_type if module else "",
+                "description": (module.description or "")[:300] if module else "",
+            }
+
         if writing_notes:
             input_data["extra_requirements"] = writing_notes[:500]
 
+        return input_data
+
+    def _build_rag_section(
+        self,
+        rag_context: Optional[Dict[str, Any]],
+        title: str,
+        include_architecture: bool,
+        include_modules: bool,
+        include_related_files: bool,
+    ) -> str:
+        """构建RAG上下文片段"""
+        if not rag_context:
+            return ""
+
+        rag_parts = []
+
+        if include_architecture and rag_context.get("architecture"):
+            arch_content = join_prompt_lines([
+                item["content"] for item in rag_context["architecture"]
+            ])
+            if arch_content:
+                rag_parts.append(build_prompt_section("架构设计参考", arch_content, level=3))
+
+        if rag_context.get("tech_stack"):
+            tech_content = join_prompt_lines([
+                item["content"] for item in rag_context["tech_stack"]
+            ])
+            if tech_content:
+                rag_parts.append(build_prompt_section("技术栈参考", tech_content, level=3))
+
+        if include_modules and rag_context.get("modules"):
+            mod_content = join_prompt_lines([
+                item["content"] for item in rag_context["modules"]
+            ])
+            if mod_content:
+                rag_parts.append(build_prompt_section("相关模块", mod_content, level=3))
+
+        if rag_context.get("features"):
+            feat_content = join_prompt_lines([
+                item["content"] for item in rag_context["features"]
+            ])
+            if feat_content:
+                rag_parts.append(build_prompt_section("相关功能", feat_content, level=3))
+
+        if include_related_files and rag_context.get("related_files"):
+            file_parts = []
+            for item in rag_context["related_files"][:2]:
+                file_path = item.get("file_path", "")
+                content = item.get("content", "")[:300]
+                if file_path and content:
+                    file_parts.append(f"**{file_path}**:\n{content}")
+            if file_parts:
+                rag_parts.append(build_prompt_section(
+                    "相关文件参考",
+                    "\n\n".join(file_parts),
+                    level=3,
+                ))
+
+        if not rag_parts:
+            return ""
+
+        return build_prompt_block(title, rag_parts)
+
+    async def _build_review_user_prompt(
+        self,
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str] = None,
+        rag_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """构建审查Prompt的用户提示词"""
+        input_data = await self._build_prompt_input_data(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            include_module=False,
+            include_tech_constraints=False,
+        )
+
         # 构建实现Prompt部分
         impl_section = ""
-        if implementation_prompt:
+        if file.selected_version_id and file.selected_version:
+            implementation_prompt = file.selected_version.content
             # 截取实现Prompt的关键部分
             impl_section = f"\n\n## 文件实现Prompt（参考）\n\n{implementation_prompt[:2000]}"
 
         # 构建RAG上下文部分
-        rag_section = ""
-        if rag_context:
-            rag_parts = []
-
-            if rag_context.get("tech_stack"):
-                tech_content = "\n".join([
-                    item["content"] for item in rag_context["tech_stack"]
-                ])
-                if tech_content:
-                    rag_parts.append(f"### 技术栈参考\n{tech_content}")
-
-            if rag_context.get("features"):
-                feat_content = "\n".join([
-                    item["content"] for item in rag_context["features"]
-                ])
-                if feat_content:
-                    rag_parts.append(f"### 相关功能\n{feat_content}")
-
-            if rag_parts:
-                rag_section = "\n\n## 项目上下文\n\n" + "\n\n".join(rag_parts)
+        rag_section = self._build_rag_section(
+            rag_context,
+            title="项目上下文",
+            include_architecture=False,
+            include_modules=False,
+            include_related_files=False,
+        )
 
         return f"""请为以下源文件生成审查与测试Prompt：
 
-{json.dumps(input_data, ensure_ascii=False, indent=2)}
+{format_prompt_json(input_data)}
 {impl_section}
 {rag_section}
 
@@ -1207,15 +1496,17 @@ class FilePromptService:
             if file.purpose:
                 query_parts.append(file.purpose)
 
-            if not query_parts:
-                query_parts.append(file.file_path or "file implementation")
-
-            query_text = " ".join(query_parts)
+            query_text = build_query_text(
+                query_parts,
+                file.file_path or "file implementation",
+            )
 
             # 获取查询embedding
-            query_embedding = await llm_service.get_embedding(
+            query_embedding = await get_query_embedding(
+                llm_service,
                 query_text,
-                user_id=user_id
+                user_id,
+                logger=logger,
             )
 
             if not query_embedding:
@@ -1357,104 +1648,26 @@ class FilePromptService:
         rag_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """构建用户提示词（支持RAG上下文）"""
-        import json
-        from ...serializers.coding_serializer import CodingSerializer
+        input_data = await self._build_prompt_input_data(
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            include_module=True,
+            include_tech_constraints=True,
+        )
+        input_data["file"]["priority"] = file.priority
 
-        # 获取蓝图信息
-        blueprint_schema = CodingSerializer.build_blueprint_schema(project)
-        blueprint = blueprint_schema.model_dump() if blueprint_schema else {}
-
-        # 获取模块信息
-        module = None
-        if file.module_number:
-            module = await self.module_repo.get_by_project_and_number(
-                file.project_id, file.module_number
-            )
-
-        # 构建输入数据
-        tech_stack = blueprint.get("tech_stack", {})
-
-        input_data = {
-            "project": {
-                "name": blueprint.get("title", ""),
-                "tech_style": blueprint.get("tech_style", ""),
-            },
-            "tech_stack": {
-                "constraints": tech_stack.get("core_constraints", "")[:500] if isinstance(tech_stack, dict) else "",
-            },
-            "file": {
-                "filename": file.filename,
-                "file_path": file.file_path,
-                "file_type": file.file_type,
-                "language": file.language or "",
-                "description": file.description or "",
-                "purpose": file.purpose or "",
-                "priority": file.priority,
-            },
-            "module": {
-                "name": module.name if module else "",
-                "type": module.module_type if module else "",
-                "description": (module.description or "")[:300] if module else "",
-            },
-        }
-
-        if writing_notes:
-            input_data["extra_requirements"] = writing_notes[:500]
-
-        # 构建RAG上下文部分
-        rag_section = ""
-        if rag_context:
-            rag_parts = []
-
-            # 架构设计上下文
-            if rag_context.get("architecture"):
-                arch_content = "\n".join([
-                    item["content"] for item in rag_context["architecture"]
-                ])
-                if arch_content:
-                    rag_parts.append(f"### 架构设计参考\n{arch_content}")
-
-            # 技术栈上下文
-            if rag_context.get("tech_stack"):
-                tech_content = "\n".join([
-                    item["content"] for item in rag_context["tech_stack"]
-                ])
-                if tech_content:
-                    rag_parts.append(f"### 技术栈参考\n{tech_content}")
-
-            # 模块信息上下文
-            if rag_context.get("modules"):
-                mod_content = "\n".join([
-                    item["content"] for item in rag_context["modules"]
-                ])
-                if mod_content:
-                    rag_parts.append(f"### 相关模块\n{mod_content}")
-
-            # 功能大纲上下文
-            if rag_context.get("features"):
-                feat_content = "\n".join([
-                    item["content"] for item in rag_context["features"]
-                ])
-                if feat_content:
-                    rag_parts.append(f"### 相关功能\n{feat_content}")
-
-            # 相关文件Prompt参考
-            if rag_context.get("related_files"):
-                file_parts = []
-                for item in rag_context["related_files"][:2]:
-                    file_path = item.get("file_path", "")
-                    content = item.get("content", "")[:300]
-                    if file_path and content:
-                        file_parts.append(f"**{file_path}**:\n{content}")
-                if file_parts:
-                    rag_parts.append(f"### 相关文件参考\n" + "\n\n".join(file_parts))
-
-            if rag_parts:
-                rag_section = "\n\n## 项目上下文（RAG检索）\n\n" + "\n\n".join(rag_parts)
+        rag_section = self._build_rag_section(
+            rag_context,
+            title="项目上下文（RAG检索）",
+            include_architecture=True,
+            include_modules=True,
+            include_related_files=True,
+        )
 
         return f"""请为以下源文件生成实现Prompt：
 
-{json.dumps(input_data, ensure_ascii=False, indent=2)}
+{format_prompt_json(input_data)}
 {rag_section}
 
 根据文件信息、关联功能和项目上下文，生成完整的实现Prompt。"""

@@ -51,10 +51,10 @@ class ThemeIOHandlerMixin:
         def on_error(error):
             MessageService.show_error(self, f"导出失败：{error}")
 
-        self._worker = AsyncWorker(do_export)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
+        worker = AsyncWorker(do_export)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        self.worker_manager.start(worker, "theme_config_export")
 
     def _import_configs(self: "ThemeSettingsWidget"):
         """导入主题配置"""
@@ -108,10 +108,10 @@ class ThemeIOHandlerMixin:
         def on_error(error):
             MessageService.show_error(self, f"导入失败：{error}")
 
-        self._worker = AsyncWorker(do_import)
-        self._worker.success.connect(on_success)
-        self._worker.error.connect(on_error)
-        self._worker.start()
+        worker = AsyncWorker(do_import)
+        worker.success.connect(on_success)
+        worker.error.connect(on_error)
+        self.worker_manager.start(worker, "theme_config_import")
 
 
 __all__ = [

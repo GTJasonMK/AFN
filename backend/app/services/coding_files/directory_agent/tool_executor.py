@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from .tools import ToolCall, ToolResult, get_tool
+from ...agent_tool_executor_base import BaseToolExecutor
 from .evaluator import PlanningEvaluator
 
 logger = logging.getLogger(__name__)
@@ -349,7 +350,7 @@ class AgentState:
         }
 
 
-class ToolExecutor:
+class ToolExecutor(BaseToolExecutor):
     """
     工具执行器
 
@@ -367,9 +368,11 @@ class ToolExecutor:
         """
         self.state = state
         self.evaluator = PlanningEvaluator(llm_caller)
+        super().__init__()
 
-        # 工具处理器映射
-        self._handlers = {
+    def _build_handlers(self) -> Dict[str, Callable]:
+        """构建工具处理器映射"""
+        return {
             # 信息获取
             "get_project_overview": self._handle_get_project_overview,
             "get_blueprint_details": self._handle_get_blueprint_details,
@@ -396,45 +399,28 @@ class ToolExecutor:
             "finish_planning": self._handle_finish_planning,
         }
 
-    async def execute(self, tool_call: ToolCall) -> ToolResult:
-        """
-        执行工具调用
+    def _get_tool_name(self, tool_call: ToolCall) -> str:
+        """获取工具名称"""
+        return tool_call.tool
 
-        Args:
-            tool_call: 工具调用信息
+    def _get_tool_params(self, tool_call: ToolCall) -> Dict[str, Any]:
+        """获取工具参数"""
+        return tool_call.parameters
 
-        Returns:
-            ToolResult: 执行结果
-        """
-        tool_name = tool_call.tool
-        handler = self._handlers.get(tool_name)
-
-        if not handler:
-            return ToolResult(
-                tool_name=tool_name,
-                success=False,
-                error=f"未知工具: {tool_name}"
-            )
-
-        try:
-            # 检查handler是否是异步方法
-            import asyncio
-            if asyncio.iscoroutinefunction(handler):
-                result = await handler(tool_call.parameters)
-            else:
-                result = handler(tool_call.parameters)
-            return ToolResult(
-                tool_name=tool_name,
-                success=True,
-                result=result
-            )
-        except Exception as e:
-            logger.error("工具执行失败: %s, 错误: %s", tool_name, e, exc_info=True)
-            return ToolResult(
-                tool_name=tool_name,
-                success=False,
-                error=str(e)
-            )
+    def _build_result(
+        self,
+        tool_name: str,
+        success: bool,
+        result: Any = None,
+        error: Optional[str] = None,
+    ) -> ToolResult:
+        """构建工具结果"""
+        return ToolResult(
+            tool_name=tool_name,
+            success=success,
+            result=result,
+            error=error,
+        )
 
     async def execute_batch(self, tool_calls: List[ToolCall]) -> List[ToolResult]:
         """

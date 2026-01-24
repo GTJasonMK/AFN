@@ -347,8 +347,11 @@ class ComfyUIProvider(BaseImageProvider):
             workflow = self._get_default_workflow()
 
         # 构建提示词
-        prompt = self.build_prompt(request, add_context=False)
-        negative_prompt = request.negative_prompt or "禁止：模糊低质量、变形扭曲"
+        prompt, negative_prompt = self._build_prompt_with_negative(
+            request,
+            add_context=False,
+            default_negative_prompt="禁止：模糊低质量、变形扭曲",
+        )
 
         # 获取参数
         seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)
@@ -495,9 +498,18 @@ class ComfyUIProvider(BaseImageProvider):
             error_msg = f"提交工作流失败: HTTP {response.status_code}"
             try:
                 error_data = response.json()
-                if "error" in error_data:
+                error_text = self._extract_error_message_from_data(
+                    error_data,
+                    "",
+                    paths=[["error"]],
+                    fallback=False,
+                )
+                if error_text:
+                    error_msg = f"ComfyUI错误: {error_text}"
+                elif "error" in error_data:
                     error_msg = f"ComfyUI错误: {error_data['error']}"
-                elif "node_errors" in error_data:
+
+                if "node_errors" in error_data:
                     # 节点错误
                     node_errors = error_data["node_errors"]
                     error_details = []
@@ -740,13 +752,8 @@ class ComfyUIProvider(BaseImageProvider):
         unique_id = uuid.uuid4().hex[:12]
         filename = f"ref_{unique_id}.png"
 
-        # 解码 Base64 数据
-        if ref_image.base64_data:
-            image_data = base64.b64decode(ref_image.base64_data)
-        else:
-            # 从文件读取
-            from pathlib import Path
-            image_data = Path(ref_image.file_path).read_bytes()
+        # 读取参考图数据（支持 base64 / 文件路径）
+        image_data = self._load_reference_image_bytes(ref_image)
 
         # 上传到 ComfyUI 的 /upload/image 端点
         files = {
@@ -756,23 +763,17 @@ class ComfyUIProvider(BaseImageProvider):
             "overwrite": "true",
         }
 
-        response = await client.post(
+        result = await self._request_json(
+            client,
+            "POST",
             f"{base_url}/upload/image",
             files=files,
             data=data,
+            error_message="上传参考图失败",
+            status_message_template="{message}: HTTP {status}",
+            error_paths=[["error"]],
+            error_fallback=False,
         )
-
-        if response.status_code != 200:
-            error_msg = f"上传参考图失败: HTTP {response.status_code}"
-            try:
-                error_data = response.json()
-                if "error" in error_data:
-                    error_msg = error_data["error"]
-            except Exception:
-                pass
-            raise Exception(error_msg)
-
-        result = response.json()
         return result.get("name", filename)
 
     def _build_img2img_workflow(
@@ -811,8 +812,11 @@ class ComfyUIProvider(BaseImageProvider):
             workflow = self._get_img2img_workflow()
 
         # 构建提示词
-        prompt = self.build_prompt(request, add_context=False)
-        negative_prompt = request.negative_prompt or "禁止：模糊低质量、变形扭曲"
+        prompt, negative_prompt = self._build_prompt_with_negative(
+            request,
+            add_context=False,
+            default_negative_prompt="禁止：模糊低质量、变形扭曲",
+        )
 
         # 获取参数
         seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)

@@ -72,6 +72,14 @@ class ChapterOutlineWorkflow:
         self.part_repo = part_repo
         self.chapter_outline_repo = chapter_outline_repo
 
+    async def _resolve_system_prompt(self) -> str:
+        """获取系统提示词（优先章节大纲提示词，回退蓝图提示词）"""
+        return await self.prompt_service.get_prompt_or_fallback_name(
+            "part_chapters",
+            "blueprint",
+            logger=logger,
+        )
+
     async def execute(
         self,
         project: NovelProject,
@@ -106,9 +114,12 @@ class ChapterOutlineWorkflow:
             project_id, part_number
         )
 
+        async def _check_cancel() -> None:
+            if cancellation_checker:
+                await cancellation_checker(part_outline)
+
         # 检查取消状态
-        if cancellation_checker:
-            await cancellation_checker(part_outline)
+        await _check_cancel()
 
         start_chapter = part_outline.start_chapter
         end_chapter = part_outline.end_chapter
@@ -120,16 +131,13 @@ class ChapterOutlineWorkflow:
         )
 
         # 使用章节大纲生成专用提示词，回退到blueprint
-        system_prompt = await self.prompt_service.get_prompt("part_chapters")
-        if not system_prompt:
-            system_prompt = await self.prompt_service.get_prompt("blueprint")
+        system_prompt = await self._resolve_system_prompt()
         all_generated_chapters: List[Dict[str, Any]] = []
         current_chapter = start_chapter
 
         while current_chapter <= end_chapter:
             # 检查取消状态
-            if cancellation_checker:
-                await cancellation_checker(part_outline)
+            await _check_cancel()
 
             batch_end = min(current_chapter + chapters_per_batch - 1, end_chapter)
             batch_count = batch_end - current_chapter + 1
@@ -170,8 +178,7 @@ class ChapterOutlineWorkflow:
             )
 
             # 检查取消状态
-            if cancellation_checker:
-                await cancellation_checker(part_outline)
+            await _check_cancel()
 
             # 解析响应
             chapters_data = self.parser.parse_chapter_outlines(response)

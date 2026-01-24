@@ -142,3 +142,49 @@ class RequestQueue:
     def max_concurrent(self) -> int:
         """获取当前最大并发数"""
         return self._max_concurrent
+
+
+class ConfigurableRequestQueue(RequestQueue):
+    """
+    可配置的请求队列单例基类
+
+    通过类属性指定队列名称与配置键，统一单例获取逻辑。
+    """
+
+    queue_name: str = ""
+    settings_key: str = ""
+    default_max_concurrent: int = 1
+    log_label: str = ""
+
+    _instance: Optional["ConfigurableRequestQueue"] = None
+
+    def __init__(self, max_concurrent: Optional[int] = None):
+        if max_concurrent is None:
+            max_concurrent = self.default_max_concurrent
+        super().__init__(name=self.queue_name, max_concurrent=max_concurrent)
+
+    @classmethod
+    def get_instance(cls) -> "ConfigurableRequestQueue":
+        """
+        获取队列单例
+
+        首次调用时会根据settings配置初始化队列。
+        """
+        if cls._instance is None:
+            # 延迟导入避免循环引用
+            from ...core.config import settings
+
+            max_concurrent = getattr(
+                settings,
+                cls.settings_key,
+                cls.default_max_concurrent
+            )
+            cls._instance = cls(max_concurrent=max_concurrent)
+            label = cls.log_label or cls.queue_name
+            logger.info("%s请求队列已创建: max_concurrent=%d", label, max_concurrent)
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """重置单例（仅用于测试）"""
+        cls._instance = None

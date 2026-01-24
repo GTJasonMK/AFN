@@ -7,7 +7,6 @@ Max Tokens配置界面 - 书籍风格
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
     QPushButton, QGroupBox, QFormLayout, QScrollArea, QFrame,
-    QFileDialog
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
@@ -15,7 +14,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
-import json
+from .config_io_helper import export_config_json, import_config_json
 
 
 class MaxTokensSettingsWidget(QWidget):
@@ -500,53 +499,36 @@ class MaxTokensSettingsWidget(QWidget):
 
     def exportConfig(self):
         """导出Max Tokens配置"""
-        file_path, _ = QFileDialog.getSaveFileName(
+        def _on_success(file_path: str, _export_data: dict):
+            MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
+
+        export_config_json(
             self,
             "导出Max Tokens配置",
             "max_tokens_config.json",
-            "JSON文件 (*.json)"
+            self.api_client.export_max_tokens_config,
+            on_success=_on_success,
+            error_title="错误",
+            error_template="导出失败：{error}",
         )
-
-        if file_path:
-            try:
-                export_data = self.api_client.export_max_tokens_config()
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(export_data, f, indent=2, ensure_ascii=False)
-                MessageService.show_operation_success(self, "导出", f"已导出到：{file_path}")
-            except Exception as e:
-                MessageService.show_error(self, f"导出失败：{str(e)}", "错误")
 
     def importConfig(self):
         """导入Max Tokens配置"""
-        file_path, _ = QFileDialog.getOpenFileName(
+        def _on_success(result: dict):
+            MessageService.show_success(self, result.get('message', '导入成功'))
+            self.loadConfig()
+
+        import_config_json(
             self,
             "导入Max Tokens配置",
-            "",
-            "JSON文件 (*.json)"
+            "max_tokens",
+            "Max Tokens配置导出文件",
+            self.api_client.import_max_tokens_config,
+            on_success=_on_success,
+            error_title="错误",
+            error_template="导入失败：{error}",
+            warning_title="格式错误",
         )
-
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    import_data = json.load(f)
-
-                # 验证数据格式
-                if not isinstance(import_data, dict):
-                    MessageService.show_warning(self, "导入文件格式不正确", "格式错误")
-                    return
-
-                if import_data.get('export_type') != 'max_tokens':
-                    MessageService.show_warning(self, "导入文件类型不正确，需要Max Tokens配置导出文件", "格式错误")
-                    return
-
-                result = self.api_client.import_max_tokens_config(import_data)
-                if result.get('success'):
-                    MessageService.show_success(self, result.get('message', '导入成功'))
-                    self.loadConfig()  # 重新加载配置到UI
-                else:
-                    MessageService.show_error(self, result.get('message', '导入失败'), "错误")
-            except Exception as e:
-                MessageService.show_error(self, f"导入失败：{str(e)}", "错误")
 
     def __del__(self):
         """析构时断开主题信号连接"""

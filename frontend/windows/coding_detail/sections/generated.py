@@ -312,9 +312,7 @@ class GeneratedSection(BaseSection):
     def _populate_items(self):
         """填充内容卡片"""
         # 清除现有卡片
-        for card in self._item_cards:
-            card.deleteLater()
-        self._item_cards.clear()
+        self._clear_cards(self._item_cards)
 
         if not self._chapters:
             empty_widget = self._create_empty_state()
@@ -408,23 +406,15 @@ class GeneratedSection(BaseSection):
 
     def _apply_header_style(self):
         """应用标题样式"""
-        self.setStyleSheet(f"""
-            QLabel#section_title {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {dp(16)}px;
-                font-weight: 600;
-            }}
-            QLabel#item_count {{
-                color: {theme_manager.TEXT_TERTIARY};
-                font-size: {dp(13)}px;
-                margin-left: {dp(8)}px;
-            }}
-            QLabel#stats_label {{
-                color: {theme_manager.PRIMARY};
-                font-size: {dp(13)}px;
-                font-weight: 500;
-            }}
-        """)
+        self.setStyleSheet(
+            self._build_basic_header_style("item_count") + f"""
+                QLabel#stats_label {{
+                    color: {theme_manager.PRIMARY};
+                    font-size: {dp(13)}px;
+                    font-weight: 500;
+                }}
+            """
+        )
 
     def _apply_theme(self):
         """应用主题"""

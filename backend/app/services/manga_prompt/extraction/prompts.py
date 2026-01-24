@@ -24,8 +24,34 @@ PROMPT_NAME_STEP2 = "manga_extraction_step2"
 PROMPT_NAME_STEP3 = "manga_extraction_step3"
 PROMPT_NAME_STEP4 = "manga_extraction_step4"
 
+from ..prompts_shared import EVENT_FIELDS_BASE
+
+# 对话字段说明（主模板与分步模板共用）
+DIALOGUE_FIELDS_BASE = """- index: 对话序号（从0开始）
+- speaker: 说话人名字（必须是已识别角色之一）
+- content: 对话内容（保留原文）
+- emotion: 情绪（neutral/happy/sad/angry/surprised/fearful/disgusted/contemptuous/excited/calm/nervous/determined）
+- target: 对话对象（如有明确对象）
+- event_index: 所属事件索引（对应events中的index）
+- is_internal: 是否是内心独白（心想、暗道、心中想等 → true；说出来的话 → false）
+- bubble_type: 气泡类型（thought用于内心想法；normal/shout/whisper用于说出的话）
+"""
+
+# 场景字段说明（主模板与分步模板共用）
+SCENE_FIELDS_BASE = """- index: 场景序号（从0开始）
+- location: 地点描述
+- time_of_day: 时间（morning/afternoon/evening/night/dawn/dusk）
+- atmosphere: 氛围描述
+- weather: 天气（如有描述）
+- lighting: 光线（natural/dim/bright/dramatic/soft）
+- indoor_outdoor: 室内还是室外（indoor/outdoor）
+- description: 场景的详细描述
+- event_indices: 该场景包含的事件索引列表
+"""
+
 # 章节信息提取提示词模板
-CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从以下章节内容中提取结构化信息，用于后续的漫画分镜设计。
+CHAPTER_INFO_EXTRACTION_PROMPT = (
+"""你是专业的漫画编剧助手。请从以下章节内容中提取结构化信息，用于后续的漫画分镜设计。
 
 ## 章节内容
 {content}
@@ -46,35 +72,17 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 
 ### 2. 对话信息 (dialogues)
 按顺序提取所有对话和内心独白：
-- index: 对话序号（从0开始）
-- speaker: 说话人名字
-- content: 对话内容（保留原文）
-- emotion: 情绪（neutral/happy/sad/angry/surprised/fearful/disgusted/contemptuous/excited/calm/nervous/determined）
-- target: 对话对象（如有明确对象）
-- is_internal: 是否是内心独白（心想、暗道、心中想等 → true；说出来的话 → false）
-- bubble_type: 气泡类型（thought用于内心想法；normal/shout/whisper用于说出的话）
+""" + DIALOGUE_FIELDS_BASE + """
 
 **重要：对话和想法必须正确区分，这直接影响漫画中气泡的绘制方式（对话用普通气泡，想法用云朵气泡）。**
 
 ### 3. 场景信息 (scenes)
 识别不同的场景/地点：
-- index: 场景序号（从0开始）
-- location: 地点描述
-- time_of_day: 时间（morning/afternoon/evening/night/dawn/dusk）
-- atmosphere: 氛围描述
-- weather: 天气（如有描述）
-- lighting: 光线（natural/dim/bright/dramatic/soft）
-- indoor_outdoor: 室内还是室外（indoor/outdoor）
-- description: 场景的详细描述
-- event_indices: 该场景包含的事件索引列表
+""" + SCENE_FIELDS_BASE + """
 
 ### 4. 事件信息 (events)
 按时间顺序提取关键事件：
-- index: 事件序号（从0开始）
-- type: 事件类型（dialogue=对话/action=动作/reaction=反应/transition=过渡/revelation=揭示/conflict=冲突/resolution=解决/description=描述/internal=内心活动）
-- description: 事件描述
-- participants: 参与角色列表
-- scene_index: 所属场景索引
+""" + EVENT_FIELDS_BASE + """- scene_index: 所属场景索引
 - importance: 重要程度（low/normal/high/critical）
 - dialogue_indices: 关联的对话索引列表
 - action_description: 动作描述
@@ -176,6 +184,7 @@ CHAPTER_INFO_EXTRACTION_PROMPT = """你是专业的漫画编剧助手。请从�
 
 请确保输出的 JSON 格式正确，所有字段都有值（可以为空字符串或空列表，但不要省略字段）。
 """
+)
 
 # 系统提示词（用于设置 LLM 的角色）
 EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧和分镜师助手。你的任务是分析小说章节内容，提取出用于漫画创作的结构化信息。
@@ -195,7 +204,8 @@ EXTRACTION_SYSTEM_PROMPT = """你是一位专业的漫画编剧和分镜师助�
 # ============================================================
 
 # 步骤1：提取角色和事件
-STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信息和事件信息。
+STEP1_CHARACTERS_EVENTS_PROMPT = (
+"""请从以下章节内容中提取角色信息和事件信息。
 
 ## 章节内容
 {content}
@@ -213,11 +223,7 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
 
 ### 2. 事件信息 (events)
 按时间顺序提取关键事件：
-- index: 事件序号（从0开始）
-- type: dialogue/action/reaction/transition/revelation/conflict/resolution/description/internal
-- description: 事件描述（简洁）
-- participants: 参与角色列表
-- importance: low/normal/high/critical
+""" + EVENT_FIELDS_BASE + """- importance: low/normal/high/critical
 - is_climax: 是否是高潮点（true/false）
 
 ## 输出格式
@@ -250,9 +256,11 @@ STEP1_CHARACTERS_EVENTS_PROMPT = """请从以下章节内容中提取角色信�
 
 请确保JSON格式正确。只输出JSON，不要其他文字。
 """
+)
 
 # 步骤2：提取对话和旁白
-STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话和旁白信息。
+STEP2_DIALOGUES_PROMPT = (
+"""请从以下章节内容中提取所有对话和旁白信息。
 
 ## 章节内容
 {content}
@@ -277,14 +285,7 @@ STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话和旁�
 ### 一、对话和想法提取
 
 提取所有对话和内心独白：
-- index: 对话序号（从0开始）
-- speaker: 说话人名字（必须是已识别角色之一）
-- content: 对话内容（保留原文）
-- emotion: neutral/happy/sad/angry/surprised/fearful/excited/calm/nervous/determined
-- target: 对话对象
-- event_index: 所属事件索引（对应events中的index）
-- is_internal: 是否是内心独白（心想、暗道、心中想等 → true；说出来的话 → false）
-- bubble_type: thought用于内心想法；normal/shout/whisper用于说出的话
+""" + DIALOGUE_FIELDS_BASE + """
 
 **重要区分：**
 - **对话(dialogue)**: 角色说出来的话，用普通对话气泡
@@ -342,9 +343,11 @@ STEP2_DIALOGUES_PROMPT = """请从以下章节内容中提取所有对话和旁�
 
 请确保JSON格式正确。只输出JSON，不要其他文字。
 """
+)
 
 # 步骤3：提取场景
-STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
+STEP3_SCENES_PROMPT = (
+"""请从以下章节内容中提取场景信息。
 
 ## 章节内容
 {content}
@@ -355,15 +358,7 @@ STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
 ## 提取要求
 
 识别不同的场景/地点：
-- index: 场景序号（从0开始）
-- location: 地点描述
-- time_of_day: morning/afternoon/evening/night/dawn/dusk
-- atmosphere: 氛围描述
-- weather: 天气描述（可选）
-- lighting: natural/dim/bright/dramatic/soft
-- indoor_outdoor: indoor/outdoor
-- description: 场景的详细描述
-- event_indices: 该场景包含的事件索引列表
+""" + SCENE_FIELDS_BASE + """
 
 ## 输出格式
 
@@ -387,6 +382,7 @@ STEP3_SCENES_PROMPT = """请从以下章节内容中提取场景信息。
 
 请确保所有事件都被分配到场景中。只输出JSON，不要其他文字。
 """
+)
 
 # 步骤4：提取物品和摘要
 STEP4_ITEMS_SUMMARY_PROMPT = """请从以下章节内容中提取物品信息和章节摘要。

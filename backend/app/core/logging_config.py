@@ -54,7 +54,6 @@ LOGGER_DOMAIN_MAPPING = {
     "app.services.part_outline": "novel",
     "app.services.novel_rag": "novel",
     "app.services.novel_service": "novel",
-    "app.services.novel_context_builder": "novel",
     "app.services.content_optimization": "novel",
     "app.services.blueprint_service": "novel",
     "app.services.inspiration_service": "novel",

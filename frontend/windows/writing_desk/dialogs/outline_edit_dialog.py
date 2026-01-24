@@ -23,11 +23,23 @@ class OutlineEditDialog(BaseDialog):
         parent=None,
         chapter_number: int = 1,
         title: str = "",
-        summary: str = ""
+        summary: str = "",
+        header_text: str | None = None,
+        confirm_text: str = "保存",
+        cancel_text: str = "取消",
+        require_title: bool = False,
+        dialog_title: str | None = None,
+        style_variant: str = "default"
     ):
         self.chapter_number = chapter_number
         self.current_title = title
         self.current_summary = summary
+        self.header_text = header_text
+        self.confirm_text = confirm_text
+        self.cancel_text = cancel_text
+        self.require_title = require_title
+        self.dialog_title = dialog_title
+        self.style_variant = style_variant
 
         # UI组件引用
         self.container = None
@@ -39,6 +51,8 @@ class OutlineEditDialog(BaseDialog):
         super().__init__(parent)
         self._setup_ui()
         self._apply_theme()
+        if self.dialog_title:
+            self.setWindowTitle(self.dialog_title)
 
     def _setup_ui(self):
         """创建UI"""
@@ -53,7 +67,8 @@ class OutlineEditDialog(BaseDialog):
         container_layout.setSpacing(dp(16))
 
         # 标题行
-        header_label = QLabel(f"编辑第 {self.chapter_number} 章大纲")
+        header_text = self.header_text or f"编辑第 {self.chapter_number} 章大纲"
+        header_label = QLabel(header_text)
         header_label.setObjectName("dialog_header")
         container_layout.addWidget(header_label)
 
@@ -85,7 +100,7 @@ class OutlineEditDialog(BaseDialog):
         button_layout.setSpacing(dp(12))
         button_layout.addStretch()
 
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton(self.cancel_text)
         self.cancel_btn.setObjectName("cancel_btn")
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.setFixedHeight(dp(38))
@@ -93,12 +108,12 @@ class OutlineEditDialog(BaseDialog):
         self.cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_btn)
 
-        self.ok_btn = QPushButton("保存")
+        self.ok_btn = QPushButton(self.confirm_text)
         self.ok_btn.setObjectName("ok_btn")
         self.ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ok_btn.setFixedHeight(dp(38))
         self.ok_btn.setMinimumWidth(dp(80))
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         self.ok_btn.setDefault(True)
         button_layout.addWidget(self.ok_btn)
 
@@ -113,7 +128,102 @@ class OutlineEditDialog(BaseDialog):
         # 使用现代UI字体
         ui_font = theme_manager.ui_font()
 
-        # 容器样式
+        if self.style_variant == "book":
+            bg_color = theme_manager.book_bg_primary()
+            bg_secondary = theme_manager.book_bg_secondary()
+            text_primary = theme_manager.book_text_primary()
+            text_secondary = theme_manager.book_text_secondary()
+            accent_color = theme_manager.book_accent_color()
+            border_color = theme_manager.book_border_color()
+
+            self.container.setStyleSheet(f"""
+                #outline_edit_container {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(16)}px;
+                }}
+            """)
+
+            if header := self.findChild(QLabel, "dialog_header"):
+                header.setStyleSheet(f"""
+                    font-family: {ui_font};
+                    font-size: {sp(18)}px;
+                    font-weight: 600;
+                    color: {text_primary};
+                    margin-bottom: {dp(8)}px;
+                """)
+
+            for label in self.findChildren(QLabel, "field_label"):
+                label.setStyleSheet(f"""
+                    font-family: {ui_font};
+                    font-size: {sp(14)}px;
+                    font-weight: 600;
+                    color: {text_primary};
+                """)
+
+            input_style = f"""
+                font-family: {ui_font};
+                background-color: {bg_secondary};
+                color: {text_primary};
+                border: 1px solid {border_color};
+                border-radius: {dp(8)}px;
+                padding: {dp(8)}px {dp(12)}px;
+                font-size: {sp(14)}px;
+            """
+
+            self.title_edit.setStyleSheet(f"""
+                #title_input {{
+                    {input_style}
+                }}
+                #title_input:focus {{
+                    border-color: {accent_color};
+                }}
+            """)
+
+            self.summary_edit.setStyleSheet(f"""
+                #summary_input {{
+                    {input_style}
+                }}
+                #summary_input:focus {{
+                    border-color: {accent_color};
+                }}
+                {theme_manager.scrollbar()}
+            """)
+
+            self.cancel_btn.setStyleSheet(f"""
+                #cancel_btn {{
+                    font-family: {ui_font};
+                    background-color: transparent;
+                    color: {text_secondary};
+                    border: 1px solid {border_color};
+                    border-radius: {dp(8)}px;
+                    padding: 0 {dp(20)}px;
+                    font-size: {sp(14)}px;
+                    font-weight: 500;
+                }}
+                #cancel_btn:hover {{
+                    color: {accent_color};
+                    border-color: {accent_color};
+                }}
+            """)
+
+            self.ok_btn.setStyleSheet(f"""
+                #ok_btn {{
+                    font-family: {ui_font};
+                    background-color: {accent_color};
+                    color: {theme_manager.BUTTON_TEXT};
+                    border: none;
+                    border-radius: {dp(8)}px;
+                    padding: 0 {dp(20)}px;
+                    font-size: {sp(14)}px;
+                    font-weight: 600;
+                }}
+                #ok_btn:hover {{
+                    background-color: {theme_manager.book_accent_light()};
+                }}
+            """)
+            return
+
         self.container.setStyleSheet(f"""
             #outline_edit_container {{
                 background-color: {theme_manager.BG_CARD};
@@ -122,7 +232,6 @@ class OutlineEditDialog(BaseDialog):
             }}
         """)
 
-        # 标题样式
         if header := self.findChild(QLabel, "dialog_header"):
             header.setStyleSheet(f"""
                 font-family: {ui_font};
@@ -132,7 +241,6 @@ class OutlineEditDialog(BaseDialog):
                 margin-bottom: {dp(8)}px;
             """)
 
-        # 字段标签样式
         for label in self.findChildren(QLabel, "field_label"):
             label.setStyleSheet(f"""
                 font-family: {ui_font};
@@ -141,7 +249,6 @@ class OutlineEditDialog(BaseDialog):
                 color: {theme_manager.TEXT_SECONDARY};
             """)
 
-        # 输入框通用样式
         input_style = f"""
             font-family: {ui_font};
             background-color: {theme_manager.BG_SECONDARY};
@@ -152,7 +259,6 @@ class OutlineEditDialog(BaseDialog):
             font-size: {sp(14)}px;
         """
 
-        # 标题输入框
         self.title_edit.setStyleSheet(f"""
             #title_input {{
                 {input_style}
@@ -163,7 +269,6 @@ class OutlineEditDialog(BaseDialog):
             }}
         """)
 
-        # 摘要输入框
         self.summary_edit.setStyleSheet(f"""
             #summary_input {{
                 {input_style}
@@ -175,7 +280,6 @@ class OutlineEditDialog(BaseDialog):
             {theme_manager.scrollbar()}
         """)
 
-        # 取消按钮样式
         self.cancel_btn.setStyleSheet(f"""
             #cancel_btn {{
                 font-family: {ui_font};
@@ -196,7 +300,6 @@ class OutlineEditDialog(BaseDialog):
             }}
         """)
 
-        # 确定按钮样式
         self.ok_btn.setStyleSheet(f"""
             #ok_btn {{
                 font-family: {ui_font};
@@ -219,6 +322,13 @@ class OutlineEditDialog(BaseDialog):
     def getValues(self) -> Tuple[str, str]:
         """获取输入值 (title, summary)"""
         return self.title_edit.text().strip(), self.summary_edit.toPlainText().strip()
+
+    def _on_accept(self):
+        """确认按钮点击"""
+        if self.require_title and not self.title_edit.text().strip():
+            self.title_edit.setFocus()
+            return
+        self.accept()
 
     @staticmethod
     def getOutlineStatic(

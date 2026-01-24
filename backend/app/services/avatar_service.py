@@ -5,7 +5,6 @@
 """
 
 import logging
-import re
 from typing import Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,7 @@ from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm_json, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import parse_llm_json_or_fail
-from ..exceptions import ResourceNotFoundError, InvalidParameterError
+from ..exceptions import ResourceNotFoundError
 from ..core.constants import AvatarConstants
 
 logger = logging.getLogger(__name__)
@@ -28,10 +27,6 @@ class AvatarService:
     使用LLM根据小说的类型、风格、氛围生成匹配的小动物SVG头像。
     """
 
-    # SVG安全检查的危险标签和属性
-    # 注意: style标签在SVG内是安全的（仅影响SVG内部样式），不列入危险标签
-    DANGEROUS_TAGS = ['script', 'iframe', 'object', 'embed', 'link']
-    DANGEROUS_ATTRS = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus', 'onblur']
 
     def __init__(
         self,
@@ -105,10 +100,7 @@ class AvatarService:
         animal = result.get("animal", "")
         animal_cn = result.get("animal_cn", "")
 
-        # 6. 验证并清理SVG
-        svg = self._validate_and_sanitize_svg(svg)
-
-        # 7. 保存到数据库
+        # 6. 保存到数据库
         await self._save_avatar(project_id, svg, animal)
         await self.session.commit()
 
@@ -196,57 +188,6 @@ class AvatarService:
 
 请发挥你的创意，创作一个让人过目不忘的头像！
 """
-
-    def _validate_and_sanitize_svg(self, svg: str) -> str:
-        """
-        验证并清理SVG代码，防止XSS攻击
-
-        Args:
-            svg: 原始SVG代码
-
-        Returns:
-            str: 清理后的安全SVG代码
-
-        Raises:
-            InvalidParameterError: SVG格式无效或包含危险内容
-        """
-        if not svg or not isinstance(svg, str):
-            raise InvalidParameterError("SVG内容为空", "svg")
-
-        svg = svg.strip()
-
-        # 检查基本格式
-        if not svg.startswith("<svg") or not svg.endswith("</svg>"):
-            raise InvalidParameterError("SVG格式无效：必须以<svg>开头，</svg>结尾", "svg")
-
-        # 检查危险标签
-        svg_lower = svg.lower()
-        for tag in self.DANGEROUS_TAGS:
-            if f"<{tag}" in svg_lower or f"</{tag}" in svg_lower:
-                raise InvalidParameterError(f"SVG包含危险标签: {tag}", "svg")
-
-        # 检查危险属性
-        for attr in self.DANGEROUS_ATTRS:
-            if attr in svg_lower:
-                raise InvalidParameterError(f"SVG包含危险属性: {attr}", "svg")
-
-        # 检查外部资源链接
-        if "http://" in svg_lower or "https://" in svg_lower:
-            # 允许 xmlns 中的命名空间URL
-            if re.search(r'(?<!xmlns=")https?://', svg_lower):
-                raise InvalidParameterError("SVG包含外部资源链接", "svg")
-
-        # 确保有正确的xmlns
-        if 'xmlns="http://www.w3.org/2000/svg"' not in svg:
-            # 尝试添加xmlns
-            svg = svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
-
-        # 限制SVG大小（防止过大的SVG）
-        max_size = AvatarConstants.SVG_MAX_SIZE_BYTES
-        if len(svg) > max_size:
-            raise InvalidParameterError(f"SVG大小超过限制（{len(svg)} > {max_size}字节）", "svg")
-
-        return svg
 
     async def _save_avatar(
         self,

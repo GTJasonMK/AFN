@@ -331,14 +331,6 @@ def reset_relationship_row(row):
         row.data = {}
 
 
-def reset_chapter_outline_card(card):
-    """ChapterOutlineCard重置回调"""
-    if hasattr(card, 'chapter'):
-        card.chapter = {}
-    if hasattr(card, 'chapter_number'):
-        card.chapter_number = 0
-
-
 def reset_outline_row(row):
     """OutlineRow重置回调"""
     if hasattr(row, 'data'):
@@ -352,6 +344,5 @@ __all__ = [
     'reset_chapter_card',
     'reset_character_row',
     'reset_relationship_row',
-    'reset_chapter_outline_card',
     'reset_outline_row',
 ]

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ...schemas.novel import ChapterAnalysisData
+from ..scene_descriptor import SceneDescriptor
 
 
 @dataclass
@@ -78,6 +79,10 @@ class SceneState:
             lines.append(f"未解悬念: {tensions_text}")
 
         return "\n".join(lines)
+
+    def to_descriptor_dict(self) -> Dict[str, Any]:
+        """转换为统一场景描述字典"""
+        return SceneDescriptor.from_scene_state(self).to_dict()
 
 
 class SceneStateExtractor:

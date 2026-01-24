@@ -47,7 +47,7 @@ from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
 from ....utils.json_utils import extract_llm_content
 from ....utils.prompt_helpers import ensure_prompt
-from ....utils.sse_helpers import sse_event, create_sse_response
+from ....utils.sse_helpers import create_sse_stream_response
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -505,17 +505,18 @@ async def generate_chapter_stream(
         vector_store=vector_store,
     )
 
-    async def event_generator():
-        async for progress in workflow.execute_with_progress():
-            stage = progress.get("stage", "unknown")
-            if stage == "complete":
-                yield sse_event("complete", progress)
-            elif stage == "error":
-                yield sse_event("error", progress)
-            elif stage == "cancelled":
-                # 用户取消操作，发送取消事件后正常结束
-                yield sse_event("cancelled", progress)
-            else:
-                yield sse_event("progress", progress)
+    def _map_stage(progress):
+        stage = progress.get("stage", "unknown")
+        if stage == "complete":
+            return "complete", progress
+        if stage == "error":
+            return "error", progress
+        if stage == "cancelled":
+            # 用户取消操作，发送取消事件后正常结束
+            return "cancelled", progress
+        return "progress", progress
 
-    return create_sse_response(event_generator())
+    return create_sse_stream_response(
+        workflow.execute_with_progress(),
+        mapper=_map_stage,
+    )

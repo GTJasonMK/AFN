@@ -7,7 +7,7 @@
 import logging
 
 from api.manager import APIClientManager
-from utils.async_worker import AsyncAPIWorker
+from utils.async_worker import run_async_action
 from utils.message_service import MessageService
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,13 @@ class EvaluationMixin:
                 self.selected_chapter_number,
             )
 
-        worker = AsyncAPIWorker(do_evaluate)
-        worker.success.connect(self.onEvaluateSuccess)
-        worker.error.connect(self.onEvaluateError)
-        self.worker_manager.start(worker, 'evaluate_chapter')
+        run_async_action(
+            self.worker_manager,
+            do_evaluate,
+            task_name='evaluate_chapter',
+            on_success=self.onEvaluateSuccess,
+            on_error=self.onEvaluateError,
+        )
 
     def onEvaluateSuccess(self, result):
         """评估成功回调"""
