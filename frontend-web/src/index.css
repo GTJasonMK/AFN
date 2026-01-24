@@ -6,30 +6,31 @@
 
 :root {
   /* 默认为 Light Mode (Organic) */
-  --color-primary: #8B4513;
-  --color-primary-light: #A0522D;
-  --color-text-primary: #2C1810;
-  --color-text-secondary: #5D4037;
-  --color-text-tertiary: #6D6560;
-  --color-bg-primary: #F9F5F0;
-  --color-bg-secondary: #FFFBF0;
-  --color-bg-glass: rgba(249, 245, 240, 0.85);
-  --color-border: #D7CCC8;
+  /* 说明：使用 “R G B” 空格分隔格式，配合 Tailwind 的 rgb(var(--x) / <alpha-value>) */
+  --color-primary: 139 69 19;
+  --color-primary-light: 160 82 45;
+  --color-text-primary: 44 24 16;
+  --color-text-secondary: 93 64 55;
+  --color-text-tertiary: 109 101 96;
+  --color-bg-primary: 249 245 240;
+  --color-bg-secondary: 255 251 240;
+  --color-bg-glass: 249 245 240;
+  --color-border: 215 204 200;
   --shadow-card: 0 4px 20px -2px rgba(139,69,19,0.10);
   --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 }
 
 .dark {
   /* Dark Mode (Academia) */
-  --color-primary: #E89B6C;
-  --color-primary-light: #F0B088;
-  --color-text-primary: #E8DFD4;
-  --color-text-secondary: #9C8B7A;
-  --color-text-tertiary: #7A6B5A;
-  --color-bg-primary: #1C1714;
-  --color-bg-secondary: #251E19;
-  --color-bg-glass: rgba(37, 30, 25, 0.85);
-  --color-border: #4A3F35;
+  --color-primary: 232 155 108;
+  --color-primary-light: 240 176 136;
+  --color-text-primary: 232 223 212;
+  --color-text-secondary: 156 139 122;
+  --color-text-tertiary: 122 107 90;
+  --color-bg-primary: 28 23 20;
+  --color-bg-secondary: 37 30 25;
+  --color-bg-glass: 37 30 25;
+  --color-border: 74 63 53;
   --shadow-card: 0 4px 20px -2px rgba(0,0,0,0.3);
   --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
@@ -40,5 +41,44 @@ body {
 
 /* 玻璃态效果工具类 */
 .glass-panel {
-  @apply bg-book-bg-glass backdrop-blur-md border border-book-border/30 shadow-glass;
+  @apply bg-book-bg-glass backdrop-blur-md border shadow-glass;
+  border-color: color-mix(in srgb, rgb(var(--color-border)), transparent 70%);
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-border));
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--color-text-tertiary));
+}
+
+/* 渐变遮罩 */
+.mask-gradient-right {
+  mask-image: linear-gradient(to right, black 85%, transparent 100%);
+}
+
+.mask-gradient-bottom {
+  mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+}
+
+/* 页面切换动画 */
+.page-enter {
+  animation: pageEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }

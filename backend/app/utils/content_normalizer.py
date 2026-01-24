@@ -10,23 +10,12 @@ import logging
 import re
 from typing import Any, Optional
 
+from .content_fields import CONTENT_FIELD_NAMES
+
 logger = logging.getLogger(__name__)
 
 # 优先尝试的内容字段名（按优先级排序）
-# full_content 应该排在最前面，因为它明确表示"完整内容"
-_PREFERRED_CONTENT_KEYS: tuple[str, ...] = (
-    "full_content",
-    "chapter_content",
-    "content",
-    "chapter_text",
-    "text",
-    "body",
-    "story",
-    "chapter",
-    "output",
-    "result",
-    "response",
-)
+_PREFERRED_CONTENT_KEYS: tuple[str, ...] = CONTENT_FIELD_NAMES
 
 
 def normalize_version_content(raw_content: Any, metadata: Any) -> str:

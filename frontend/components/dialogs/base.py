@@ -37,7 +37,7 @@ class BaseDialog(QDialog):
                 pass
             self._theme_connected = False
 
-    def _on_theme_changed(self):
+    def _on_theme_changed(self, mode: str):
         """主题变更回调"""
         self._apply_theme()
 

@@ -33,8 +33,8 @@ export const THEME_TOKENS = {
       }
     },
     shadows: {
-      card: '0 4px 20px -2px rgba(139,69,19,0.10)',
-      glass: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+      card: '0 4px 20px -2px rgba(139,69,19,0.08), 0 2px 8px -2px rgba(139,69,19,0.04)',
+      glass: '0 8px 32px 0 rgba(139, 69, 19, 0.05)',
     }
   },
   dark: {
@@ -69,8 +69,8 @@ export const THEME_TOKENS = {
       }
     },
     shadows: {
-      card: '0 4px 20px -2px rgba(0,0,0,0.3)',
-      glass: '0 8px 32px 0 rgba(0, 0, 0, 0.3)',
+      card: '0 4px 20px -2px rgba(0,0,0,0.4), 0 2px 8px -2px rgba(0,0,0,0.2)',
+      glass: '0 8px 32px 0 rgba(0, 0, 0, 0.4)',
     }
   }
 };

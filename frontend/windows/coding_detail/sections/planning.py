@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget,
-    QGridLayout, QScrollArea
+    QGridLayout
 )
 from PyQt6.QtCore import Qt
 
@@ -37,17 +37,7 @@ class ProjectPlanningSection(BaseSection):
 
     def _create_ui_structure(self):
         """创建UI结构"""
-        # 创建滚动区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # 内容容器
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, dp(8), 0)
-        layout.setSpacing(dp(16))
+        layout = self._create_scroll_container_layout()
 
         # 1. 核心需求卡片
         requirements = self._data.get('core_requirements', []) if self._data else []
@@ -75,15 +65,6 @@ class ProjectPlanningSection(BaseSection):
         layout.addWidget(self.milestones_card)
 
         layout.addStretch()
-
-        scroll.setWidget(content)
-
-        # 主布局
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(scroll)
-
-        self._apply_scroll_style(scroll)
 
     def _create_requirements_card(self, requirements: List[Dict]) -> QFrame:
         """创建核心需求卡片"""

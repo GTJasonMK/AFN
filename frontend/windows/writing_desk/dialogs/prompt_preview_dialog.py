@@ -5,18 +5,19 @@
 from typing import Any, Dict
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QWidget, QTextEdit, QScrollArea, QFrame, QSplitter
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+from components.dialogs import BookStyleDialog
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
 from utils.dpi_utils import dp, sp
 
 
-class PromptPreviewDialog(QDialog):
+class PromptPreviewDialog(BookStyleDialog):
     """提示词预览对话框
 
     支持主题切换：连接到 theme_manager.theme_changed 信号
@@ -27,29 +28,12 @@ class PromptPreviewDialog(QDialog):
         self.preview_data = preview_data
         self.chapter_number = chapter_number
         self.is_retry = is_retry
-        self._theme_connected = False
 
         mode_text = "重新生成" if is_retry else "首次生成"
         self.setWindowTitle(f"第 {chapter_number} 章 - 提示词预览（{mode_text}模式）")
         self.setMinimumSize(1000, 700)
         self.resize(1200, 800)
         self.setupUI()
-        self._connect_theme_signal()
-
-    def _connect_theme_signal(self):
-        """连接主题信号"""
-        if not self._theme_connected:
-            theme_manager.theme_changed.connect(self._on_theme_changed)
-            self._theme_connected = True
-
-    def _disconnect_theme_signal(self):
-        """断开主题信号"""
-        if self._theme_connected:
-            try:
-                theme_manager.theme_changed.disconnect(self._on_theme_changed)
-            except TypeError:
-                pass
-            self._theme_connected = False
 
     def _on_theme_changed(self, mode: str):
         """主题变化回调 - 重建界面"""
@@ -81,11 +65,6 @@ class PromptPreviewDialog(QDialog):
                 item.widget().deleteLater()
             elif item.layout():
                 self._clear_widgets_from_layout(item.layout())
-
-    def closeEvent(self, event):
-        """关闭时断开信号"""
-        self._disconnect_theme_signal()
-        super().closeEvent(event)
 
     def setupUI(self):
         """初始化UI"""

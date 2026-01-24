@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { useToast } from '../components/feedback/Toast';
 
-// 后端默认端口 8123
-export const API_BASE_URL = 'http://localhost:8123/api';
+// 使用相对路径以利用 Vite 代理
+export const API_BASE_URL = '/api';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -15,7 +16,17 @@ export const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.error('API Error:', error.response?.data || error.message);
+    if (error.response) {
+        console.error("Full API Error Response:", error.response.data);
+    }
+    const message = error.response?.data?.detail || error.message || 'Unknown error';
+    console.error('API Error:', message);
+    
+    // Trigger global toast
+    // Note: useToast is a hook, but Zustand stores can be used outside components via getState()
+    // However, hooks rule applies. We'll use the vanilla store access.
+    useToast.getState().addToast(message, 'error');
+    
     return Promise.reject(error);
   }
 );

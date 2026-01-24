@@ -26,7 +26,7 @@ from ....services.novel_rag import (
     NovelProjectIngestionService,
 )
 from ....core.constants import LLMConstants
-from ..rag_helpers import build_type_details
+from ..rag_helpers import run_completeness_check
 from ..rag_schemas import CompletenessResponseBase, TypeDetailBase
 
 logger = logging.getLogger(__name__)
@@ -149,23 +149,20 @@ async def check_rag_completeness(
         )
 
     # 执行完整性检查
-    service = NovelProjectIngestionService(
+    report, types_detail = await run_completeness_check(
+        project_id=project_id,
         session=session,
         vector_store=vector_store,
         llm_service=llm_service,
-        user_id=desktop_user.id
-    )
-
-    report = await service.check_completeness(project_id)
-
-    # 转换为响应格式
-    types_detail = build_type_details(report.type_details, _build_type_detail)
-
-    logger.info(
-        "项目 %s RAG完整性检查: complete=%s db=%d vector=%d new=%d mod=%d del=%d",
-        project_id, report.complete,
-        report.total_db_count, report.total_vector_count,
-        report.total_new, report.total_modified, report.total_deleted
+        user_id=desktop_user.id,
+        service_factory=NovelProjectIngestionService,
+        build_detail=_build_type_detail,
+        log_message=lambda rep: logger.info(
+            "项目 %s RAG完整性检查: complete=%s db=%d vector=%d new=%d mod=%d del=%d",
+            project_id, rep.complete,
+            rep.total_db_count, rep.total_vector_count,
+            rep.total_new, rep.total_modified, rep.total_deleted
+        ),
     )
 
     return CompletenessResponse(
@@ -505,15 +502,15 @@ async def diagnose_rag(
     # 完整性检查（如果向量库启用）
     completeness = None
     if vector_store_enabled and embedding_service_enabled:
-        service = NovelProjectIngestionService(
+        report, types_detail = await run_completeness_check(
+            project_id=project_id,
             session=session,
             vector_store=vector_store,
             llm_service=llm_service,
-            user_id=desktop_user.id
+            user_id=desktop_user.id,
+            service_factory=NovelProjectIngestionService,
+            build_detail=_build_type_detail,
         )
-        report = await service.check_completeness(project_id)
-
-        types_detail = build_type_details(report.type_details, _build_type_detail)
 
         completeness = CompletenessResponse(
             project_id=project_id,

@@ -1,15 +1,19 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 import sys
 
-from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, field_validator
+from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
 
 class Settings(BaseSettings):
     """应用全局配置，所有可调参数集中于此，统一加载自环境变量。"""
+
+    # 桌面版与开发环境的默认密钥（便于直接运行后端进行本地调试）
+    # 生产环境请务必通过环境变量 SECRET_KEY 显式覆盖
+    DEFAULT_DESKTOP_SECRET_KEY: ClassVar[str] = "afn-desktop-secret-key-2024"
 
     # -------------------- 基础应用配置 --------------------
     app_name: str = Field(default="AI Novel Generator API", description="FastAPI 文档标题")
@@ -22,7 +26,11 @@ class Settings(BaseSettings):
     )
 
     # -------------------- 安全相关配置 --------------------
-    secret_key: str = Field(..., env="SECRET_KEY", description="JWT 加密密钥")
+    secret_key: str = Field(
+        default=DEFAULT_DESKTOP_SECRET_KEY,
+        env="SECRET_KEY",
+        description="JWT 加密密钥（开发环境有默认值；生产环境必须显式配置）",
+    )
     jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM", description="JWT 加密算法")
     access_token_expire_minutes: int = Field(
         default=60 * 24 * 7,
@@ -37,7 +45,7 @@ class Settings(BaseSettings):
         description="完整的数据库连接串，填入后覆盖下方数据库配置"
     )
     db_provider: str = Field(
-        default="mysql",
+        default="sqlite",
         env="DB_PROVIDER",
         description="数据库类型，仅支持 mysql 或 sqlite"
     )
@@ -145,9 +153,9 @@ class Settings(BaseSettings):
         description="Ollama 嵌入模型名称",
     )
     vector_db_url: Optional[str] = Field(
-        default=None,
+        default="file:storage/vectors.db",
         env="VECTOR_DB_URL",
-        description="libsql 向量库连接地址",
+        description="libsql 向量库连接地址（默认使用项目 storage/vectors.db）",
     )
     vector_db_auth_token: Optional[str] = Field(
         default=None,
@@ -343,6 +351,14 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
+    @model_validator(mode="after")
+    def _validate_secret_key_for_production(self) -> "Settings":
+        """生产环境强制要求显式 SECRET_KEY，避免误用桌面版默认密钥。"""
+        normalized_env = (self.environment or "").strip().lower()
+        if normalized_env in {"production", "prod"} and self.secret_key == self.DEFAULT_DESKTOP_SECRET_KEY:
+            raise ValueError("生产环境必须通过环境变量 SECRET_KEY 显式配置，不能使用桌面版默认密钥")
+        return self
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: Optional[str]) -> Optional[str]:
@@ -353,7 +369,7 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_db_provider(cls, value: Optional[str]) -> str:
         """统一数据库类型大小写，并限制为受支持的驱动。"""
-        candidate = (value or "mysql").strip().lower()
+        candidate = (value or "sqlite").strip().lower()
         if candidate not in {"mysql", "sqlite"}:
             raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
         return candidate

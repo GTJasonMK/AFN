@@ -9,12 +9,14 @@
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QFrame, QScrollArea, QWidget, QComboBox
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTextEdit, QFrame, QWidget, QComboBox
 )
 from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
+
+from .base_book_list_edit_dialog import BaseBookListEditDialog
 
 
 # 预设关系类型
@@ -230,210 +232,40 @@ class RelationshipItemWidget(QFrame):
         self.index_label.setText(f"关系 #{new_index + 1}")
 
 
-class RelationshipListEditDialog(QDialog):
+class RelationshipListEditDialog(BaseBookListEditDialog):
     """关系列表编辑对话框"""
 
     def __init__(self, relationships: list, characters: list = None, parent=None):
-        super().__init__(parent)
         self.relationships = relationships or []
         self.characters = characters or []
-        self.relationship_widgets = []
-        self._setup_ui()
-        self._apply_style()
+        super().__init__(
+            dialog_title="编辑角色关系",
+            items=self.relationships,
+            add_button_text="+ 添加关系",
+            min_width_dp=700,
+            min_height_dp=550,
+            default_width_dp=800,
+            default_height_dp=650,
+            content_spacing_dp=16,
+            parent=parent,
+        )
 
-    def _setup_ui(self):
-        """设置UI"""
-        self.setWindowTitle("编辑角色关系")
-        self.setMinimumSize(dp(700), dp(550))
-        self.resize(dp(800), dp(650))
+    def _create_item_widget(self, item_data: dict, index: int) -> QFrame:
+        return RelationshipItemWidget(item_data, self.characters, index)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))
-        layout.setSpacing(dp(16))
+    def _format_count_text(self, count: int) -> str:
+        return f"共 {count} 个关系"
 
-        # 标题
-        title_label = QLabel("编辑角色关系")
-        title_label.setObjectName("dialog_title")
-        layout.addWidget(title_label)
+    def _should_keep_item_data(self, data: dict) -> bool:
+        return bool(data.get("character1") and data.get("character2"))
 
-        # 工具栏
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(dp(12))
-
-        self.add_btn = QPushButton("+ 添加关系")
-        self.add_btn.setObjectName("add_btn")
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.clicked.connect(self._add_relationship)
-        toolbar.addWidget(self.add_btn)
-
-        toolbar.addStretch()
-
-        self.count_label = QLabel(f"共 {len(self.relationships)} 个关系")
-        self.count_label.setObjectName("count_label")
-        toolbar.addWidget(self.count_label)
-
-        layout.addLayout(toolbar)
-
-        # 滚动区域
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self.content = QWidget()
-        self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(0, 0, dp(8), 0)
-        self.content_layout.setSpacing(dp(16))
-
-        # 创建关系编辑组件
-        self._create_relationships()
-
-        self.content_layout.addStretch()
-        self.scroll.setWidget(self.content)
-        layout.addWidget(self.scroll, stretch=1)
-
-        # 按钮区域
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(dp(12))
-        btn_layout.addStretch()
-
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setObjectName("cancel_btn")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setFixedHeight(dp(38))
-        cancel_btn.setMinimumWidth(dp(80))
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(cancel_btn)
-
-        confirm_btn = QPushButton("确定")
-        confirm_btn.setObjectName("confirm_btn")
-        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        confirm_btn.setFixedHeight(dp(38))
-        confirm_btn.setMinimumWidth(dp(80))
-        confirm_btn.clicked.connect(self.accept)
-        confirm_btn.setDefault(True)
-        btn_layout.addWidget(confirm_btn)
-
-        layout.addLayout(btn_layout)
-
-    def _create_relationships(self):
-        """创建所有关系编辑组件"""
-        self.relationship_widgets.clear()
-
-        for idx, relationship in enumerate(self.relationships):
-            widget = RelationshipItemWidget(relationship, self.characters, idx)
-            widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_relationship(w))
-            self.relationship_widgets.append(widget)
-            self.content_layout.addWidget(widget)
-
-    def _add_relationship(self):
-        """添加新关系"""
-        idx = len(self.relationship_widgets)
-        widget = RelationshipItemWidget({}, self.characters, idx)
-        widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_relationship(w))
-        self.relationship_widgets.append(widget)
-
-        # 在stretch之前插入
-        self.content_layout.insertWidget(self.content_layout.count() - 1, widget)
-        self._update_count()
-
-        # 聚焦到新关系的角色1选择框
-        widget.char1_combo.setFocus()
-
-    def _delete_relationship(self, widget: RelationshipItemWidget):
-        """删除关系"""
-        if widget in self.relationship_widgets:
-            self.relationship_widgets.remove(widget)
-            self.content_layout.removeWidget(widget)
-            widget.deleteLater()
-            self._update_indices()
-            self._update_count()
-
-    def _update_indices(self):
-        """更新所有关系的序号"""
-        for idx, widget in enumerate(self.relationship_widgets):
-            widget.update_index(idx)
-
-    def _update_count(self):
-        """更新计数"""
-        self.count_label.setText(f"共 {len(self.relationship_widgets)} 个关系")
+    def _focus_new_item(self, widget: QWidget) -> None:
+        """新增后聚焦到角色1选择框"""
+        try:
+            widget.char1_combo.setFocus()
+        except Exception:
+            pass
 
     def get_relationships(self) -> list:
         """获取编辑后的关系列表"""
-        result = []
-        for widget in self.relationship_widgets:
-            data = widget.get_data()
-            # 过滤掉没有角色的关系
-            if data.get('character1') and data.get('character2'):
-                result.append(data)
-        return result
-
-    def _apply_style(self):
-        """应用样式"""
-        ui_font = theme_manager.ui_font()
-        bg_color = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-            }}
-            QLabel#dialog_title {{
-                font-family: {ui_font};
-                font-size: {sp(18)}px;
-                font-weight: 700;
-                color: {text_primary};
-            }}
-            QLabel#count_label {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_secondary};
-            }}
-            QPushButton#add_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {accent_color};
-                background-color: transparent;
-                border: 1px dashed {accent_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-            }}
-            QPushButton#add_btn:hover {{
-                background-color: {bg_secondary};
-            }}
-            QPushButton#cancel_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {text_secondary};
-                background-color: transparent;
-                border: 1px solid {border_color};
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#cancel_btn:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
-            }}
-            QPushButton#confirm_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                color: {theme_manager.BUTTON_TEXT};
-                background-color: {accent_color};
-                border: none;
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#confirm_btn:hover {{
-                background-color: {text_primary};
-            }}
-            QScrollArea {{
-                background: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
-        self.content.setStyleSheet("background: transparent;")
+        return self.get_items()

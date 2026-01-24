@@ -9,6 +9,7 @@ import json
 from typing import Any, Dict, List, Tuple
 
 from ...utils.json_utils import remove_think_tags
+from ...utils.content_fields import CONTENT_FIELD_NAMES as DEFAULT_CONTENT_FIELD_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -25,20 +26,7 @@ class ChapterVersionProcessor:
     """
 
     # 可能包含章节内容的字段名（按优先级排序）
-    # full_content 应该排在最前面，因为它明确表示"完整内容"
-    CONTENT_FIELD_NAMES = [
-        "full_content",
-        "chapter_content",
-        "content",
-        "chapter_text",
-        "text",
-        "body",
-        "story",
-        "chapter",
-        "output",
-        "result",
-        "response",
-    ]
+    CONTENT_FIELD_NAMES = DEFAULT_CONTENT_FIELD_NAMES
 
     def process_versions(self, raw_versions: List[Any]) -> Tuple[List[str], List[Dict]]:
         """

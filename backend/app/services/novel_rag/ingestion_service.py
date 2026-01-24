@@ -19,7 +19,6 @@ from .chunk_strategy import NovelChunkMethod, get_novel_strategy_manager
 from ..rag_common.ingestion_base import (
     BaseProjectIngestionService,
     IngestionResult,
-    TypeChangeDetail,
     CompletenessReport,
 )
 
@@ -102,44 +101,6 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             logger_obj=logger,
         )
 
-    async def ingest_full_project(
-        self,
-        project_id: str,
-        force: bool = False
-    ) -> Dict[str, IngestionResult]:
-        """
-        完整入库 - 遍历所有数据类型
-
-        Args:
-            project_id: 项目ID
-            force: 是否强制全量入库（默认False，只入库不完整的类型）
-
-        Returns:
-            各类型的入库结果字典
-        """
-        return await super().ingest_full_project(project_id, force)
-
-    async def ingest_by_type(
-        self,
-        project_id: str,
-        data_type: NovelDataType
-    ) -> IngestionResult:
-        """
-        按类型入库
-
-        流程：
-        1. 先清理向量库中该类型的过时数据
-        2. 再执行新数据的入库（upsert）
-
-        Args:
-            project_id: 项目ID
-            data_type: 数据类型
-
-        Returns:
-            入库结果
-        """
-        return await super().ingest_by_type(project_id, data_type)
-
     def _get_ingest_method_map(self) -> Dict[NovelDataType, Any]:
         """获取数据类型到入库方法的映射"""
         return {
@@ -160,52 +121,6 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             NovelDataType.CHAPTER_METADATA: self._ingest_chapter_metadata,
             NovelDataType.FORESHADOWING: self._ingest_foreshadowing,
         }
-
-    async def _cleanup_stale_chunks(
-        self,
-        project_id: str,
-        data_type: NovelDataType
-    ) -> int:
-        """
-        清理向量库中该类型的过时数据
-
-        Args:
-            project_id: 项目ID
-            data_type: 数据类型
-
-        Returns:
-            删除的记录数
-        """
-        return await super()._cleanup_stale_chunks(project_id, data_type)
-
-    async def check_completeness(self, project_id: str) -> CompletenessReport:
-        """
-        检查入库完整性（基于内容哈希的精确检测）
-
-        Args:
-            project_id: 项目ID
-
-        Returns:
-            完整性检查报告
-        """
-        return await super().check_completeness(project_id)
-
-    async def _check_type_completeness(
-        self,
-        project_id: str,
-        data_type: NovelDataType
-    ) -> TypeChangeDetail:
-        """
-        检查单个数据类型的完整性（基于哈希比对）
-
-        Args:
-            project_id: 项目ID
-            data_type: 数据类型
-
-        Returns:
-            变动详情
-        """
-        return await super()._check_type_completeness(project_id, data_type)
 
     async def _generate_records_for_type(
         self,

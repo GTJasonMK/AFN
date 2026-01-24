@@ -1,0 +1,255 @@
+import React, { useState, useEffect } from 'react';
+import { Modal } from '../ui/Modal';
+import { BookInput } from '../ui/BookInput';
+import { BookButton } from '../ui/BookButton';
+import { settingsApi, AdvancedConfig } from '../../api/settings';
+import { useToast } from '../feedback/Toast';
+import { LLMConfigsTab } from './settings/LLMConfigsTab';
+import { EmbeddingConfigsTab } from './settings/EmbeddingConfigsTab';
+import { ImageConfigsTab } from './settings/ImageConfigsTab';
+import { ThemeTab } from './settings/ThemeTab';
+import { QueueTab } from './settings/QueueTab';
+import { PromptsTab } from './settings/PromptsTab';
+import { MaxTokensTab } from './settings/MaxTokensTab';
+import { TemperatureTab } from './settings/TemperatureTab';
+
+interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState<
+    'advanced' | 'llm' | 'embedding' | 'image' | 'theme' | 'queue' | 'prompts' | 'maxTokens' | 'temperature'
+  >('advanced');
+  const [config, setConfig] = useState<AdvancedConfig>({
+    writer_chapter_version_count: 1,
+    writer_parallel_generation: false,
+    part_outline_threshold: 50,
+    agent_context_max_chars: 100000,
+  });
+  const [loading, setLoading] = useState(false);
+  const { addToast } = useToast();
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab('advanced');
+      const fetchConfig = async () => {
+        try {
+          const data = await settingsApi.getAdvancedConfig();
+          setConfig(data);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      fetchConfig();
+    }
+  }, [isOpen]);
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await settingsApi.updateAdvancedConfig(config);
+      addToast('设置已保存', 'success');
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="全局设置"
+      maxWidthClassName="max-w-6xl"
+      className="max-h-[90vh]"
+      footer={
+        <div className="flex justify-end gap-2">
+          <BookButton variant="ghost" onClick={onClose}>关闭</BookButton>
+          {activeTab === 'advanced' && (
+            <BookButton variant="primary" onClick={handleSave} disabled={loading}>
+              {loading ? '保存中...' : '保存高级配置'}
+            </BookButton>
+          )}
+        </div>
+      }
+    >
+      <div className="grid grid-cols-[220px_1fr] gap-4 h-[75vh]">
+        <div className="space-y-2">
+          <button
+            onClick={() => setActiveTab('advanced')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'advanced'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">高级</div>
+            <div className="text-[11px] text-book-text-muted mt-1">生成参数 / Agent</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('llm')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'llm'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">LLM</div>
+            <div className="text-[11px] text-book-text-muted mt-1">模型 / Key / 测试</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('embedding')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'embedding'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">嵌入</div>
+            <div className="text-[11px] text-book-text-muted mt-1">RAG 向量化</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'queue'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">队列</div>
+            <div className="text-[11px] text-book-text-muted mt-1">并发 / 状态</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('image')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'image'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">图片</div>
+            <div className="text-[11px] text-book-text-muted mt-1">生成配置 / 测试</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('theme')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'theme'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">主题</div>
+            <div className="text-[11px] text-book-text-muted mt-1">切换 / 同步</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('prompts')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'prompts'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">提示词</div>
+            <div className="text-[11px] text-book-text-muted mt-1">查看 / 编辑 / 恢复</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('maxTokens')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'maxTokens'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">Max Tokens</div>
+            <div className="text-[11px] text-book-text-muted mt-1">上下限配置</div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('temperature')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'temperature'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">Temperature</div>
+            <div className="text-[11px] text-book-text-muted mt-1">采样温度</div>
+          </button>
+        </div>
+
+        <div className="min-w-0 overflow-auto custom-scrollbar pr-1">
+          {activeTab === 'advanced' && (
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <h4 className="font-bold text-sm text-book-text-main border-b border-book-border pb-2">生成配置</h4>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <BookInput 
+                    label="章节候选版本数量"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={config.writer_chapter_version_count}
+                    onChange={(e) => setConfig({...config, writer_chapter_version_count: parseInt(e.target.value) || 1})}
+                  />
+                  
+                  <div className="flex items-center pt-6">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox"
+                        className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                        checked={config.writer_parallel_generation}
+                        onChange={(e) => setConfig({...config, writer_parallel_generation: e.target.checked})}
+                      />
+                      <span className="text-sm font-bold text-book-text-sub">启用并行生成</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <BookInput 
+                    label="长篇分部阈值 (章)"
+                    type="number"
+                    value={config.part_outline_threshold}
+                    onChange={(e) => setConfig({...config, part_outline_threshold: parseInt(e.target.value) || 50})}
+                  />
+                  <BookInput 
+                    label="Agent上下文上限 (字符)"
+                    type="number"
+                    step={1000}
+                    value={config.agent_context_max_chars}
+                    onChange={(e) => setConfig({...config, agent_context_max_chars: parseInt(e.target.value) || 50000})}
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
+                提示：LLM/嵌入/提示词等配置已支持在本弹窗中管理，无需手动编辑 config.json。
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'llm' && <LLMConfigsTab />}
+          {activeTab === 'embedding' && <EmbeddingConfigsTab />}
+          {activeTab === 'queue' && <QueueTab />}
+          {activeTab === 'image' && <ImageConfigsTab />}
+          {activeTab === 'theme' && <ThemeTab />}
+          {activeTab === 'prompts' && <PromptsTab />}
+          {activeTab === 'maxTokens' && <MaxTokensTab />}
+          {activeTab === 'temperature' && <TemperatureTab />}
+        </div>
+      </div>
+    </Modal>
+  );
+};

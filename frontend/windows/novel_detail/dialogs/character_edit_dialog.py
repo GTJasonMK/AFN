@@ -12,13 +12,15 @@
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QFrame, QScrollArea, QWidget, QTabWidget
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QTextEdit, QFrame, QWidget
 )
 from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
 from components.base import ThemeAwareWidget
 from utils.dpi_utils import dp, sp
+
+from .base_book_list_edit_dialog import BaseBookListEditDialog
 
 
 class CharacterItemWidget(ThemeAwareWidget, QFrame):
@@ -267,218 +269,37 @@ class CharacterItemWidget(ThemeAwareWidget, QFrame):
         self.index_label.setText(f"角色 #{new_index + 1}")
 
 
-class CharacterListEditDialog(ThemeAwareWidget, QDialog):
+class CharacterListEditDialog(BaseBookListEditDialog):
     """角色列表编辑对话框"""
 
     def __init__(self, characters: list, parent=None):
         self.characters = characters or []
-        self.character_widgets = []
-        # 初始化UI组件引用
-        self.add_btn = None
-        self.count_label = None
-        self.scroll = None
-        self.content = None
-        self.content_layout = None
-        super().__init__(parent)
-        self._setup_ui()
-        self._apply_theme()
+        super().__init__(
+            dialog_title="编辑角色列表",
+            items=self.characters,
+            add_button_text="+ 添加角色",
+            min_width_dp=700,
+            min_height_dp=600,
+            default_width_dp=800,
+            default_height_dp=700,
+            content_spacing_dp=16,
+            parent=parent,
+        )
 
-    def _setup_ui(self):
-        """设置UI"""
-        self.setWindowTitle("编辑角色列表")
-        self.setMinimumSize(dp(700), dp(600))
-        self.resize(dp(800), dp(700))
+    def _create_item_widget(self, item_data: dict, index: int) -> QFrame:
+        """创建单个角色编辑组件"""
+        return CharacterItemWidget(item_data, index)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))
-        layout.setSpacing(dp(16))
+    def _format_count_text(self, count: int) -> str:
+        return f"共 {count} 个角色"
 
-        # 标题
-        title_label = QLabel("编辑角色列表")
-        title_label.setObjectName("dialog_title")
-        layout.addWidget(title_label)
-
-        # 工具栏
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(dp(12))
-
-        self.add_btn = QPushButton("+ 添加角色")
-        self.add_btn.setObjectName("add_btn")
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.clicked.connect(self._add_character)
-        toolbar.addWidget(self.add_btn)
-
-        toolbar.addStretch()
-
-        self.count_label = QLabel(f"共 {len(self.characters)} 个角色")
-        self.count_label.setObjectName("count_label")
-        toolbar.addWidget(self.count_label)
-
-        layout.addLayout(toolbar)
-
-        # 滚动区域
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self.content = QWidget()
-        self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(0, 0, dp(8), 0)
-        self.content_layout.setSpacing(dp(16))
-
-        # 创建角色编辑组件
-        self._create_characters()
-
-        self.content_layout.addStretch()
-        self.scroll.setWidget(self.content)
-        layout.addWidget(self.scroll, stretch=1)
-
-        # 按钮区域
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(dp(12))
-        btn_layout.addStretch()
-
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setObjectName("cancel_btn")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setFixedHeight(dp(38))
-        cancel_btn.setMinimumWidth(dp(80))
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(cancel_btn)
-
-        confirm_btn = QPushButton("确定")
-        confirm_btn.setObjectName("confirm_btn")
-        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        confirm_btn.setFixedHeight(dp(38))
-        confirm_btn.setMinimumWidth(dp(80))
-        confirm_btn.clicked.connect(self.accept)
-        confirm_btn.setDefault(True)
-        btn_layout.addWidget(confirm_btn)
-
-        layout.addLayout(btn_layout)
-
-    def _create_characters(self):
-        """创建所有角色编辑组件"""
-        self.character_widgets.clear()
-
-        for idx, character in enumerate(self.characters):
-            widget = CharacterItemWidget(character, idx)
-            widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_character(w))
-            self.character_widgets.append(widget)
-            self.content_layout.addWidget(widget)
-
-    def _add_character(self):
-        """添加新角色"""
-        idx = len(self.character_widgets)
-        widget = CharacterItemWidget({}, idx)
-        widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_character(w))
-        self.character_widgets.append(widget)
-
-        # 在stretch之前插入
-        self.content_layout.insertWidget(self.content_layout.count() - 1, widget)
-        self._update_count()
-
-        # 聚焦到新角色的名称输入框
-        widget.name_input.setFocus()
-
-    def _delete_character(self, widget: CharacterItemWidget):
-        """删除角色"""
-        if widget in self.character_widgets:
-            self.character_widgets.remove(widget)
-            self.content_layout.removeWidget(widget)
-            widget.deleteLater()
-            self._update_indices()
-            self._update_count()
-
-    def _update_indices(self):
-        """更新所有角色的序号"""
-        for idx, widget in enumerate(self.character_widgets):
-            widget.update_index(idx)
-
-    def _update_count(self):
-        """更新计数"""
-        self.count_label.setText(f"共 {len(self.character_widgets)} 个角色")
+    def _focus_new_item(self, widget: QWidget) -> None:
+        """新增后聚焦到角色名输入框"""
+        try:
+            widget.name_input.setFocus()
+        except Exception:
+            pass
 
     def get_characters(self) -> list:
         """获取编辑后的角色列表"""
-        result = []
-        for widget in self.character_widgets:
-            data = widget.get_data()
-            # 过滤掉没有名字的角色
-            if data.get('name'):
-                result.append(data)
-        return result
-
-    def _apply_theme(self):
-        """应用主题样式"""
-        if not self.add_btn:
-            return
-
-        ui_font = theme_manager.ui_font()
-        bg_color = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-            }}
-            QLabel#dialog_title {{
-                font-family: {ui_font};
-                font-size: {sp(18)}px;
-                font-weight: 700;
-                color: {text_primary};
-            }}
-            QLabel#count_label {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_secondary};
-            }}
-            QPushButton#add_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {accent_color};
-                background-color: transparent;
-                border: 1px dashed {accent_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-            }}
-            QPushButton#add_btn:hover {{
-                background-color: {bg_secondary};
-            }}
-            QPushButton#cancel_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {text_secondary};
-                background-color: transparent;
-                border: 1px solid {border_color};
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#cancel_btn:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
-            }}
-            QPushButton#confirm_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                color: {theme_manager.BUTTON_TEXT};
-                background-color: {accent_color};
-                border: none;
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#confirm_btn:hover {{
-                background-color: {text_primary};
-            }}
-            QScrollArea {{
-                background: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
-        self.content.setStyleSheet("background: transparent;")
+        return self.get_items()

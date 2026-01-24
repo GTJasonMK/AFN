@@ -3,15 +3,16 @@ LLM配置测试结果对话框 - 书籍风格
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFrame,
+    QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton
 )
 from PyQt6.QtCore import Qt
+from components.dialogs import BookStyleDialog
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 
 
-class TestResultDialog(QDialog):
+class TestResultDialog(BookStyleDialog):
     """测试结果对话框 - 书籍风格"""
 
     def __init__(self, success, message, details=None, parent=None):
@@ -19,36 +20,10 @@ class TestResultDialog(QDialog):
         self.success = success
         self.message = message
         self.details = details or {}
-        self._theme_connected = False
         self.setWindowTitle("测试结果")
         self.setMinimumSize(400, 300)
         self._create_ui_structure()
         self._apply_theme()
-        self._connect_theme_signal()
-
-    def _connect_theme_signal(self):
-        """连接主题信号"""
-        if not self._theme_connected:
-            theme_manager.theme_changed.connect(self._on_theme_changed)
-            self._theme_connected = True
-
-    def _disconnect_theme_signal(self):
-        """断开主题信号"""
-        if self._theme_connected:
-            try:
-                theme_manager.theme_changed.disconnect(self._on_theme_changed)
-            except TypeError:
-                pass
-            self._theme_connected = False
-
-    def _on_theme_changed(self, mode: str):
-        """主题改变回调"""
-        self._apply_theme()
-
-    def closeEvent(self, event):
-        """关闭时断开信号"""
-        self._disconnect_theme_signal()
-        super().closeEvent(event)
 
     def _create_ui_structure(self):
         """创建UI结构"""

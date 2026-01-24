@@ -91,6 +91,45 @@ class BaseSection(ThemeAwareFrame):
             {theme_manager.scrollbar()}
         """)
 
+    def _create_scroll_container_layout(
+        self,
+        *,
+        spacing: Optional[int] = None,
+        right_margin: Optional[int] = None,
+    ) -> QVBoxLayout:
+        """创建标准滚动容器骨架，并返回内容区布局
+
+        目的：避免各 Section 重复手写 QScrollArea + 内容容器 + 主布局的样板代码。
+
+        Args:
+            spacing: 内容区布局 spacing，默认 dp(16)
+            right_margin: 内容区布局右侧 margin，默认 dp(8)
+        """
+        spacing_value = spacing if spacing is not None else dp(16)
+        right_margin_value = right_margin if right_margin is not None else dp(8)
+
+        # 创建滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # 内容容器
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, right_margin_value, 0)
+        layout.setSpacing(spacing_value)
+
+        scroll.setWidget(content)
+
+        # 主布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+
+        self._apply_scroll_style(scroll)
+        return layout
+
     def _create_empty_label(
         self,
         text: str,

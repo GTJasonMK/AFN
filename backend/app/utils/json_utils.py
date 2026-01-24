@@ -13,6 +13,7 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from ..exceptions import JSONParseError
+from .content_fields import CONTENT_FIELD_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -470,22 +471,6 @@ def parse_llm_json_with_context(
         preview = raw_text[:preview_len] if raw_text else ""
         logger.log(level, "%s解析失败: %s", context, preview)
     return data
-
-
-# 可能包含章节内容的字段名（按优先级排序）
-CONTENT_FIELD_NAMES = [
-    "full_content",
-    "chapter_content",
-    "content",
-    "chapter_text",
-    "text",
-    "body",
-    "story",
-    "chapter",
-    "output",
-    "result",
-    "response",
-]
 
 
 def extract_llm_content(

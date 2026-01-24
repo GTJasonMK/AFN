@@ -329,19 +329,24 @@ class NovelService(ProjectServiceBase):
             chapters = project.chapters
             total_chapters = len(outlines) or len(chapters)
             completed = sum(1 for chapter in chapters if chapter.selected_version_id)
-            summaries.append(
-                NovelProjectSummary(
-                    id=project.id,
-                    title=project.title,
-                    genre=genre,
-                    last_edited=project.updated_at.isoformat() if project.updated_at else "未知",
-                    completed_chapters=completed,
-                    total_chapters=total_chapters,
-                    status=project.status,
-                    is_imported=project.is_imported,
-                    import_analysis_status=project.import_analysis_status,
+            try:
+                summaries.append(
+                    NovelProjectSummary(
+                        id=str(project.id), # Ensure ID is string
+                        title=str(project.title),
+                        genre=str(genre),
+                        last_edited=str(project.updated_at.isoformat() if project.updated_at else "未知"),
+                        completed_chapters=int(completed),
+                        total_chapters=int(total_chapters),
+                        status=str(project.status),
+                        is_imported=bool(project.is_imported) if project.is_imported is not None else False,
+                        import_analysis_status=project.import_analysis_status,
+                    )
                 )
-            )
+            except Exception as e:
+                logger.error(f"Failed to serialize project {project.id}: {e}")
+                # Continue with other projects instead of crashing
+                continue
 
         return summaries, total
 

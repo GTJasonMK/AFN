@@ -28,7 +28,7 @@ from ....services.coding_rag import (
     CodingDataType,
     CompletenessReport,
 )
-from ..rag_helpers import build_type_details
+from ..rag_helpers import run_completeness_check
 from ..rag_schemas import CompletenessResponseBase, TypeDetailBase
 
 logger = logging.getLogger(__name__)
@@ -288,25 +288,22 @@ async def check_rag_completeness(
         )
 
     # 创建入库服务并检查完整性
-    ingestion_service = CodingProjectIngestionService(
+    report, types_detail = await run_completeness_check(
+        project_id=project_id,
         session=session,
         vector_store=vector_store,
         llm_service=llm_service,
-        user_id=user.id
+        user_id=user.id,
+        service_factory=CodingProjectIngestionService,
+        build_detail=_build_type_detail,
+        log_message=lambda rep: logger.info(
+            "RAG完整性检查: project=%s complete=%s db_total=%d vector_total=%d "
+            "new=%d modified=%d deleted=%d",
+            project_id, rep.complete,
+            rep.total_db_count, rep.total_vector_count,
+            rep.total_new, rep.total_modified, rep.total_deleted
+        ),
     )
-
-    report = await ingestion_service.check_completeness(project_id)
-
-    logger.info(
-        "RAG完整性检查: project=%s complete=%s db_total=%d vector_total=%d "
-        "new=%d modified=%d deleted=%d",
-        project_id, report.complete,
-        report.total_db_count, report.total_vector_count,
-        report.total_new, report.total_modified, report.total_deleted
-    )
-
-    # 转换为响应格式
-    types_detail = build_type_details(report.type_details, _build_type_detail)
 
     return CompletenessResponse(
         project_id=project_id,

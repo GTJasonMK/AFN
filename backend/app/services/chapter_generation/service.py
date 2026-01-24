@@ -19,6 +19,7 @@ from ...core.constants import LLMConstants
 from ...models.novel import ChapterOutline, NovelProject
 from ...schemas.novel import ChapterAnalysisData
 from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, parse_llm_json_safe
+from ...utils.content_fields import CONTENT_FIELD_NAMES
 from ...utils.exception_helpers import log_exception
 from ...utils.blueprint_utils import prepare_blueprint_for_generation
 from ...utils.writer_helpers import extract_tail_excerpt
@@ -559,11 +560,8 @@ class ChapterGenerationService:
                     logger.debug("[Task %s] 版本 %s 解析后的键: %s", task_id, idx + 1, list(result.keys()) if isinstance(result, dict) else type(result))
                     # 如果解析成功但没有content字段，检查是否有其他已知的内容字段
                     # 如果都没有，直接将原始文本作为content（LLM可能返回纯文本被错误解析）
-                    # 注意：此列表必须与 ChapterVersionProcessor.CONTENT_FIELD_NAMES 保持一致
-                    content_fields = [
-                        "full_content", "chapter_content", "content", "chapter_text", "text",
-                        "body", "story", "chapter", "output", "result", "response",
-                    ]
+                    # 注意：使用统一的内容字段别名常量，避免多处漂移
+                    content_fields = CONTENT_FIELD_NAMES
                     has_content_field = any(
                         field in result and isinstance(result[field], str) and result[field].strip()
                         for field in content_fields

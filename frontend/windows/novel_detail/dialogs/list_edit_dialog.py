@@ -6,12 +6,14 @@
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QFrame, QScrollArea, QWidget
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QTextEdit, QFrame, QWidget
 )
 from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
+
+from .base_book_list_edit_dialog import BaseBookListEditDialog
 
 
 class ListItemWidget(QFrame):
@@ -151,7 +153,7 @@ class ListItemWidget(QFrame):
         self.index_label.setText(f"#{new_index + 1}")
 
 
-class ListEditDialog(QDialog):
+class ListEditDialog(BaseBookListEditDialog):
     """通用列表编辑对话框"""
 
     def __init__(
@@ -162,209 +164,31 @@ class ListEditDialog(QDialog):
         field_labels: dict = None,
         parent=None
     ):
-        super().__init__(parent)
         self.dialog_title = title
         self.items = items or []
         self.item_fields = item_fields or ['name', 'description']
         self.field_labels = field_labels or {'name': '名称', 'description': '描述'}
+        super().__init__(
+            dialog_title=self.dialog_title,
+            items=self.items,
+            add_button_text="+ 添加项目",
+            min_width_dp=600,
+            min_height_dp=500,
+            default_width_dp=700,
+            default_height_dp=600,
+            content_spacing_dp=12,
+            parent=parent,
+        )
 
-        self.item_widgets = []
-        self._setup_ui()
-        self._apply_style()
+    def _create_item_widget(self, item_data: dict, index: int) -> QFrame:
+        return ListItemWidget(item_data, self.field_labels, index)
 
-    def _setup_ui(self):
-        """设置UI"""
-        self.setWindowTitle(self.dialog_title)
-        self.setMinimumSize(dp(600), dp(500))
-        self.resize(dp(700), dp(600))
+    def _format_count_text(self, count: int) -> str:
+        return f"共 {count} 项"
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(dp(24), dp(24), dp(24), dp(24))
-        layout.setSpacing(dp(16))
-
-        # 标题
-        title_label = QLabel(self.dialog_title)
-        title_label.setObjectName("dialog_title")
-        layout.addWidget(title_label)
-
-        # 工具栏
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(dp(12))
-
-        self.add_btn = QPushButton("+ 添加项目")
-        self.add_btn.setObjectName("add_btn")
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.clicked.connect(self._add_item)
-        toolbar.addWidget(self.add_btn)
-
-        toolbar.addStretch()
-
-        self.count_label = QLabel(f"共 {len(self.items)} 项")
-        self.count_label.setObjectName("count_label")
-        toolbar.addWidget(self.count_label)
-
-        layout.addLayout(toolbar)
-
-        # 滚动区域
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self.content = QWidget()
-        self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(0, 0, dp(8), 0)
-        self.content_layout.setSpacing(dp(12))
-
-        # 创建列表项
-        self._create_items()
-
-        self.content_layout.addStretch()
-        self.scroll.setWidget(self.content)
-        layout.addWidget(self.scroll, stretch=1)
-
-        # 按钮区域
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(dp(12))
-        btn_layout.addStretch()
-
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setObjectName("cancel_btn")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setFixedHeight(dp(38))
-        cancel_btn.setMinimumWidth(dp(80))
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(cancel_btn)
-
-        confirm_btn = QPushButton("确定")
-        confirm_btn.setObjectName("confirm_btn")
-        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        confirm_btn.setFixedHeight(dp(38))
-        confirm_btn.setMinimumWidth(dp(80))
-        confirm_btn.clicked.connect(self.accept)
-        confirm_btn.setDefault(True)
-        btn_layout.addWidget(confirm_btn)
-
-        layout.addLayout(btn_layout)
-
-    def _create_items(self):
-        """创建所有列表项"""
-        self.item_widgets.clear()
-
-        for idx, item in enumerate(self.items):
-            widget = ListItemWidget(item, self.field_labels, idx)
-            widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_item(w))
-            self.item_widgets.append(widget)
-            self.content_layout.addWidget(widget)
-
-    def _add_item(self):
-        """添加新项目"""
-        idx = len(self.item_widgets)
-        widget = ListItemWidget({}, self.field_labels, idx)
-        widget.delete_btn.clicked.connect(lambda checked, w=widget: self._delete_item(w))
-        self.item_widgets.append(widget)
-
-        # 在stretch之前插入
-        self.content_layout.insertWidget(self.content_layout.count() - 1, widget)
-        self._update_count()
-
-        # 聚焦到新项目的名称输入框
-        widget.name_input.setFocus()
-
-    def _delete_item(self, widget: ListItemWidget):
-        """删除项目"""
-        if widget in self.item_widgets:
-            self.item_widgets.remove(widget)
-            self.content_layout.removeWidget(widget)
-            widget.deleteLater()
-            self._update_indices()
-            self._update_count()
-
-    def _update_indices(self):
-        """更新所有项目的序号"""
-        for idx, widget in enumerate(self.item_widgets):
-            widget.update_index(idx)
-
-    def _update_count(self):
-        """更新计数"""
-        self.count_label.setText(f"共 {len(self.item_widgets)} 项")
-
-    def get_items(self) -> list:
-        """获取编辑后的列表"""
-        result = []
-        for widget in self.item_widgets:
-            data = widget.get_data()
-            # 过滤掉空项
-            if data.get('name'):
-                result.append(data)
-        return result
-
-    def _apply_style(self):
-        """应用样式"""
-        ui_font = theme_manager.ui_font()
-        bg_color = theme_manager.book_bg_primary()
-        bg_secondary = theme_manager.book_bg_secondary()
-        text_primary = theme_manager.book_text_primary()
-        text_secondary = theme_manager.book_text_secondary()
-        accent_color = theme_manager.book_accent_color()
-        border_color = theme_manager.book_border_color()
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-            }}
-            QLabel#dialog_title {{
-                font-family: {ui_font};
-                font-size: {sp(18)}px;
-                font-weight: 700;
-                color: {text_primary};
-            }}
-            QLabel#count_label {{
-                font-family: {ui_font};
-                font-size: {sp(13)}px;
-                color: {text_secondary};
-            }}
-            QPushButton#add_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {accent_color};
-                background-color: transparent;
-                border: 1px dashed {accent_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-            }}
-            QPushButton#add_btn:hover {{
-                background-color: {bg_secondary};
-            }}
-            QPushButton#cancel_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                color: {text_secondary};
-                background-color: transparent;
-                border: 1px solid {border_color};
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#cancel_btn:hover {{
-                color: {accent_color};
-                border-color: {accent_color};
-            }}
-            QPushButton#confirm_btn {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                color: {theme_manager.BUTTON_TEXT};
-                background-color: {accent_color};
-                border: none;
-                border-radius: {dp(6)}px;
-            }}
-            QPushButton#confirm_btn:hover {{
-                background-color: {text_primary};
-            }}
-            QScrollArea {{
-                background: transparent;
-                border: none;
-            }}
-            {theme_manager.scrollbar()}
-        """)
-
-        self.content.setStyleSheet("background: transparent;")
+    def _focus_new_item(self, widget: QWidget) -> None:
+        """新增后聚焦到名称输入框"""
+        try:
+            widget.name_input.setFocus()
+        except Exception:
+            pass

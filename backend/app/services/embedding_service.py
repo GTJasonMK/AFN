@@ -142,12 +142,16 @@ def _find_local_model_path(model_name: str) -> Optional[str]:
         本地模型路径，如果未找到返回 None
     """
     import os
+    from pathlib import Path
 
-    # 检查 SENTENCE_TRANSFORMERS_HOME（sentence-transformers 使用的目录）
+    # 优先检查 SENTENCE_TRANSFORMERS_HOME；若未设置，则回退到项目默认目录 storage/models（与 run_app.py 保持一致）
     st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME")
-    if st_home:
+    fallback_models_dir = str((settings.storage_dir / "models").resolve())
+
+    st_home_candidates = [p for p in [st_home, fallback_models_dir] if p]
+    for candidate_home in st_home_candidates:
         # 格式1: {ST_HOME}/{model_name.replace('/', '_')}
-        st_cache_dir = os.path.join(st_home, model_name.replace("/", "_"))
+        st_cache_dir = os.path.join(candidate_home, model_name.replace("/", "_"))
         if os.path.exists(st_cache_dir):
             # 检查是否是 HF Hub 格式（有 snapshots 子目录）
             snapshot_path = _resolve_hf_hub_snapshot(st_cache_dir)
@@ -159,8 +163,14 @@ def _find_local_model_path(model_name: str) -> Optional[str]:
                 logger.debug("模型在 ST_HOME (直接格式): %s", st_cache_dir)
                 return st_cache_dir
 
+            # 部分 SentenceTransformer 模型根目录可能没有 config.json，但包含 modules.json 等文件
+            if os.path.exists(os.path.join(st_cache_dir, "modules.json")):
+                logger.debug("模型在 ST_HOME (SentenceTransformer格式): %s", st_cache_dir)
+                return st_cache_dir
+
         # 格式2: {ST_HOME}/{model_name}
-        st_cache_dir2 = os.path.join(st_home, model_name)
+        # 注意：model_name 可能包含 "/"，在 Windows 下会被当作子目录
+        st_cache_dir2 = os.path.join(candidate_home, model_name)
         if os.path.exists(st_cache_dir2):
             snapshot_path = _resolve_hf_hub_snapshot(st_cache_dir2)
             if snapshot_path:
@@ -168,6 +178,9 @@ def _find_local_model_path(model_name: str) -> Optional[str]:
                 return snapshot_path
             if os.path.exists(os.path.join(st_cache_dir2, "config.json")):
                 logger.debug("模型在 ST_HOME (直接格式): %s", st_cache_dir2)
+                return st_cache_dir2
+            if os.path.exists(os.path.join(st_cache_dir2, "modules.json")):
+                logger.debug("模型在 ST_HOME (SentenceTransformer格式): %s", st_cache_dir2)
                 return st_cache_dir2
 
     # 检查 HF_HOME（HuggingFace Hub 使用的目录）
@@ -179,7 +192,12 @@ def _find_local_model_path(model_name: str) -> Optional[str]:
             logger.debug("模型在 HF_HOME (HF Hub格式): %s", snapshot_path)
             return snapshot_path
 
-    logger.debug("模型未找到，已检查目录: ST_HOME=%s, HF_HOME=%s", st_home, hf_home)
+    logger.debug(
+        "模型未找到，已检查目录: SENTENCE_TRANSFORMERS_HOME=%s, fallback_models_dir=%s, HF_HOME=%s",
+        st_home,
+        fallback_models_dir,
+        hf_home,
+    )
     return None
 
 
@@ -205,10 +223,16 @@ def _load_sentence_transformer(model_name: str, device: str) -> Any:
     if not local_path:
         st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME", "")
         hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
-        expected_path = os.path.join(st_home, model_name.replace("/", "_")) if st_home else os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}")
+        fallback_models_dir = str((settings.storage_dir / "models").resolve())
+        expected_paths = []
+        if st_home:
+            expected_paths.append(os.path.join(st_home, model_name.replace("/", "_")))
+        expected_paths.append(os.path.join(fallback_models_dir, model_name.replace("/", "_")))
+        expected_paths.append(os.path.join(hf_home, "hub", f"models--{model_name.replace('/', '--')}"))
         raise FileNotFoundError(
             f"本地嵌入模型不存在: {model_name}\n"
-            f"请将模型下载到: {expected_path}"
+            f"请将模型下载到以下任一目录（任选其一即可）:\n"
+            + "\n".join(f"- {p}" for p in expected_paths)
         )
 
     # 使用本地路径直接加载（不会触发网络请求）

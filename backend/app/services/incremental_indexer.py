@@ -62,10 +62,14 @@ class IncrementalIndexer:
 
         # 1. 索引角色状态
         if analysis_data.character_states:
+            relationships_snapshot = self._build_relationships_snapshot(
+                analysis_data.key_events or []
+            )
             stats["character_states"] = await self._index_character_states(
                 project_id=project_id,
                 chapter_number=chapter_number,
                 character_states=analysis_data.character_states,
+                relationships_snapshot=relationships_snapshot,
             )
 
         # 2. 索引伏笔信息
@@ -100,6 +104,7 @@ class IncrementalIndexer:
         project_id: str,
         chapter_number: int,
         character_states: Dict[str, Any],
+        relationships_snapshot: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> int:
         """索引角色状态
 
@@ -137,6 +142,10 @@ class IncrementalIndexer:
             else:
                 continue
 
+            snapshot = None
+            if relationships_snapshot:
+                snapshot = relationships_snapshot.get(char_name)
+
             state_record = CharacterStateIndex(
                 project_id=project_id,
                 chapter_number=chapter_number,
@@ -145,12 +154,52 @@ class IncrementalIndexer:
                 status=status,
                 changes=changes,
                 emotional_state=emotional_state,
+                relationships_snapshot=snapshot,
             )
             self.session.add(state_record)
             indexed_count += 1
 
         await self.session.flush()
         return indexed_count
+
+    def _build_relationships_snapshot(
+        self,
+        key_events: List[Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """构建角色关系快照（基于章节关键事件）"""
+        snapshots: Dict[str, Dict[str, Any]] = {}
+        if not key_events:
+            return snapshots
+
+        for event in key_events:
+            if hasattr(event, "type"):
+                event_type = event.type
+                description = getattr(event, "description", "") or ""
+                importance = getattr(event, "importance", "medium")
+                involved_characters = getattr(event, "involved_characters", []) or []
+            elif isinstance(event, dict):
+                event_type = event.get("type")
+                description = event.get("description", "") or ""
+                importance = event.get("importance", "medium")
+                involved_characters = event.get("involved_characters", []) or []
+            else:
+                continue
+
+            if event_type != "relationship" or not involved_characters:
+                continue
+
+            for character_name in involved_characters:
+                if not character_name:
+                    continue
+                related = [name for name in involved_characters if name and name != character_name]
+                snapshot = snapshots.setdefault(character_name, {"events": []})
+                snapshot["events"].append({
+                    "description": description,
+                    "importance": importance,
+                    "related_characters": related,
+                })
+
+        return snapshots
 
     async def _index_planted_foreshadowing(
         self,

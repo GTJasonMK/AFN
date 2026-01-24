@@ -1,86 +1,281 @@
-import React, { useEffect, useState } from 'react';
-import { apiClient } from '../api/client';
-import { BookCard } from '../components/ui/BookCard';
-import { BookButton } from '../components/ui/BookButton';
-
-interface Novel {
-  id: string;
-  title: string;
-  description?: string;
-  cover_image?: string;
-  updated_at: string;
-}
+import React, { useEffect, useState, useMemo } from 'react';
+import { novelsApi, Novel } from '../api/novels';
+import { codingApi, CodingProjectSummary } from '../api/coding';
+import { CreateProjectModal } from '../components/business/CreateProjectModal';
+import { ProjectListItem, ProjectListItemModel } from '../components/business/ProjectListItem';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Settings, Code, FolderOpen, Upload } from 'lucide-react';
+import { CREATIVE_QUOTES } from '../utils/constants';
+import { ParticleBackground } from '../components/ui/ParticleBackground';
+import { ImportModal } from '../components/business/ImportModal';
+import { useUIStore } from '../store/ui';
 
 export const NovelList: React.FC = () => {
   const [novels, setNovels] = useState<Novel[]>([]);
+  const [codingProjects, setCodingProjects] = useState<CodingProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'recent' | 'all'>('recent');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createDefaultType, setCreateDefaultType] = useState<'novel' | 'coding'>('novel');
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [projectKind, setProjectKind] = useState<'novel' | 'coding'>('novel');
+  const navigate = useNavigate();
+  const { openSettings } = useUIStore();
+
+  // Random quote
+  const quote = useMemo(() => {
+    return CREATIVE_QUOTES[Math.floor(Math.random() * CREATIVE_QUOTES.length)];
+  }, []);
+
+  const fetchNovels = async () => {
+    setLoading(true);
+    try {
+      const [novelList, codingList] = await Promise.all([
+        novelsApi.list(),
+        codingApi.list(),
+      ]);
+      setNovels(novelList);
+      setCodingProjects(codingList);
+    } catch (err) {
+      console.error("Failed to fetch novels", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchNovels = async () => {
-      try {
-        const res = await apiClient.get('/novels');
-        setNovels(res.data);
-      } catch (err) {
-        console.error("Failed to fetch novels", err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchNovels();
   }, []);
 
+  const handleProjectClick = (project: ProjectListItemModel) => {
+    if (project.kind === 'coding') {
+      const status = (project.status || '').toLowerCase();
+      if (status.includes('draft')) {
+        navigate(`/coding/inspiration/${project.id}`);
+      } else {
+        navigate(`/coding/detail/${project.id}`);
+      }
+      return;
+    }
+
+    const status = project.status;
+    if (status === 'inspiration') {
+      navigate(`/inspiration/${project.id}`);
+    } else if (status === 'blueprint_ready') {
+      navigate(`/novel/${project.id}`);
+    } else {
+      navigate(`/write/${project.id}`);
+    }
+  };
+
+  const handleDelete = async (project: ProjectListItemModel) => {
+    if (confirm(`确定要删除项目「${project.title}」吗？`)) {
+      try {
+        if (project.kind === 'coding') {
+          await codingApi.deleteProject(project.id);
+        } else {
+          await novelsApi.delete([project.id]);
+        }
+        fetchNovels();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const currentProjects = useMemo<ProjectListItemModel[]>(() => {
+    if (projectKind === 'coding') {
+      return codingProjects.map((p) => ({
+        kind: 'coding',
+        id: p.id,
+        title: p.title,
+        description: p.project_type_desc || 'Prompt 工程',
+        status: (p.status || '').toLowerCase(),
+        updated_at: p.last_edited,
+      }));
+    }
+    return novels.map((n) => ({
+      kind: 'novel',
+      id: n.id,
+      title: n.title,
+      description: n.description,
+      status: n.status,
+      updated_at: n.updated_at,
+    }));
+  }, [projectKind, codingProjects, novels]);
+
+  const recentProjects = useMemo(() => {
+    return [...currentProjects]
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .slice(0, 10);
+  }, [currentProjects]);
+
+  const displayedProjects = activeTab === 'recent' ? recentProjects : currentProjects;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="font-serif text-3xl font-bold text-book-text-main mb-2">
-            我的书桌
-          </h1>
-          <p className="text-book-text-sub text-sm">
-            Writing Desk / 项目列表
-          </p>
-        </div>
-        <BookButton variant="primary" size="lg">
-          + 新建小说
-        </BookButton>
+    <div className="flex h-screen w-full bg-book-bg overflow-hidden relative">
+      <ParticleBackground />
+      {/* Background decoration (Simplified particle effect) */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
+        <div className="absolute -top-20 -left-20 w-96 h-96 bg-book-primary/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute top-1/2 right-0 w-64 h-64 bg-book-accent/10 rounded-full blur-3xl animate-pulse delay-700" />
       </div>
 
-      {loading ? (
-        <div className="text-book-text-muted">加载中...</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {novels.map((novel) => (
-            <BookCard key={novel.id} hover className="flex flex-col h-full group">
-              <div className="flex-1">
-                <div className="flex justify-between items-start">
-                  <h3 className="font-serif text-xl font-bold text-book-text-main mb-2 group-hover:text-book-primary transition-colors">
-                    {novel.title}
-                  </h3>
-                  {/* 可以在这里放一个SVG Icon */}
-                </div>
-                <p className="text-book-text-sub text-sm line-clamp-3">
-                  {novel.description || "暂无描述..."}
-                </p>
-              </div>
-              
-              <div className="mt-4 pt-4 border-t border-book-border/50 flex justify-between items-center text-xs text-book-text-muted">
-                <span>{new Date(novel.updated_at).toLocaleDateString()}</span>
-                <span className="bg-book-bg px-2 py-1 rounded">连载中</span>
-              </div>
-            </BookCard>
-          ))}
+      {/* LEFT COLUMN: Actions & Branding */}
+      <div className="w-[380px] flex flex-col justify-between px-12 py-20 z-10">
+        
+        <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-700 my-auto">
+          {/* Branding */}
+          <div className="space-y-4">
+            <h1 className="font-serif text-6xl font-bold text-book-text-main tracking-wider">
+              AFN
+            </h1>
+            <p className="font-sans text-lg text-book-text-sub tracking-wide">
+              AI 驱动的长篇小说创作助手
+            </p>
+          </div>
+
+          {/* Quote */}
+          <div className="space-y-2 border-l-4 border-book-primary/30 pl-4 py-1">
+            <p className="font-serif text-lg italic text-book-text-secondary leading-relaxed">
+              {quote[0]}
+            </p>
+            <p className="font-serif text-xs italic text-book-text-muted">
+              {quote[1]}
+            </p>
+          </div>
+
+          <div className="h-4" />
+
+          {/* Action Buttons */}
+          <div className="space-y-4 w-full max-w-xs">
+            <button 
+              onClick={() => { setCreateDefaultType('novel'); setIsCreateModalOpen(true); }}
+              className="w-full py-3.5 px-6 rounded-xl bg-book-accent text-white font-medium shadow-lg shadow-book-accent/20 hover:bg-book-text-main hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center gap-2 group"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+              创建小说
+            </button>
+
+            <button 
+              onClick={() => { setCreateDefaultType('coding'); setIsCreateModalOpen(true); }}
+              className="w-full py-3.5 px-6 rounded-xl bg-book-bg-paper border-2 border-book-accent text-book-accent font-medium hover:bg-book-accent hover:text-white transition-all duration-300 flex items-center justify-center gap-2"
+            >
+              <Code size={20} />
+              创建 Prompt 工程
+            </button>
+
+            <button 
+              onClick={() => setActiveTab('all')}
+              className="w-full py-3.5 px-6 rounded-xl bg-transparent border border-book-border text-book-text-main hover:border-book-accent hover:text-book-accent transition-all duration-300 flex items-center justify-center gap-2"
+            >
+              <FolderOpen size={20} />
+              查看全部项目
+            </button>
+
+            <button 
+              onClick={() => setIsImportOpen(true)}
+              className="w-full py-3.5 px-6 rounded-xl bg-book-bg-paper border border-book-border text-book-text-main hover:border-book-primary hover:text-book-primary transition-all duration-300 flex items-center justify-center gap-2"
+              title="导入 TXT 小说并自动分析（桌面版同款流程）"
+            >
+              <Upload size={20} />
+              导入 TXT 小说
+            </button>
+          </div>
+        </div>
+        
+        <div className="absolute bottom-8 left-16">
+	            <button 
+	                onClick={openSettings}
+	                className="text-book-text-muted hover:text-book-text-main flex items-center gap-2 text-sm transition-colors"
+	            >
+	                <Settings size={16} /> 设置
+	            </button>
+	        </div>
+      </div>
+
+	      {/* RIGHT COLUMN: Project List */}
+	      <div className="flex-1 bg-book-bg-glass backdrop-blur-sm border-l border-book-border/30 p-12 flex flex-col z-10">
+          {/* Project Kind Toggle */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setProjectKind('novel')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
+                projectKind === 'novel'
+                  ? 'bg-book-bg-paper border-book-border text-book-text-main'
+                  : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
+              }`}
+            >
+              小说
+            </button>
+            <button
+              onClick={() => setProjectKind('coding')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
+                projectKind === 'coding'
+                  ? 'bg-book-bg-paper border-book-border text-book-text-main'
+                  : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
+              }`}
+            >
+              Prompt 工程
+            </button>
+          </div>
+	        
+	        {/* Tabs */}
+	        <div className="flex gap-6 border-b border-book-border/30 pb-4 mb-6">
+	          <button
+            onClick={() => setActiveTab('recent')}
+            className={`text-lg font-medium transition-colors pb-1 relative ${activeTab === 'recent' ? 'text-book-accent' : 'text-book-text-muted hover:text-book-text-main'}`}
+          >
+            最近项目
+            {activeTab === 'recent' && <div className="absolute bottom-[-17px] left-0 right-0 h-0.5 bg-book-accent" />}
+          </button>
           
-          {/* 空状态下的占位卡片 */}
-          {novels.length === 0 && (
-            <BookCard variant="flat" className="border-dashed border-2 border-book-border flex items-center justify-center min-h-[200px]">
-              <div className="text-center">
-                <p className="text-book-text-muted mb-4">还没有项目</p>
-                <BookButton variant="secondary" size="sm">创建第一个项目</BookButton>
-              </div>
-            </BookCard>
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`text-lg font-medium transition-colors pb-1 relative ${activeTab === 'all' ? 'text-book-accent' : 'text-book-text-muted hover:text-book-text-main'}`}
+          >
+            全部项目
+            {activeTab === 'all' && <div className="absolute bottom-[-17px] left-0 right-0 h-0.5 bg-book-accent" />}
+          </button>
+        </div>
+
+	        {/* List Content */}
+	        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
+	          {loading ? (
+            // Skeleton
+            [1, 2, 3, 4].map(i => (
+              <div key={i} className="h-20 w-full bg-book-bg-paper/40 rounded-lg animate-pulse" />
+            ))
+	          ) : displayedProjects.length > 0 ? (
+	            displayedProjects.map(project => (
+	              <ProjectListItem 
+	                key={project.id} 
+	                project={project} 
+	                onClick={handleProjectClick}
+	                onDelete={handleDelete}
+	              />
+	            ))
+	          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-book-text-muted opacity-60">
+              <FolderOpen size={48} className="mb-4 stroke-1" />
+              <p>暂无项目，开始创作吧</p>
+            </div>
           )}
         </div>
-      )}
-    </div>
-  );
+      </div>
+
+	      <CreateProjectModal 
+	        isOpen={isCreateModalOpen} 
+	        onClose={() => setIsCreateModalOpen(false)}
+	        onSuccess={fetchNovels}
+          defaultType={createDefaultType}
+	      />
+      
+	        <ImportModal
+	          isOpen={isImportOpen}
+	          onClose={() => setIsImportOpen(false)}
+	          onSuccess={fetchNovels}
+	        />
+	    </div>
+	  );
 };

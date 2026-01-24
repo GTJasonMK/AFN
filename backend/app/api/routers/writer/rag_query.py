@@ -91,12 +91,15 @@ async def query_rag(
 
     # 检查向量库是否可用
     if vector_store is None:
-        logger.warning("RAG查询失败：向量库未启用")
+        logger.warning("RAG查询失败：向量库不可用（未启用或初始化失败）")
         return RAGQueryResponse(
             query=request.query,
             chunks=[],
             summaries=[],
-            message="向量库未启用。请在配置中开启向量库功能。",
+            message=(
+                "向量库不可用（未启用或初始化失败）。"
+                "请检查 VECTOR_DB_URL 是否为空，以及 libsql-client 是否已安装。"
+            ),
         )
 
     # 生成查询向量

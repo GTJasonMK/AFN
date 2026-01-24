@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .schemas import ImageConfigCreate, ImageConfigUpdate
 from .providers import ImageProviderFactory
 from ...models.image_config import ImageGenerationConfig
+from ...utils.config_import_utils import resolve_unique_name
 
 logger = logging.getLogger(__name__)
 
@@ -288,16 +289,9 @@ class ImageConfigService:
 
         for config_data in data.configs:
             try:
-                # 处理重名
                 original_name = config_data.config_name
-                config_name = original_name
-                suffix = 1
-
-                while config_name in existing_names:
-                    config_name = f"{original_name} ({suffix})"
-                    suffix += 1
-
-                if config_name != original_name:
+                config_name, renamed = resolve_unique_name(original_name, existing_names)
+                if renamed:
                     details.append(
                         f"配置 '{original_name}' 已重命名为 '{config_name}'（避免重名）"
                     )

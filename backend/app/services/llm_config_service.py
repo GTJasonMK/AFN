@@ -9,6 +9,7 @@ from ..exceptions import ResourceNotFoundError, ConflictError, InvalidParameterE
 from ..models import LLMConfig
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..schemas.llm_config import LLMConfigCreate, LLMConfigRead, LLMConfigUpdate, LLMConfigTestResponse
+from ..utils.config_import_utils import resolve_unique_name
 from ..utils.llm_tool import ChatMessage, ContentCollectMode, LLMClient
 from .config_service_base import BaseConfigService
 
@@ -409,16 +410,9 @@ class LLMConfigService(BaseConfigService):
 
         for config_data in data.configs:
             try:
-                # 处理重名：如果配置名已存在，添加后缀
                 original_name = config_data.config_name
-                config_name = original_name
-                suffix = 1
-
-                while config_name in existing_names:
-                    config_name = f"{original_name} ({suffix})"
-                    suffix += 1
-
-                if config_name != original_name:
+                config_name, renamed = resolve_unique_name(original_name, existing_names)
+                if renamed:
                     details.append(
                         f"配置 '{original_name}' 已重命名为 '{config_name}'（避免重名）"
                     )

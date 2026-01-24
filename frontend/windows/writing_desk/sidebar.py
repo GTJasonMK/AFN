@@ -6,11 +6,10 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QWidget, QScrollArea, QGraphicsDropShadowEffect, QSizePolicy
+    QVBoxLayout, QFrame, QWidget, QScrollArea
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QPixmap
 from components.base import ThemeAwareFrame
 from components.empty_state import EmptyState
 from components.loading_spinner import ListLoadingState
@@ -18,12 +17,12 @@ from themes.theme_manager import theme_manager
 from themes.modern_effects import ModernEffects
 from themes.transparency_aware_mixin import TransparencyAwareMixin
 from themes.transparency_tokens import OpacityTokens
-from themes import ButtonStyles
-from utils.dpi_utils import dp, sp
+from utils.dpi_utils import dp
 from utils.message_service import MessageService, confirm
 from utils.async_worker import AsyncWorker
 from utils.component_pool import ComponentPool, reset_chapter_card
 from api.manager import APIClientManager
+from windows.novel_detail.chapter_outline.components import OutlineActionBar
 from .components import ChapterCard, FlippableBlueprintCard
 from .dialogs import OutlineEditDialog
 from .utils import extract_protagonist_name
@@ -66,8 +65,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         self.blueprint_card = None  # 可翻转的蓝图卡片
         self.chapters_container = None  # 章节卡片容器
         self.empty_state = None
-        self.outline_btn = None
-        self.add_chapter_btn = None  # 新增章节按钮
+        self.outline_action_bar = None
 
         super().__init__(parent)
         self._init_transparency_state()  # 初始化透明度状态
@@ -101,33 +99,26 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         self.blueprint_card.viewProfileRequested.connect(self._on_view_profile_requested)
         layout.addWidget(self.blueprint_card)
 
-        # 章节列表标题
-        list_header = QWidget()
-        list_header.setObjectName("list_header")
-        list_header_layout = QHBoxLayout(list_header)
-        list_header_layout.setContentsMargins(0, 0, 0, 0)
-        list_header_layout.setSpacing(dp(8))
-
-        chapters_title = QLabel("章节列表")
-        chapters_title.setObjectName("chapters_title")
-        list_header_layout.addWidget(chapters_title, stretch=1)
-
-        # 新增章节按钮（用于空白项目或手动添加）
-        self.add_chapter_btn = QPushButton("+")
-        self.add_chapter_btn.setObjectName("add_chapter_btn")
-        self.add_chapter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_chapter_btn.setToolTip("新增章节")
-        self.add_chapter_btn.setFixedSize(dp(32), dp(32))
-        self.add_chapter_btn.clicked.connect(self.createChapter.emit)
-        list_header_layout.addWidget(self.add_chapter_btn)
-
-        # 生成大纲按钮
-        self.outline_btn = QPushButton("生成大纲")
-        self.outline_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.outline_btn.clicked.connect(self.generateOutline.emit)
-        list_header_layout.addWidget(self.outline_btn)
-
-        layout.addWidget(list_header)
+        # 章节列表操作栏
+        self.outline_action_bar = OutlineActionBar(
+            title="章节列表",
+            current_count=0,
+            total_count=0,
+            outline_type="chapter",
+            editable=True,
+            show_continue_button=True,
+            show_add_button=True,
+            show_regenerate_button=False,
+            show_delete_button=False,
+            show_progress=False,
+            add_label="+",
+            continue_label="生成大纲",
+            add_tooltip="新增章节",
+            continue_tooltip="生成章节大纲",
+        )
+        self.outline_action_bar.addOutlineClicked.connect(self.createChapter.emit)
+        self.outline_action_bar.continueGenerateClicked.connect(self.generateOutline.emit)
+        layout.addWidget(self.outline_action_bar)
 
         # 章节列表容器（使用滚动区域）
         scroll_area = QScrollArea()
@@ -178,9 +169,6 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         # 应用透明度效果
         self._apply_transparency()
 
-        # 使用现代UI字体
-        ui_font = theme_manager.ui_font()
-
         # 调试日志
         logger.info(f"=== WDSidebar._apply_theme() ===")
         logger.info(f"transparency_enabled: {self._transparency_enabled}, opacity: {self._current_opacity}")
@@ -206,9 +194,6 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             if hasattr(self, 'chapters_container') and self.chapters_container:
                 self._make_widget_transparent(self.chapters_container)
 
-            if list_header := self.findChild(QWidget, "list_header"):
-                self._make_widget_transparent(list_header)
-
         else:
             # 非透明模式 - 使用正常背景色
             # 直接设置样式，不使用Python类名选择器
@@ -219,44 +204,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
 
         # 蓝图卡片主题由FlippableBlueprintCard自行管理
 
-        # 列表标题区
-        if list_header := self.findChild(QWidget, "list_header"):
-            list_header.setStyleSheet("background-color: transparent;")
-
-        # 章节列表标题
-        if chapters_title := self.findChild(QLabel, "chapters_title"):
-            chapters_title.setStyleSheet(f"""
-                background: transparent;
-                border: none;
-                font-family: {ui_font};
-                font-size: {theme_manager.FONT_SIZE_LG};
-                font-weight: {theme_manager.FONT_WEIGHT_BOLD};
-                color: {theme_manager.TEXT_PRIMARY};
-            """)
-
-        # 生成大纲按钮
-        if self.outline_btn:
-            self.outline_btn.setStyleSheet(ButtonStyles.primary('SM'))
-
-        # 新增章节按钮 - 圆形按钮
-        if self.add_chapter_btn:
-            self.add_chapter_btn.setStyleSheet(f"""
-                QPushButton#add_chapter_btn {{
-                    background-color: {theme_manager.BG_SECONDARY};
-                    color: {theme_manager.PRIMARY};
-                    border: 1px solid {theme_manager.PRIMARY};
-                    border-radius: {dp(16)}px;
-                    font-size: {sp(16)}px;
-                    font-weight: bold;
-                }}
-                QPushButton#add_chapter_btn:hover {{
-                    background-color: {theme_manager.PRIMARY_PALE};
-                }}
-                QPushButton#add_chapter_btn:pressed {{
-                    background-color: {theme_manager.PRIMARY};
-                    color: {theme_manager.BUTTON_TEXT};
-                }}
-            """)
+        # OutlineActionBar 自带样式，侧边栏仅需保持透明背景处理
 
     def setProject(self, project):
         """设置项目数据"""
@@ -291,12 +239,11 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
             self._load_protagonist_portrait()
 
         # 根据项目类型调整按钮显示
-        if self.outline_btn:
+        if self.outline_action_bar:
             # 空白项目隐藏生成大纲按钮
-            self.outline_btn.setVisible(not is_empty_project)
-        if self.add_chapter_btn:
+            self.outline_action_bar.set_continue_visible(not is_empty_project)
             # 新增章节按钮始终显示（空白项目更需要）
-            self.add_chapter_btn.setVisible(True)
+            self.outline_action_bar.set_add_visible(True)
 
         # 更新章节列表
         chapter_outlines = blueprint.get('chapter_outline', [])

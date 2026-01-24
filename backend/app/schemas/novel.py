@@ -236,7 +236,7 @@ class NovelProjectSummary(BaseModel):
     status: str  # 项目状态：draft, blueprint_ready, part_outlines_ready, chapter_outlines_ready 等
 
     # 导入分析相关字段
-    is_imported: bool = False
+    is_imported: Optional[bool] = Field(default=False)
     import_analysis_status: Optional[str] = None
 
 

@@ -71,10 +71,11 @@ cp .env.example .env
 ```
 
 关键配置项：
-- `SECRET_KEY`: JWT 密钥（必须）
+- `SECRET_KEY`: JWT 密钥（开发环境可选；生产环境必须）
 - `OPENAI_API_KEY`: LLM API 密钥（必须）
 - `OPENAI_API_BASE_URL`: API 基础 URL（可选）
 - `DB_PROVIDER`: 数据库类型（sqlite 或 mysql，默认 sqlite）
+- `SENTENCE_TRANSFORMERS_HOME`: 本地嵌入模型目录（可选；默认 `storage/models`，目录名建议将 `/` 替换为 `_`，例如 `BAAI_bge-base-zh-v1.5`）
 
 ### 3. 启动后端服务
 

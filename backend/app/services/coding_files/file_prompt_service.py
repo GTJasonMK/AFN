@@ -36,6 +36,7 @@ from ...utils.prompt_helpers import (
 )
 from ...utils.rag_helpers import build_query_text, get_query_embedding
 from ..evaluation_workflow_base import EvaluationPromptContext, EvaluationWorkflowBase
+from ..workflow_base import GenerationWorkflowBase
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,87 @@ class FileReviewWorkflow(EvaluationWorkflowBase):
 
     def _should_emit_indexing(self) -> bool:
         return bool(self._vector_store)
+
+
+class FilePromptGenerationWorkflow(GenerationWorkflowBase):
+    """文件Prompt生成工作流"""
+
+    def __init__(
+        self,
+        service: "FilePromptService",
+        project,
+        file: CodingSourceFile,
+        writing_notes: Optional[str],
+        llm_service: Any,
+        prompt_service: Any,
+        vector_store: Any,
+        user_id: int,
+        *,
+        commit: bool,
+        progress_messages: Optional[Dict[str, str]] = None,
+        complete_builder: Optional[Callable[[CodingSourceFile, Optional[CodingFileVersion], str], Dict[str, Any]]] = None,
+        include_version_count: bool = False,
+    ):
+        super().__init__()
+        self._service = service
+        self._project = project
+        self._file = file
+        self._writing_notes = writing_notes
+        self._llm_service = llm_service
+        self._prompt_service = prompt_service
+        self._vector_store = vector_store
+        self._user_id = user_id
+        self._commit = commit
+        self._progress_messages = progress_messages or {}
+        self._complete_builder = complete_builder
+        self._include_version_count = include_version_count
+
+    async def _run_generation(self, streaming: bool) -> AsyncGenerator[Dict[str, Any], None]:
+        """执行生成流程（同步/流式共用）"""
+        await self._service._set_file_status(self._file, "generating", commit=False)
+
+        try:
+            if streaming:
+                async for event in self._service._stream_prompt_generation(
+                    project=self._project,
+                    file=self._file,
+                    writing_notes=self._writing_notes,
+                    llm_service=self._llm_service,
+                    prompt_service=self._prompt_service,
+                    vector_store=self._vector_store,
+                    user_id=self._user_id,
+                    build_system_prompt=self._service._build_system_prompt,
+                    build_user_prompt=self._service._build_user_prompt,
+                    ingest_func=self._service._ingest_file_prompt,
+                    is_review=False,
+                    progress_messages=self._progress_messages,
+                    complete_builder=self._complete_builder,
+                    include_version_count=self._include_version_count,
+                ):
+                    yield event
+            else:
+                _, version = await self._service._generate_prompt_non_stream(
+                    project=self._project,
+                    file=self._file,
+                    writing_notes=self._writing_notes,
+                    llm_service=self._llm_service,
+                    prompt_service=self._prompt_service,
+                    vector_store=self._vector_store,
+                    user_id=self._user_id,
+                    build_system_prompt=self._service._build_system_prompt,
+                    build_user_prompt=self._service._build_user_prompt,
+                    ingest_func=self._service._ingest_file_prompt,
+                    is_review=False,
+                    commit=self._commit,
+                )
+                self._set_final_result(version)
+        except Exception as exc:
+            await self._service._set_file_status(self._file, "failed", commit=False)
+            if streaming:
+                logger.exception("文件Prompt生成失败: %s", str(exc))
+                yield {"event": "error", "data": {"message": str(exc)}}
+            else:
+                raise
 
 
 class FilePromptService:
@@ -501,6 +583,20 @@ class FilePromptService:
             if content:
                 yield content
 
+    async def _set_file_status(
+        self,
+        file: CodingSourceFile,
+        status: str,
+        *,
+        commit: bool,
+    ) -> None:
+        """统一设置文件状态并提交"""
+        file.status = status
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+
     async def _finalize_prompt_result(
         self,
         file: CodingSourceFile,
@@ -561,32 +657,18 @@ class FilePromptService:
         if not llm_service:
             raise InvalidParameterError("LLM服务不可用", parameter="llm_service")
 
-        # 更新状态
-        file.status = "generating"
-        await self.session.flush()
-
-        try:
-            _, version = await self._generate_prompt_non_stream(
-                project=project,
-                file=file,
-                writing_notes=writing_notes,
-                llm_service=llm_service,
-                prompt_service=prompt_service,
-                vector_store=vector_store,
-                user_id=user_id,
-                build_system_prompt=self._build_system_prompt,
-                build_user_prompt=self._build_user_prompt,
-                ingest_func=self._ingest_file_prompt,
-                is_review=False,
-                commit=False,
-            )
-
-            return version
-
-        except Exception as e:
-            file.status = "failed"
-            await self.session.flush()
-            raise
+        workflow = FilePromptGenerationWorkflow(
+            service=self,
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            llm_service=llm_service,
+            prompt_service=prompt_service,
+            vector_store=vector_store,
+            user_id=user_id,
+            commit=False,
+        )
+        return await workflow.execute()
 
     async def generate_prompt_stream(
         self,
@@ -618,44 +700,32 @@ class FilePromptService:
             yield {"event": "error", "data": {"message": "LLM服务不可用"}}
             return
 
-        # 更新状态
-        file.status = "generating"
-        await self.session.flush()
-
-        try:
-            async for event in self._stream_prompt_generation(
-                project=project,
-                file=file,
-                writing_notes=writing_notes,
-                llm_service=llm_service,
-                prompt_service=prompt_service,
-                vector_store=vector_store,
-                user_id=user_id,
-                build_system_prompt=self._build_system_prompt,
-                build_user_prompt=self._build_user_prompt,
-                ingest_func=self._ingest_file_prompt,
-                is_review=False,
-                progress_messages={
-                    "preparing": "准备提示词...",
-                    "rag": "已检索相关上下文...",
-                    "generating": "正在生成...",
-                    "saving": "保存结果...",
-                    "indexing": "更新索引...",
-                },
-                complete_builder=lambda f, v, content: {
-                    "file_id": f.id,
-                    "version_id": v.id if v else None,
-                    "content": content,
-                },
-                include_version_count=True,
-            ):
-                yield event
-
-        except Exception as e:
-            file.status = "failed"
-            await self.session.flush()
-            logger.exception("文件Prompt生成失败: %s", str(e))
-            yield {"event": "error", "data": {"message": str(e)}}
+        workflow = FilePromptGenerationWorkflow(
+            service=self,
+            project=project,
+            file=file,
+            writing_notes=writing_notes,
+            llm_service=llm_service,
+            prompt_service=prompt_service,
+            vector_store=vector_store,
+            user_id=user_id,
+            commit=True,
+            progress_messages={
+                "preparing": "准备提示词...",
+                "rag": "已检索相关上下文...",
+                "generating": "正在生成...",
+                "saving": "保存结果...",
+                "indexing": "更新索引...",
+            },
+            complete_builder=lambda f, v, content: {
+                "file_id": f.id,
+                "version_id": v.id if v else None,
+                "content": content,
+            },
+            include_version_count=True,
+        )
+        async for event in workflow.execute_with_progress():
+            yield event
 
     async def _save_version(
         self,

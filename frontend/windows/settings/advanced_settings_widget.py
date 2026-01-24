@@ -15,6 +15,11 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
+from .ui_helpers import (
+    build_import_export_reset_save_bar,
+    build_settings_primary_button_style,
+    build_settings_secondary_button_style,
+)
 import json
 
 
@@ -53,34 +58,16 @@ class AdvancedSettingsWidget(QWidget):
         layout.addStretch()
 
         # 底部按钮栏
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(dp(12))
-
-        # 导入按钮
-        self.import_btn = QPushButton("导入配置")
-        self.import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.import_btn.clicked.connect(lambda: self.importConfig())
-        button_layout.addWidget(self.import_btn)
-
-        # 导出按钮
-        self.export_btn = QPushButton("导出配置")
-        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.export_btn.clicked.connect(lambda: self.exportConfig())
-        button_layout.addWidget(self.export_btn)
-
-        button_layout.addStretch()
-
-        # 重置按钮
-        self.reset_btn = QPushButton("恢复默认值")
-        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_btn.clicked.connect(lambda: self.resetToDefaults())
-        button_layout.addWidget(self.reset_btn)
-
-        # 保存按钮
-        self.save_btn = QPushButton("保存配置")
-        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.save_btn.clicked.connect(lambda: self.saveConfig())
-        button_layout.addWidget(self.save_btn)
+        button_layout, buttons = build_import_export_reset_save_bar(
+            on_import=self.importConfig,
+            on_export=self.exportConfig,
+            on_reset=self.resetToDefaults,
+            on_save=self.saveConfig,
+        )
+        self.import_btn = buttons["import_btn"]
+        self.export_btn = buttons["export_btn"]
+        self.reset_btn = buttons["reset_btn"]
+        self.save_btn = buttons["save_btn"]
 
         layout.addLayout(button_layout)
 
@@ -274,45 +261,11 @@ class AdvancedSettingsWidget(QWidget):
         """)
 
         # 重置按钮样式
-        secondary_btn_style = f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: transparent;
-                color: {palette.text_secondary};
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(24)}px;  /* 修正：10和20不符合8pt网格 */
-                font-size: {sp(14)}px;
-            }}
-            QPushButton:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-                background-color: {palette.bg_primary};
-            }}
-        """
-        self.reset_btn.setStyleSheet(secondary_btn_style)
-        self.import_btn.setStyleSheet(secondary_btn_style)
-        self.export_btn.setStyleSheet(secondary_btn_style)
+        secondary_btn_style = build_settings_secondary_button_style(palette)
+        for btn in (self.reset_btn, self.import_btn, self.export_btn):
+            btn.setStyleSheet(secondary_btn_style)
 
-        # 保存按钮样式
-        self.save_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: {palette.accent_color};
-                color: {palette.bg_primary};
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(24)}px;  /* 修正：10不符合8pt网格，改为8 */
-                font-size: {sp(14)}px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {palette.text_primary};
-            }}
-            QPushButton:pressed {{
-                background-color: {palette.accent_light};
-            }}
-        """)
+        self.save_btn.setStyleSheet(build_settings_primary_button_style(palette))
 
         # 强制刷新样式缓存
         self.style().unpolish(self)

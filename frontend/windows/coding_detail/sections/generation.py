@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QScrollArea, QProgressBar
+    QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -67,17 +67,7 @@ class GenerationSection(BaseSection):
 
     def _create_ui_structure(self):
         """创建UI结构"""
-        # 创建滚动区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # 内容容器
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, dp(8), 0)
-        layout.setSpacing(dp(16))
+        layout = self._create_scroll_container_layout()
 
         # 1. RAG状态Section
         self.rag_section = self._create_rag_section()
@@ -92,15 +82,6 @@ class GenerationSection(BaseSection):
         layout.addWidget(self.generated_section)
 
         layout.addStretch()
-
-        scroll.setWidget(content)
-
-        # 主布局
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(scroll)
-
-        self._apply_scroll_style(scroll)
 
     def _create_rag_section(self) -> QFrame:
         """创建RAG状态Section"""
