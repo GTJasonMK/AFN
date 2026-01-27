@@ -198,7 +198,7 @@ versions: 这是一个数组，包含了同一章节的多个不同版本（版�
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **best_choice 必须是数字**：不要用字符串"版本1"
 3. **评价所有版本**：输入多少版本就评价多少版本
 4. **版本命名格式固定**：使用 version1, version2... 不要用其他格式

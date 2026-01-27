@@ -40,13 +40,9 @@ from ...services.image_generation.schemas import (
     PageImageGenerationRequest,
 )
 from ...services.image_generation.pdf_export import PDFExportService
+from ...services.image_generation.fs_utils import get_images_root
 
 router = APIRouter(prefix="/image-generation", tags=["image-generation"])
-
-
-def get_images_root() -> Path:
-    """获取图片根目录（支持热更新）"""
-    return settings.generated_images_dir
 
 
 # ==================== 配置管理 ====================

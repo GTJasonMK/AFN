@@ -1,12 +1,11 @@
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
+from .mixins import ActivationStatusMixin, TestStatusMixin, TimestampsMixin
 
 
-class LLMConfig(Base):
+class LLMConfig(Base, ActivationStatusMixin, TestStatusMixin, TimestampsMixin):
     """用户自定义的 LLM 接入配置。支持多配置管理、测试和切换。"""
 
     __tablename__ = "llm_configs"
@@ -19,23 +18,6 @@ class LLMConfig(Base):
     llm_provider_url: Mapped[str | None] = mapped_column(Text())
     llm_provider_api_key: Mapped[str | None] = mapped_column(Text())
     llm_provider_model: Mapped[str | None] = mapped_column(Text())
-
-    # 配置状态
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    # 测试相关
-    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    test_status: Mapped[str | None] = mapped_column(String(50))  # success, failed, pending
-    test_message: Mapped[str | None] = mapped_column(Text())
-
-    # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
 
     user: Mapped["User"] = relationship("User", back_populates="llm_configs")
 

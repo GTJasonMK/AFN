@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 
 from .data_types import NovelDataType
 from ..rag_common.chunk_strategy_base import BaseChunkStrategyManager
+from ..rag_common.semantic_chunk_config_mixin import SemanticChunkConfigMixin
 
 
 class NovelChunkMethod(str, Enum):
@@ -47,7 +48,7 @@ class NovelChunkMethod(str, Enum):
 
 
 @dataclass
-class NovelChunkConfig:
+class NovelChunkConfig(SemanticChunkConfigMixin):
     """单个数据类型的分块配置"""
 
     # 分块方法
@@ -80,22 +81,7 @@ class NovelChunkConfig:
     # 固定长度分割时的chunk大小
     fixed_chunk_size: int = 500
 
-    # ==================== 语义分块相关配置 ====================
-
-    # 语义分块：门控阈值（相似度低于此值不进行距离增强）
-    semantic_gate_threshold: float = 0.3
-
-    # 语义分块：距离增强系数
-    semantic_alpha: float = 0.1
-
-    # 语义分块：长度归一化指数（1.0-1.5之间）
-    semantic_gamma: float = 1.1
-
-    # 语义分块：最小块句子数
-    semantic_min_sentences: int = 2
-
-    # 语义分块：最大块句子数
-    semantic_max_sentences: int = 20
+    # ==================== 语义分块相关配置（默认值由 mixin 提供） ====================
 
     # 额外配置参数
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -276,9 +262,6 @@ OPTIMIZED_NOVEL_STRATEGIES: Dict[NovelDataType, NovelChunkConfig] = {
         min_chunk_length=100,
         max_chunk_length=1200,
         with_overlap=False,  # 语义分块已考虑上下文连贯性
-        semantic_gate_threshold=0.3,  # 门控阈值
-        semantic_alpha=0.1,  # 距离增强系数
-        semantic_gamma=1.1,  # 长度归一化指数
         semantic_min_sentences=3,  # 最小块句子数
         semantic_max_sentences=15,  # 最大块句子数
     ),

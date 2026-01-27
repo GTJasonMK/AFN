@@ -83,39 +83,21 @@ class ReviewPanelBuilder(BasePanelBuilder):
         Returns:
             空状态Widget
         """
-        s = self._styler
-
-        empty_widget = QWidget()
-        empty_widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: transparent;
-                color: {s.text_primary};
-            }}
-        """)
-        empty_layout = QVBoxLayout(empty_widget)
-        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.setContentsMargins(dp(32), dp(32), dp(32), dp(32))
-        empty_layout.setSpacing(dp(24))
-
         # 根据版本数量显示不同的空状态
         if version_count <= 1:
             # 只有一个版本或没有版本，不需要评审
-            empty_state = EmptyStateWithIllustration(
-                illustration_char='R',
+            empty_widget, _ = self._create_empty_state_layout(
                 title='无需评审',
                 description='评审功能用于比较多个版本并推荐最佳版本\n当前章节只有一个版本，无需评审',
-                parent=empty_widget
+                icon_char='R',
             )
-            empty_layout.addWidget(empty_state)
         else:
             # 多个版本，可以评审
-            empty_state = EmptyStateWithIllustration(
-                illustration_char='R',
+            empty_widget, empty_layout = self._create_empty_state_layout(
                 title='暂无评审结果',
                 description='AI可以分析各版本优缺点并推荐最佳版本',
-                parent=empty_widget
+                icon_char='R',
             )
-            empty_layout.addWidget(empty_state)
 
             # 开始评审按钮
             evaluate_btn = QPushButton("开始评审")

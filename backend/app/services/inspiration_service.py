@@ -20,10 +20,7 @@ from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm, LLMProfile
 from ..services.prompt_service import PromptService
 from ..utils.json_utils import (
-    parse_llm_json_or_fail,
-    remove_think_tags,
-    try_fix_inner_quotes,
-    unwrap_markdown_json,
+    parse_llm_json_with_normalized_or_fail,
 )
 from ..utils.prompt_helpers import ensure_prompt
 from .project_factory import ProjectTypeConfig, ProjectStage
@@ -204,13 +201,9 @@ class InspirationService:
         Raises:
             JSONParseError: 解析失败
         """
-        cleaned = remove_think_tags(llm_response)
-        normalized = unwrap_markdown_json(cleaned)
-        # 应用内部引号修复，确保保存到数据库的JSON可以被正确解析
-        normalized = try_fix_inner_quotes(normalized)
-        parsed = parse_llm_json_or_fail(
+        parsed, normalized = parse_llm_json_with_normalized_or_fail(
             llm_response,
-            f"项目{project_id}的灵感对话响应解析失败"
+            f"项目{project_id}的灵感对话响应解析失败",
         )
         return parsed, normalized
 

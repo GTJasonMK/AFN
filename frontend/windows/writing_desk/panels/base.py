@@ -89,6 +89,29 @@ class BasePanelBuilder(ABC):
         Returns:
             空状态Widget
         """
+        empty_widget, _ = self._create_empty_state_layout(
+            title=title,
+            description=description,
+            icon_char=icon_char,
+        )
+        return empty_widget
+
+    def _create_empty_state_layout(
+        self,
+        title: str,
+        description: str,
+        icon_char: str = '?',
+    ):
+        """创建空状态Widget与其布局（便于子类追加按钮等控件）
+
+        Args:
+            title: 标题
+            description: 描述文本
+            icon_char: 图标字符
+
+        Returns:
+            (empty_widget, empty_layout)
+        """
         from PyQt6.QtWidgets import QVBoxLayout
         from PyQt6.QtCore import Qt
         from components.empty_state import EmptyStateWithIllustration
@@ -114,7 +137,59 @@ class BasePanelBuilder(ABC):
         )
         empty_layout.addWidget(empty_state)
 
-        return empty_widget
+        return empty_widget, empty_layout
+
+    def _build_info_card(
+        self,
+        object_name: str,
+        title: str,
+        description: str,
+        card_type: str = "info",
+    ) -> QFrame:
+        """构建通用说明卡片（带左边框高亮）
+
+        Args:
+            object_name: QFrame 的 objectName（用于QSS选择器）
+            title: 卡片标题
+            description: 卡片说明文本
+            card_type: 卡片类型 (info/success/warning/error)
+
+        Returns:
+            说明卡片 QFrame
+        """
+        from PyQt6.QtWidgets import QVBoxLayout
+
+        s = self._styler
+
+        card = QFrame()
+        card.setObjectName(object_name)
+        card.setStyleSheet(self._info_card_style(object_name, card_type))
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        layout.setSpacing(dp(4))
+
+        title_label = QLabel(title)
+        title_label.setObjectName(f"{object_name}_title")
+        title_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(14)}px;
+            font-weight: bold;
+            color: {s.text_info};
+        """)
+        layout.addWidget(title_label)
+
+        desc_label = QLabel(description)
+        desc_label.setObjectName(f"{object_name}_desc")
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet(f"""
+            font-family: {s.ui_font};
+            font-size: {sp(12)}px;
+            color: {s.text_secondary};
+        """)
+        layout.addWidget(desc_label)
+
+        return card
 
     def _register_panel(self, panel: QWidget):
         """注册创建的面板（用于后续主题刷新）

@@ -229,7 +229,7 @@ tags: outline, long-form, batch
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **必须包含 parts 和 overall_structure**：这是解析器期望的字段名
 3. **部分数量必须正确**：根据总章节数和每部分章节数计算
 4. **summary必须200-300字**：每个部分的概要都要详细

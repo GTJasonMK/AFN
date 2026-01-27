@@ -16,6 +16,19 @@ export const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 主动取消（AbortController / axios cancel）不需要全局 toast
+    const code = (error as any)?.code;
+    const name = (error as any)?.name;
+    if (code === 'ERR_CANCELED' || name === 'CanceledError') {
+      return Promise.reject(error);
+    }
+
+    // 允许单次请求关闭全局 toast（例如轮询/探测类请求）
+    const silent = Boolean((error as any)?.config?.silent);
+    if (silent) {
+      return Promise.reject(error);
+    }
+
     if (error.response) {
         console.error("Full API Error Response:", error.response.data);
     }

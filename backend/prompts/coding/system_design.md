@@ -115,10 +115,10 @@
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **系统数量合理**：根据项目规模，不要过多或过少
 3. **边界清晰**：系统之间不应有模糊的职责重叠
 4. **依赖关系明确**：重要系统间的依赖要定义清楚
 5. **按开发优先级排序**：`system_number=1`放最先开发的系统，被依赖的基础系统排在前面
 
-**不要输出任何额外的文本、解释或markdown。只返回纯JSON对象。**
+<!-- @include _partials/json_only_return_object.md -->

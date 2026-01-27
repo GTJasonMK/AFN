@@ -146,7 +146,7 @@ tags: optimization, coherence, editing
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **必须包含 issues 和 summary**：这是解析器期望的字段名
 3. **type 只能用指定值**：coherence/character/foreshadow/timeline/style/scene
 4. **severity 只能用指定值**：high/medium/low

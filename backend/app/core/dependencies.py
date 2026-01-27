@@ -74,10 +74,18 @@ async def get_vector_store() -> Optional["VectorStoreService"]:
         return None
 
     try:
-        return VectorStoreService()
+        service = VectorStoreService()
     except RuntimeError as exc:
         logger.warning("向量库初始化失败，RAG功能将被禁用: %s", exc)
         return None
+
+    # VectorStoreService 内部可能捕获连接异常并将 _client 置空；
+    # 这里统一将“不可用实例”视为初始化失败，兑现本依赖的返回契约（失败则返回 None）。
+    if not getattr(service, "_client", None):
+        logger.warning("向量库初始化失败（客户端不可用），RAG功能将被禁用")
+        return None
+
+    return service
 
 
 async def get_novel_service(
@@ -181,6 +189,18 @@ async def get_conversation_service(
     """
     from ..services.conversation_service import ConversationService
     return ConversationService(session)
+
+
+async def get_coding_conversation_service(
+    session: AsyncSession = Depends(get_session),
+) -> "ConversationService":
+    """
+    获取 Coding 项目的 ConversationService 实例（依赖注入）
+
+    Coding 项目与 Novel 项目对话表不同，需要显式指定 project_type="coding"。
+    """
+    from ..services.conversation_service import ConversationService
+    return ConversationService(session, project_type="coding")
 
 
 async def get_inspiration_service(

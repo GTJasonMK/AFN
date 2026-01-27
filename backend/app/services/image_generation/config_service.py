@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .schemas import ImageConfigCreate, ImageConfigUpdate
 from .providers import ImageProviderFactory
 from ...models.image_config import ImageGenerationConfig
-from ...utils.config_import_utils import resolve_unique_name
+from ...utils.config_import_utils import ConfigImportLoopResult, import_configs_with_unique_names
 
 logger = logging.getLogger(__name__)
 
@@ -282,62 +282,40 @@ class ImageConfigService:
         existing_configs = await self.get_configs(user_id)
         existing_names = {config.config_name for config in existing_configs}
 
-        imported_count = 0
-        skipped_count = 0
-        failed_count = 0
-        details = []
+        async def add_one(config_name: str, config_data) -> None:
+            new_config = ImageGenerationConfig(
+                user_id=user_id,
+                config_name=config_name,
+                provider_type=config_data.provider_type,
+                api_base_url=config_data.api_base_url,
+                api_key=config_data.api_key,
+                model_name=config_data.model_name,
+                default_style=config_data.default_style,
+                default_ratio=config_data.default_ratio,
+                default_resolution=config_data.default_resolution,
+                default_quality=config_data.default_quality,
+                extra_params=config_data.extra_params or {},
+                is_active=False,
+                is_verified=False,
+            )
+            self.session.add(new_config)
 
-        for config_data in data.configs:
-            try:
-                original_name = config_data.config_name
-                config_name, renamed = resolve_unique_name(original_name, existing_names)
-                if renamed:
-                    details.append(
-                        f"配置 '{original_name}' 已重命名为 '{config_name}'（避免重名）"
-                    )
-
-                # 创建新配置
-                new_config = ImageGenerationConfig(
-                    user_id=user_id,
-                    config_name=config_name,
-                    provider_type=config_data.provider_type,
-                    api_base_url=config_data.api_base_url,
-                    api_key=config_data.api_key,
-                    model_name=config_data.model_name,
-                    default_style=config_data.default_style,
-                    default_ratio=config_data.default_ratio,
-                    default_resolution=config_data.default_resolution,
-                    default_quality=config_data.default_quality,
-                    extra_params=config_data.extra_params or {},
-                    is_active=False,
-                    is_verified=False,
-                )
-
-                self.session.add(new_config)
-                existing_names.add(config_name)
-                imported_count += 1
-                details.append(f"成功导入配置 '{config_name}'")
-
-            except Exception as exc:
-                failed_count += 1
-                details.append(
-                    f"导入配置 '{config_data.config_name}' 失败: {str(exc)}"
-                )
-                logger.error(
-                    "导入图片配置失败: user_id=%s, config_name=%s, error=%s",
-                    user_id,
-                    config_data.config_name,
-                    str(exc),
-                    exc_info=True,
-                )
+        loop_result: ConfigImportLoopResult = await import_configs_with_unique_names(
+            user_id=user_id,
+            configs=data.configs,
+            existing_names=existing_names,
+            add_one=add_one,
+            logger=logger,
+            log_error_message="导入图片配置失败",
+        )
 
         await self.session.flush()
 
         return ImageConfigImportResult(
-            success=imported_count > 0,
-            message=f"导入完成：成功 {imported_count} 个，失败 {failed_count} 个",
-            imported_count=imported_count,
-            skipped_count=skipped_count,
-            failed_count=failed_count,
-            details=details,
+            success=loop_result.imported_count > 0,
+            message=f"导入完成：成功 {loop_result.imported_count} 个，失败 {loop_result.failed_count} 个",
+            imported_count=loop_result.imported_count,
+            skipped_count=loop_result.skipped_count,
+            failed_count=loop_result.failed_count,
+            details=loop_result.details,
         ).model_dump()

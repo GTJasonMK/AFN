@@ -252,7 +252,7 @@ tags: blueprint, worldbuilding, character
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **chapter_outline必须为空数组**：`"chapter_outline": []`
 3. **角色数量要足够**：主角+配角至少3个
 4. **关系网络要完整**：重要角色之间要有关系定义

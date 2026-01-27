@@ -63,7 +63,7 @@ class ContentOptimizationWorkflow:
         project_id: str,
         chapter_number: int,
         request: OptimizeContentRequest,
-        user_id: str,
+        user_id: int,
     ) -> AsyncGenerator[str, None]:
         """
         流式执行优化分析（Agent驱动）

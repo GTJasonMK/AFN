@@ -7,6 +7,7 @@ SSE (Server-Sent Events) 辅助工具
 import json
 import logging
 from functools import wraps
+import asyncio
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from .exception_helpers import get_safe_error_message
@@ -136,6 +137,29 @@ def create_sse_stream_response(
     统一事件流包装逻辑，避免路由层重复组合 create_sse_response 和 sse_event_stream。
     """
     return create_sse_response(sse_event_stream(generator, mapper=mapper))
+
+
+async def sse_text_chunk_events(
+    text: str,
+    *,
+    event_type: str = "ai_message_chunk",
+    payload_key: str = "text",
+    chunk_size: int = 15,
+    delay_seconds: float = 0.03,
+) -> AsyncGenerator[str, None]:
+    """将一段文本按固定大小分块，流式输出为 SSE 事件字符串
+
+    主要用于“先拿到完整 ai_message，再模拟打字机效果逐段发送”的场景。
+    默认行为与既有灵感对话路由保持一致：15 字符一块，30ms 延迟。
+    """
+    if not text:
+        return
+
+    for i in range(0, len(text), chunk_size):
+        chunk_text = text[i:i + chunk_size]
+        yield sse_event(event_type, {payload_key: chunk_text})
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
 
 
 def sse_error_event(

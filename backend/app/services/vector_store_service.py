@@ -10,11 +10,10 @@ import asyncio
 import json
 import logging
 import math
-from abc import ABC, abstractmethod
 from array import array
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, TypeVar
 
 from ..core.config import settings
 
@@ -267,6 +266,58 @@ class VectorStoreService:
             raise last_exception
         raise RuntimeError(f"{operation_name} 失败，原因未知")
 
+    async def _query_with_vector_distance(
+        self,
+        *,
+        operation_name: str,
+        failure_title: str,
+        sql: str,
+        params: Dict[str, Any],
+        top_k: int,
+        row_mapper: Callable[[Dict[str, Any]], T],
+        python_fallback: Callable[[], Awaitable[List[T]]],
+    ) -> List[T]:
+        """
+        统一封装“向量距离函数查询 + 超时重试 + 回退”的通用模板。
+
+        - 当 `vector_distance_cosine` 不可用时，自动切换到 Python 相似度计算（一次检测，后续直接回退）。
+        - 当查询超时/失败时，返回空结果（保持原接口的容错语义）。
+        """
+        if not self._client or top_k <= 0:
+            return []
+
+        # 如果已知向量函数不可用，直接使用Python回退计算
+        if self._vector_func_available is False:
+            return await python_fallback()
+
+        async def _do_query():
+            return await self._client.execute(  # type: ignore[union-attr]
+                sql,
+                params,
+            )
+
+        try:
+            result = await self._execute_with_retry(
+                _do_query,
+                operation_name,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("%s超时，返回空结果", operation_name)
+            return []
+        except Exception as exc:  # pragma: no cover - 查询异常时仅记录
+            if "no such function: vector_distance_cosine" in str(exc).lower():
+                # 更新缓存状态，后续查询直接使用Python计算
+                self._vector_func_available = False
+                logger.warning("向量库缺少 vector_distance_cosine 函数，回退至应用层相似度计算。")
+                return await python_fallback()
+            logger.warning("%s失败: %s", failure_title, exc)
+            return []
+
+        items: List[T] = []
+        for row in self._iter_rows(result):
+            items.append(row_mapper(row))
+        return items
+
     async def query_chunks(
         self,
         *,
@@ -287,14 +338,6 @@ class VectorStoreService:
         if top_k <= 0:
             return []
 
-        # 如果已知向量函数不可用，直接使用Python回退计算
-        if self._vector_func_available is False:
-            return await self._query_chunks_with_python_similarity(
-                project_id=project_id,
-                embedding=embedding,
-                top_k=top_k,
-            )
-
         blob = self._to_f32_blob(embedding)
         sql = """
         SELECT
@@ -309,50 +352,35 @@ class VectorStoreService:
         LIMIT :limit
         """
 
-        async def _do_query():
-            return await self._client.execute(  # type: ignore[union-attr]
-                sql,
-                {
-                    "project_id": project_id,
-                    "query": blob,
-                    "limit": top_k,
-                },
+        async def _fallback():
+            return await self._query_chunks_with_python_similarity(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=top_k,
             )
 
-        try:
-            # P2修复: 使用超时重试机制执行查询
-            result = await self._execute_with_retry(
-                _do_query,
-                "RAG检索剧情片段",
+        def _row_mapper(row: Dict[str, Any]) -> RetrievedChunk:
+            return RetrievedChunk(
+                content=row.get("content", ""),
+                chapter_number=row.get("chapter_number", 0),
+                chapter_title=row.get("chapter_title"),
+                score=row.get("distance", 0.0),
+                metadata=self._parse_metadata(row.get("metadata")),
             )
-        except asyncio.TimeoutError:
-            logger.warning("RAG检索剧情片段超时，返回空结果")
-            return []
-        except Exception as exc:  # pragma: no cover - 查询异常时仅记录
-            if "no such function: vector_distance_cosine" in str(exc).lower():
-                # 更新缓存状态，后续查询直接使用Python计算
-                self._vector_func_available = False
-                logger.warning("向量库缺少 vector_distance_cosine 函数，回退至应用层相似度计算。")
-                return await self._query_chunks_with_python_similarity(
-                    project_id=project_id,
-                    embedding=embedding,
-                    top_k=top_k,
-                )
-            logger.warning("向量检索剧情片段失败: %s", exc)
-            return []
 
-        items: List[RetrievedChunk] = []
-        for row in self._iter_rows(result):
-            items.append(
-                RetrievedChunk(
-                    content=row.get("content", ""),
-                    chapter_number=row.get("chapter_number", 0),
-                    chapter_title=row.get("chapter_title"),
-                    score=row.get("distance", 0.0),
-                    metadata=self._parse_metadata(row.get("metadata")),
-                )
-            )
-        return items
+        return await self._query_with_vector_distance(
+            operation_name="RAG检索剧情片段",
+            failure_title="向量检索剧情片段",
+            sql=sql,
+            params={
+                "project_id": project_id,
+                "query": blob,
+                "limit": top_k,
+            },
+            top_k=top_k,
+            row_mapper=_row_mapper,
+            python_fallback=_fallback,
+        )
 
     async def query_summaries(
         self,
@@ -374,14 +402,6 @@ class VectorStoreService:
         if top_k <= 0:
             return []
 
-        # 如果已知向量函数不可用，直接使用Python回退计算
-        if self._vector_func_available is False:
-            return await self._query_summaries_with_python_similarity(
-                project_id=project_id,
-                embedding=embedding,
-                top_k=top_k,
-            )
-
         blob = self._to_f32_blob(embedding)
         sql = """
         SELECT
@@ -395,49 +415,106 @@ class VectorStoreService:
         LIMIT :limit
         """
 
-        async def _do_query():
-            return await self._client.execute(  # type: ignore[union-attr]
-                sql,
-                {
-                    "project_id": project_id,
-                    "query": blob,
-                    "limit": top_k,
-                },
+        async def _fallback():
+            return await self._query_summaries_with_python_similarity(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=top_k,
             )
 
+        def _row_mapper(row: Dict[str, Any]) -> RetrievedSummary:
+            return RetrievedSummary(
+                chapter_number=row.get("chapter_number", 0),
+                title=row.get("title", ""),
+                summary=row.get("summary", ""),
+                score=row.get("distance", 0.0),
+            )
+
+        return await self._query_with_vector_distance(
+            operation_name="RAG检索章节摘要",
+            failure_title="向量检索章节摘要",
+            sql=sql,
+            params={
+                "project_id": project_id,
+                "query": blob,
+                "limit": top_k,
+            },
+            top_k=top_k,
+            row_mapper=_row_mapper,
+            python_fallback=_fallback,
+        )
+
+    async def _bulk_upsert(
+        self,
+        *,
+        sql: str,
+        payload: List[Dict[str, Any]],
+        success_log: str,
+        error_log: str,
+        item_error_logger: Callable[[Dict[str, Any], Exception], None],
+    ) -> None:
+        """批量写入模板：优先 batch/事务，失败回退逐条写入。"""
+        if not self._client or not payload:
+            return
+
+        # 性能优化：使用批量事务写入
+        # libsql支持batch()方法，将多个SQL语句合并为单个网络请求
         try:
-            # P2修复: 使用超时重试机制执行查询
-            result = await self._execute_with_retry(
-                _do_query,
-                "RAG检索章节摘要",
-            )
-        except asyncio.TimeoutError:
-            logger.warning("RAG检索章节摘要超时，返回空结果")
-            return []
-        except Exception as exc:  # pragma: no cover - 查询异常时仅记录
-            if "no such function: vector_distance_cosine" in str(exc).lower():
-                # 更新缓存状态，后续查询直接使用Python计算
-                self._vector_func_available = False
-                logger.warning("向量库缺少 vector_distance_cosine 函数，回退至应用层相似度计算。")
-                return await self._query_summaries_with_python_similarity(
-                    project_id=project_id,
-                    embedding=embedding,
-                    top_k=top_k,
-                )
-            logger.warning("向量检索章节摘要失败: %s", exc)
-            return []
+            # 构建批量执行的语句列表
+            batch_statements = [(sql, item) for item in payload]
 
-        items: List[RetrievedSummary] = []
-        for row in self._iter_rows(result):
-            items.append(
-                RetrievedSummary(
-                    chapter_number=row.get("chapter_number", 0),
-                    title=row.get("title", ""),
-                    summary=row.get("summary", ""),
-                    score=row.get("distance", 0.0),
+            # 检查是否支持batch方法
+            if hasattr(self._client, "batch"):
+                # 使用batch一次性执行所有INSERT
+                await self._client.batch(batch_statements)  # type: ignore[union-attr]
+                logger.info(
+                    "%s（batch模式）: 总计=%d",
+                    success_log,
+                    len(payload),
                 )
+                return
+
+            # 回退：使用事务包装的逐条执行
+            await self._client.execute("BEGIN TRANSACTION")  # type: ignore[union-attr]
+            try:
+                for item in payload:
+                    await self._client.execute(sql, item)  # type: ignore[union-attr]
+                await self._client.execute("COMMIT")  # type: ignore[union-attr]
+                logger.info(
+                    "%s（事务模式）: 总计=%d",
+                    success_log,
+                    len(payload),
+                )
+                return
+            except Exception as txn_exc:
+                await self._client.execute("ROLLBACK")  # type: ignore[union-attr]
+                raise txn_exc
+
+        except Exception as exc:
+            logger.error(
+                "%s: %s (尝试写入 %d 条)",
+                error_log,
+                exc,
+                len(payload),
             )
-        return items
+            # 回退到逐条写入模式，确保部分数据能够保存
+            success_count = 0
+            failed_count = 0
+            for item in payload:
+                try:
+                    await self._client.execute(sql, item)  # type: ignore[union-attr]
+                    success_count += 1
+                except Exception as item_exc:
+                    failed_count += 1
+                    item_error_logger(item, item_exc)
+
+            if success_count > 0:
+                logger.info(
+                    "回退逐条写入完成: 成功=%d 失败=%d 总计=%d",
+                    success_count,
+                    failed_count,
+                    len(payload),
+                )
 
     async def upsert_chunks(
         self,
@@ -496,65 +573,22 @@ class VectorStoreService:
         if not payload:
             return
 
-        # 性能优化：使用批量事务写入
-        # libsql支持batch()方法，将多个SQL语句合并为单个网络请求
-        try:
-            # 构建批量执行的语句列表
-            batch_statements = [(sql, item) for item in payload]
-
-            # 检查是否支持batch方法
-            if hasattr(self._client, 'batch'):
-                # 使用batch一次性执行所有INSERT
-                await self._client.batch(batch_statements)  # type: ignore[union-attr]
-                logger.info(
-                    "批量写入章节片段完成（batch模式）: 总计=%d",
-                    len(payload),
-                )
-            else:
-                # 回退：使用事务包装的逐条执行
-                # 开启事务
-                await self._client.execute("BEGIN TRANSACTION")  # type: ignore[union-attr]
-                try:
-                    for item in payload:
-                        await self._client.execute(sql, item)  # type: ignore[union-attr]
-                    await self._client.execute("COMMIT")  # type: ignore[union-attr]
-                    logger.info(
-                        "批量写入章节片段完成（事务模式）: 总计=%d",
-                        len(payload),
-                    )
-                except Exception as txn_exc:
-                    await self._client.execute("ROLLBACK")  # type: ignore[union-attr]
-                    raise txn_exc
-
-        except Exception as exc:
-            logger.error(
-                "批量写入 rag_chunks 失败: %s (尝试写入 %d 条)",
-                exc,
-                len(payload),
+        def _item_error_logger(item: Dict[str, Any], item_exc: Exception) -> None:
+            logger.warning(
+                "写入单条 rag_chunk 失败: project=%s chapter=%s chunk=%s error=%s",
+                item.get("project_id"),
+                item.get("chapter_number"),
+                item.get("chunk_index"),
+                item_exc,
             )
-            # 回退到逐条写入模式，确保部分数据能够保存
-            success_count = 0
-            failed_count = 0
-            for item in payload:
-                try:
-                    await self._client.execute(sql, item)  # type: ignore[union-attr]
-                    success_count += 1
-                except Exception as item_exc:
-                    failed_count += 1
-                    logger.warning(
-                        "写入单条 rag_chunk 失败: project=%s chapter=%s chunk=%s error=%s",
-                        item.get("project_id"),
-                        item.get("chapter_number"),
-                        item.get("chunk_index"),
-                        item_exc,
-                    )
-            if success_count > 0:
-                logger.info(
-                    "回退逐条写入完成: 成功=%d 失败=%d 总计=%d",
-                    success_count,
-                    failed_count,
-                    len(payload),
-                )
+
+        await self._bulk_upsert(
+            sql=sql,
+            payload=payload,
+            success_log="批量写入章节片段完成",
+            error_log="批量写入 rag_chunks 失败",
+            item_error_logger=_item_error_logger,
+        )
 
     async def upsert_summaries(
         self,
@@ -607,62 +641,21 @@ class VectorStoreService:
         if not payload:
             return
 
-        # 性能优化：使用批量事务写入
-        try:
-            # 构建批量执行的语句列表
-            batch_statements = [(sql, item) for item in payload]
-
-            # 检查是否支持batch方法
-            if hasattr(self._client, 'batch'):
-                # 使用batch一次性执行所有INSERT
-                await self._client.batch(batch_statements)  # type: ignore[union-attr]
-                logger.info(
-                    "批量写入章节摘要完成（batch模式）: 总计=%d",
-                    len(payload),
-                )
-            else:
-                # 回退：使用事务包装的逐条执行
-                await self._client.execute("BEGIN TRANSACTION")  # type: ignore[union-attr]
-                try:
-                    for item in payload:
-                        await self._client.execute(sql, item)  # type: ignore[union-attr]
-                    await self._client.execute("COMMIT")  # type: ignore[union-attr]
-                    logger.info(
-                        "批量写入章节摘要完成（事务模式）: 总计=%d",
-                        len(payload),
-                    )
-                except Exception as txn_exc:
-                    await self._client.execute("ROLLBACK")  # type: ignore[union-attr]
-                    raise txn_exc
-
-        except Exception as exc:
-            logger.error(
-                "批量写入 rag_summaries 失败: %s (尝试写入 %d 条)",
-                exc,
-                len(payload),
+        def _item_error_logger(item: Dict[str, Any], item_exc: Exception) -> None:
+            logger.warning(
+                "写入单条 rag_summary 失败: project=%s chapter=%s error=%s",
+                item.get("project_id"),
+                item.get("chapter_number"),
+                item_exc,
             )
-            # 回退到逐条写入模式，确保部分数据能够保存
-            success_count = 0
-            failed_count = 0
-            for item in payload:
-                try:
-                    await self._client.execute(sql, item)  # type: ignore[union-attr]
-                    success_count += 1
-                except Exception as item_exc:
-                    failed_count += 1
-                    logger.warning(
-                        "写入单条 rag_summary 失败: project=%s chapter=%s error=%s",
-                        item.get("project_id"),
-                        item.get("chapter_number"),
-                        item_exc,
-                    )
-            if success_count > 0:
-                logger.info(
-                    "回退逐条写入完成: 成功=%d 失败=%d 总计=%d",
-                    success_count,
-                    failed_count,
-                    len(payload),
-                )
+
+        await self._bulk_upsert(
+            sql=sql,
+            payload=payload,
+            success_log="批量写入章节摘要完成",
+            error_log="批量写入 rag_summaries 失败",
+            item_error_logger=_item_error_logger,
+        )
 
     async def delete_by_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """根据章节编号批量删除对应的上下文数据。"""

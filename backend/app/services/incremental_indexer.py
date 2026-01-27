@@ -99,6 +99,28 @@ class IncrementalIndexer:
 
         return stats
 
+    async def safe_index_chapter_analysis(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        analysis_data: ChapterAnalysisData,
+        commit: bool = False,
+    ) -> Optional[Dict[str, int]]:
+        """安全执行索引更新（可选 commit），失败时返回 None。"""
+        try:
+            stats = await self.index_chapter_analysis(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                analysis_data=analysis_data,
+            )
+            if commit:
+                await self.session.commit()
+            return stats
+        except Exception as exc:
+            logger.error("项目 %s 第 %s 章索引更新失败: %s", project_id, chapter_number, exc)
+            return None
+
     async def _index_character_states(
         self,
         project_id: str,

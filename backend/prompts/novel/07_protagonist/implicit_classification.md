@@ -93,7 +93,7 @@ tags: protagonist, implicit, classification
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **只判断相关属性**：不要对无关属性进行分类
 3. **判断要有依据**：基于行为的具体表现，不要臆断
 4. **建议要谨慎**：只有明确证据时才建议新属性

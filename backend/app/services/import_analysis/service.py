@@ -400,7 +400,8 @@ class ImportAnalysisService:
             await self.session.commit()
 
             try:
-                analysis_data = await self.chapter_analysis_service.analyze_chapter(
+                analysis_data = await self.chapter_analysis_service.analyze_and_store_chapter_analysis(
+                    chapter=chapter,
                     content=self._truncate_content(content),
                     title=title,
                     chapter_number=chapter_num,
@@ -409,7 +410,6 @@ class ImportAnalysisService:
                     timeout=180.0,
                 )
                 if analysis_data:
-                    chapter.analysis_data = analysis_data.model_dump()
                     logger.debug("章节 %d 分析数据生成成功", chapter_num)
                 else:
                     logger.warning("章节 %d 分析数据为空", chapter_num)

@@ -219,6 +219,8 @@ class AgentState:
 class ToolExecutor(BaseToolExecutor):
     """工具执行器"""
 
+    TOOL_RESULT_CLASS = ToolResult
+
     def __init__(
         self,
         session: AsyncSession,
@@ -229,7 +231,7 @@ class ToolExecutor(BaseToolExecutor):
         enable_foreshadowing_index: bool = False,  # 是否启用伏笔索引查询
         llm_service: Optional[Any] = None,  # LLMService，用于深度检查
         prompt_service: Optional[Any] = None,  # PromptService，用于加载提示词
-        user_id: str = "1",  # 用户ID，用于LLM调用
+        user_id: int = 1,  # 用户ID，用于LLM调用
     ):
         self.session = session
         self.vector_store = vector_store
@@ -239,7 +241,7 @@ class ToolExecutor(BaseToolExecutor):
         self.enable_foreshadowing_index = enable_foreshadowing_index
         self.llm_service = llm_service
         self.prompt_service = prompt_service
-        self.user_id = user_id
+        self.user_id = int(user_id)
 
         # 初始化时序感知检索器
         self.temporal_retriever: Optional[TemporalAwareRetriever] = None
@@ -273,21 +275,6 @@ class ToolExecutor(BaseToolExecutor):
     def _get_tool_params(self, tool_call: ToolCall) -> Dict[str, Any]:
         """获取工具参数"""
         return tool_call.parameters
-
-    def _build_result(
-        self,
-        tool_name: ToolName,
-        success: bool,
-        result: Any = None,
-        error: Optional[str] = None,
-    ) -> ToolResult:
-        """构建工具结果"""
-        return ToolResult(
-            tool_name=tool_name,
-            success=success,
-            result=result,
-            error=error,
-        )
 
     def _format_unknown_tool_error(self, tool_name: ToolName) -> str:
         """格式化未知工具错误信息"""

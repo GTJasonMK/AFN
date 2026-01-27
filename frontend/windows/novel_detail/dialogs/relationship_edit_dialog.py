@@ -16,7 +16,11 @@ from PyQt6.QtCore import Qt
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 
-from .base_book_list_edit_dialog import BaseBookListEditDialog
+from .base_book_list_edit_dialog import (
+    BaseBookListEditDialog,
+    build_delete_button_style,
+    build_index_and_field_label_style,
+)
 
 
 # 预设关系类型
@@ -155,17 +159,7 @@ class RelationshipItemWidget(QFrame):
                 border: 1px solid {border_color};
                 border-radius: {dp(8)}px;
             }}
-            QLabel#index_label {{
-                font-family: {ui_font};
-                font-size: {sp(14)}px;
-                font-weight: 700;
-                color: {accent_color};
-            }}
-            QLabel#field_label {{
-                font-family: {ui_font};
-                font-size: {sp(12)}px;
-                color: {text_secondary};
-            }}
+            {build_index_and_field_label_style(ui_font, accent_color=accent_color, text_secondary=text_secondary)}
             QComboBox#char_combo, QComboBox#type_combo {{
                 font-family: {ui_font};
                 font-size: {sp(13)}px;
@@ -203,18 +197,7 @@ class RelationshipItemWidget(QFrame):
             QTextEdit#desc_input:focus {{
                 border-color: {accent_color};
             }}
-            QPushButton#delete_btn {{
-                font-family: {ui_font};
-                font-size: {sp(12)}px;
-                color: {theme_manager.ERROR};
-                background-color: transparent;
-                border: 1px solid {theme_manager.ERROR};
-                border-radius: {dp(4)}px;
-            }}
-            QPushButton#delete_btn:hover {{
-                background-color: {theme_manager.ERROR};
-                color: {theme_manager.BUTTON_TEXT};
-            }}
+            {build_delete_button_style(ui_font)}
         """)
 
     def get_data(self) -> dict:

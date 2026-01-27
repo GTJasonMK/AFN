@@ -82,17 +82,8 @@ class RefinementAgent:
         for round_num in range(1, self.MAX_ROUNDS + 1):
             self._current_round = round_num
 
-            # 1. 评估当前质量
-            evaluator = QualityEvaluator(self.profile, self.decision, self.output)
-            metrics = evaluator.evaluate()
-
-            # 记录历史
-            self._history.append({
-                "round": round_num,
-                "score": metrics.overall_score,
-                "grade": metrics.get_grade(),
-                "issues": len(metrics.issues),
-            })
+            # 1. 评估当前质量（并记录历史）
+            metrics = self._evaluate_and_record(round_num)
 
             logger.info(
                 "精化轮次 %d/%d: 质量评分=%.2f, 等级=%s, 问题数=%d",
@@ -103,24 +94,18 @@ class RefinementAgent:
                 len(metrics.issues),
             )
 
-            # 2. 检查是否达标
-            if metrics.overall_score >= self.QUALITY_THRESHOLD:
+            stop_reason, fixable_issues, fixed_count = self._decide_or_apply_fixes(metrics)
+            if stop_reason == "quality_threshold_met":
                 logger.info("质量达标，结束精化流程")
                 return self.output, metrics
-
-            # 3. 检查是否还有可修复的问题
-            fixable_issues = self._get_fixable_issues(metrics)
-            if not fixable_issues:
+            if stop_reason == "no_fixable_issues":
                 logger.info("无可修复的问题，结束精化流程")
                 return self.output, metrics
-
-            # 4. 执行修复
-            fixed_count = self._apply_fixes(fixable_issues)
-            logger.info("本轮修复了 %d 个问题", fixed_count)
-
-            if fixed_count == 0:
+            if stop_reason == "no_fixes_applied":
                 logger.info("本轮未修复任何问题，结束精化流程")
                 return self.output, metrics
+
+            logger.info("本轮修复了 %d 个问题", fixed_count)
 
         # 最终评估
         evaluator = QualityEvaluator(self.profile, self.decision, self.output)
@@ -161,16 +146,8 @@ class RefinementAgent:
                 }
             }
 
-            # 1. 评估当前质量
-            evaluator = QualityEvaluator(self.profile, self.decision, self.output)
-            metrics = evaluator.evaluate()
-
-            self._history.append({
-                "round": round_num,
-                "score": metrics.overall_score,
-                "grade": metrics.get_grade(),
-                "issues": len(metrics.issues),
-            })
+            # 1. 评估当前质量（并记录历史）
+            metrics = self._evaluate_and_record(round_num)
 
             yield {
                 "event": "quality_evaluated",
@@ -182,33 +159,22 @@ class RefinementAgent:
                 }
             }
 
-            # 2. 检查是否达标
-            if metrics.overall_score >= self.QUALITY_THRESHOLD:
+            stop_reason, fixable_issues, fixed_count = self._decide_or_apply_fixes(metrics)
+            if stop_reason in ("quality_threshold_met", "no_fixable_issues", "no_fixes_applied"):
+                messages = {
+                    "quality_threshold_met": "质量达标，精化完成",
+                    "no_fixable_issues": "无可修复的问题，精化完成",
+                    "no_fixes_applied": "本轮未修复任何问题，精化完成",
+                }
                 yield {
                     "event": "progress",
                     "data": {
                         "stage": "refinement_complete",
-                        "message": "质量达标，精化完成",
-                        "reason": "quality_threshold_met",
+                        "message": messages[stop_reason],
+                        "reason": stop_reason,
                     }
                 }
                 break
-
-            # 3. 获取可修复的问题
-            fixable_issues = self._get_fixable_issues(metrics)
-            if not fixable_issues:
-                yield {
-                    "event": "progress",
-                    "data": {
-                        "stage": "refinement_complete",
-                        "message": "无可修复的问题，精化完成",
-                        "reason": "no_fixable_issues",
-                    }
-                }
-                break
-
-            # 4. 执行修复
-            fixed_count = self._apply_fixes(fixable_issues)
 
             yield {
                 "event": "fixes_applied",
@@ -218,17 +184,6 @@ class RefinementAgent:
                     "issues_fixed": [i["issue_type"] for i in fixable_issues[:5]],
                 }
             }
-
-            if fixed_count == 0:
-                yield {
-                    "event": "progress",
-                    "data": {
-                        "stage": "refinement_complete",
-                        "message": "本轮未修复任何问题，精化完成",
-                        "reason": "no_fixes_applied",
-                    }
-                }
-                break
 
         # 最终评估
         evaluator = QualityEvaluator(self.profile, self.decision, self.output)
@@ -243,6 +198,36 @@ class RefinementAgent:
                 "history": self._history,
             }
         }
+
+    def _evaluate_and_record(self, round_num: int) -> QualityMetrics:
+        """评估当前质量并记录历史（同步/流式共用）"""
+        evaluator = QualityEvaluator(self.profile, self.decision, self.output)
+        metrics = evaluator.evaluate()
+
+        self._history.append({
+            "round": round_num,
+            "score": metrics.overall_score,
+            "grade": metrics.get_grade(),
+            "issues": len(metrics.issues),
+        })
+        return metrics
+
+    def _decide_or_apply_fixes(
+        self, metrics: QualityMetrics
+    ) -> Tuple[Optional[str], List[Dict[str, Any]], int]:
+        """判断是否应停止；若可继续则应用修复并返回结果。"""
+        if metrics.overall_score >= self.QUALITY_THRESHOLD:
+            return "quality_threshold_met", [], 0
+
+        fixable_issues = self._get_fixable_issues(metrics)
+        if not fixable_issues:
+            return "no_fixable_issues", [], 0
+
+        fixed_count = self._apply_fixes(fixable_issues)
+        if fixed_count == 0:
+            return "no_fixes_applied", fixable_issues, 0
+
+        return None, fixable_issues, fixed_count
 
     def _get_fixable_issues(self, metrics: QualityMetrics) -> List[Dict[str, Any]]:
         """

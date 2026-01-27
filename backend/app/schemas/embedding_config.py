@@ -9,12 +9,8 @@ from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
 
-
-def mask_api_key(api_key: Optional[str]) -> Optional[str]:
-    """遮蔽API Key，仅显示前8位和后4位。"""
-    if not api_key or len(api_key) <= 12:
-        return "***" if api_key else None
-    return f"{api_key[:8]}{'*' * (len(api_key) - 12)}{api_key[-4:]}"
+from .config_runtime_status import ConfigRuntimeStatus
+from .schema_utils import mask_api_key
 
 
 class EmbeddingConfigBase(BaseModel):
@@ -45,7 +41,7 @@ class EmbeddingConfigUpdate(BaseModel):
     vector_size: Optional[int] = Field(default=None, description="向量维度")
 
 
-class EmbeddingConfigRead(BaseModel):
+class EmbeddingConfigRead(ConfigRuntimeStatus):
     """嵌入模型配置的响应模型。"""
 
     id: int
@@ -56,13 +52,6 @@ class EmbeddingConfigRead(BaseModel):
     api_key_masked: Optional[str] = Field(default=None, description="遮蔽后的API Key")
     model_name: Optional[str] = None
     vector_size: Optional[int] = None
-    is_active: bool
-    is_verified: bool
-    last_test_at: Optional[datetime] = None
-    test_status: Optional[str] = None  # success, failed, pending
-    test_message: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
 
     class Config:
         from_attributes = True

@@ -19,6 +19,7 @@ export const BatchGenerateModal: React.FC<BatchGenerateModalProps> = ({
   onSuccess
 }) => {
   const [count, setCount] = useState(10);
+  const [startFrom, setStartFrom] = useState<number | ''>('');
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState('');
   const { addToast } = useToast();
@@ -43,7 +44,7 @@ export const BatchGenerateModal: React.FC<BatchGenerateModalProps> = ({
     // Connect to SSE stream
     await connect(`/writer/novels/${projectId}/chapter-outlines/generate-by-count`, {
       count: count,
-      start_from: undefined // Automatically continue
+      start_from: startFrom === '' ? undefined : Number(startFrom) // 留空则自动从当前最大章节号+1继续
     });
   };
 
@@ -78,10 +79,22 @@ export const BatchGenerateModal: React.FC<BatchGenerateModalProps> = ({
           label="生成数量"
           type="number"
           min={1}
-          max={50}
+          max={100}
           value={count}
           onChange={e => setCount(parseInt(e.target.value) || 1)}
           disabled={generating}
+        />
+        <BookInput
+          label="起始章节（可选）"
+          type="number"
+          min={1}
+          value={startFrom}
+          onChange={(e) => {
+            const v = e.target.value.trim();
+            setStartFrom(v === '' ? '' : (parseInt(v, 10) || 1));
+          }}
+          disabled={generating}
+          placeholder="留空则自动续写到下一章"
         />
         {progress && (
           <div className="text-xs text-book-primary animate-pulse font-medium">

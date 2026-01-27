@@ -256,7 +256,7 @@ tags: "导入分析,蓝图"
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **所有顶层字段必须存在**：缺少任何字段都会导致解析失败
 3. **one_sentence_summary必须30字以内**：超过会被截断
 4. **full_synopsis必须500-800字**：不能过短或过长

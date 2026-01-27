@@ -15,6 +15,14 @@ export const useSSE = (
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const disconnect = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsConnected(false);
+  }, []);
+
   const connectWithParser = useCallback(async (endpoint: string, body: any) => {
     disconnect();
     abortControllerRef.current = new AbortController();
@@ -88,15 +96,7 @@ export const useSSE = (
     } finally {
         setIsConnected(false);
     }
-  }, [onEvent]);
-
-  const disconnect = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setIsConnected(false);
-  }, []);
+  }, [onEvent, disconnect]);
 
   return {
     connect: connectWithParser,

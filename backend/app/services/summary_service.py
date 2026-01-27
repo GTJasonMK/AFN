@@ -38,6 +38,16 @@ class SummaryService:
     # 摘要生成失败时的默认消息
     FALLBACK_SUMMARY = "摘要生成失败，请稍后手动生成"
 
+    @classmethod
+    def is_valid_summary(cls, summary: Optional[str]) -> bool:
+        """判断摘要是否为“有效摘要”
+
+        有效摘要定义：
+        - 非空字符串（去掉首尾空白后仍有内容）
+        - 不等于占位符 `FALLBACK_SUMMARY`
+        """
+        return bool(summary and summary.strip() and summary != cls.FALLBACK_SUMMARY)
+
     def __init__(self, llm_service: "LLMService"):
         """
         初始化摘要服务
@@ -151,7 +161,10 @@ class SummaryService:
         content: str,
         project_id: str,
         user_id: int,
+        chapter_outline_repo: Optional["ChapterOutlineRepository"] = None,
+        chapter_title: Optional[str] = None,
         force_regenerate: bool = False,
+        use_fallback: bool = False,
     ) -> Optional[str]:
         """
         确保章节有摘要（如果没有则生成）
@@ -161,12 +174,15 @@ class SummaryService:
             content: 章节内容
             project_id: 项目ID
             user_id: 用户ID
+            chapter_outline_repo: 大纲仓库（可选，用于同步更新大纲摘要）
+            chapter_title: 章节标题（可选，用于更新大纲）
             force_regenerate: 是否强制重新生成
+            use_fallback: 失败时是否写入占位摘要
 
         Returns:
             现有或新生成的摘要
         """
-        if chapter.real_summary and not force_regenerate:
+        if not force_regenerate and self.is_valid_summary(chapter.real_summary):
             return chapter.real_summary
 
         return await self.generate_and_save_summary(
@@ -174,7 +190,9 @@ class SummaryService:
             content=content,
             project_id=project_id,
             user_id=user_id,
-            use_fallback=False,
+            chapter_outline_repo=chapter_outline_repo,
+            chapter_title=chapter_title,
+            use_fallback=use_fallback,
         )
 
 

@@ -105,7 +105,7 @@ tags: "导入分析,摘要"
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **只返回3个字段**：summary, key_characters, key_events
 3. **summary必须100-200字**：不能过短或过长
 4. **数组字段使用正确类型**：必须是字符串数组

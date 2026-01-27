@@ -34,6 +34,20 @@ from ...models.coding_files import CodingSourceFile, CodingFileVersion
 logger = logging.getLogger(__name__)
 
 
+_RECORD_GENERATOR_METHODS: Dict[CodingDataType, str] = {
+    CodingDataType.INSPIRATION: "_generate_inspiration_records",
+    CodingDataType.ARCHITECTURE: "_generate_architecture_records",
+    CodingDataType.TECH_STACK: "_generate_tech_stack_records",
+    CodingDataType.REQUIREMENT: "_generate_requirement_records",
+    CodingDataType.CHALLENGE: "_generate_challenge_records",
+    CodingDataType.SYSTEM: "_generate_system_records",
+    CodingDataType.MODULE: "_generate_module_records",
+    CodingDataType.DEPENDENCY: "_generate_dependency_records",
+    CodingDataType.REVIEW_PROMPT: "_generate_review_prompt_records",
+    CodingDataType.FILE_PROMPT: "_generate_file_prompt_records",
+}
+
+
 class CodingProjectIngestionService(BaseProjectIngestionService):
     """
     编程项目向量入库服务
@@ -51,22 +65,25 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
     - review_prompt: 审查/测试Prompt
     """
 
-    def __init__(
-        self,
-        session: AsyncSession,
-        vector_store: Any,  # VectorStoreService
-        llm_service: Any,   # LLMService
-        user_id: str
-    ):
-        super().__init__(
-            session=session,
-            vector_store=vector_store,
-            llm_service=llm_service,
-            user_id=user_id,
-            data_type_enum=CodingDataType,
-            splitter=ContentSplitter(),
-            log_title="开始入库",
-            logger_obj=logger,
+    DATA_TYPE_ENUM = CodingDataType
+    SPLITTER_FACTORY = ContentSplitter
+    LOG_TITLE = "开始入库"
+    LOGGER_OBJ = logger
+    RECORD_GENERATOR_METHODS = _RECORD_GENERATOR_METHODS
+
+    def _log_ingest_sample(self, result: IngestionResult, chunk_records: List[Dict[str, Any]]) -> None:
+        """入库前记录一条样本，便于定位 metadata/data_type 等字段异常"""
+        if not chunk_records:
+            return
+
+        sample = chunk_records[0]
+        self._logger.info(
+            "入库数据样本: type=%s id=%s chapter_title=%s metadata_keys=%s data_type_in_meta=%s",
+            result.data_type.value,
+            str(sample.get("id", ""))[:30],
+            sample.get("chapter_title", ""),
+            list(sample.get("metadata", {}).keys()),
+            sample.get("metadata", {}).get("data_type", "MISSING!"),
         )
 
     def _get_ingest_method_map(self) -> Dict[CodingDataType, Any]:
@@ -83,46 +100,6 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
             CodingDataType.REVIEW_PROMPT: self._ingest_review_prompts,
             CodingDataType.FILE_PROMPT: self._ingest_file_prompts,
         }
-
-    async def _generate_records_for_type(
-        self,
-        project_id: str,
-        data_type: CodingDataType
-    ) -> List[IngestionRecord]:
-        """
-        为指定数据类型生成入库记录（不实际入库，只用于哈希计算）
-
-        复用各类型的入库逻辑，但不执行embedding和写入操作。
-
-        Args:
-            project_id: 项目ID
-            data_type: 数据类型
-
-        Returns:
-            入库记录列表
-        """
-        # 根据类型调用对应的记录生成方法
-        if data_type == CodingDataType.INSPIRATION:
-            return await self._generate_inspiration_records(project_id)
-        elif data_type == CodingDataType.ARCHITECTURE:
-            return await self._generate_architecture_records(project_id)
-        elif data_type == CodingDataType.TECH_STACK:
-            return await self._generate_tech_stack_records(project_id)
-        elif data_type == CodingDataType.REQUIREMENT:
-            return await self._generate_requirement_records(project_id)
-        elif data_type == CodingDataType.CHALLENGE:
-            return await self._generate_challenge_records(project_id)
-        elif data_type == CodingDataType.SYSTEM:
-            return await self._generate_system_records(project_id)
-        elif data_type == CodingDataType.MODULE:
-            return await self._generate_module_records(project_id)
-        elif data_type == CodingDataType.DEPENDENCY:
-            return await self._generate_dependency_records(project_id)
-        elif data_type == CodingDataType.REVIEW_PROMPT:
-            return await self._generate_review_prompt_records(project_id)
-        elif data_type == CodingDataType.FILE_PROMPT:
-            return await self._generate_file_prompt_records(project_id)
-        return []
 
     async def _generate_inspiration_records(self, project_id: str) -> List[IngestionRecord]:
         """生成灵感对话记录"""
@@ -512,37 +489,6 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
             records.extend(file_records)
 
         return records
-
-    async def _get_sentence_embeddings(self, sentences: List[str]) -> List[List[float]]:
-        """获取句子列表的嵌入向量
-
-        为语义分块器提供的嵌入函数，批量获取句子的嵌入向量。
-
-        Args:
-            sentences: 句子列表
-
-        Returns:
-            嵌入向量列表（numpy数组形式）
-        """
-        import numpy as np
-
-        embeddings = []
-        for sentence in sentences:
-            try:
-                embedding = await self.llm_service.get_embedding(
-                    sentence,
-                    user_id=self.user_id
-                )
-                if embedding:
-                    embeddings.append(embedding)
-                else:
-                    # 返回零向量作为占位
-                    embeddings.append([0.0] * 1536)  # 默认维度
-            except Exception as e:
-                logger.warning("获取句子嵌入失败: %s", str(e))
-                embeddings.append([0.0] * 1536)
-
-        return np.array(embeddings)
 
     # ==================== 私有方法：各类型入库 ====================
 
@@ -1032,99 +978,6 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
             )
         return 0
 
-    async def _ingest_records(
-        self,
-        records: List[IngestionRecord],
-        result: IngestionResult,
-        project_id: str
-    ) -> IngestionResult:
-        """
-        将记录入库到向量库
-
-        Args:
-            records: 入库记录列表
-            result: 结果对象（会被修改）
-            project_id: 项目ID（用于向量库的project_id字段）
-
-        Returns:
-            更新后的结果对象
-        """
-        if not records:
-            return result
-
-        if not self.vector_store:
-            result.success = False
-            result.error_message = "向量库未启用"
-            return result
-
-        # 批量生成embedding
-        embeddings = await self._batch_get_embeddings([r.content for r in records])
-
-        if len(embeddings) != len(records):
-            result.success = False
-            result.error_message = "生成embedding数量不匹配"
-            return result
-
-        # 构建入库数据
-        chunk_records = []
-        for idx, (record, embedding) in enumerate(zip(records, embeddings)):
-            if not embedding:
-                result.failed_count += 1
-                continue
-
-            chunk_id = record.get_chunk_id()
-            metadata = {
-                **record.metadata,
-                "data_type": record.data_type.value,
-                "paragraph_hash": record.get_content_hash(),
-                "length": len(record.content),
-                "source_id": record.source_id,  # 保存原始source_id到metadata
-            }
-
-            # 根据数据类型生成有意义的来源信息
-            chapter_number, chapter_title = self._get_source_info(record)
-
-            chunk_records.append({
-                "id": chunk_id,
-                "project_id": project_id,  # 始终使用传入的project_id
-                "chapter_number": chapter_number,
-                "chunk_index": record.metadata.get("section_index", idx),
-                "chapter_title": chapter_title,
-                "content": record.content,
-                "embedding": embedding,
-                "metadata": metadata,
-            })
-
-        # 写入向量库
-        try:
-            # 记录入库数据的详细信息
-            if chunk_records:
-                sample = chunk_records[0]
-                logger.info(
-                    "入库数据样本: type=%s id=%s chapter_title=%s metadata_keys=%s data_type_in_meta=%s",
-                    result.data_type.value,
-                    sample.get("id", "")[:30],
-                    sample.get("chapter_title", ""),
-                    list(sample.get("metadata", {}).keys()),
-                    sample.get("metadata", {}).get("data_type", "MISSING!")
-                )
-
-            await self.vector_store.upsert_chunks(records=chunk_records)
-            result.added_count = len(chunk_records)
-            logger.info(
-                "入库完成: type=%s count=%d",
-                result.data_type.value, result.added_count
-            )
-        except Exception as e:
-            result.success = False
-            result.error_message = str(e)
-            logger.error(
-                "入库失败: type=%s error=%s",
-                result.data_type.value, str(e)
-            )
-
-        return result
-
     def _get_source_info(self, record: IngestionRecord) -> tuple:
         """
         根据数据类型获取来源信息
@@ -1216,38 +1069,6 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
 
         # 默认
         return (0, CodingDataType.get_display_name(data_type.value))
-
-    async def _batch_get_embeddings(
-        self,
-        texts: List[str],
-        batch_size: int = 10
-    ) -> List[Optional[List[float]]]:
-        """
-        批量获取embedding
-
-        Args:
-            texts: 文本列表
-            batch_size: 批次大小
-
-        Returns:
-            embedding列表（与texts顺序对应）
-        """
-        embeddings: List[Optional[List[float]]] = []
-
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            for text in batch:
-                try:
-                    embedding = await self.llm_service.get_embedding(
-                        text,
-                        user_id=self.user_id
-                    )
-                    embeddings.append(embedding)
-                except Exception as e:
-                    logger.warning("生成embedding失败: %s", str(e))
-                    embeddings.append(None)
-
-        return embeddings
 
     # ==================== 私有方法：格式化函数 ====================
 

@@ -21,6 +21,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   defaultType = 'novel',
 }) => {
   const [type, setType] = useState<'novel' | 'coding'>(defaultType);
+  const [novelCreateMode, setNovelCreateMode] = useState<'ai' | 'free'>('ai');
+  const [codingCreateMode, setCodingCreateMode] = useState<'ai' | 'empty'>('ai');
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,6 +33,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   React.useEffect(() => {
     if (isOpen) {
       setType(defaultType);
+      setNovelCreateMode('ai');
+      setCodingCreateMode('ai');
       setTitle('');
       setPrompt('');
       setLoading(false);
@@ -43,21 +47,21 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     setLoading(true);
     try {
       if (type === 'novel') {
+        const skipInspiration = novelCreateMode === 'free';
         const newProject = await novelsApi.create({
           title,
           initial_prompt: prompt,
-          skip_inspiration: false 
+          skip_inspiration: skipInspiration,
         });
-        navigate(`/inspiration/${newProject.id}`);
+        navigate(skipInspiration ? `/novel/${newProject.id}` : `/inspiration/${newProject.id}`);
       } else {
+        const skipConversation = codingCreateMode === 'empty';
         const newProject = await codingApi.create({
           title,
           initial_prompt: prompt,
-          skip_conversation: false
+          skip_conversation: skipConversation,
         });
-        // Navigate to coding inspiration (reusing existing chat page but with different mode handling ideally)
-        // For now, we route to a specific coding inspiration path to differentiate
-        navigate(`/coding/inspiration/${newProject.id}`);
+        navigate(skipConversation ? `/coding/detail/${newProject.id}` : `/coding/inspiration/${newProject.id}`);
       }
       
       onClose();
@@ -125,10 +129,80 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             onChange={(e) => setTitle(e.target.value)}
             autoFocus
           />
+
+          {/* Create Mode */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-bold text-book-text-sub ml-1">
+              创建模式
+            </label>
+            {type === 'novel' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setNovelCreateMode('ai')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    novelCreateMode === 'ai'
+                      ? 'border-book-primary bg-book-primary/5 text-book-text-main'
+                      : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/40'
+                  }`}
+                >
+                  <div className="text-sm font-bold">AI 灵感对话（推荐）</div>
+                  <div className="text-[11px] mt-1 leading-relaxed">
+                    先对话打磨设定，再生成蓝图与大纲。
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNovelCreateMode('free')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    novelCreateMode === 'free'
+                      ? 'border-book-primary bg-book-primary/5 text-book-text-main'
+                      : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/40'
+                  }`}
+                >
+                  <div className="text-sm font-bold">自由创作</div>
+                  <div className="text-[11px] mt-1 leading-relaxed">
+                    跳过灵感对话，直接进入项目详情（可手动生成蓝图）。
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCodingCreateMode('ai')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    codingCreateMode === 'ai'
+                      ? 'border-book-primary bg-book-primary/5 text-book-text-main'
+                      : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/40'
+                  }`}
+                >
+                  <div className="text-sm font-bold">AI 需求分析（推荐）</div>
+                  <div className="text-[11px] mt-1 leading-relaxed">
+                    先对话澄清需求，再生成架构蓝图。
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCodingCreateMode('empty')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    codingCreateMode === 'empty'
+                      ? 'border-book-primary bg-book-primary/5 text-book-text-main'
+                      : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/40'
+                  }`}
+                >
+                  <div className="text-sm font-bold">空项目</div>
+                  <div className="text-[11px] mt-1 leading-relaxed">
+                    跳过需求对话，直接进入项目详情（可手动生成蓝图）。
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
           
           <div className="space-y-1.5">
             <label className="block text-sm font-bold text-book-text-sub ml-1">
-              {type === 'novel' ? '灵感种子 (可选)' : '需求描述 (可选)'}
+              {type === 'novel' ? '灵感种子 / 备注（可选）' : '需求描述 / 备注（可选）'}
             </label>
             <BookTextarea
               placeholder={type === 'novel' 

@@ -8,7 +8,6 @@
 
 import hashlib
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -18,7 +17,17 @@ from .chunk_strategy import (
     NovelChunkConfig,
     get_novel_strategy_manager,
 )
-from ..rag_common.markdown_splitter import split_markdown_sections
+from ..rag_common.markdown_split_mixin import MarkdownHeaderSplitMixin
+from ..rag_common.content_splitter_utils import (
+    build_qa_round_text,
+    build_paragraph_chunk_records,
+    build_fixed_length_chunk_records,
+    build_markdown_section_records,
+    build_semantic_chunk_records_async,
+    split_paragraph_chunks,
+    build_whole_chunk_records,
+    iter_qa_rounds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +65,7 @@ class NovelIngestionRecord:
         return f"{type_prefix}_{source_suffix}_{section_idx}_{content_hash}"
 
 
-class NovelContentSplitter:
+class NovelContentSplitter(MarkdownHeaderSplitMixin):
     """小说内容分割器 - 按格式智能分割长内容，支持策略配置"""
 
     # 最小chunk长度，太短的内容不分割
@@ -67,6 +76,7 @@ class NovelContentSplitter:
     OVERLAP_LENGTH = 100
     # 长字段阈值，超过此长度的字段需要分割
     LONG_FIELD_THRESHOLD = 300
+    SECTION_FACTORY = Section
 
     def __init__(self, config: Optional[NovelChunkConfig] = None):
         """
@@ -111,36 +121,43 @@ class NovelContentSplitter:
         if config is None:
             config = get_novel_strategy_manager().get_config(data_type)
 
+        # 统一注入章节号到 metadata（避免仅靠 record.chapter_number 导致 _get_source_info 推断为 0）
+        metadata_kwargs = dict(extra_metadata)
+        if chapter_number is not None:
+            metadata_kwargs.setdefault("chapter_number", chapter_number)
+
         # 根据分块方法调用对应处理
         method = config.method
 
         if method == NovelChunkMethod.WHOLE:
-            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_whole(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         elif method == NovelChunkMethod.MARKDOWN_HEADER:
-            return self._split_markdown(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_markdown(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         elif method == NovelChunkMethod.PARAGRAPH:
-            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         elif method == NovelChunkMethod.PARAGRAPH_NO_OVERLAP:
-            return self._split_paragraph(content, data_type, source_id, config, chapter_number, with_overlap=False, **extra_metadata)
+            return self._split_paragraph(
+                content, data_type, source_id, config, chapter_number, with_overlap=False, **metadata_kwargs
+            )
 
         elif method == NovelChunkMethod.FIXED_LENGTH:
-            return self._split_fixed_length(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_fixed_length(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         elif method == NovelChunkMethod.SIMPLE:
-            return self._split_simple(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_simple(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         elif method == NovelChunkMethod.SEMANTIC_DP:
             # 语义分块需要异步调用，这里返回降级结果
             # 实际使用时应调用 split_content_semantic_async
             logger.warning("SEMANTIC_DP方法在同步调用中不可用，降级为段落分割")
-            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_paragraph(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
         else:
             # 默认使用简单分割
-            return self._split_simple(content, data_type, source_id, config, chapter_number, **extra_metadata)
+            return self._split_simple(content, data_type, source_id, config, chapter_number, **metadata_kwargs)
 
     def _split_whole(
         self,
@@ -152,23 +169,23 @@ class NovelContentSplitter:
         **extra_metadata
     ) -> List['NovelIngestionRecord']:
         """整体入库，不分割"""
-        content = content.strip()
-
-        # 添加上下文前缀（如果配置了）
-        if config.add_context_prefix and extra_metadata.get('parent_title'):
-            content = f"[{extra_metadata['parent_title']}]\n\n{content}"
-
-        return [NovelIngestionRecord(
+        records: List[NovelIngestionRecord] = []
+        for chunk_content, metadata in build_whole_chunk_records(
             content=content,
-            data_type=data_type,
-            source_id=source_id,
-            chapter_number=chapter_number,
-            metadata={
-                'section_index': 0,
-                'total_sections': 1,
-                **extra_metadata
-            }
-        )]
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        ):
+            records.append(
+                NovelIngestionRecord(
+                    content=chunk_content,
+                    data_type=data_type,
+                    source_id=source_id,
+                    chapter_number=chapter_number,
+                    metadata=metadata,
+                )
+            )
+        return records
 
     def _split_markdown(
         self,
@@ -190,28 +207,22 @@ class NovelContentSplitter:
         if not sections or len(content) < config.min_chunk_length:
             return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
 
-        records = []
-        total_sections = len(sections)
-
-        for section in sections:
-            section_content = f"## {section.title}\n\n{section.content}" if section.title else section.content
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                section_content = f"[{extra_metadata['parent_title']}]\n\n{section_content}"
-
-            records.append(NovelIngestionRecord(
-                content=section_content,
-                data_type=data_type,
-                source_id=source_id,
-                chapter_number=chapter_number,
-                metadata={
-                    'section_title': section.title,
-                    'section_index': section.index,
-                    'total_sections': total_sections,
-                    **extra_metadata
-                }
-            ))
+        records: List[NovelIngestionRecord] = []
+        for chunk_content, metadata in build_markdown_section_records(
+            sections=sections,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        ):
+            records.append(
+                NovelIngestionRecord(
+                    content=chunk_content,
+                    data_type=data_type,
+                    source_id=source_id,
+                    chapter_number=chapter_number,
+                    metadata=metadata,
+                )
+            )
 
         return records
 
@@ -228,39 +239,31 @@ class NovelContentSplitter:
         """按段落分割"""
         # 使用配置中的参数
         use_overlap = with_overlap and config.with_overlap
-        paragraphs = self.split_by_paragraphs(
-            content,
+
+        chunk_records = build_paragraph_chunk_records(
+            content=content,
             min_length=config.min_chunk_length,
             max_length=config.max_chunk_length,
-            with_overlap=use_overlap
+            with_overlap=use_overlap,
+            overlap_length=config.overlap_length if use_overlap else 0,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
         )
 
-        if not paragraphs:
+        if not chunk_records:
             return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
 
-        records = []
-        total_sections = len(paragraphs)
-
-        for idx, para in enumerate(paragraphs):
-            para_content = para
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                para_content = f"[{extra_metadata['parent_title']}]\n\n{para_content}"
-
-            records.append(NovelIngestionRecord(
-                content=para_content,
+        return [
+            NovelIngestionRecord(
+                content=chunk_content,
                 data_type=data_type,
                 source_id=source_id,
                 chapter_number=chapter_number,
-                metadata={
-                    'section_index': idx,
-                    'total_sections': total_sections,
-                    **extra_metadata
-                }
-            ))
-
-        return records
+                metadata=metadata,
+            )
+            for chunk_content, metadata in chunk_records
+        ]
 
     def _split_fixed_length(
         self,
@@ -274,55 +277,30 @@ class NovelContentSplitter:
         """按固定长度分割"""
         chunk_size = config.max_chunk_length
         overlap = config.overlap_length if config.with_overlap else 0
-        content = content.strip()
+        normalized = content.strip()
 
-        if len(content) <= chunk_size:
-            return self._split_whole(content, data_type, source_id, config, chapter_number, **extra_metadata)
+        if len(normalized) <= chunk_size:
+            return self._split_whole(normalized, data_type, source_id, config, chapter_number, **extra_metadata)
 
-        chunks = []
-        start = 0
-        while start < len(content):
-            end = start + chunk_size
-            chunk = content[start:end]
+        chunk_records = build_fixed_length_chunk_records(
+            content=normalized,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        )
 
-            # 尝试在句子边界截断
-            if end < len(content):
-                last_sentence_end = max(
-                    chunk.rfind('。'),
-                    chunk.rfind('？'),
-                    chunk.rfind('！'),
-                    chunk.rfind('.'),
-                    chunk.rfind('?'),
-                    chunk.rfind('!')
-                )
-                if last_sentence_end > chunk_size * 0.5:
-                    chunk = chunk[:last_sentence_end + 1]
-                    end = start + last_sentence_end + 1
-
-            chunks.append(chunk.strip())
-            start = end - overlap if end < len(content) else end
-
-        records = []
-        for idx, chunk in enumerate(chunks):
-            chunk_content = chunk
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
-
-            records.append(NovelIngestionRecord(
+        return [
+            NovelIngestionRecord(
                 content=chunk_content,
                 data_type=data_type,
                 source_id=source_id,
                 chapter_number=chapter_number,
-                metadata={
-                    'section_index': idx,
-                    'total_sections': len(chunks),
-                    **extra_metadata
-                }
-            ))
-
-        return records
+                metadata=metadata,
+            )
+            for chunk_content, metadata in chunk_records
+        ]
 
     def _split_simple(
         self,
@@ -373,234 +351,41 @@ class NovelContentSplitter:
         if config is None:
             config = get_novel_strategy_manager().get_config(data_type)
 
-        try:
-            # 延迟导入语义分块器，避免循环依赖
-            from ..rag_common.semantic_chunker import (
-                SemanticChunker,
-                SemanticChunkConfig,
-            )
+        # 统一注入章节号到 metadata（语义分块路径也需要）
+        semantic_metadata = dict(extra_metadata)
+        if chapter_number is not None:
+            semantic_metadata.setdefault("chapter_number", chapter_number)
 
-            # 构建语义分块配置
-            semantic_config = SemanticChunkConfig(
-                gate_threshold=config.semantic_gate_threshold,
-                alpha=config.semantic_alpha,
-                gamma=config.semantic_gamma,
-                min_chunk_sentences=config.semantic_min_sentences,
-                max_chunk_sentences=config.semantic_max_sentences,
-                min_chunk_chars=config.min_chunk_length,
-                max_chunk_chars=config.max_chunk_length,
+        try:
+            chunk_records = await build_semantic_chunk_records_async(
+                content=content,
+                embedding_func=embedding_func,
+                strategy_config=config,
                 with_overlap=config.with_overlap,
                 overlap_sentences=1 if config.with_overlap else 0,
+                add_context_prefix=config.add_context_prefix,
+                parent_title=semantic_metadata.get("parent_title"),
+                extra_metadata=semantic_metadata,
             )
 
-            # 创建语义分块器并执行分块
-            chunker = SemanticChunker(config=semantic_config)
-            chunk_results = await chunker.chunk_text_async(
-                text=content,
-                embedding_func=embedding_func,
-                config=semantic_config
-            )
-
-            # 转换为NovelIngestionRecord
-            records = []
-            for idx, chunk in enumerate(chunk_results):
-                chunk_content = chunk.content
-
-                # 添加上下文前缀
-                if config.add_context_prefix and extra_metadata.get('parent_title'):
-                    chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
-
-                records.append(NovelIngestionRecord(
+            return [
+                NovelIngestionRecord(
                     content=chunk_content,
                     data_type=data_type,
                     source_id=source_id,
                     chapter_number=chapter_number,
-                    metadata={
-                        'section_index': idx,
-                        'total_sections': len(chunk_results),
-                        'sentence_count': chunk.sentence_count,
-                        'density_score': chunk.density_score,
-                        'semantic_chunked': True,
-                        **extra_metadata
-                    }
-                ))
-
-            return records
+                    metadata=metadata,
+                )
+                for chunk_content, metadata in chunk_records
+            ]
 
         except Exception as e:
             logger.warning("语义分块失败: %s，降级为段落分割", str(e))
             return self._split_paragraph(
-                content, data_type, source_id, config, chapter_number, **extra_metadata
+                content, data_type, source_id, config, chapter_number, **semantic_metadata
             )
 
     # ==================== 原有方法（保持向后兼容） ====================
-
-    def split_by_markdown_headers(
-        self,
-        content: str,
-        min_level: int = 2,
-        max_level: int = 3
-    ) -> List[Section]:
-        """
-        按Markdown标题分割内容
-
-        Args:
-            content: 原始Markdown内容
-            min_level: 最小标题级别（2 = ##）
-            max_level: 最大标题级别（3 = ###）
-
-        Returns:
-            分割后的Section列表
-        """
-        return split_markdown_sections(
-            content=content,
-            min_level=min_level,
-            max_level=max_level,
-            section_factory=Section,
-        )
-
-    def split_by_paragraphs(
-        self,
-        content: str,
-        min_length: int = None,
-        max_length: int = None,
-        with_overlap: bool = True
-    ) -> List[str]:
-        """
-        按段落分割内容
-
-        Args:
-            content: 原始内容
-            min_length: 最小段落长度，默认使用类常量
-            max_length: 最大段落长度，默认使用类常量
-            with_overlap: 是否添加重叠，默认True
-
-        Returns:
-            段落列表
-        """
-        if not content or not content.strip():
-            return []
-
-        min_length = min_length or self.MIN_CHUNK_LENGTH
-        max_length = max_length or self.MAX_CHUNK_LENGTH
-
-        # 按空行分割段落
-        paragraphs = re.split(r'\n\s*\n', content)
-        result: List[str] = []
-        current_paragraph = ""
-
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-
-            # 如果当前段落加上新段落不超过max_length，合并
-            if current_paragraph:
-                combined = current_paragraph + "\n\n" + para
-                if len(combined) <= max_length:
-                    current_paragraph = combined
-                else:
-                    # 保存当前段落，开始新段落
-                    if len(current_paragraph) >= min_length:
-                        result.append(current_paragraph)
-                    current_paragraph = para
-            else:
-                current_paragraph = para
-
-            # 如果段落超过max_length，强制分割
-            while len(current_paragraph) > max_length:
-                # 尝试在句号处分割
-                split_pos = self._find_split_position(current_paragraph, max_length)
-                result.append(current_paragraph[:split_pos].strip())
-                current_paragraph = current_paragraph[split_pos:].strip()
-
-        # 保存最后一个段落
-        if current_paragraph and len(current_paragraph) >= min_length:
-            result.append(current_paragraph)
-
-        # 添加重叠
-        if with_overlap and len(result) > 1:
-            result = self._add_overlap(result)
-
-        return result
-
-    def _add_overlap(self, chunks: List[str]) -> List[str]:
-        """
-        为分块列表添加重叠
-
-        在每个块的开头添加上一块结尾的部分内容，保持上下文连贯性。
-
-        Args:
-            chunks: 原始分块列表
-
-        Returns:
-            添加重叠后的分块列表
-        """
-        if len(chunks) <= 1:
-            return chunks
-
-        result = [chunks[0]]  # 第一块保持不变
-
-        for i in range(1, len(chunks)):
-            prev_chunk = chunks[i - 1]
-            current_chunk = chunks[i]
-
-            # 从上一块取重叠部分
-            overlap_text = ""
-            if len(prev_chunk) > self.OVERLAP_LENGTH:
-                # 尝试在句号处截取重叠
-                overlap_start = len(prev_chunk) - self.OVERLAP_LENGTH
-                # 找到重叠区域内的第一个句号后的位置
-                for punct in ['。', '！', '？', '.', '!', '?']:
-                    pos = prev_chunk.find(punct, overlap_start)
-                    if pos != -1 and pos < len(prev_chunk) - 10:
-                        overlap_text = prev_chunk[pos + 1:].strip()
-                        break
-
-                # 如果没找到句号，直接从overlap_start截取
-                if not overlap_text:
-                    overlap_text = prev_chunk[overlap_start:].strip()
-
-            # 组合重叠内容和当前块
-            if overlap_text:
-                result.append(f"[...] {overlap_text}\n\n{current_chunk}")
-            else:
-                result.append(current_chunk)
-
-        return result
-
-    def _find_split_position(self, text: str, max_pos: int) -> int:
-        """
-        找到合适的分割位置
-
-        优先在句号、问号、感叹号处分割，其次在逗号处分割。
-
-        Args:
-            text: 要分割的文本
-            max_pos: 最大位置
-
-        Returns:
-            分割位置
-        """
-        # 优先在句号、问号、感叹号处分割
-        for punct in ['。', '！', '？', '.', '!', '?']:
-            pos = text.rfind(punct, 0, max_pos)
-            if pos > max_pos // 2:
-                return pos + 1
-
-        # 其次在逗号处分割
-        for punct in ['，', ',', '；', ';']:
-            pos = text.rfind(punct, 0, max_pos)
-            if pos > max_pos // 2:
-                return pos + 1
-
-        # 最后在空格处分割
-        pos = text.rfind(' ', 0, max_pos)
-        if pos > max_pos // 2:
-            return pos + 1
-
-        # 强制在max_pos处分割
-        return max_pos
 
     def merge_qa_rounds(
         self,
@@ -624,36 +409,15 @@ class NovelContentSplitter:
         if not conversations:
             return records
 
-        # 按轮次合并
-        current_round: List[Dict[str, Any]] = []
         round_number = 0
 
-        for conv in conversations:
-            role = conv.get('role', '')
-            content = conv.get('content', '')
-            seq = conv.get('seq', 0)
-
-            if role == 'user':
-                # 新轮次开始，保存上一轮
-                if current_round:
-                    record = self._create_round_record(
-                        current_round, project_id, round_number
-                    )
-                    if record:
-                        records.append(record)
-                        round_number += 1
-                current_round = [conv]
-            elif role == 'assistant' and current_round:
-                # 添加到当前轮次
-                current_round.append(conv)
-
-        # 保存最后一轮
-        if current_round:
+        for round_convs in iter_qa_rounds(conversations):
             record = self._create_round_record(
-                current_round, project_id, round_number
+                round_convs, project_id, round_number
             )
             if record:
                 records.append(record)
+                round_number += 1
 
         return records
 
@@ -664,25 +428,9 @@ class NovelContentSplitter:
         round_number: int
     ) -> Optional[NovelIngestionRecord]:
         """创建一轮对话的入库记录"""
-        if not round_convs:
+        merged_content, start_seq, message_count = build_qa_round_text(round_convs)
+        if not merged_content:
             return None
-
-        # 构建对话内容
-        parts = []
-        start_seq = round_convs[0].get('seq', 0)
-
-        for conv in round_convs:
-            role = conv.get('role', '')
-            content = conv.get('content', '')
-            if role == 'user':
-                parts.append(f"用户: {content}")
-            elif role == 'assistant':
-                parts.append(f"助手: {content}")
-
-        if not parts:
-            return None
-
-        merged_content = '\n\n'.join(parts)
 
         return NovelIngestionRecord(
             content=merged_content,
@@ -691,7 +439,7 @@ class NovelContentSplitter:
             metadata={
                 'round_number': round_number,
                 'start_seq': start_seq,
-                'message_count': len(round_convs),
+                'message_count': message_count,
             }
         )
 
@@ -749,69 +497,6 @@ class NovelContentSplitter:
 
         return records
 
-    def split_chapter_content(
-        self,
-        content: str,
-        chapter_number: int,
-        chapter_title: str,
-        source_id: str
-    ) -> List[NovelIngestionRecord]:
-        """
-        分割章节正文内容
-
-        按段落分割，为每个片段添加来源追踪信息。
-
-        Args:
-            content: 章节正文内容
-            chapter_number: 章节编号
-            chapter_title: 章节标题
-            source_id: 来源版本ID
-
-        Returns:
-            入库记录列表
-        """
-        records: List[NovelIngestionRecord] = []
-
-        if not content or not content.strip():
-            return records
-
-        # 按段落分割
-        paragraphs = self.split_by_paragraphs(content)
-
-        if not paragraphs:
-            # 内容较短，整体入库
-            if content.strip():
-                records.append(NovelIngestionRecord(
-                    content=content.strip(),
-                    data_type=NovelDataType.CHAPTER_CONTENT,
-                    source_id=source_id,
-                    chapter_number=chapter_number,
-                    metadata={
-                        'chapter_number': chapter_number,
-                        'chapter_title': chapter_title,
-                        'section_index': 0,
-                        'total_sections': 1,
-                    }
-                ))
-            return records
-
-        total_sections = len(paragraphs)
-        for idx, para in enumerate(paragraphs):
-            records.append(NovelIngestionRecord(
-                content=para,
-                data_type=NovelDataType.CHAPTER_CONTENT,
-                source_id=source_id,
-                chapter_number=chapter_number,
-                metadata={
-                    'chapter_number': chapter_number,
-                    'chapter_title': chapter_title,
-                    'section_index': idx,
-                    'total_sections': total_sections,
-                }
-            ))
-
-        return records
-
     def create_simple_record(
         self,
         content: str,
@@ -838,16 +523,20 @@ class NovelContentSplitter:
         if not content or not content.strip():
             return None
 
+        metadata = {
+            'section_index': 0,
+            'total_sections': 1,
+            **extra_metadata
+        }
+        if chapter_number is not None:
+            metadata.setdefault("chapter_number", chapter_number)
+
         return NovelIngestionRecord(
             content=content.strip(),
             data_type=data_type,
             source_id=source_id,
             chapter_number=chapter_number,
-            metadata={
-                'section_index': 0,
-                'total_sections': 1,
-                **extra_metadata
-            }
+            metadata=metadata,
         )
 
     def split_world_setting(
@@ -902,7 +591,13 @@ class NovelContentSplitter:
             if isinstance(value, str):
                 # 长字段分割
                 if len(value) > self.LONG_FIELD_THRESHOLD:
-                    paragraphs = self.split_by_paragraphs(value, with_overlap=True)
+                    paragraphs = split_paragraph_chunks(
+                        value,
+                        min_length=self.MIN_CHUNK_LENGTH,
+                        max_length=self.MAX_CHUNK_LENGTH,
+                        with_overlap=True,
+                        overlap_length=self.OVERLAP_LENGTH,
+                    )
                     for idx, para in enumerate(paragraphs):
                         content = f"[世界观-{field_name}]\n{para}"
                         records.append(NovelIngestionRecord(
@@ -1154,7 +849,13 @@ class NovelContentSplitter:
                     if isinstance(value, str):
                         # 长内容需要分割
                         if len(value) > self.LONG_FIELD_THRESHOLD:
-                            paragraphs = self.split_by_paragraphs(value, with_overlap=False)
+                            paragraphs = split_paragraph_chunks(
+                                value,
+                                min_length=self.MIN_CHUNK_LENGTH,
+                                max_length=self.MAX_CHUNK_LENGTH,
+                                with_overlap=False,
+                                overlap_length=0,
+                            )
                             for idx, para in enumerate(paragraphs):
                                 content = f"[主角-{protagonist_name}-{dim_info['name']}-{field}]\n{para}"
                                 records.append(NovelIngestionRecord(
@@ -1242,7 +943,13 @@ class NovelContentSplitter:
             if isinstance(value, str):
                 # 长内容分割
                 if len(value) > self.LONG_FIELD_THRESHOLD:
-                    paragraphs = self.split_by_paragraphs(value, with_overlap=True)
+                    paragraphs = split_paragraph_chunks(
+                        value,
+                        min_length=self.MIN_CHUNK_LENGTH,
+                        max_length=self.MAX_CHUNK_LENGTH,
+                        with_overlap=True,
+                        overlap_length=self.OVERLAP_LENGTH,
+                    )
                     for idx, para in enumerate(paragraphs):
                         content = f"[分部大纲-{part_title}-{field_name}]\n{para}"
                         records.append(NovelIngestionRecord(

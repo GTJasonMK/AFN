@@ -355,52 +355,8 @@ def parse_llm_json_or_fail(
     Raises:
         JSONParseError: JSON解析失败
     """
-    try:
-        cleaned = remove_think_tags(raw_text)
-        normalized = unwrap_markdown_json(cleaned)
-        # 转义字符串值中的控制字符（如换行符）
-        normalized = escape_control_chars_in_strings(normalized)
-        # 尝试修复字符串内的未转义引号
-        normalized = try_fix_inner_quotes(normalized)
-        return json.loads(normalized)
-
-    except json.JSONDecodeError as exc:
-        # 记录详细错误信息
-        preview_len = 500
-        raw_preview = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
-        normalized_preview = normalized[:preview_len] + "..." if len(normalized) > preview_len else normalized
-
-        logger.error(
-            "JSON解析失败: %s\n"
-            "  错误信息: %s (位置: 行%d 列%d)\n"
-            "  原始响应预览: %s\n"
-            "  清理后预览: %s",
-            error_context,
-            exc.msg,
-            exc.lineno,
-            exc.colno,
-            raw_preview,
-            normalized_preview
-        )
-
-        # 生成友好的错误消息
-        stripped = normalized.strip() if normalized else ""
-        if stripped and not stripped.startswith('{') and not stripped.startswith('['):
-            detail_msg = "AI返回了普通文本而不是JSON格式，请检查提示词或重试"
-        else:
-            detail_msg = f"JSON格式错误: {exc.msg} (行{exc.lineno} 列{exc.colno})"
-
-        raise JSONParseError(
-            context=error_context,
-            detail_msg=detail_msg
-        ) from exc
-
-    except Exception as exc:
-        logger.exception("JSON解析时发生未预期的错误: %s", error_context)
-        raise JSONParseError(
-            context=error_context,
-            detail_msg=f"未预期错误: {type(exc).__name__}"
-        ) from exc
+    parsed, _normalized = parse_llm_json_with_normalized_or_fail(raw_text, error_context)
+    return parsed
 
 
 def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
@@ -419,12 +375,7 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        cleaned = remove_think_tags(raw_text)
-        normalized = unwrap_markdown_json(cleaned)
-        # 转义字符串值中的控制字符（如换行符）
-        normalized = escape_control_chars_in_strings(normalized)
-        # 尝试修复字符串内的未转义引号
-        normalized = try_fix_inner_quotes(normalized)
+        normalized = normalize_llm_json_text(raw_text)
         return json.loads(normalized)
 
     except json.JSONDecodeError as e:
@@ -444,6 +395,70 @@ def parse_llm_json_safe(raw_text: str) -> Optional[Dict[str, Any]]:
             str(exc)[:100],
         )
         return None
+
+
+def normalize_llm_json_text(raw_text: str) -> str:
+    """将 LLM 原始输出归一化为可解析 JSON 字符串
+
+    统一处理步骤：
+    - 移除 think 标签
+    - 提取 JSON（去除 markdown 包装）
+    - 转义字符串中的控制字符（如换行）
+    - 尝试修复字符串内的未转义引号
+    """
+    cleaned = remove_think_tags(raw_text)
+    normalized = unwrap_markdown_json(cleaned)
+    normalized = escape_control_chars_in_strings(normalized)
+    normalized = try_fix_inner_quotes(normalized)
+    return normalized
+
+
+def parse_llm_json_with_normalized_or_fail(
+    raw_text: str,
+    error_context: str,
+) -> Tuple[Dict[str, Any], str]:
+    """解析 LLM 返回 JSON，并返回 (parsed_dict, normalized_json)。
+
+    适用于需要同时：
+    - 得到解析后的 dict
+    - 将“可被解析的 JSON 字符串”写入数据库/日志
+    """
+    normalized = ""
+    try:
+        normalized = normalize_llm_json_text(raw_text)
+        return json.loads(normalized), normalized
+
+    except json.JSONDecodeError as exc:
+        # 记录详细错误信息
+        preview_len = 500
+        raw_preview = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
+        normalized_preview = normalized[:preview_len] + "..." if len(normalized) > preview_len else normalized
+
+        logger.error(
+            "JSON解析失败: %s\n"
+            "  错误信息: %s (位置: 行%d 列%d)\n"
+            "  原始响应预览: %s\n"
+            "  清理后预览: %s",
+            error_context,
+            exc.msg,
+            exc.lineno,
+            exc.colno,
+            raw_preview,
+            normalized_preview,
+        )
+
+        # 生成友好的错误消息
+        stripped = normalized.strip() if normalized else ""
+        if stripped and not stripped.startswith("{") and not stripped.startswith("["):
+            detail_msg = "AI返回了普通文本而不是JSON格式，请检查提示词或重试"
+        else:
+            detail_msg = f"JSON格式错误: {exc.msg} (行{exc.lineno} 列{exc.colno})"
+
+        raise JSONParseError(context=error_context, detail_msg=detail_msg) from exc
+
+    except Exception as exc:
+        logger.exception("JSON解析时发生未预期的错误: %s", error_context)
+        raise JSONParseError(context=error_context, detail_msg=f"未预期错误: {type(exc).__name__}") from exc
 
 
 def parse_llm_json_with_context(

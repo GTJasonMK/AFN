@@ -47,6 +47,7 @@ from ..models import (
 )
 from .base import Base
 from .session import AsyncSessionLocal, engine
+from ..utils.prompt_include import resolve_prompt_includes
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,11 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
 
             file_content = prompt_file.read_text(encoding="utf-8")
             metadata, body_content = _parse_yaml_frontmatter(file_content)
+            body_content = resolve_prompt_includes(
+                body_content,
+                current_file=prompt_file,
+                prompts_dir=prompts_dir,
+            )
 
             # 从注册表补充元数据
             reg_meta = registry.get_meta(name)
@@ -249,6 +255,11 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
                     name = prompt_file.stem
                     file_content = prompt_file.read_text(encoding="utf-8")
                     metadata, body_content = _parse_yaml_frontmatter(file_content)
+                    body_content = resolve_prompt_includes(
+                        body_content,
+                        current_file=prompt_file,
+                        prompts_dir=prompts_dir,
+                    )
                     updated_count += await _sync_single_prompt(
                         session, name, metadata, body_content, existing_prompts
                     )
@@ -258,6 +269,11 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
             name = prompt_file.stem
             file_content = prompt_file.read_text(encoding="utf-8")
             metadata, body_content = _parse_yaml_frontmatter(file_content)
+            body_content = resolve_prompt_includes(
+                body_content,
+                current_file=prompt_file,
+                prompts_dir=prompts_dir,
+            )
             updated_count += await _sync_single_prompt(
                 session, name, metadata, body_content, existing_prompts
             )

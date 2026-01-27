@@ -421,10 +421,7 @@ class MangaPromptServiceV2:
             designed_pages_data = cp_data.get("designed_pages", [])
 
             # 准备提示词构建器（用于增量构建）
-            character_profiles_for_builder = {}
-            for name, char in chapter_info.characters.items():
-                if char.appearance:
-                    character_profiles_for_builder[name] = char.appearance
+            character_profiles_for_builder = self._collect_character_profiles(chapter_info)
 
             incremental_builder = PromptBuilder(
                 style=style,
@@ -530,10 +527,7 @@ class MangaPromptServiceV2:
         )
 
         # 收集角色外观描述
-        character_profiles = {}
-        for name, char in chapter_info.characters.items():
-            if char.appearance:
-                character_profiles[name] = char.appearance
+        character_profiles = self._collect_character_profiles(chapter_info)
 
         # 4.1 首先构建画格级提示词（不生成整页提示词）
         prompt_builder = PromptBuilder(
@@ -555,77 +549,24 @@ class MangaPromptServiceV2:
             f"{result.total_panels} 格"
         )
 
-        # 4.2 使用LLM生成整页提示词
-        # 恢复已完成的整页提示词（用于断点恢复）
-        completed_page_prompts_data = cp_data.get("completed_page_prompts", [])
-        completed_page_prompts = []
-        if completed_page_prompts_data:
-            from ..prompt_builder import PagePrompt
-            for pp_data in completed_page_prompts_data:
-                try:
-                    completed_page_prompts.append(PagePrompt.from_dict(pp_data))
-                except Exception as e:
-                    logger.warning(f"恢复整页提示词失败: {e}")
-
-        await save_checkpoint_callback(
-            "page_prompt_building",
-            {"stage": "page_prompt_building", "stage_label": "整页提示词生成", "current": len(completed_page_prompts), "total": storyboard.total_pages, "message": "正在生成整页提示词..."},
-            cp_data,
-            analysis_data=analysis_data_for_prompt
-        )
-
-        page_prompt_generator = PagePromptGenerator(
-            llm_service=self.llm_service,
-            prompt_service=self.prompt_service,
+        # 4.2 使用 LLM 生成整页提示词（支持断点恢复）
+        page_prompts = await self._generate_page_prompts_with_llm(
+            storyboard=storyboard,
+            chapter_info=chapter_info,
             style=style,
             character_profiles=character_profiles,
             character_portraits=final_portraits,
-        )
-
-        # 定义整页提示词生成完成后的保存回调
-        async def on_prompt_generated(page_number: int, page_prompt):
-            # 保存到断点数据
-            if "completed_page_prompts" not in cp_data:
-                cp_data["completed_page_prompts"] = []
-            # 检查是否已存在该页码的提示词（避免重复）
-            existing_pages = {pp.get("page_number") for pp in cp_data["completed_page_prompts"]}
-            if page_number not in existing_pages:
-                cp_data["completed_page_prompts"].append(page_prompt.to_dict())
-
-        # 定义整页提示词生成进度回调
-        async def on_page_prompt_complete(page_number: int, completed: int, total: int):
-            # 检查是否已取消
-            if chapter_id:
-                await self._raise_if_cancelled(chapter_id)
-            # 更新进度
-            await save_checkpoint_callback(
-                "page_prompt_building",
-                {
-                    "stage": "page_prompt_building",
-                    "stage_label": "整页提示词生成",
-                    "current": completed,
-                    "total": total,
-                    "message": f"整页提示词: {completed}/{total} 页 (第{page_number}页完成)"
-                },
-                cp_data,
-                analysis_data=analysis_data_for_prompt
-            )
-
-        page_prompts = await page_prompt_generator.generate_page_prompts(
-            storyboard=storyboard,
-            chapter_info=chapter_info,
             user_id=user_id,
-            max_concurrency=page_prompt_concurrency,
-            on_page_complete=on_page_prompt_complete,
-            completed_prompts=completed_page_prompts if completed_page_prompts else None,
-            on_prompt_generated=on_prompt_generated,
+            chapter_id=chapter_id,
+            source_version_id=source_version_id,
+            analysis_data=analysis_data_for_prompt,
+            page_prompt_concurrency=page_prompt_concurrency,
+            cp_data=cp_data,
+            save_checkpoint_callback=save_checkpoint_callback,
         )
 
-        # 将LLM生成的整页提示词添加到结果中
+        # 将 LLM 生成的整页提示词添加到结果中
         result.page_prompts = page_prompts
-
-        # 清理断点数据中的整页提示词（已全部完成）
-        cp_data.pop("completed_page_prompts", None)
 
         logger.info(f"LLM整页提示词生成完成: {len(page_prompts)} 页")
 
@@ -871,6 +812,104 @@ class MangaPromptServiceV2:
             analysis_data["page_plan"] = page_plan.to_dict()
         return analysis_data
 
+    def _collect_character_profiles(self, chapter_info: ChapterInfo) -> Dict[str, str]:
+        """从 ChapterInfo 提取角色外观描述映射（name -> appearance）。"""
+        return {name: char.appearance for name, char in chapter_info.characters.items() if getattr(char, "appearance", None)}
+
+    async def _generate_page_prompts_with_llm(
+        self,
+        *,
+        storyboard: StoryboardResult,
+        chapter_info: ChapterInfo,
+        style: str,
+        character_profiles: Dict[str, str],
+        character_portraits: Dict[str, str],
+        user_id: Optional[int],
+        chapter_id: Optional[int],
+        source_version_id: Optional[int],
+        analysis_data: Optional[dict],
+        page_prompt_concurrency: int,
+        cp_data: Optional[dict] = None,
+        save_checkpoint_callback=None,
+    ):
+        """使用 LLM 生成整页提示词（支持断点恢复与进度保存）。"""
+        checkpoint_data = cp_data if cp_data is not None else {}
+
+        # 从断点恢复已完成的整页提示词（可选）
+        completed_prompts_data = checkpoint_data.get("completed_page_prompts") or []
+        completed_prompts = []
+        if completed_prompts_data:
+            from ..prompt_builder import PagePrompt
+
+            for pp_data in completed_prompts_data:
+                try:
+                    completed_prompts.append(PagePrompt.from_dict(pp_data))
+                except Exception as exc:
+                    logger.warning(f"恢复整页提示词失败: {exc}")
+
+        async def _save_progress(progress: dict) -> None:
+            if save_checkpoint_callback:
+                await save_checkpoint_callback(
+                    "page_prompt_building",
+                    progress,
+                    checkpoint_data,
+                    analysis_data=analysis_data,
+                )
+                return
+            if chapter_id:
+                await self._checkpoint_manager.save_checkpoint(
+                    chapter_id,
+                    "page_prompt_building",
+                    progress,
+                    {},  # 此分支不需要保存 checkpoint_data
+                    style,
+                    source_version_id,
+                    analysis_data=analysis_data,
+                )
+
+        page_prompt_generator = PagePromptGenerator(
+            llm_service=self.llm_service,
+            prompt_service=self.prompt_service,
+            style=style,
+            character_profiles=character_profiles,
+            character_portraits=character_portraits,
+        )
+
+        existing_pages = set()
+        if cp_data is not None:
+            cp_data.setdefault("completed_page_prompts", [])
+            existing_pages = {pp.get("page_number") for pp in cp_data["completed_page_prompts"]}
+
+        async def on_prompt_generated(page_number: int, page_prompt):
+            if cp_data is None or page_number in existing_pages:
+                return
+            cp_data["completed_page_prompts"].append(page_prompt.to_dict())
+            existing_pages.add(page_number)
+
+        async def on_page_prompt_complete(page_number: int, completed: int, total: int):
+            if not save_checkpoint_callback and chapter_id:
+                await self._raise_if_cancelled(chapter_id)
+
+            await _save_progress({"stage": "page_prompt_building", "stage_label": "整页提示词生成", "current": completed, "total": total, "message": f"整页提示词: {completed}/{total} 页 (第{page_number}页完成)"})
+
+        await _save_progress({"stage": "page_prompt_building", "stage_label": "整页提示词生成", "current": len(completed_prompts), "total": storyboard.total_pages, "message": "正在生成整页提示词..."})
+
+        page_prompts = await page_prompt_generator.generate_page_prompts(
+            storyboard=storyboard,
+            chapter_info=chapter_info,
+            user_id=user_id,
+            max_concurrency=page_prompt_concurrency,
+            on_page_complete=on_page_prompt_complete,
+            completed_prompts=completed_prompts or None,
+            on_prompt_generated=on_prompt_generated if cp_data is not None else None,
+        )
+
+        # 清理断点数据中的整页提示词（已全部完成）
+        if cp_data is not None:
+            cp_data.pop("completed_page_prompts", None)
+
+        return page_prompts
+
     async def _get_chapter_or_warn(
         self,
         project_id: str,
@@ -997,10 +1036,7 @@ class MangaPromptServiceV2:
         logger.info("自动生成缺失的角色立绘")
 
         # 收集角色外观描述
-        character_profiles = {}
-        for name, char in chapter_info.characters.items():
-            if char.appearance:
-                character_profiles[name] = char.appearance
+        character_profiles = self._collect_character_profiles(chapter_info)
 
         if not character_profiles:
             return
@@ -1341,69 +1377,21 @@ class MangaPromptServiceV2:
         storyboard = self._rebuild_storyboard_from_db(manga_prompt, page_plan)
 
         # 4. 收集角色外观描述
-        character_profiles = {}
-        for name, char in chapter_info.characters.items():
-            if char.appearance:
-                character_profiles[name] = char.appearance
+        character_profiles = self._collect_character_profiles(chapter_info)
 
         # 5. 使用 LLM 生成整页提示词
         final_portraits = dict(character_portraits) if character_portraits else {}
-
-        page_prompt_generator = PagePromptGenerator(
-            llm_service=self.llm_service,
-            prompt_service=self.prompt_service,
+        page_prompts = await self._generate_page_prompts_with_llm(
+            storyboard=storyboard,
+            chapter_info=chapter_info,
             style=style,
             character_profiles=character_profiles,
             character_portraits=final_portraits,
-        )
-
-        # 定义进度回调（更新断点状态）
-        total_pages = storyboard.total_pages
-
-        async def on_page_prompt_complete(page_number: int, completed: int, total: int):
-            # 检查是否已取消
-            if chapter_id:
-                await self._raise_if_cancelled(chapter_id)
-            # 保存进度到断点
-            await self._checkpoint_manager.save_checkpoint(
-                chapter_id,
-                "page_prompt_building",
-                {
-                    "stage": "page_prompt_building",
-                    "stage_label": "整页提示词生成",
-                    "current": completed,
-                    "total": total,
-                    "message": f"整页提示词: {completed}/{total} 页 (第{page_number}页完成)"
-                },
-                {},  # 不需要保存 checkpoint_data
-                style,
-                source_version_id,
-                analysis_data=analysis_data,
-            )
-
-        # 保存初始进度
-        await self._checkpoint_manager.save_checkpoint(
-            chapter_id,
-            "page_prompt_building",
-            {
-                "stage": "page_prompt_building",
-                "stage_label": "整页提示词生成",
-                "current": 0,
-                "total": total_pages,
-                "message": "正在生成整页提示词..."
-            },
-            {},
-            style,
-            source_version_id,
-            analysis_data=analysis_data,
-        )
-
-        page_prompts = await page_prompt_generator.generate_page_prompts(
-            storyboard=storyboard,
-            chapter_info=chapter_info,
             user_id=user_id,
-            max_concurrency=page_prompt_concurrency,
-            on_page_complete=on_page_prompt_complete,
+            chapter_id=chapter_id,
+            source_version_id=source_version_id,
+            analysis_data=analysis_data,
+            page_prompt_concurrency=page_prompt_concurrency,
         )
 
         logger.info(f"LLM整页提示词重新生成完成: {len(page_prompts)} 页")

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Prompt
 from ..repositories.prompt_repository import PromptRepository
 from ..schemas.prompt import PromptCreate, PromptRead, PromptUpdate
+from ..utils.prompt_include import parse_yaml_frontmatter, resolve_prompt_includes
 
 logger = logging.getLogger(__name__)
 
@@ -476,51 +477,6 @@ class PromptService:
             return Path(prompts_dir_env)
         return Path(__file__).resolve().parents[2] / "prompts"
 
-    def _parse_yaml_frontmatter(self, content: str) -> Tuple[Dict[str, Optional[str]], str]:
-        """
-        解析Markdown文件的YAML前置元数据。
-
-        Args:
-            content: 完整的文件内容
-
-        Returns:
-            (metadata, body) 元组
-        """
-        metadata: Dict[str, Optional[str]] = {
-            "title": None,
-            "description": None,
-            "tags": None,
-        }
-
-        frontmatter_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-        match = frontmatter_pattern.match(content)
-
-        if not match:
-            return metadata, content
-
-        yaml_block = match.group(1)
-        body = content[match.end():]
-
-        for line in yaml_block.split("\n"):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            if ":" in line:
-                key, _, value = line.partition(":")
-                key = key.strip()
-                value = value.strip()
-
-                if value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1]
-                elif value.startswith("'") and value.endswith("'"):
-                    value = value[1:-1]
-
-                if key in metadata:
-                    metadata[key] = value if value else None
-
-        return metadata, body
-
     async def get_default_content(self, name: str) -> Optional[str]:
         """
         获取提示词的默认内容（从文件读取）
@@ -556,8 +512,12 @@ class PromptService:
             return None
 
         file_content = prompt_file.read_text(encoding="utf-8")
-        _, body_content = self._parse_yaml_frontmatter(file_content)
-        return body_content
+        _, body_content = parse_yaml_frontmatter(file_content)
+        return resolve_prompt_includes(
+            body_content,
+            current_file=prompt_file,
+            prompts_dir=prompts_dir,
+        )
 
     async def reset_prompt(self, name: str) -> Optional[PromptRead]:
         """

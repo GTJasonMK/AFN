@@ -119,7 +119,7 @@ tags: outline, chapter, part
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **必须使用 chapter_outline 字段**：这是解析器期望的字段名
 3. **章节数量必须正确**：生成请求的数量，不多不少
 4. **摘要必须100字以上**：每个章节的摘要都要详细

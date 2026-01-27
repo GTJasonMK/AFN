@@ -120,7 +120,7 @@ tags: protagonist, analysis, chapter
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **evidence必须是原文**：不能是概括或改写，必须是章节中的原始文字
 3. **避免过度记录**：只记录重要的、有意义的变化和行为
 4. **注意区分三类属性**：不要把隐性属性放到显性类别中

@@ -4,12 +4,14 @@
 定义供应商接口规范，所有具体供应商都需要实现这些方法。
 """
 
+import asyncio
 import base64
+import logging
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, Dict, Any, List, Optional
+from typing import AsyncIterator, Callable, Dict, Any, List, Optional
 
 import httpx
 
@@ -64,6 +66,60 @@ class BaseImageProvider(ABC):
 
     # 供应商显示名称
     DISPLAY_NAME: str = ""
+
+    # img2img 超时提示（子类可覆盖以保持原有文案）
+    IMG2IMG_TIMEOUT_MESSAGE: Optional[str] = None
+
+    async def _wrap_test_connection(
+        self,
+        func,
+        *,
+        connect_error_message: Optional[str] = None,
+        timeout_message: str = "连接超时",
+        error_prefix: str = "连接错误",
+    ) -> ProviderTestResult:
+        """包装 test_connection 的异常处理，统一返回 ProviderTestResult"""
+        try:
+            return await func()
+        except httpx.TimeoutException:
+            return ProviderTestResult(success=False, message=timeout_message)
+        except httpx.ConnectError:
+            if connect_error_message:
+                return ProviderTestResult(success=False, message=connect_error_message)
+            return ProviderTestResult(success=False, message=f"{error_prefix}: 无法连接")
+        except Exception as e:
+            msg = str(e) if str(e) else f"{type(e).__name__}"
+            return ProviderTestResult(success=False, message=f"{error_prefix}: {msg}")
+
+    @staticmethod
+    def _build_invalid_api_key_test_result() -> ProviderTestResult:
+        """构建 401（API Key无效）的测试结果，避免各供应商文案漂移。"""
+        return ProviderTestResult(success=False, message="API Key无效")
+
+    @staticmethod
+    def _build_http_failure_test_result(status_code: int) -> ProviderTestResult:
+        """构建通用 HTTP 失败的测试结果（连接失败: HTTP {status_code}）。"""
+        return ProviderTestResult(success=False, message=f"连接失败: HTTP {status_code}")
+
+    def _build_test_connection_result_for_response(
+        self,
+        response: httpx.Response,
+        *,
+        on_success: Callable[[httpx.Response], ProviderTestResult],
+    ) -> ProviderTestResult:
+        """
+        根据 test_connection 的 HTTP 响应构建统一结果。
+
+        约定：
+        - 200：由 on_success 解析并返回成功结果（允许携带 extra_info）
+        - 401：统一视为 API Key 无效
+        - 其他：统一返回 “连接失败: HTTP {status_code}”
+        """
+        if response.status_code == 200:
+            return on_success(response)
+        if response.status_code == 401:
+            return self._build_invalid_api_key_test_result()
+        return self._build_http_failure_test_result(response.status_code)
 
     # 场景类型关键词映射 - 用于从提示词推断场景类型
     SCENE_TYPE_KEYWORDS = {
@@ -498,6 +554,15 @@ class BaseImageProvider(ABC):
         """
         return self.get_supported_features().get("img2img", False)
 
+    async def _generate_with_reference_urls(
+        self,
+        config: ImageGenerationConfig,
+        request: ImageGenerationRequest,
+        reference_images: List["ReferenceImageInfo"],
+    ) -> List[str]:
+        """img2img 钩子：子类返回生成的图片 URL/Base64 列表"""
+        raise NotImplementedError("该供应商未实现 img2img")
+
     async def generate_with_reference(
         self,
         config: ImageGenerationConfig,
@@ -507,8 +572,10 @@ class BaseImageProvider(ABC):
         """
         使用参考图生成图片（img2img）
 
-        子类如果支持 img2img，应该重写此方法。
-        默认实现降级为普通的 text-to-image。
+        统一模板实现：
+        - 无参考图：降级为普通 text-to-image
+        - 不支持 img2img：降级为普通 text-to-image（并记录 warning）
+        - 支持 img2img：调用子类钩子 `_generate_with_reference_urls`，并统一包装异常
 
         Args:
             config: 供应商配置
@@ -518,14 +585,26 @@ class BaseImageProvider(ABC):
         Returns:
             ProviderGenerateResult: 生成结果
         """
-        # 默认降级为普通生成
-        import logging
+        if not reference_images:
+            return await self.generate(config, request)
+
         logger = logging.getLogger(__name__)
-        logger.warning(
-            "供应商 %s 不支持 img2img，降级为普通 text-to-image",
-            self.PROVIDER_TYPE
-        )
-        return await self.generate(config, request)
+
+        if not self.supports_img2img():
+            logger.warning("供应商 %s 不支持 img2img，降级为普通 text-to-image", self.PROVIDER_TYPE)
+            return await self.generate(config, request)
+
+        try:
+            urls = await self._generate_with_reference_urls(config, request, reference_images)
+            return ProviderGenerateResult(success=True, image_urls=urls)
+        except asyncio.TimeoutError:
+            error_message = self.IMG2IMG_TIMEOUT_MESSAGE or "生成超时"
+            logger.error("供应商 %s img2img 生成超时: %s", self.PROVIDER_TYPE, error_message)
+            return ProviderGenerateResult(success=False, error_message=error_message)
+        except Exception as e:
+            error_message = str(e) if str(e) else f"{type(e).__name__}"
+            logger.error("供应商 %s img2img 生成失败: %s", self.PROVIDER_TYPE, error_message)
+            return ProviderGenerateResult(success=False, error_message=error_message)
 
     def build_prompt(self, request: ImageGenerationRequest, add_context: bool = True) -> str:
         """

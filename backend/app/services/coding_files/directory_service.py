@@ -27,6 +27,8 @@ from ...schemas.coding_files import (
     LLMDirectoryStructureOutput,
     SourceFileResponse,
 )
+from ...serializers.coding_files_serializer import build_directory_node_response
+from ...serializers.coding_files_serializer import build_source_file_response
 from ...services.coding import CodingProjectService
 
 logger = logging.getLogger(__name__)
@@ -107,32 +109,7 @@ class DirectoryStructureService:
         file_count = len(files)
 
         # 序列化文件列表
-        files_response = [
-            SourceFileResponse(
-                id=f.id,
-                project_id=f.project_id,
-                directory_id=f.directory_id,
-                filename=f.filename,
-                file_path=f.file_path,
-                file_type=f.file_type,
-                language=f.language,
-                description=f.description,
-                purpose=f.purpose,
-                imports=f.imports or [],
-                exports=f.exports or [],
-                dependencies=f.dependencies or [],
-                module_number=f.module_number,
-                system_number=f.system_number,
-                priority=f.priority,
-                sort_order=f.sort_order,
-                status=f.status,
-                is_manual=f.is_manual,
-                has_content=f.selected_version_id is not None,
-                selected_version_id=f.selected_version_id,
-                version_count=0,  # 简化处理，不在树视图中统计版本数
-            )
-            for f in files
-        ]
+        files_response = [build_source_file_response(f, version_count=0) for f in files]
 
         # 递归序列化子节点（使用_children_list，避免触发SQLAlchemy懒加载）
         children = []
@@ -141,18 +118,8 @@ class DirectoryStructureService:
             child_response = await self._serialize_node_with_children(child)
             children.append(child_response)
 
-        return DirectoryNodeResponse(
-            id=node.id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
-            name=node.name,
-            path=node.path,
-            node_type=node.node_type,
-            description=node.description,
-            sort_order=node.sort_order,
-            module_number=node.module_number,
-            generation_status=node.generation_status,
-            is_manual=node.is_manual,
+        return build_directory_node_response(
+            node,
             file_count=file_count,
             files=files_response,
             children=children,

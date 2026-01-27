@@ -13,58 +13,22 @@ import hashlib
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Any
 
 import httpx
 
-
-# ============================================================================
-# 异步文件操作辅助函数
-# ============================================================================
-
-async def async_exists(path: Path) -> bool:
-    """异步检查文件是否存在"""
-    return await asyncio.to_thread(path.exists)
-
-
-async def async_mkdir(path: Path, parents: bool = False, exist_ok: bool = False) -> None:
-    """异步创建目录"""
-    await asyncio.to_thread(path.mkdir, parents=parents, exist_ok=exist_ok)
-
-
-async def async_read_bytes(path: Path) -> bytes:
-    """异步读取文件内容"""
-    return await asyncio.to_thread(path.read_bytes)
-
-
-async def async_write_bytes(path: Path, data: bytes) -> None:
-    """异步写入文件内容"""
-    await asyncio.to_thread(path.write_bytes, data)
-
-
-async def async_rename(src: Path, dst: Path) -> None:
-    """异步重命名文件"""
-    await asyncio.to_thread(src.rename, dst)
-
-
-async def async_unlink(path: Path, missing_ok: bool = False) -> None:
-    """异步删除文件"""
-    await asyncio.to_thread(path.unlink, missing_ok=missing_ok)
-
-
-async def async_rmdir(path: Path) -> None:
-    """异步删除空目录"""
-    await asyncio.to_thread(path.rmdir)
-
-
-async def async_is_dir(path: Path) -> bool:
-    """异步检查是否为目录"""
-    return await asyncio.to_thread(path.is_dir)
-
-
-async def async_iterdir(path: Path) -> List[Path]:
-    """异步列出目录内容"""
-    return await asyncio.to_thread(lambda: list(path.iterdir()))
+from .fs_utils import (
+    async_exists,
+    async_is_dir,
+    async_iterdir,
+    async_mkdir,
+    async_read_bytes,
+    async_rename,
+    async_rmdir,
+    async_unlink,
+    async_write_bytes,
+    get_images_root,
+)
 
 
 from sqlalchemy import select, or_
@@ -117,12 +81,6 @@ def smart_merge_negative_prompt(user_negative: Optional[str]) -> str:
         return user_negative
 
     return f"{DEFAULT_MANGA_NEGATIVE_PROMPT}, {user_negative}"
-
-
-def get_images_root() -> Path:
-    """获取图片根目录（支持热更新）"""
-    return settings.generated_images_dir
-
 
 # ============================================================================
 # HTTP客户端管理（连接池复用）
@@ -211,6 +169,116 @@ class ImageGenerationService:
             from .config_service import ImageConfigService
             self._config_service = ImageConfigService(self.session)
         return self._config_service
+
+    async def _get_active_config_or_error(
+        self,
+        user_id: int,
+    ) -> tuple[Optional[Any], Optional[ImageGenerationResult]]:
+        """获取激活配置；若无则返回可直接向前端展示的失败结果。"""
+        config = await self.config_service.get_active_config(user_id)
+        if config:
+            return config, None
+
+        all_configs = await self.config_service.get_configs(user_id)
+        if all_configs:
+            config_names = ", ".join(c.config_name for c in all_configs[:3])
+            if len(all_configs) > 3:
+                config_names += f" 等{len(all_configs)}个"
+            return None, ImageGenerationResult(
+                success=False,
+                error_message=f"请先激活图片生成配置。已有配置: {config_names}，请在设置中选择并激活",
+            )
+
+        return None, ImageGenerationResult(
+            success=False,
+            error_message="未配置图片生成服务，请先在设置中添加配置",
+        )
+
+    def _get_provider_or_error(
+        self,
+        provider_type: str,
+    ) -> tuple[Optional[Any], Optional[ImageGenerationResult]]:
+        """获取供应商；若不支持则返回可直接向前端展示的失败结果。"""
+        provider = ImageProviderFactory.get_provider(provider_type)
+        if not provider:
+            return None, ImageGenerationResult(
+                success=False,
+                error_message=f"不支持的提供商类型: {provider_type}",
+            )
+        return provider, None
+
+    async def _list_images(self, *where_clauses) -> List[GeneratedImage]:
+        """按条件查询图片记录（不做排序，供删除等场景使用）。"""
+        result = await self.session.execute(
+            select(GeneratedImage).where(*where_clauses)
+        )
+        return list(result.scalars().all())
+
+    async def _delete_images_records(
+        self,
+        images: List[GeneratedImage],
+        *,
+        success_debug: Optional[str] = None,
+        warn_message: str = "删除图片文件失败",
+    ) -> int:
+        """统一删除模板：删文件（容错）+ 删记录 + flush。"""
+        if not images:
+            return 0
+
+        deleted_count = 0
+        for image in images:
+            file_path = get_images_root() / image.file_path
+            if await async_exists(file_path):
+                try:
+                    await async_unlink(file_path)
+                    if success_debug:
+                        logger.debug(success_debug, file_path)
+                except Exception as exc:
+                    logger.warning("%s: %s - %s", warn_message, file_path, exc)
+
+            await self.session.delete(image)
+            deleted_count += 1
+
+        await self.session.flush()
+        return deleted_count
+
+    async def _cleanup_empty_chapter_dirs(
+        self,
+        project_id: str,
+        chapter_number: int,
+        *,
+        type_subdir: Optional[str] = None,
+        remove_chapter_dir: bool = False,
+    ) -> None:
+        """清理空目录（支持 panels/pages 子目录结构）。"""
+        try:
+            chapter_dir = get_images_root() / project_id / f"chapter_{chapter_number}"
+            if type_subdir:
+                type_dirs = [chapter_dir / type_subdir]
+            else:
+                if not await async_exists(chapter_dir):
+                    return
+                type_dirs = [p for p in await async_iterdir(chapter_dir) if await async_is_dir(p)]
+
+            for type_dir in type_dirs:
+                if not await async_exists(type_dir):
+                    continue
+
+                scene_dirs = await async_iterdir(type_dir)
+                for scene_dir in scene_dirs:
+                    if await async_is_dir(scene_dir):
+                        if not await async_iterdir(scene_dir):
+                            await async_rmdir(scene_dir)
+
+                if not await async_iterdir(type_dir):
+                    await async_rmdir(type_dir)
+
+            if remove_chapter_dir and await async_exists(chapter_dir):
+                if not await async_iterdir(chapter_dir):
+                    await async_rmdir(chapter_dir)
+
+        except Exception as exc:
+            logger.warning("清理空目录失败: %s", exc)
 
     async def _resolve_portrait_paths(
         self,
@@ -367,35 +435,14 @@ class ImageGenerationService:
                     request.panel_id, deleted_count
                 )
 
-        # 获取激活的配置（通过配置服务）
-        config = await self.config_service.get_active_config(user_id)
-        if not config:
-            # 检查是否有配置但未激活
-            all_configs = await self.config_service.get_configs(user_id)
-            if all_configs:
-                # 有配置但未激活
-                config_names = ", ".join(c.config_name for c in all_configs[:3])
-                if len(all_configs) > 3:
-                    config_names += f" 等{len(all_configs)}个"
-                return ImageGenerationResult(
-                    success=False,
-                    error_message=f"请先激活图片生成配置。已有配置: {config_names}，请在设置中选择并激活",
-                )
-            else:
-                # 没有任何配置
-                return ImageGenerationResult(
-                    success=False,
-                    error_message="未配置图片生成服务，请先在设置中添加配置",
-                )
+        config, config_error = await self._get_active_config_or_error(user_id)
+        if config_error:
+            return config_error
 
         try:
-            # 使用工厂获取对应的供应商
-            provider = ImageProviderFactory.get_provider(config.provider_type)
-            if not provider:
-                return ImageGenerationResult(
-                    success=False,
-                    error_message=f"不支持的提供商类型: {config.provider_type}",
-                )
+            provider, provider_error = self._get_provider_or_error(config.provider_type)
+            if provider_error:
+                return provider_error
 
             # 通过队列控制并发
             queue = ImageRequestQueue.get_instance()
@@ -527,32 +574,14 @@ class ImageGenerationService:
                 page_number, deleted_count
             )
 
-        # 获取激活的配置
-        config = await self.config_service.get_active_config(user_id)
-        if not config:
-            all_configs = await self.config_service.get_configs(user_id)
-            if all_configs:
-                config_names = ", ".join(c.config_name for c in all_configs[:3])
-                if len(all_configs) > 3:
-                    config_names += f" 等{len(all_configs)}个"
-                return ImageGenerationResult(
-                    success=False,
-                    error_message=f"请先激活图片生成配置。已有配置: {config_names}，请在设置中选择并激活",
-                )
-            else:
-                return ImageGenerationResult(
-                    success=False,
-                    error_message="未配置图片生成服务，请先在设置中添加配置",
-                )
+        config, config_error = await self._get_active_config_or_error(user_id)
+        if config_error:
+            return config_error
 
         try:
-            # 使用工厂获取对应的供应商
-            provider = ImageProviderFactory.get_provider(config.provider_type)
-            if not provider:
-                return ImageGenerationResult(
-                    success=False,
-                    error_message=f"不支持的提供商类型: {config.provider_type}",
-                )
+            provider, provider_error = self._get_provider_or_error(config.provider_type)
+            if provider_error:
+                return provider_error
 
             # 构建内部生成请求（复用现有的 ImageGenerationRequest）
             internal_request = ImageGenerationRequest(
@@ -661,33 +690,18 @@ class ImageGenerationService:
         """
         page_id = f"page{page_number}"
 
-        # 查询该页的整页图片
-        result = await self.session.execute(
-            select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-                GeneratedImage.panel_id == page_id,
-            )
+        images = await self._list_images(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
+            GeneratedImage.panel_id == page_id,
         )
-        images = list(result.scalars().all())
-
-        if not images:
+        deleted_count = await self._delete_images_records(
+            images,
+            success_debug="已删除整页图片文件: %s",
+            warn_message="删除整页图片文件失败",
+        )
+        if deleted_count <= 0:
             return 0
-
-        deleted_count = 0
-        for image in images:
-            file_path = get_images_root() / image.file_path
-            if await async_exists(file_path):
-                try:
-                    await async_unlink(file_path)
-                    logger.debug("已删除整页图片文件: %s", file_path)
-                except Exception as e:
-                    logger.warning("删除整页图片文件失败: %s - %s", file_path, e)
-
-            await self.session.delete(image)
-            deleted_count += 1
-
-        await self.session.flush()
 
         logger.info(
             "已删除整页旧图片: project_id=%s, chapter=%d, page=%d, count=%d",
@@ -1062,22 +1076,9 @@ class ImageGenerationService:
 
     async def delete_image(self, image_id: int) -> bool:
         """删除图片（使用异步文件操作）"""
-        result = await self.session.execute(
-            select(GeneratedImage).where(GeneratedImage.id == image_id)
-        )
-        image = result.scalar_one_or_none()
-        if not image:
-            return False
-
-        # 异步删除文件
-        file_path = get_images_root() / image.file_path
-        if await async_exists(file_path):
-            await async_unlink(file_path)
-
-        # 删除数据库记录
-        await self.session.delete(image)
-        await self.session.flush()
-        return True
+        images = await self._list_images(GeneratedImage.id == image_id)
+        deleted_count = await self._delete_images_records(images, warn_message="删除图片文件失败")
+        return deleted_count > 0
 
     async def delete_panel_images(
         self,
@@ -1098,35 +1099,18 @@ class ImageGenerationService:
         Returns:
             删除的图片数量
         """
-        # 查询该画格的所有图片
-        result = await self.session.execute(
-            select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-                GeneratedImage.panel_id == panel_id,
-            )
+        images = await self._list_images(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
+            GeneratedImage.panel_id == panel_id,
         )
-        images = list(result.scalars().all())
-
-        if not images:
+        deleted_count = await self._delete_images_records(
+            images,
+            success_debug="已删除图片文件: %s",
+            warn_message="删除图片文件失败",
+        )
+        if deleted_count <= 0:
             return 0
-
-        deleted_count = 0
-        for image in images:
-            # 异步删除文件
-            file_path = get_images_root() / image.file_path
-            if await async_exists(file_path):
-                try:
-                    await async_unlink(file_path)
-                    logger.debug("已删除图片文件: %s", file_path)
-                except Exception as e:
-                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
-
-            # 删除数据库记录
-            await self.session.delete(image)
-            deleted_count += 1
-
-        await self.session.flush()
 
         logger.info(
             "已删除画格旧图片: project_id=%s, chapter=%d, panel_id=%s, count=%d",
@@ -1151,59 +1135,22 @@ class ImageGenerationService:
         Returns:
             删除的图片数量
         """
-        # 查询该章节的所有图片
-        result = await self.session.execute(
-            select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-            )
+        images = await self._list_images(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
         )
-        images = list(result.scalars().all())
-
-        if not images:
+        deleted_count = await self._delete_images_records(
+            images,
+            warn_message="删除图片文件失败",
+        )
+        if deleted_count <= 0:
             return 0
 
-        deleted_count = 0
-        for image in images:
-            # 异步删除文件
-            file_path = get_images_root() / image.file_path
-            if await async_exists(file_path):
-                try:
-                    await async_unlink(file_path)
-                except Exception as e:
-                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
-
-            # 删除数据库记录
-            await self.session.delete(image)
-            deleted_count += 1
-
-        await self.session.flush()
-
-        # 尝试异步清理空目录（支持新的 panels/pages 子目录结构）
-        try:
-            chapter_dir = get_images_root() / project_id / f"chapter_{chapter_number}"
-            if await async_exists(chapter_dir):
-                # 遍历 panels/ 和 pages/ 子目录
-                type_dirs = await async_iterdir(chapter_dir)
-                for type_dir in type_dirs:
-                    if await async_is_dir(type_dir):
-                        # 删除空的场景子目录
-                        scene_dirs = await async_iterdir(type_dir)
-                        for scene_dir in scene_dirs:
-                            if await async_is_dir(scene_dir):
-                                scene_contents = await async_iterdir(scene_dir)
-                                if not scene_contents:
-                                    await async_rmdir(scene_dir)
-                        # 如果类型目录也空了，删除它
-                        type_contents = await async_iterdir(type_dir)
-                        if not type_contents:
-                            await async_rmdir(type_dir)
-                # 如果章节目录也空了，删除它
-                chapter_contents = await async_iterdir(chapter_dir)
-                if not chapter_contents:
-                    await async_rmdir(chapter_dir)
-        except Exception as e:
-            logger.warning("清理空目录失败: %s", e)
+        await self._cleanup_empty_chapter_dirs(
+            project_id,
+            chapter_number,
+            remove_chapter_dir=True,
+        )
 
         logger.info(
             "已删除章节图片: project_id=%s, chapter=%d, count=%d",
@@ -1230,53 +1177,25 @@ class ImageGenerationService:
         Returns:
             删除的图片数量
         """
-        # 查询该章节指定类型的图片
-        result = await self.session.execute(
-            select(GeneratedImage).where(
-                GeneratedImage.project_id == project_id,
-                GeneratedImage.chapter_number == chapter_number,
-                GeneratedImage.image_type == image_type,
-            )
+        images = await self._list_images(
+            GeneratedImage.project_id == project_id,
+            GeneratedImage.chapter_number == chapter_number,
+            GeneratedImage.image_type == image_type,
         )
-        images = list(result.scalars().all())
-
-        if not images:
+        deleted_count = await self._delete_images_records(
+            images,
+            warn_message="删除图片文件失败",
+        )
+        if deleted_count <= 0:
             return 0
 
-        deleted_count = 0
-        for image in images:
-            # 异步删除文件
-            file_path = get_images_root() / image.file_path
-            if await async_exists(file_path):
-                try:
-                    await async_unlink(file_path)
-                except Exception as e:
-                    logger.warning("删除图片文件失败: %s - %s", file_path, e)
-
-            # 删除数据库记录
-            await self.session.delete(image)
-            deleted_count += 1
-
-        await self.session.flush()
-
-        # 尝试异步清理空目录
-        try:
-            type_subdir = "pages" if image_type == "page" else "panels"
-            type_dir = get_images_root() / project_id / f"chapter_{chapter_number}" / type_subdir
-            if await async_exists(type_dir):
-                # 删除空的场景子目录
-                scene_dirs = await async_iterdir(type_dir)
-                for scene_dir in scene_dirs:
-                    if await async_is_dir(scene_dir):
-                        scene_contents = await async_iterdir(scene_dir)
-                        if not scene_contents:
-                            await async_rmdir(scene_dir)
-                # 如果类型目录也空了，删除它
-                type_contents = await async_iterdir(type_dir)
-                if not type_contents:
-                    await async_rmdir(type_dir)
-        except Exception as e:
-            logger.warning("清理空目录失败: %s", e)
+        type_subdir = "pages" if image_type == "page" else "panels"
+        await self._cleanup_empty_chapter_dirs(
+            project_id,
+            chapter_number,
+            type_subdir=type_subdir,
+            remove_chapter_dir=False,
+        )
 
         logger.info(
             "已删除章节%s类型图片: project_id=%s, chapter=%d, count=%d",
@@ -1371,22 +1290,14 @@ class ImageGenerationService:
         Returns:
             包含预览信息的字典
         """
-        # 获取激活的配置
-        config = await self.config_service.get_active_config(user_id)
-        if not config:
-            return {
-                "success": False,
-                "error": "未配置图片生成服务，请先在设置中添加配置",
-            }
+        config, config_error = await self._get_active_config_or_error(user_id)
+        if config_error:
+            return {"success": False, "error": config_error.error_message}
 
         try:
-            # 使用工厂获取对应的供应商
-            provider = ImageProviderFactory.get_provider(config.provider_type)
-            if not provider:
-                return {
-                    "success": False,
-                    "error": f"不支持的提供商类型: {config.provider_type}",
-                }
+            provider, provider_error = self._get_provider_or_error(config.provider_type)
+            if provider_error:
+                return {"success": False, "error": provider_error.error_message}
 
             # 构建请求对象（包含所有漫画元数据）
             request = ImageGenerationRequest(

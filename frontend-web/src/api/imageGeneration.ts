@@ -1,4 +1,5 @@
 import { apiClient, API_BASE_URL } from './client';
+import type { AxiosRequestConfig } from 'axios';
 
 export interface GeneratedImageInfo {
   id: number;
@@ -99,12 +100,13 @@ export const imageGenerationApi = {
     projectId: string,
     chapterNumber: number,
     sceneId: number,
-    payload: ImageGenerationRequest
+    payload: ImageGenerationRequest,
+    reqConfig?: AxiosRequestConfig
   ) => {
     const response = await apiClient.post<ImageGenerationResult>(
       `/image-generation/novels/${projectId}/chapters/${chapterNumber}/scenes/${sceneId}/generate`,
       payload,
-      { timeout: 10 * 60 * 1000 }
+      { timeout: 10 * 60 * 1000, ...(reqConfig || {}) }
     );
     return response.data;
   },
@@ -113,12 +115,13 @@ export const imageGenerationApi = {
     projectId: string,
     chapterNumber: number,
     pageNumber: number,
-    payload: PageImageGenerationRequest
+    payload: PageImageGenerationRequest,
+    reqConfig?: AxiosRequestConfig
   ) => {
     const response = await apiClient.post<ImageGenerationResult>(
       `/image-generation/novels/${projectId}/chapters/${chapterNumber}/pages/${pageNumber}/generate`,
       payload,
-      { timeout: 10 * 60 * 1000 }
+      { timeout: 10 * 60 * 1000, ...(reqConfig || {}) }
     );
     return response.data;
   },
@@ -154,5 +157,18 @@ export const imageGenerationApi = {
     );
     return response.data;
   },
-};
 
+  deleteImage: async (imageId: number, reqConfig?: AxiosRequestConfig) => {
+    const response = await apiClient.delete(`/image-generation/images/${imageId}`, reqConfig);
+    return response.data;
+  },
+
+  toggleImageSelection: async (imageId: number, selected: boolean = true, reqConfig?: AxiosRequestConfig) => {
+    const response = await apiClient.post(
+      `/image-generation/images/${imageId}/toggle-selection`,
+      undefined,
+      { params: { selected }, ...(reqConfig || {}) }
+    );
+    return response.data;
+  },
+};

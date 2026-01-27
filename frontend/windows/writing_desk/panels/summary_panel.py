@@ -45,37 +45,14 @@ class SummaryPanelBuilder(BasePanelBuilder):
 
         # 如果没有摘要数据，显示空状态
         if not real_summary:
-            return self._create_panel_empty_state(parent)
+            return self._create_empty_state(
+                title='暂无章节摘要',
+                description='选择版本后系统会自动生成章节摘要，用于优化后续章节的生成效果',
+                icon_char='S',
+            )
 
         # 创建摘要展示容器
         return self._create_summary_content(real_summary)
-
-    def _create_panel_empty_state(self, parent: QWidget = None) -> QWidget:
-        """创建空状态Widget"""
-        s = self._styler
-
-        empty_widget = QWidget()
-        empty_widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: transparent;
-                color: {s.text_primary};
-            }}
-        """)
-        empty_layout = QVBoxLayout(empty_widget)
-        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.setContentsMargins(dp(32), dp(32), dp(32), dp(32))
-        empty_layout.setSpacing(dp(24))
-
-        # 空状态
-        empty_state = EmptyStateWithIllustration(
-            illustration_char='S',
-            title='暂无章节摘要',
-            description='选择版本后系统会自动生成章节摘要，用于优化后续章节的生成效果',
-            parent=empty_widget
-        )
-        empty_layout.addWidget(empty_state)
-
-        return empty_widget
 
     def _create_summary_content(self, real_summary: str) -> QWidget:
         """创建摘要内容Widget
@@ -101,7 +78,11 @@ class SummaryPanelBuilder(BasePanelBuilder):
         layout.setSpacing(dp(12))
 
         # 说明卡片
-        info_card = self._create_info_card()
+        info_card = self._build_info_card(
+            object_name="summary_info_card",
+            title="RAG上下文摘要",
+            description="此摘要由AI根据章节内容自动生成，用于为后续章节生成提供上下文参考，确保故事连贯性和设定一致性。",
+        )
         layout.addWidget(info_card)
 
         # 摘要内容卡片
@@ -121,53 +102,6 @@ class SummaryPanelBuilder(BasePanelBuilder):
         layout.addWidget(word_count_label)
 
         return container
-
-    def _create_info_card(self) -> QFrame:
-        """创建说明卡片
-
-        Returns:
-            说明卡片Frame
-        """
-        s = self._styler
-
-        info_card = QFrame()
-        info_card.setObjectName("summary_info_card")
-        info_card.setStyleSheet(f"""
-            QFrame#summary_info_card {{
-                background-color: {s.info_bg};
-                border: 1px solid {s.info};
-                border-left: 4px solid {s.info};
-                border-radius: {dp(4)}px;
-                padding: {dp(12)}px;
-            }}
-        """)
-        info_layout = QVBoxLayout(info_card)
-        info_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        info_layout.setSpacing(dp(4))
-
-        info_title = QLabel("RAG上下文摘要")
-        info_title.setObjectName("summary_info_title")
-        info_title.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(14)}px;
-            font-weight: bold;
-            color: {s.text_info};
-        """)
-        info_layout.addWidget(info_title)
-
-        info_desc = QLabel(
-            "此摘要由AI根据章节内容自动生成，用于为后续章节生成提供上下文参考，确保故事连贯性和设定一致性。"
-        )
-        info_desc.setObjectName("summary_info_desc")
-        info_desc.setWordWrap(True)
-        info_desc.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(12)}px;
-            color: {s.text_secondary};
-        """)
-        info_layout.addWidget(info_desc)
-
-        return info_card
 
     def _create_summary_card(self, real_summary: str) -> QFrame:
         """创建摘要内容卡片

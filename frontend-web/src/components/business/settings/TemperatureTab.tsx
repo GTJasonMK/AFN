@@ -4,7 +4,8 @@ import { BookButton } from '../../ui/BookButton';
 import { BookInput } from '../../ui/BookInput';
 import { settingsApi, TemperatureConfig } from '../../../api/settings';
 import { useToast } from '../../feedback/Toast';
-import { RefreshCw } from 'lucide-react';
+import { SettingsInfoBox } from './components/SettingsInfoBox';
+import { SettingsTabHeader } from './components/SettingsTabHeader';
 
 const DEFAULTS: TemperatureConfig = {
   llm_temp_inspiration: 0.7,
@@ -59,17 +60,9 @@ export const TemperatureTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-book-text-main">Temperature</div>
-        <BookButton variant="ghost" size="sm" onClick={fetchConfig} disabled={loading}>
-          <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </BookButton>
-      </div>
+      <SettingsTabHeader title="Temperature" loading={loading} onRefresh={fetchConfig} showRefreshIcon />
 
-      <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-        说明：Temperature 越大越“发散”，越小越“稳定”。建议范围 0–1；此处允许 0–2。
-      </div>
+      <SettingsInfoBox>说明：Temperature 越大越“发散”，越小越“稳定”。建议范围 0–1；此处允许 0–2。</SettingsInfoBox>
 
       <BookCard className="p-4">
         <div className="grid grid-cols-2 gap-4">
@@ -90,4 +83,3 @@ export const TemperatureTab: React.FC = () => {
     </div>
   );
 };
-

@@ -28,6 +28,10 @@ from ....services.novel_rag import (
 from ....core.constants import LLMConstants
 from ..rag_helpers import run_completeness_check
 from ..rag_schemas import CompletenessResponseBase, TypeDetailBase
+from ..chapter_rag_helpers import (
+    ensure_chapter_summary_and_analysis_data_safely,
+    get_project_display_title,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -203,10 +207,8 @@ async def ingest_all_rag_data(
     返回各数据类型的入库结果。
     """
     from ....services.chapter_analysis_service import ChapterAnalysisService
-    from ....services.summary_service import SummaryService
     from ....services.incremental_indexer import IncrementalIndexer
     from ....repositories.chapter_outline_repository import ChapterOutlineRepository
-    from ....schemas.novel import ChapterAnalysisData
 
     # 验证项目归属
     project = await novel_service.ensure_project_owner(project_id, desktop_user.id)
@@ -241,11 +243,10 @@ async def ingest_all_rag_data(
     if chapters_with_content:
         logger.info("项目 %s RAG入库: 开始处理 %d 个章节的分析数据", project_id, len(chapters_with_content))
 
-        summary_service = SummaryService(llm_service)
         analysis_service = ChapterAnalysisService(session)
         indexer = IncrementalIndexer(session)
         chapter_outline_repo = ChapterOutlineRepository(session)
-        novel_title = project.title or f"项目{project_id[:8]}"
+        novel_title = get_project_display_title(project_id, project.title)
 
         for chapter in chapters_with_content:
             content = chapter.selected_version.content
@@ -258,65 +259,31 @@ async def ingest_all_rag_data(
             )
             chapter_title = outline.title if outline and outline.title else f"第{chapter_number}章"
 
-            # 1. 生成摘要（仅在缺失时）
-            has_valid_summary = (
-                chapter.real_summary
-                and chapter.real_summary.strip()
-                and chapter.real_summary != SummaryService.FALLBACK_SUMMARY
+            # 1-2. 生成摘要 + 章节分析（失败时章节分析降级为 None）
+            analysis_data = await ensure_chapter_summary_and_analysis_data_safely(
+                project_id=project_id,
+                session=session,
+                chapter=chapter,
+                content=content,
+                title=chapter_title,
+                chapter_number=chapter_number,
+                novel_title=novel_title,
+                user_id=desktop_user.id,
+                llm_service=llm_service,
+                chapter_outline_repo=chapter_outline_repo,
+                timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
+                analysis_service=analysis_service,
+                log=logger,
             )
-            if not has_valid_summary:
-                try:
-                    await summary_service.generate_and_save_summary(
-                        chapter=chapter,
-                        content=content,
-                        project_id=project_id,
-                        user_id=desktop_user.id,
-                        chapter_outline_repo=chapter_outline_repo,
-                        chapter_title=chapter_title,
-                        use_fallback=False,
-                    )
-                except Exception as exc:
-                    logger.error("项目 %s 第 %s 章摘要生成失败: %s", project_id, chapter_number, exc)
-
-            # 2. 章节分析（仅在缺失时）
-            analysis_data = None
-            has_valid_analysis = (
-                chapter.analysis_data
-                and isinstance(chapter.analysis_data, dict)
-                and len(chapter.analysis_data) > 0
-            )
-            if has_valid_analysis:
-                try:
-                    analysis_data = ChapterAnalysisData(**chapter.analysis_data)
-                except Exception:
-                    has_valid_analysis = False
-
-            if not has_valid_analysis:
-                try:
-                    analysis_data = await analysis_service.analyze_chapter(
-                        content=content,
-                        title=chapter_title,
-                        chapter_number=chapter_number,
-                        novel_title=novel_title,
-                        user_id=desktop_user.id,
-                        timeout=LLMConstants.PART_OUTLINE_GENERATION_TIMEOUT,
-                    )
-                    if analysis_data:
-                        chapter.analysis_data = analysis_data.model_dump()
-                        logger.info("项目 %s 第 %s 章分析数据已生成", project_id, chapter_number)
-                except Exception as exc:
-                    logger.error("项目 %s 第 %s 章分析失败: %s", project_id, chapter_number, exc)
 
             # 3. 索引更新
             if analysis_data:
-                try:
-                    await indexer.index_chapter_analysis(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        analysis_data=analysis_data,
-                    )
-                except Exception as exc:
-                    logger.error("项目 %s 第 %s 章索引更新失败: %s", project_id, chapter_number, exc)
+                await indexer.safe_index_chapter_analysis(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    analysis_data=analysis_data,
+                    commit=False,
+                )
 
         # 提交分析结果
         await session.commit()
@@ -485,7 +452,7 @@ async def diagnose_rag(
     await novel_service.ensure_project_owner(project_id, desktop_user.id)
 
     # 检查服务状态
-    vector_store_enabled = vector_store is not None and hasattr(vector_store, '_client') and vector_store._client is not None
+    vector_store_enabled = vector_store is not None
     embedding_service_enabled = llm_service is not None
 
     # 数据类型列表

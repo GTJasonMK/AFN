@@ -18,6 +18,7 @@ from .schemas import (
     SharedModuleStrategy,
 )
 from .patterns import get_pattern_template, PatternTemplate
+from .utils import get_file_extension
 
 logger = logging.getLogger(__name__)
 
@@ -299,18 +300,7 @@ class ArchitectureDecisionMaker:
 
     def _get_file_extension(self) -> str:
         """获取文件扩展名"""
-        lang = self.profile.primary_language.lower()
-        extensions = {
-            "python": ".py",
-            "typescript": ".ts",
-            "javascript": ".js",
-            "go": ".go",
-            "rust": ".rs",
-            "java": ".java",
-            "kotlin": ".kt",
-            "swift": ".swift",
-        }
-        return extensions.get(lang, ".py")
+        return get_file_extension(self.profile.primary_language)
 
     def _generate_placement_rationale(
         self,

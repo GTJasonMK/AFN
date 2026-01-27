@@ -110,7 +110,7 @@ tags: writing, chapter, generation
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **只返回3个字段**：title, summary, full_content
 3. **full_content必须4500字以上**：不能过短
 4. **full_content必须是纯文本**：不含markdown、HTML或其他格式符号

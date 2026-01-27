@@ -6,6 +6,8 @@ import { novelsApi } from '../api/novels';
 import { codingApi } from '../api/coding';
 import { BookButton } from '../components/ui/BookButton';
 import { BookTextarea } from '../components/ui/BookInput';
+import { Modal } from '../components/ui/Modal';
+import { BookCard } from '../components/ui/BookCard';
 
 interface Message {
   id: number;
@@ -25,6 +27,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showBlueprintBtn, setShowBlueprintBtn] = useState(false);
+  const [isGeneratingBlueprint, setIsGeneratingBlueprint] = useState(false);
+  const [isBlueprintConfirmOpen, setIsBlueprintConfirmOpen] = useState(false);
+  const [blueprintPreview, setBlueprintPreview] = useState<any | null>(null);
+  const [blueprintTip, setBlueprintTip] = useState<string | null>(null);
   const [options, setOptions] = useState<any[]>([]);
   const [conversationState, setConversationState] = useState<any>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -126,22 +132,143 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const generateBlueprint = async () => {
     if (!id) return;
     try {
-        if (mode === 'novel') {
-            await novelsApi.generateBlueprint(id);
-            navigate(`/novel/${id}`);
-        } else {
-            // Coding blueprint generation
-            await codingApi.generateBlueprint(id);
-            navigate(`/coding/detail/${id}`);
+      setIsGeneratingBlueprint(true);
+      setBlueprintTip(null);
+
+      if (mode === 'novel') {
+        const res = await novelsApi.generateBlueprint(id);
+        setBlueprintPreview(res?.blueprint || null);
+        setBlueprintTip(String(res?.ai_message || '蓝图已生成'));
+      } else {
+        const res = await codingApi.generateBlueprint(id);
+        setBlueprintPreview(res?.blueprint || null);
+        setBlueprintTip('架构蓝图已生成');
+      }
+
+      setIsBlueprintConfirmOpen(true);
+    } catch (e: any) {
+      console.error(e);
+      setBlueprintTip(String(e?.response?.data?.detail || '生成蓝图失败'));
+      setIsBlueprintConfirmOpen(true);
+    } finally {
+      setIsGeneratingBlueprint(false);
+    }
+  };
+
+  const confirmBlueprintAndContinue = () => {
+    if (!id) return;
+    setIsBlueprintConfirmOpen(false);
+    setBlueprintPreview(null);
+    setBlueprintTip(null);
+    if (mode === 'novel') navigate(`/novel/${id}`);
+    else navigate(`/coding/detail/${id}`);
+  };
+
+  const regenerateBlueprint = async () => {
+    if (!id) return;
+    setIsGeneratingBlueprint(true);
+    setBlueprintTip(null);
+    try {
+      if (mode === 'novel') {
+        try {
+          const res = await novelsApi.generateBlueprint(id);
+          setBlueprintPreview(res?.blueprint || null);
+          setBlueprintTip(String(res?.ai_message || '蓝图已重新生成'));
+        } catch (e: any) {
+          const status = Number(e?.response?.status || 0);
+          const detail = String(e?.response?.data?.detail || '');
+          if (status === 409) {
+            const ok = confirm(`${detail || '检测到已有章节大纲/后续数据。重新生成蓝图将清理后续数据。'}\n\n是否强制重新生成？`);
+            if (!ok) return;
+            const res = await novelsApi.generateBlueprint(id, { forceRegenerate: true });
+            setBlueprintPreview(res?.blueprint || null);
+            setBlueprintTip(String(res?.ai_message || '蓝图已强制重新生成'));
+          } else {
+            throw e;
+          }
         }
-    } catch (e) {
-        console.error(e);
+      } else {
+        const res = await codingApi.generateBlueprint(id);
+        setBlueprintPreview(res?.blueprint || null);
+        setBlueprintTip('架构蓝图已重新生成');
+      }
+    } catch (e: any) {
+      console.error(e);
+      setBlueprintTip(String(e?.response?.data?.detail || '重新生成失败'));
+    } finally {
+      setIsGeneratingBlueprint(false);
     }
   };
 
   return (
     <div className="flex flex-col h-screen bg-book-bg relative overflow-hidden">
       <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-book-bg-paper/30 to-transparent pointer-events-none" />
+
+      <Modal
+        isOpen={isBlueprintConfirmOpen}
+        onClose={() => setIsBlueprintConfirmOpen(false)}
+        title="蓝图预览与确认"
+        maxWidthClassName="max-w-3xl"
+        footer={
+          <>
+            <BookButton variant="ghost" onClick={() => setIsBlueprintConfirmOpen(false)} disabled={isGeneratingBlueprint}>
+              返回对话
+            </BookButton>
+            <BookButton variant="secondary" onClick={regenerateBlueprint} disabled={isGeneratingBlueprint}>
+              {isGeneratingBlueprint ? '重新生成中…' : '重新生成'}
+            </BookButton>
+            <BookButton variant="primary" onClick={confirmBlueprintAndContinue}>
+              确认并继续
+            </BookButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {blueprintTip ? (
+            <div className="text-sm text-book-text-sub bg-book-bg p-3 rounded-lg border border-book-border/50">
+              {blueprintTip}
+            </div>
+          ) : null}
+
+          <BookCard className="p-4">
+            <div className="font-bold text-book-text-main mb-2">摘要</div>
+            {mode === 'novel' ? (
+              <div className="space-y-2 text-sm text-book-text-main">
+                <div className="font-serif text-lg font-bold">
+                  {String(blueprintPreview?.title || '（未命名）')}
+                </div>
+                <div className="text-book-text-sub italic">
+                  {String(blueprintPreview?.one_sentence_summary || '（暂无一句话概要）')}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm text-book-text-main">
+                <div className="font-serif text-lg font-bold">
+                  {String(blueprintPreview?.project_type_desc || '（未设置项目类型）')}
+                </div>
+                <div className="text-book-text-sub italic">
+                  {String(blueprintPreview?.one_sentence_summary || blueprintPreview?.summary || '（暂无一句话概要）')}
+                </div>
+              </div>
+            )}
+          </BookCard>
+
+          <details className="rounded-lg border border-book-border/40 bg-book-bg-paper">
+            <summary className="cursor-pointer select-none px-4 py-3 font-bold text-book-text-main">
+              查看完整蓝图（JSON）
+            </summary>
+            <pre className="px-4 pb-4 text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed">
+              {(() => {
+                try {
+                  return JSON.stringify(blueprintPreview || {}, null, 2);
+                } catch {
+                  return String(blueprintPreview ?? '');
+                }
+              })()}
+            </pre>
+          </details>
+        </div>
+      </Modal>
 
       {/* Header */}
       <div className="h-16 border-b border-book-border/40 bg-book-bg-glass backdrop-blur-md flex items-center justify-between px-6 z-20 shrink-0">
@@ -162,10 +289,11 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
             variant="primary" 
             size="md" 
             onClick={generateBlueprint}
+            disabled={isGeneratingBlueprint}
             className="shadow-lg shadow-book-primary/20 animate-in fade-in slide-in-from-top-4 duration-500"
           >
             <Wand2 size={16} className="mr-2 fill-current" />
-            生成蓝图
+            {isGeneratingBlueprint ? '生成中…' : '生成蓝图'}
           </BookButton>
         )}
       </div>

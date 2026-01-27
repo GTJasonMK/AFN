@@ -7,7 +7,7 @@
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ..chapter_context_service import ChapterContextService
+from ..rag import get_outline_rag_retriever
 
 if TYPE_CHECKING:
     from ..llm_service import LLMService
@@ -41,10 +41,6 @@ class PartOutlineContextRetriever:
         self.chapter_outline_repo = chapter_outline_repo
         self.llm_service = llm_service
         self.vector_store = vector_store
-        self._chapter_context_service = ChapterContextService(
-            llm_service=llm_service,
-            vector_store=vector_store,
-        )
 
     async def get_previous_chapters(
         self,
@@ -105,40 +101,17 @@ class PartOutlineContextRetriever:
             return []
 
         try:
-            # 构建查询文本：使用部分大纲的摘要 + 章节范围描述
-            query_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{part_summary[:500]}"
+            rag_retriever = await get_outline_rag_retriever(self.vector_store, self.llm_service)
+            if rag_retriever is None:
+                return []
 
-            rag_context = await self._chapter_context_service.retrieve_for_generation(
+            return await rag_retriever.retrieve_for_part_outline(
                 project_id=project_id,
-                query_text=query_text,
                 user_id=user_id,
-                top_k_chunks=0,
-                top_k_summaries=5,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                part_summary=part_summary,
             )
-
-            summaries = rag_context.summaries
-
-            # 过滤：只保留起始章节之前的已完成章节
-            summaries = [s for s in summaries if s.chapter_number < start_chapter]
-
-            # 格式化结果
-            result = []
-            for summary in summaries:
-                result.append({
-                    "chapter_number": summary.chapter_number,
-                    "title": summary.title,
-                    "summary": summary.summary,
-                    "relevance_score": round(summary.score, 3) if summary.score else None,
-                })
-
-            logger.info(
-                "项目 %s 部分章节大纲生成RAG检索完成: 检索到 %d 个相关摘要（第 %d-%d 章）",
-                project_id,
-                len(result),
-                start_chapter,
-                end_chapter,
-            )
-            return result
 
         except Exception as exc:
             # RAG检索失败不应阻断主流程，记录详细错误后返回空列表

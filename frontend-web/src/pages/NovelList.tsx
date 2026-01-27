@@ -98,9 +98,11 @@ export const NovelList: React.FC = () => {
       kind: 'novel',
       id: n.id,
       title: n.title,
-      description: n.description,
+      description: n.is_imported
+        ? `导入分析：${n.import_analysis_status || 'pending'}${n.genre ? ` · 类型：${n.genre}` : ''}`
+        : (n.description || (n.genre ? `类型：${n.genre}` : undefined)),
       status: n.status,
-      updated_at: n.updated_at,
+      updated_at: n.last_edited || n.updated_at || n.created_at || new Date().toISOString(),
     }));
   }, [projectKind, codingProjects, novels]);
 

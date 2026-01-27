@@ -7,13 +7,17 @@ interface BlueprintCardProps {
   summary?: string;
   style?: string;
   progress?: { current: number; total: number };
+  portraitUrl?: string | null;
+  portraitName?: string | null;
 }
 
 export const BlueprintCard: React.FC<BlueprintCardProps> = ({ 
   title = "小说项目", 
   summary = "暂无概要", 
   style = "未设定",
-  progress 
+  progress,
+  portraitUrl,
+  portraitName,
 }) => {
   return (
     <div className="relative group perspective-1000 h-40 w-full cursor-pointer">
@@ -54,12 +58,34 @@ export const BlueprintCard: React.FC<BlueprintCardProps> = ({
 
         {/* Back Face */}
         <div className="absolute inset-0 h-full w-full backface-hidden rotate-y-180">
-          <BookCard className="h-full flex flex-col items-center justify-center bg-book-bg-paper border-book-border text-center">
-            <div className="w-12 h-12 rounded-full bg-book-bg flex items-center justify-center mb-2 text-book-text-sub">
-              <User size={24} />
-            </div>
-            <span className="text-sm font-bold text-book-text-main">主角档案</span>
-            <span className="text-xs text-book-text-muted mt-1">点击查看详情</span>
+          <BookCard className="h-full bg-book-bg-paper border-book-border text-center overflow-hidden relative">
+            {portraitUrl ? (
+              <>
+                <img
+                  src={portraitUrl}
+                  alt={portraitName || '主角立绘'}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-3 text-left">
+                  <div className="text-sm font-bold text-white drop-shadow">
+                    {portraitName ? `主角：${portraitName}` : '主角立绘'}
+                  </div>
+                  <div className="text-xs text-white/80 mt-0.5 drop-shadow">
+                    点击打开主角档案
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center">
+                <div className="w-12 h-12 rounded-full bg-book-bg flex items-center justify-center mb-2 text-book-text-sub">
+                  <User size={24} />
+                </div>
+                <span className="text-sm font-bold text-book-text-main">主角档案</span>
+                <span className="text-xs text-book-text-muted mt-1">点击查看详情</span>
+              </div>
+            )}
           </BookCard>
         </div>
       </div>

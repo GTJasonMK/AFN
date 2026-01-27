@@ -8,13 +8,21 @@
 
 import hashlib
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from .data_types import CodingDataType
 from .chunk_strategy import ChunkMethod, ChunkConfig, get_strategy_manager
-from ..rag_common.markdown_splitter import split_markdown_sections
+from ..rag_common.markdown_split_mixin import MarkdownHeaderSplitMixin
+from ..rag_common.content_splitter_utils import (
+    build_qa_round_text,
+    build_paragraph_chunk_records,
+    build_fixed_length_chunk_records,
+    build_markdown_section_records,
+    build_semantic_chunk_records_async,
+    build_whole_chunk_records,
+    iter_qa_rounds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,12 +69,13 @@ class IngestionRecord:
         return f"{project_prefix}_{type_name}_{source_suffix}_{section_idx}_{content_hash}"
 
 
-class ContentSplitter:
+class ContentSplitter(MarkdownHeaderSplitMixin):
     """内容分割器 - 按格式智能分割长内容，支持策略配置"""
 
     # 默认参数（可被配置覆盖）
     MIN_CHUNK_LENGTH = 100
     MAX_CHUNK_LENGTH = 2000
+    SECTION_FACTORY = Section
 
     def __init__(self, config: Optional[ChunkConfig] = None):
         """
@@ -149,23 +158,23 @@ class ContentSplitter:
         **extra_metadata
     ) -> List[IngestionRecord]:
         """整体入库，不分割"""
-        content = content.strip()
-
-        # 添加上下文前缀（如果配置了）
-        if config.add_context_prefix and extra_metadata.get('parent_title'):
-            content = f"[{extra_metadata['parent_title']}]\n\n{content}"
-
-        return [IngestionRecord(
+        records: List[IngestionRecord] = []
+        for chunk_content, metadata in build_whole_chunk_records(
             content=content,
-            data_type=data_type,
-            source_id=source_id,
-            metadata={
-                'section_index': 0,
-                'total_sections': 1,
-                **extra_metadata
-            },
-            project_id=project_id
-        )]
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        ):
+            records.append(
+                IngestionRecord(
+                    content=chunk_content,
+                    data_type=data_type,
+                    source_id=source_id,
+                    metadata=metadata,
+                    project_id=project_id,
+                )
+            )
+        return records
 
     def _split_markdown(
         self,
@@ -187,28 +196,22 @@ class ContentSplitter:
         if not sections or len(content) < config.min_chunk_length:
             return self._split_whole(content, data_type, source_id, project_id, config, **extra_metadata)
 
-        records = []
-        total_sections = len(sections)
-
-        for section in sections:
-            section_content = f"## {section.title}\n\n{section.content}" if section.title else section.content
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                section_content = f"[{extra_metadata['parent_title']}]\n\n{section_content}"
-
-            records.append(IngestionRecord(
-                content=section_content,
-                data_type=data_type,
-                source_id=source_id,
-                metadata={
-                    'section_title': section.title,
-                    'section_index': section.index,
-                    'total_sections': total_sections,
-                    **extra_metadata
-                },
-                project_id=project_id
-            ))
+        records: List[IngestionRecord] = []
+        for chunk_content, metadata in build_markdown_section_records(
+            sections=sections,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        ):
+            records.append(
+                IngestionRecord(
+                    content=chunk_content,
+                    data_type=data_type,
+                    source_id=source_id,
+                    metadata=metadata,
+                    project_id=project_id,
+                )
+            )
 
         return records
 
@@ -222,52 +225,27 @@ class ContentSplitter:
         **extra_metadata
     ) -> List[IngestionRecord]:
         """按段落分割"""
-        # 按连续空行分割段落
-        paragraphs = re.split(r'\n\s*\n', content.strip())
-        paragraphs = [p.strip() for p in paragraphs if p.strip()]
+        chunk_records = build_paragraph_chunk_records(
+            content=content,
+            min_length=config.min_chunk_length,
+            max_length=config.max_chunk_length,
+            with_overlap=False,
+            overlap_length=0,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        )
 
-        if not paragraphs:
-            return []
-
-        # 合并过短的段落
-        merged = []
-        current = ""
-        for para in paragraphs:
-            if len(current) + len(para) < config.min_chunk_length:
-                current = f"{current}\n\n{para}" if current else para
-            else:
-                if current:
-                    merged.append(current)
-                current = para
-
-        if current:
-            merged.append(current)
-
-        # 如果合并后只有一段，整体入库
-        if len(merged) <= 1:
-            return self._split_whole(content, data_type, source_id, project_id, config, **extra_metadata)
-
-        records = []
-        for idx, para in enumerate(merged):
-            para_content = para
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                para_content = f"[{extra_metadata['parent_title']}]\n\n{para_content}"
-
-            records.append(IngestionRecord(
-                content=para_content,
+        return [
+            IngestionRecord(
+                content=chunk_content,
                 data_type=data_type,
                 source_id=source_id,
-                metadata={
-                    'section_index': idx,
-                    'total_sections': len(merged),
-                    **extra_metadata
-                },
-                project_id=project_id
-            ))
-
-        return records
+                metadata=metadata,
+                project_id=project_id,
+            )
+            for chunk_content, metadata in chunk_records
+        ]
 
     def _split_fixed_length(
         self,
@@ -281,56 +259,30 @@ class ContentSplitter:
         """按固定长度分割（带重叠）"""
         chunk_size = config.fixed_chunk_size
         overlap = config.chunk_overlap
-        content = content.strip()
+        normalized = content.strip()
 
-        if len(content) <= chunk_size:
-            return self._split_whole(content, data_type, source_id, project_id, config, **extra_metadata)
+        if len(normalized) <= chunk_size:
+            return self._split_whole(normalized, data_type, source_id, project_id, config, **extra_metadata)
 
-        chunks = []
-        start = 0
-        while start < len(content):
-            end = start + chunk_size
-            chunk = content[start:end]
+        chunk_records = build_fixed_length_chunk_records(
+            content=normalized,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            add_context_prefix=config.add_context_prefix,
+            parent_title=extra_metadata.get("parent_title"),
+            extra_metadata=extra_metadata,
+        )
 
-            # 尝试在句子边界截断
-            if end < len(content):
-                # 查找最后一个句号、问号、感叹号
-                last_sentence_end = max(
-                    chunk.rfind('。'),
-                    chunk.rfind('？'),
-                    chunk.rfind('！'),
-                    chunk.rfind('.'),
-                    chunk.rfind('?'),
-                    chunk.rfind('!')
-                )
-                if last_sentence_end > chunk_size * 0.5:
-                    chunk = chunk[:last_sentence_end + 1]
-                    end = start + last_sentence_end + 1
-
-            chunks.append(chunk.strip())
-            start = end - overlap if end < len(content) else end
-
-        records = []
-        for idx, chunk in enumerate(chunks):
-            chunk_content = chunk
-
-            # 添加上下文前缀
-            if config.add_context_prefix and extra_metadata.get('parent_title'):
-                chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
-
-            records.append(IngestionRecord(
+        return [
+            IngestionRecord(
                 content=chunk_content,
                 data_type=data_type,
                 source_id=source_id,
-                metadata={
-                    'section_index': idx,
-                    'total_sections': len(chunks),
-                    **extra_metadata
-                },
-                project_id=project_id
-            ))
-
-        return records
+                metadata=metadata,
+                project_id=project_id,
+            )
+            for chunk_content, metadata in chunk_records
+        ]
 
     def _split_simple(
         self,
@@ -382,58 +334,27 @@ class ContentSplitter:
             config = get_strategy_manager().get_config(data_type)
 
         try:
-            # 延迟导入语义分块器，避免循环依赖
-            from ..rag_common.semantic_chunker import (
-                SemanticChunker,
-                SemanticChunkConfig,
-            )
-
-            # 构建语义分块配置
-            semantic_config = SemanticChunkConfig(
-                gate_threshold=config.semantic_gate_threshold,
-                alpha=config.semantic_alpha,
-                gamma=config.semantic_gamma,
-                min_chunk_sentences=config.semantic_min_sentences,
-                max_chunk_sentences=config.semantic_max_sentences,
-                min_chunk_chars=config.min_chunk_length,
-                max_chunk_chars=config.max_chunk_length,
+            chunk_records = await build_semantic_chunk_records_async(
+                content=content,
+                embedding_func=embedding_func,
+                strategy_config=config,
                 with_overlap=False,  # 编程项目一般不需要重叠
                 overlap_sentences=0,
+                add_context_prefix=config.add_context_prefix,
+                parent_title=extra_metadata.get("parent_title"),
+                extra_metadata=extra_metadata,
             )
 
-            # 创建语义分块器并执行分块
-            chunker = SemanticChunker(config=semantic_config)
-            chunk_results = await chunker.chunk_text_async(
-                text=content,
-                embedding_func=embedding_func,
-                config=semantic_config
-            )
-
-            # 转换为IngestionRecord
-            records = []
-            for idx, chunk in enumerate(chunk_results):
-                chunk_content = chunk.content
-
-                # 添加上下文前缀
-                if config.add_context_prefix and extra_metadata.get('parent_title'):
-                    chunk_content = f"[{extra_metadata['parent_title']}]\n\n{chunk_content}"
-
-                records.append(IngestionRecord(
+            return [
+                IngestionRecord(
                     content=chunk_content,
                     data_type=data_type,
                     source_id=source_id,
                     project_id=project_id,
-                    metadata={
-                        'section_index': idx,
-                        'total_sections': len(chunk_results),
-                        'sentence_count': chunk.sentence_count,
-                        'density_score': chunk.density_score,
-                        'semantic_chunked': True,
-                        **extra_metadata
-                    }
-                ))
-
-            return records
+                    metadata=metadata,
+                )
+                for chunk_content, metadata in chunk_records
+            ]
 
         except Exception as e:
             logger.warning("语义分块失败: %s，降级为段落分割", str(e))
@@ -442,30 +363,6 @@ class ContentSplitter:
             )
 
     # ==================== 原有方法（保持向后兼容） ====================
-
-    def split_by_markdown_headers(
-        self,
-        content: str,
-        min_level: int = 2,
-        max_level: int = 3
-    ) -> List[Section]:
-        """
-        按Markdown标题分割内容
-
-        Args:
-            content: 原始Markdown内容
-            min_level: 最小标题级别（2 = ##）
-            max_level: 最大标题级别（3 = ###）
-
-        Returns:
-            分割后的Section列表
-        """
-        return split_markdown_sections(
-            content=content,
-            min_level=min_level,
-            max_level=max_level,
-            section_factory=Section,
-        )
 
     def split_review_prompt(
         self,
@@ -647,36 +544,15 @@ class ContentSplitter:
 
         max_length = config.max_chunk_length
 
-        # 按轮次合并
-        current_round: List[Dict[str, Any]] = []
         round_number = 0
 
-        for conv in conversations:
-            role = conv.get('role', '')
-            content = conv.get('content', '')
-            seq = conv.get('seq', 0)
-
-            if role == 'user':
-                # 新轮次开始，保存上一轮
-                if current_round:
-                    record = self._create_round_record(
-                        current_round, project_id, round_number, max_length
-                    )
-                    if record:
-                        records.extend(record) if isinstance(record, list) else records.append(record)
-                        round_number += len(record) if isinstance(record, list) else 1
-                current_round = [conv]
-            elif role == 'assistant' and current_round:
-                # 添加到当前轮次
-                current_round.append(conv)
-
-        # 保存最后一轮
-        if current_round:
+        for round_convs in iter_qa_rounds(conversations):
             record = self._create_round_record(
-                current_round, project_id, round_number, max_length
+                round_convs, project_id, round_number, max_length
             )
             if record:
                 records.extend(record) if isinstance(record, list) else records.append(record)
+                round_number += len(record) if isinstance(record, list) else 1
 
         return records
 
@@ -688,25 +564,9 @@ class ContentSplitter:
         max_length: int = 2000
     ) -> Optional[IngestionRecord | List[IngestionRecord]]:
         """创建一轮对话的入库记录"""
-        if not round_convs:
+        merged_content, start_seq, message_count = build_qa_round_text(round_convs)
+        if not merged_content:
             return None
-
-        # 构建对话内容
-        parts = []
-        start_seq = round_convs[0].get('seq', 0)
-
-        for conv in round_convs:
-            role = conv.get('role', '')
-            content = conv.get('content', '')
-            if role == 'user':
-                parts.append(f"用户: {content}")
-            elif role == 'assistant':
-                parts.append(f"助手: {content}")
-
-        if not parts:
-            return None
-
-        merged_content = '\n\n'.join(parts)
 
         # 如果内容过长，按段落分割
         if len(merged_content) > max_length:
@@ -724,7 +584,7 @@ class ContentSplitter:
                 config=config,
                 round_number=round_number,
                 start_seq=start_seq,
-                message_count=len(round_convs),
+                message_count=message_count,
             )
 
         return IngestionRecord(
@@ -734,7 +594,7 @@ class ContentSplitter:
             metadata={
                 'round_number': round_number,
                 'start_seq': start_seq,
-                'message_count': len(round_convs),
+                'message_count': message_count,
             },
             project_id=project_id
         )

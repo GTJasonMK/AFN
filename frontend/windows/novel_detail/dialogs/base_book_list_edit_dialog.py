@@ -33,6 +33,51 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 
 
+def build_delete_button_style(ui_font: str) -> str:
+    """构建列表 item 内删除按钮的通用样式片段（delete_btn）
+
+    说明：
+    - 该样式被多个列表编辑对话框复用，避免并行维护造成漂移
+    - 依赖 theme_manager 的 ERROR / BUTTON_TEXT 配色
+    """
+    return f"""
+            QPushButton#delete_btn {{
+                font-family: {ui_font};
+                font-size: {sp(12)}px;
+                color: {theme_manager.ERROR};
+                background-color: transparent;
+                border: 1px solid {theme_manager.ERROR};
+                border-radius: {dp(4)}px;
+            }}
+            QPushButton#delete_btn:hover {{
+                background-color: {theme_manager.ERROR};
+                color: {theme_manager.BUTTON_TEXT};
+            }}
+    """
+
+
+def build_index_and_field_label_style(
+    ui_font: str,
+    *,
+    accent_color: str,
+    text_secondary: str,
+) -> str:
+    """构建列表 item 内通用标签样式片段（index_label/field_label）"""
+    return f"""
+            QLabel#index_label {{
+                font-family: {ui_font};
+                font-size: {sp(14)}px;
+                font-weight: 700;
+                color: {accent_color};
+            }}
+            QLabel#field_label {{
+                font-family: {ui_font};
+                font-size: {sp(12)}px;
+                color: {text_secondary};
+            }}
+    """
+
+
 class BaseBookListEditDialog(BookStyleDialog):
     """书香风格列表编辑对话框基类（可增删/可滚动）"""
 
@@ -341,4 +386,3 @@ class BaseBookListEditDialog(BookStyleDialog):
 __all__ = [
     "BaseBookListEditDialog",
 ]
-

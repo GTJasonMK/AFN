@@ -30,6 +30,7 @@ from ...schemas.novel import (
     PartOutlineGenerationProgress,
     ChapterOutline as ChapterOutlineSchema,
 )
+from ...serializers.part_outline_serializer import build_part_outline_schema
 from ..llm_service import LLMService
 from ..llm_wrappers import call_llm_json, LLMProfile
 from ..prompt_service import PromptService
@@ -278,20 +279,7 @@ class PartOutlineService:
 
     def _to_schema(self, part: PartOutline) -> PartOutlineSchema:
         """将数据库模型转换为Pydantic Schema"""
-        return PartOutlineSchema(
-            part_number=part.part_number,
-            title=part.title or "",
-            start_chapter=part.start_chapter,
-            end_chapter=part.end_chapter,
-            summary=part.summary or "",
-            theme=part.theme or "",
-            key_events=part.key_events or [],
-            character_arcs=part.character_arcs or {},
-            conflicts=part.conflicts or [],
-            ending_hook=part.ending_hook,
-            generation_status=part.generation_status,
-            progress=part.progress,
-        )
+        return build_part_outline_schema(part)
 
     async def generate_part_outlines(
         self,

@@ -77,7 +77,7 @@ class CoherenceChecker:
         context: OptimizationContext,
         rag_context: RAGContext,
         dimensions: List[str],
-        user_id: str,
+        user_id: int,
     ) -> List[SuggestionEvent]:
         """
         检查段落并生成建议

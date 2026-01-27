@@ -47,7 +47,11 @@ class AnalysisPanelBuilder(BasePanelBuilder):
 
         # 如果没有分析数据，显示空状态
         if not analysis_data:
-            return self._create_panel_empty_state()
+            return self._create_empty_state(
+                title='暂无章节分析',
+                description='选择版本后系统会自动分析章节内容，提取角色状态、伏笔、关键事件等结构化信息',
+                icon_char='A',
+            )
 
         # 创建滚动区域
         scroll_area = QScrollArea()
@@ -76,7 +80,11 @@ class AnalysisPanelBuilder(BasePanelBuilder):
         layout.setSpacing(dp(16))
 
         # 说明卡片
-        info_card = self._create_info_card()
+        info_card = self._build_info_card(
+            object_name="analysis_info_card",
+            title="章节深度分析",
+            description="AI自动提取的结构化信息，包括角色状态、伏笔追踪、关键事件等，用于确保后续章节的连贯性。",
+        )
         layout.addWidget(info_card)
 
         # 1. 分级摘要区域
@@ -114,73 +122,6 @@ class AnalysisPanelBuilder(BasePanelBuilder):
 
         scroll_area.setWidget(container)
         return scroll_area
-
-    def _create_panel_empty_state(self) -> QWidget:
-        """创建空状态Widget"""
-        s = self._styler
-
-        empty_widget = QWidget()
-        empty_widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: transparent;
-                color: {s.text_primary};
-            }}
-        """)
-        empty_layout = QVBoxLayout(empty_widget)
-        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.setContentsMargins(dp(32), dp(32), dp(32), dp(32))
-        empty_layout.setSpacing(dp(24))
-
-        empty_state = EmptyStateWithIllustration(
-            illustration_char='A',
-            title='暂无章节分析',
-            description='选择版本后系统会自动分析章节内容，提取角色状态、伏笔、关键事件等结构化信息',
-            parent=empty_widget
-        )
-        empty_layout.addWidget(empty_state)
-
-        return empty_widget
-
-    def _create_info_card(self) -> QFrame:
-        """创建分析说明卡片"""
-        s = self._styler
-
-        info_card = QFrame()
-        info_card.setObjectName("analysis_info_card")
-        info_card.setStyleSheet(f"""
-            QFrame#analysis_info_card {{
-                background-color: {s.info_bg};
-                border: 1px solid {s.info};
-                border-left: 4px solid {s.info};
-                border-radius: {dp(4)}px;
-                padding: {dp(12)}px;
-            }}
-        """)
-        info_layout = QVBoxLayout(info_card)
-        info_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        info_layout.setSpacing(dp(4))
-
-        info_title = QLabel("章节深度分析")
-        info_title.setObjectName("analysis_info_title")
-        info_title.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(14)}px;
-            font-weight: bold;
-            color: {s.text_info};
-        """)
-        info_layout.addWidget(info_title)
-
-        info_desc = QLabel("AI自动提取的结构化信息，包括角色状态、伏笔追踪、关键事件等，用于确保后续章节的连贯性。")
-        info_desc.setObjectName("analysis_info_desc")
-        info_desc.setWordWrap(True)
-        info_desc.setStyleSheet(f"""
-            font-family: {s.ui_font};
-            font-size: {sp(12)}px;
-            color: {s.text_secondary};
-        """)
-        info_layout.addWidget(info_desc)
-
-        return info_card
 
     def _create_section_card(self, title: str, icon_char: str, section_id: str = None):
         """创建通用分区卡片

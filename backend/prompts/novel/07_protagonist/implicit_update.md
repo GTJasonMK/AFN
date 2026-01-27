@@ -94,7 +94,7 @@ tags: protagonist, implicit, update
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **决策要谨慎**：不要轻易建议修改或删除，除非证据充分
 3. **reasoning要详细**：需要具体引用行为记录
 4. **evidence_summary要简洁**：每条证据用分号分隔，简要概括

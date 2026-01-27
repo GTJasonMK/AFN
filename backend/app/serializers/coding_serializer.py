@@ -255,7 +255,7 @@ class CodingSerializer:
 
         return CodingSystem(
             system_number=system.system_number,
-            name=system.name,
+            name=system.name or f"系统{system.system_number}",
             description=system.description or "",
             responsibilities=system.responsibilities or [],
             tech_requirements=system.tech_requirements or "",

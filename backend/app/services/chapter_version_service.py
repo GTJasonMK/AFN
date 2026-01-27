@@ -394,36 +394,12 @@ class ChapterVersionService:
         chapter.real_summary = None
         chapter.analysis_data = None
 
-        # 5. 清理角色状态索引
-        await self.session.execute(
-            delete(CharacterStateIndex).where(
-                CharacterStateIndex.project_id == project_id,
-                CharacterStateIndex.chapter_number == chapter_number,
-            )
+        # 5. 清理索引（角色状态/伏笔），复用增量索引器的统一实现，避免清理规则漂移
+        from .incremental_indexer import IncrementalIndexer
+        await IncrementalIndexer(self.session).cleanup_chapter_indexes(
+            project_id=project_id,
+            chapter_number=chapter_number,
         )
-
-        # 6. 清理伏笔索引
-        # 6.1 删除在此章节埋下的伏笔
-        await self.session.execute(
-            delete(ForeshadowingIndex).where(
-                ForeshadowingIndex.project_id == project_id,
-                ForeshadowingIndex.planted_chapter == chapter_number,
-            )
-        )
-
-        # 6.2 重置在此章节回收的伏笔状态（改为pending，而不是删除）
-        result = await self.session.execute(
-            select(ForeshadowingIndex).where(
-                ForeshadowingIndex.project_id == project_id,
-                ForeshadowingIndex.resolved_chapter == chapter_number,
-            )
-        )
-        for fs in result.scalars().all():
-            fs.status = "pending"
-            fs.resolved_chapter = None
-            fs.resolution = None
-
-        await self.session.flush()
         await self._touch_project(project_id)
 
         logger.info("章节 %s-%d 已重置为未生成状态", project_id, chapter_number)

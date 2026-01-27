@@ -49,7 +49,7 @@ class ContentOptimizationService:
         project_id: str,
         chapter_number: int,
         request: OptimizeContentRequest,
-        user_id: str,
+        user_id: int,
     ) -> AsyncGenerator[str, None]:
         """
         流式优化章节内容
@@ -63,6 +63,7 @@ class ContentOptimizationService:
         Yields:
             SSE事件字符串
         """
+        user_id = int(user_id)
         # 创建优化会话（用于review模式的暂停/继续控制）
         opt_session = self.session_manager.create_session(
             project_id=project_id,

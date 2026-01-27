@@ -19,43 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .schemas import PDFExportRequest, PDFExportResult, ChapterMangaPDFRequest, ChapterMangaPDFResponse
 from ...models.image_config import GeneratedImage
 from ...models.novel import ChapterMangaPrompt
-from ...core.config import settings
+from .fs_utils import (
+    async_exists,
+    async_glob,
+    async_mkdir,
+    async_stat,
+    get_export_dir,
+    get_images_root,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# 异步文件操作辅助函数
-# ============================================================================
-
-async def async_exists(path: Path) -> bool:
-    """异步检查文件是否存在"""
-    return await asyncio.to_thread(path.exists)
-
-
-async def async_mkdir(path: Path, parents: bool = False, exist_ok: bool = False) -> None:
-    """异步创建目录"""
-    await asyncio.to_thread(path.mkdir, parents=parents, exist_ok=exist_ok)
-
-
-async def async_stat(path: Path):
-    """异步获取文件状态"""
-    return await asyncio.to_thread(path.stat)
-
-
-async def async_glob(path: Path, pattern: str) -> List[Path]:
-    """异步glob匹配"""
-    return await asyncio.to_thread(lambda: list(path.glob(pattern)))
-
-
-def get_export_dir() -> Path:
-    """获取导出目录（支持热更新）"""
-    return settings.exports_dir
-
-
-def get_images_root() -> Path:
-    """获取图片根目录（支持热更新）"""
-    return settings.generated_images_dir
 
 # P2修复: 统一页面尺寸定义，避免在多处重复定义
 # 页面尺寸常量（单位：点，1点=1/72英寸）

@@ -35,7 +35,7 @@ class StabilityProvider(BaseImageProvider):
                 message="API Key未配置"
             )
 
-        try:
+        async def _run() -> ProviderTestResult:
             async with self.create_http_client(config, for_test=True) as client:
                 # 获取账户余额来验证API Key
                 api_host = config.api_base_url or self.API_HOST
@@ -44,26 +44,18 @@ class StabilityProvider(BaseImageProvider):
                     headers=self.get_auth_headers(config, content_type=""),
                 )
 
-                if response.status_code == 200:
-                    data = response.json()
+                def _on_success(resp: httpx.Response) -> ProviderTestResult:
+                    data = resp.json()
                     credits = data.get("credits", 0)
                     return ProviderTestResult(
                         success=True,
                         message=f"连接成功，剩余额度: {credits}",
-                        extra_info={"credits": credits}
-                    )
-                elif response.status_code == 401:
-                    return ProviderTestResult(success=False, message="API Key无效")
-                else:
-                    return ProviderTestResult(
-                        success=False,
-                        message=f"连接失败: HTTP {response.status_code}"
+                        extra_info={"credits": credits},
                     )
 
-        except httpx.TimeoutException:
-            return ProviderTestResult(success=False, message="连接超时")
-        except Exception as e:
-            return ProviderTestResult(success=False, message=f"连接错误: {str(e)}")
+                return self._build_test_connection_result_for_response(response, on_success=_on_success)
+
+        return await self._wrap_test_connection(_run)
 
     async def generate(
         self,
@@ -169,38 +161,15 @@ class StabilityProvider(BaseImageProvider):
             "img2img": True,  # 支持 img2img
         }
 
-    async def generate_with_reference(
+    async def _generate_with_reference_urls(
         self,
         config: ImageGenerationConfig,
         request: ImageGenerationRequest,
         reference_images: List[ReferenceImageInfo],
-    ) -> ProviderGenerateResult:
-        """
-        使用参考图生成图片（img2img）
-
-        使用 Stability AI 的 image-to-image 端点。
-
-        Args:
-            config: 供应商配置
-            request: 生成请求
-            reference_images: 参考图列表
-
-        Returns:
-            ProviderGenerateResult: 生成结果
-        """
-        if not reference_images:
-            # 没有参考图，降级为普通生成
-            return await self.generate(config, request)
-
-        try:
-            # 使用第一张参考图
-            ref_image = reference_images[0]
-            urls = await self._generate_image_to_image(config, request, ref_image)
-            return ProviderGenerateResult(success=True, image_urls=urls)
-        except Exception as e:
-            error_msg = str(e) if str(e) else f"{type(e).__name__}"
-            logger.error("Stability AI img2img 生成失败: %s", error_msg)
-            return ProviderGenerateResult(success=False, error_message=error_msg)
+    ) -> List[str]:
+        """img2img：使用 Stability AI 的 image-to-image 端点（默认取第一张参考图）"""
+        ref_image = reference_images[0]
+        return await self._generate_image_to_image(config, request, ref_image)
 
     async def _generate_image_to_image(
         self,

@@ -7,15 +7,19 @@ Agent工具执行基类
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Type
 
 
 class BaseToolExecutor(ABC):
     """工具执行器基类（模板方法）"""
 
+    TOOL_RESULT_CLASS: Type[Any]
+
     def __init__(self) -> None:
         # 使用子类模块名作为日志来源，便于定位
         self._logger = logging.getLogger(self.__class__.__module__)
+        if not hasattr(self, "TOOL_RESULT_CLASS"):
+            raise RuntimeError("子类必须定义 TOOL_RESULT_CLASS（用于构建工具执行结果）")
         self._handlers = self._build_handlers()
 
     @abstractmethod
@@ -30,7 +34,6 @@ class BaseToolExecutor(ABC):
     def _get_tool_params(self, tool_call: Any) -> Dict[str, Any]:
         """获取工具参数"""
 
-    @abstractmethod
     def _build_result(
         self,
         tool_name: Any,
@@ -38,7 +41,13 @@ class BaseToolExecutor(ABC):
         result: Any = None,
         error: Optional[str] = None,
     ) -> Any:
-        """构建工具执行结果"""
+        """构建工具执行结果（默认实现）"""
+        return self.TOOL_RESULT_CLASS(
+            tool_name=tool_name,
+            success=success,
+            result=result,
+            error=error,
+        )
 
     def _format_unknown_tool_error(self, tool_name: Any) -> str:
         """格式化未知工具错误信息"""

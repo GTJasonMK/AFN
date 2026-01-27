@@ -12,6 +12,7 @@ import { QueueTab } from './settings/QueueTab';
 import { PromptsTab } from './settings/PromptsTab';
 import { MaxTokensTab } from './settings/MaxTokensTab';
 import { TemperatureTab } from './settings/TemperatureTab';
+import { ImportExportTab } from './settings/ImportExportTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<
-    'advanced' | 'llm' | 'embedding' | 'image' | 'theme' | 'queue' | 'prompts' | 'maxTokens' | 'temperature'
+    'advanced' | 'llm' | 'embedding' | 'image' | 'theme' | 'queue' | 'prompts' | 'maxTokens' | 'temperature' | 'io'
   >('advanced');
   const [config, setConfig] = useState<AdvancedConfig>({
     writer_chapter_version_count: 1,
@@ -186,6 +187,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <div className="text-sm font-bold">Temperature</div>
             <div className="text-[11px] text-book-text-muted mt-1">采样温度</div>
           </button>
+
+          <button
+            onClick={() => setActiveTab('io')}
+            className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+              activeTab === 'io'
+                ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+            }`}
+          >
+            <div className="text-sm font-bold">导入导出</div>
+            <div className="text-[11px] text-book-text-muted mt-1">备份 / 迁移</div>
+          </button>
         </div>
 
         <div className="min-w-0 overflow-auto custom-scrollbar pr-1">
@@ -248,6 +261,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {activeTab === 'prompts' && <PromptsTab />}
           {activeTab === 'maxTokens' && <MaxTokensTab />}
           {activeTab === 'temperature' && <TemperatureTab />}
+          {activeTab === 'io' && <ImportExportTab />}
         </div>
       </div>
     </Modal>

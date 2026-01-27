@@ -17,6 +17,7 @@ from .schemas import (
     SystemSummary,
 )
 from .patterns import recommend_pattern
+from ..graph_utils import detect_cycles
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ class ProjectProfiler:
                 graph.in_degrees[to_module] = graph.in_degrees.get(to_module, 0) + 1
 
         # 检测循环依赖
-        graph.cycles = self._detect_cycles(graph.edges)
+        graph.cycles = detect_cycles(graph.edges, max_cycles=5)
 
         # 识别高依赖模块（被3+模块依赖）
         graph.high_dependency_modules = [
@@ -320,42 +321,6 @@ class ProjectProfiler:
         ]
 
         return graph
-
-    def _detect_cycles(self, edges: Dict[str, List[str]]) -> List[List[str]]:
-        """检测循环依赖"""
-        cycles = []
-        visited = set()
-        rec_stack = set()
-
-        def dfs(node: str, path: List[str]) -> None:
-            if len(cycles) >= 5:  # 最多检测5个循环
-                return
-
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
-
-            for neighbor in edges.get(node, []):
-                if neighbor not in visited:
-                    dfs(neighbor, path)
-                elif neighbor in rec_stack:
-                    # 找到循环
-                    try:
-                        cycle_start = path.index(neighbor)
-                        cycle = path[cycle_start:]
-                        if len(cycle) > 1:
-                            cycles.append(cycle.copy())
-                    except ValueError:
-                        pass
-
-            path.pop()
-            rec_stack.remove(node)
-
-        for node in edges:
-            if node not in visited:
-                dfs(node, [])
-
-        return cycles[:5]
 
     def _calculate_complexity(self) -> Tuple[float, Dict[str, Any]]:
         """

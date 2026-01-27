@@ -16,6 +16,11 @@ from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
 from .dialogs import PromptEditDialog
+from .ui_helpers import (
+    build_settings_primary_button_style,
+    build_settings_secondary_button_style,
+    force_refresh_widget_style,
+)
 
 
 # 项目类型配置：project_type -> (显示名称, 图标, 顺序)
@@ -350,21 +355,7 @@ class PromptSettingsWidget(QWidget):
             widget.applyListStyle(list_style)
 
         # 次要按钮样式
-        secondary_btn_style = f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: transparent;
-                color: {palette.text_secondary};
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(24)}px;
-                font-size: {sp(14)}px;
-            }}
-            QPushButton:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-                background-color: {palette.bg_primary};
-            }}
+        secondary_btn_style = build_settings_secondary_button_style(palette) + f"""
             QPushButton:disabled {{
                 color: {palette.text_tertiary};
                 border-color: {palette.border_color};
@@ -374,33 +365,15 @@ class PromptSettingsWidget(QWidget):
         self.reset_btn.setStyleSheet(secondary_btn_style)
 
         # 主要按钮样式
-        self.edit_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {palette.ui_font};
-                background-color: {palette.accent_color};
-                color: {palette.bg_primary};
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(24)}px;
-                font-size: {sp(14)}px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {palette.text_primary};
-            }}
-            QPushButton:pressed {{
-                background-color: {palette.accent_light};
-            }}
+        primary_btn_style = build_settings_primary_button_style(palette) + f"""
             QPushButton:disabled {{
                 background-color: {palette.border_color};
                 color: {palette.text_tertiary};
             }}
-        """)
+        """
+        self.edit_btn.setStyleSheet(primary_btn_style)
 
-        # 强制刷新样式缓存
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
+        force_refresh_widget_style(self)
 
     @handle_errors("加载提示词")
     def loadPrompts(self):

@@ -33,6 +33,27 @@ export interface TemperatureConfig {
   llm_temp_summary: number;
 }
 
+export interface AllConfigExportData {
+  version: string;
+  export_time: string;
+  export_type: string;
+  llm_configs?: Record<string, any>[] | null;
+  embedding_configs?: Record<string, any>[] | null;
+  image_configs?: Record<string, any>[] | null;
+  advanced_config?: Record<string, any> | null;
+  queue_config?: Record<string, any> | null;
+  max_tokens_config?: Record<string, any> | null;
+  temperature_config?: Record<string, any> | null;
+  prompt_configs?: Record<string, any> | null;
+  theme_configs?: Record<string, any> | null;
+}
+
+export interface ConfigImportResult {
+  success: boolean;
+  message: string;
+  details: string[];
+}
+
 export const settingsApi = {
   getAdvancedConfig: async () => {
     const response = await apiClient.get<AdvancedConfig>('/settings/advanced-config');
@@ -61,6 +82,16 @@ export const settingsApi = {
 
   updateTemperatureConfig: async (config: TemperatureConfig) => {
     const response = await apiClient.put('/settings/temperature-config', config);
+    return response.data;
+  },
+
+  exportAllConfigs: async () => {
+    const response = await apiClient.get<AllConfigExportData>('/settings/export/all');
+    return response.data;
+  },
+
+  importAllConfigs: async (data: Record<string, any>) => {
+    const response = await apiClient.post<ConfigImportResult>('/settings/import/all', data);
     return response.data;
   },
 };

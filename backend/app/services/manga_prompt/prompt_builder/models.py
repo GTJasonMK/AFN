@@ -7,6 +7,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 
+from ..core.page_layout_utils import PageLayoutBase
+
 
 @dataclass
 class PanelPrompt:
@@ -147,36 +149,11 @@ class PagePrompt:
 
 
 @dataclass
-class PagePromptResult:
+class PagePromptResult(PageLayoutBase):
     """单页提示词结果（简化版）"""
-    page_number: int
+    PANEL_CLS = PanelPrompt
     panels: List[PanelPrompt] = field(default_factory=list)
-    layout_description: str = ""
-
-    # 间隙配置（单位：像素，由前端解释）
-    gutter_horizontal: int = 8          # 水平间隙（列之间）
-    gutter_vertical: int = 8            # 垂直间隙（行之间）
-
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            "page_number": self.page_number,
-            "panels": [p.to_dict() for p in self.panels],
-            "layout_description": self.layout_description,
-            "gutter_horizontal": self.gutter_horizontal,
-            "gutter_vertical": self.gutter_vertical,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PagePromptResult":
-        """从字典创建"""
-        return cls(
-            page_number=data.get("page_number", 1),
-            panels=[PanelPrompt.from_dict(p) for p in data.get("panels", [])],
-            layout_description=data.get("layout_description", ""),
-            gutter_horizontal=data.get("gutter_horizontal", 8),
-            gutter_vertical=data.get("gutter_vertical", 8),
-        )
+    # 间隙配置（单位：像素，由前端解释），字段定义在 PageLayoutBase
 
 
 @dataclass

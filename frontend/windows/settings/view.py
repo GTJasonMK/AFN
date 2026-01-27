@@ -14,6 +14,7 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from .config_io_helper import export_config_json, import_config_json
+from .ui_helpers import force_refresh_widget_style
 from api.manager import APIClientManager
 from components.dialogs import LoadingDialog
 
@@ -735,14 +736,8 @@ class SettingsView(BasePage):
         self.page_stack.setStyleSheet("background-color: transparent;")
 
         # 强制刷新样式缓存
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
-
-        # 刷新 page_stack 样式
-        self.page_stack.style().unpolish(self.page_stack)
-        self.page_stack.style().polish(self.page_stack)
-        self.page_stack.update()
+        force_refresh_widget_style(self)
+        force_refresh_widget_style(self.page_stack)
 
     def refresh(self, **params):
         """刷新页面"""

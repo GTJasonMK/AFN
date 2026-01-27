@@ -39,6 +39,26 @@ from ...models.protagonist import ProtagonistProfile, ProtagonistAttributeChange
 logger = logging.getLogger(__name__)
 
 
+_RECORD_GENERATOR_METHODS: Dict[NovelDataType, str] = {
+    NovelDataType.INSPIRATION: "_generate_inspiration_records",
+    NovelDataType.SYNOPSIS: "_generate_synopsis_records",
+    NovelDataType.WORLD_SETTING: "_generate_world_setting_records",
+    NovelDataType.BLUEPRINT_METADATA: "_generate_blueprint_metadata_records",
+    NovelDataType.CHARACTER: "_generate_character_records",
+    NovelDataType.RELATIONSHIP: "_generate_relationship_records",
+    NovelDataType.CHARACTER_STATE: "_generate_character_state_records",
+    NovelDataType.PROTAGONIST: "_generate_protagonist_records",
+    NovelDataType.PROTAGONIST_CHANGE: "_generate_protagonist_change_records",
+    NovelDataType.PART_OUTLINE: "_generate_part_outline_records",
+    NovelDataType.CHAPTER_OUTLINE: "_generate_chapter_outline_records",
+    NovelDataType.CHAPTER_CONTENT: "_generate_chapter_content_records",
+    NovelDataType.CHAPTER_SUMMARY: "_generate_chapter_summary_records",
+    NovelDataType.KEY_EVENT: "_generate_key_event_records",
+    NovelDataType.CHAPTER_METADATA: "_generate_chapter_metadata_records",
+    NovelDataType.FORESHADOWING: "_generate_foreshadowing_records",
+}
+
+
 def _convert_to_native_types(obj: Any) -> Any:
     """
     递归将 numpy 类型转换为 Python 原生类型，确保 JSON 可序列化
@@ -83,23 +103,19 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
     - foreshadowing: 伏笔记录
     """
 
-    def __init__(
-        self,
-        session: AsyncSession,
-        vector_store: Any,  # VectorStoreService
-        llm_service: Any,   # LLMService
-        user_id: str
-    ):
-        super().__init__(
-            session=session,
-            vector_store=vector_store,
-            llm_service=llm_service,
-            user_id=user_id,
-            data_type_enum=NovelDataType,
-            splitter=NovelContentSplitter(),
-            log_title="开始小说项目入库",
-            logger_obj=logger,
-        )
+    DATA_TYPE_ENUM = NovelDataType
+    SPLITTER_FACTORY = NovelContentSplitter
+    LOG_TITLE = "开始小说项目入库"
+    LOGGER_OBJ = logger
+    RECORD_GENERATOR_METHODS = _RECORD_GENERATOR_METHODS
+
+    def _prepare_metadata_for_vector_store(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Novel 侧 metadata 可能包含 numpy 类型，需转为原生类型以保证可序列化/可存储"""
+        return _convert_to_native_types(metadata)
+
+    def _prepare_embedding_for_vector_store(self, embedding: Any) -> Any:
+        """兼容 numpy.ndarray embedding"""
+        return embedding.tolist() if isinstance(embedding, np.ndarray) else embedding
 
     def _get_ingest_method_map(self) -> Dict[NovelDataType, Any]:
         """获取数据类型到入库方法的映射"""
@@ -121,55 +137,6 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             NovelDataType.CHAPTER_METADATA: self._ingest_chapter_metadata,
             NovelDataType.FORESHADOWING: self._ingest_foreshadowing,
         }
-
-    async def _generate_records_for_type(
-        self,
-        project_id: str,
-        data_type: NovelDataType
-    ) -> List[NovelIngestionRecord]:
-        """
-        为指定数据类型生成入库记录（不实际入库，只用于哈希计算）
-
-        Args:
-            project_id: 项目ID
-            data_type: 数据类型
-
-        Returns:
-            入库记录列表
-        """
-        if data_type == NovelDataType.INSPIRATION:
-            return await self._generate_inspiration_records(project_id)
-        elif data_type == NovelDataType.SYNOPSIS:
-            return await self._generate_synopsis_records(project_id)
-        elif data_type == NovelDataType.WORLD_SETTING:
-            return await self._generate_world_setting_records(project_id)
-        elif data_type == NovelDataType.BLUEPRINT_METADATA:
-            return await self._generate_blueprint_metadata_records(project_id)
-        elif data_type == NovelDataType.CHARACTER:
-            return await self._generate_character_records(project_id)
-        elif data_type == NovelDataType.RELATIONSHIP:
-            return await self._generate_relationship_records(project_id)
-        elif data_type == NovelDataType.CHARACTER_STATE:
-            return await self._generate_character_state_records(project_id)
-        elif data_type == NovelDataType.PROTAGONIST:
-            return await self._generate_protagonist_records(project_id)
-        elif data_type == NovelDataType.PROTAGONIST_CHANGE:
-            return await self._generate_protagonist_change_records(project_id)
-        elif data_type == NovelDataType.PART_OUTLINE:
-            return await self._generate_part_outline_records(project_id)
-        elif data_type == NovelDataType.CHAPTER_OUTLINE:
-            return await self._generate_chapter_outline_records(project_id)
-        elif data_type == NovelDataType.CHAPTER_CONTENT:
-            return await self._generate_chapter_content_records(project_id)
-        elif data_type == NovelDataType.CHAPTER_SUMMARY:
-            return await self._generate_chapter_summary_records(project_id)
-        elif data_type == NovelDataType.KEY_EVENT:
-            return await self._generate_key_event_records(project_id)
-        elif data_type == NovelDataType.CHAPTER_METADATA:
-            return await self._generate_chapter_metadata_records(project_id)
-        elif data_type == NovelDataType.FORESHADOWING:
-            return await self._generate_foreshadowing_records(project_id)
-        return []
 
     # ==================== 记录生成方法 ====================
 
@@ -514,55 +481,28 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
                         chapter.chapter_number, str(e)
                     )
                     # 降级为传统分块
-                    chapter_records = self.splitter.split_chapter_content(
+                    chapter_records = self.splitter.split_content(
                         content=content,
+                        data_type=NovelDataType.CHAPTER_CONTENT,
+                        source_id=str(chapter.id),
+                        config=config,
                         chapter_number=chapter.chapter_number,
                         chapter_title=chapter_title,
-                        source_id=str(chapter.id)
                     )
                     records.extend(chapter_records)
             else:
                 # 使用传统分块
-                chapter_records = self.splitter.split_chapter_content(
+                chapter_records = self.splitter.split_content(
                     content=content,
+                    data_type=NovelDataType.CHAPTER_CONTENT,
+                    source_id=str(chapter.id),
+                    config=config,
                     chapter_number=chapter.chapter_number,
                     chapter_title=chapter_title,
-                    source_id=str(chapter.id)
                 )
                 records.extend(chapter_records)
 
         return records
-
-    async def _get_sentence_embeddings(self, sentences: List[str]) -> List[List[float]]:
-        """获取句子列表的嵌入向量
-
-        为语义分块器提供的嵌入函数，批量获取句子的嵌入向量。
-
-        Args:
-            sentences: 句子列表
-
-        Returns:
-            嵌入向量列表（numpy数组形式）
-        """
-        import numpy as np
-
-        embeddings = []
-        for sentence in sentences:
-            try:
-                embedding = await self.llm_service.get_embedding(
-                    sentence,
-                    user_id=self.user_id
-                )
-                if embedding:
-                    embeddings.append(embedding)
-                else:
-                    # 返回零向量作为占位
-                    embeddings.append([0.0] * 1536)  # 默认维度
-            except Exception as e:
-                logger.warning("获取句子嵌入失败: %s", str(e))
-                embeddings.append([0.0] * 1536)
-
-        return np.array(embeddings)
 
     async def _generate_chapter_summary_records(self, project_id: str) -> List[NovelIngestionRecord]:
         """生成章节摘要记录"""
@@ -886,92 +826,6 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _ingest_records(
-        self,
-        records: List[NovelIngestionRecord],
-        result: IngestionResult,
-        project_id: str
-    ) -> IngestionResult:
-        """
-        将记录入库到向量库
-
-        Args:
-            records: 入库记录列表
-            result: 结果对象（会被修改）
-            project_id: 项目ID
-
-        Returns:
-            更新后的结果对象
-        """
-        if not records:
-            return result
-
-        if not self.vector_store:
-            result.success = False
-            result.error_message = "向量库未启用"
-            return result
-
-        # 批量生成embedding
-        embeddings = await self._batch_get_embeddings([r.content for r in records])
-
-        if len(embeddings) != len(records):
-            result.success = False
-            result.error_message = "生成embedding数量不匹配"
-            return result
-
-        # 构建入库数据
-        chunk_records = []
-        for idx, (record, embedding) in enumerate(zip(records, embeddings)):
-            if not embedding:
-                result.failed_count += 1
-                continue
-
-            chunk_id = record.get_chunk_id()
-            # 转换 metadata 中的 numpy 类型为原生 Python 类型
-            metadata = _convert_to_native_types({
-                **record.metadata,
-                "data_type": record.data_type.value,
-                "paragraph_hash": record.get_content_hash(),
-                "length": len(record.content),
-                "source_id": record.source_id,
-            })
-
-            # 获取来源信息
-            chapter_number, chapter_title = self._get_source_info(record)
-            # 确保 chapter_number 是原生 Python int
-            chapter_number = int(chapter_number) if chapter_number is not None else 0
-            chunk_index = record.metadata.get("section_index", idx)
-            chunk_index = int(chunk_index) if chunk_index is not None else idx
-
-            chunk_records.append({
-                "id": chunk_id,
-                "project_id": project_id,
-                "chapter_number": chapter_number,
-                "chunk_index": chunk_index,
-                "chapter_title": chapter_title,
-                "content": record.content,
-                "embedding": embedding if not isinstance(embedding, np.ndarray) else embedding.tolist(),
-                "metadata": metadata,
-            })
-
-        # 写入向量库
-        try:
-            await self.vector_store.upsert_chunks(records=chunk_records)
-            result.added_count = len(chunk_records)
-            logger.info(
-                "入库完成: type=%s count=%d",
-                result.data_type.value, result.added_count
-            )
-        except Exception as e:
-            result.success = False
-            result.error_message = str(e)
-            logger.error(
-                "入库失败: type=%s error=%s",
-                result.data_type.value, str(e)
-            )
-
-        return result
-
     def _get_source_info(self, record: NovelIngestionRecord) -> tuple:
         """
         根据数据类型获取来源信息
@@ -981,18 +835,25 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
         """
         data_type = record.data_type
         metadata = record.metadata
+        record_chapter_number = getattr(record, "chapter_number", None)
 
         if data_type == NovelDataType.CHAPTER_CONTENT:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             title = metadata.get("chapter_title", f"第{num}章")
             return (num, title)
 
         elif data_type == NovelDataType.CHAPTER_SUMMARY:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             return (num, f"第{num}章摘要")
 
         elif data_type == NovelDataType.CHAPTER_OUTLINE:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             return (num, f"第{num}章大纲")
 
         elif data_type == NovelDataType.PART_OUTLINE:
@@ -1009,7 +870,9 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             return (0, f"关系: {from_char} -> {to_char}")
 
         elif data_type == NovelDataType.CHARACTER_STATE:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             name = metadata.get("character_name", "")
             return (num, f"第{num}章 {name}状态")
 
@@ -1019,20 +882,28 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             return (0, f"主角: {name}")
 
         elif data_type == NovelDataType.FORESHADOWING:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             return (num, f"第{num}章伏笔")
 
         elif data_type == NovelDataType.KEY_EVENT:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             event_type = metadata.get("event_type", "")
             return (num, f"第{num}章关键事件: {event_type}" if event_type else f"第{num}章关键事件")
 
         elif data_type == NovelDataType.CHAPTER_METADATA:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             return (num, f"第{num}章元数据")
 
         elif data_type == NovelDataType.PROTAGONIST_CHANGE:
-            num = metadata.get("chapter_number", 0)
+            num = metadata.get("chapter_number")
+            if num is None:
+                num = record_chapter_number or 0
             name = metadata.get("character_name", "主角")
             return (num, f"第{num}章 {name}属性变更")
 
@@ -1055,29 +926,6 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
             return (0, f"蓝图元数据: {title}" if title else "蓝图元数据")
 
         return (0, NovelDataType.get_display_name(data_type.value))
-
-    async def _batch_get_embeddings(
-        self,
-        texts: List[str],
-        batch_size: int = 10
-    ) -> List[Optional[List[float]]]:
-        """批量获取embedding"""
-        embeddings: List[Optional[List[float]]] = []
-
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            for text in batch:
-                try:
-                    embedding = await self.llm_service.get_embedding(
-                        text,
-                        user_id=self.user_id
-                    )
-                    embeddings.append(embedding)
-                except Exception as e:
-                    logger.warning("生成embedding失败: %s", str(e))
-                    embeddings.append(None)
-
-        return embeddings
 
     # ==================== 格式化方法 ====================
 

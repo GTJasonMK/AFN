@@ -184,7 +184,7 @@ tags: analysis, rag, extraction
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **必须包含所有5个顶层字段**：metadata, summaries, character_states, foreshadowing, key_events
 3. **数组字段不能为null**：如果没有内容使用空数组 `[]`
 4. **compressed摘要必须100字左右**：不能过短

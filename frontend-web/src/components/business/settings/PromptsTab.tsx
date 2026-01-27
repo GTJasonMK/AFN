@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookCard } from '../../ui/BookCard';
 import { BookButton } from '../../ui/BookButton';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { promptsApi, PromptRead } from '../../../api/prompts';
 import { useToast } from '../../feedback/Toast';
 import { RefreshCw, Save, RotateCcw, Search, AlertTriangle } from 'lucide-react';
+import { SettingsTabHeader } from './components/SettingsTabHeader';
 
 export const PromptsTab: React.FC = () => {
   const { addToast } = useToast();
@@ -18,25 +19,23 @@ export const PromptsTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
 
-  const fetchList = async () => {
+  const fetchList = useCallback(async () => {
     setLoading(true);
     try {
       const list = await promptsApi.list();
       setPrompts(list);
-      if (!selectedName && list.length > 0) {
-        setSelectedName(list[0].name);
-      }
+      setSelectedName((prev) => prev ?? (list.length > 0 ? list[0].name : null));
     } catch (e) {
       console.error(e);
       setPrompts([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchList();
-  }, []);
+  }, [fetchList]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -132,19 +131,18 @@ export const PromptsTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-book-text-main">提示词</div>
-        <div className="flex items-center gap-2">
-          <BookButton variant="ghost" size="sm" onClick={fetchList} disabled={loading}>
-            <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-            刷新
-          </BookButton>
+      <SettingsTabHeader
+        title="提示词"
+        loading={loading}
+        onRefresh={fetchList}
+        showRefreshIcon
+        extraActions={
           <BookButton variant="ghost" size="sm" onClick={handleResetAll} disabled={resetting}>
             <RotateCcw size={14} className="mr-1" />
             恢复全部
           </BookButton>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid grid-cols-[280px_1fr] gap-4 min-h-[60vh]">
         <BookCard className="p-4">
@@ -241,4 +239,3 @@ export const PromptsTab: React.FC = () => {
     </div>
   );
 };
-

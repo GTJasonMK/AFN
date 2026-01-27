@@ -4,15 +4,14 @@
 支持远程 API（OpenAI 兼容）和本地 Ollama 两种提供方式。
 """
 
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
+from .mixins import ActivationStatusMixin, TestStatusMixin, TimestampsMixin
 
 
-class EmbeddingConfig(Base):
+class EmbeddingConfig(Base, ActivationStatusMixin, TestStatusMixin, TimestampsMixin):
     """用户自定义的嵌入模型配置。支持多配置管理、测试和切换。"""
 
     __tablename__ = "embedding_configs"
@@ -35,22 +34,5 @@ class EmbeddingConfig(Base):
 
     # 向量维度（可选，自动检测或手动指定）
     vector_size: Mapped[int | None] = mapped_column(Integer)
-
-    # 配置状态
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    # 测试相关
-    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    test_status: Mapped[str | None] = mapped_column(String(50))  # success, failed, pending
-    test_message: Mapped[str | None] = mapped_column(Text())
-
-    # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
 
     user: Mapped["User"] = relationship("User", back_populates="embedding_configs")

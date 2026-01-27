@@ -14,6 +14,11 @@ from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from .base_config_list_widget import BaseConfigListWidget
+from .ui_helpers import (
+    build_config_list_danger_button_style,
+    build_config_list_primary_button_style,
+    build_config_list_secondary_button_style,
+)
 
 
 # 提供商类型选项
@@ -367,64 +372,16 @@ class ImageSettingsWidget(BaseConfigListWidget):
         palette = theme_manager.get_book_palette()
 
         # 主要按钮
-        self.add_btn.setStyleSheet(f"""
-            QPushButton#primary_btn {{
-                font-family: {palette.ui_font};
-                background-color: {palette.accent_color};
-                color: {palette.bg_primary};
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(24)}px;
-                font-size: {sp(13)}px;
-                font-weight: 600;
-            }}
-            QPushButton#primary_btn:hover {{
-                background-color: {palette.text_primary};
-            }}
-        """)
+        self.add_btn.setStyleSheet(build_config_list_primary_button_style(palette, with_pressed=False))
 
         # 次要按钮样式
-        secondary_style = f"""
-            QPushButton#secondary_btn {{
-                font-family: {palette.ui_font};
-                background-color: transparent;
-                color: {palette.text_secondary};
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-                font-size: {sp(13)}px;
-            }}
-            QPushButton#secondary_btn:hover {{
-                color: {palette.accent_color};
-                border-color: {palette.accent_color};
-            }}
-            QPushButton#secondary_btn:disabled {{
-                color: {palette.border_color};
-            }}
-        """
+        secondary_style = build_config_list_secondary_button_style(palette, variant="simple")
         for btn in [self.import_btn, self.export_all_btn, self.test_btn,
                     self.activate_btn, self.edit_btn, self.export_btn]:
             btn.setStyleSheet(secondary_style)
 
         # 删除按钮
-        self.delete_btn.setStyleSheet(f"""
-            QPushButton#danger_btn {{
-                font-family: {palette.ui_font};
-                background-color: transparent;
-                color: {theme_manager.ERROR};
-                border: 1px solid {theme_manager.ERROR_LIGHT};
-                border-radius: {dp(6)}px;
-                padding: {dp(8)}px {dp(16)}px;
-                font-size: {sp(13)}px;
-            }}
-            QPushButton#danger_btn:hover {{
-                background-color: {theme_manager.ERROR};
-                color: {theme_manager.BUTTON_TEXT};
-            }}
-            QPushButton#danger_btn:disabled {{
-                color: {palette.border_color};
-            }}
-        """)
+        self.delete_btn.setStyleSheet(build_config_list_danger_button_style(palette, variant="simple"))
 
         # 配置列表
         self.config_list.setStyleSheet(f"""

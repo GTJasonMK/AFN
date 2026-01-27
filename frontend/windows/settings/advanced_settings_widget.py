@@ -16,9 +16,12 @@ from utils.dpi_utils import dp, sp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
 from .ui_helpers import (
+    apply_settings_import_export_reset_save_styles,
     build_import_export_reset_save_bar,
-    build_settings_primary_button_style,
-    build_settings_secondary_button_style,
+    build_settings_group_box_style,
+    build_settings_help_label_style,
+    build_settings_label_style,
+    build_settings_spinbox_style,
 )
 import json
 
@@ -153,84 +156,23 @@ class AdvancedSettingsWidget(QWidget):
         palette = theme_manager.get_book_palette()
 
         # GroupBox样式 - 书香风格
-        group_style = f"""
-            QGroupBox {{
-                font-family: {palette.serif_font};
-                font-size: {sp(16)}px;
-                font-weight: 700;
-                color: {palette.text_primary};
-                background-color: {palette.bg_secondary}; /* 使用次级背景色区分 */
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(8)}px;
-                margin-top: {dp(24)}px;
-                padding-top: {dp(24)}px; /* 为标题留出空间 */
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: {dp(16)}px;
-                top: {dp(8)}px; /* 稍微下移 */
-                padding: 0 {dp(8)}px;
-                background-color: {palette.bg_secondary}; /* 遮挡边框 */
-                color: {palette.accent_color};
-            }}
-        """
+        group_style = build_settings_group_box_style(palette)
         self.chapter_group.setStyleSheet(group_style)
         self.outline_group.setStyleSheet(group_style)
 
         # 标签样式
-        label_style = f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(14)}px;
-                font-weight: 600;
-                color: {palette.text_primary};
-                background: transparent;
-            }}
-        """
+        label_style = build_settings_label_style(palette)
         self.version_label.setStyleSheet(label_style)
         self.threshold_label.setStyleSheet(label_style)
 
         # 帮助文字样式
-        help_style = f"""
-            QLabel {{
-                font-family: {palette.ui_font};
-                font-size: {sp(13)}px;
-                color: {palette.text_tertiary};
-                background: transparent;
-                font-style: italic;
-            }}
-        """
+        help_style = build_settings_help_label_style(palette)
         self.version_help.setStyleSheet(help_style)
         self.parallel_help.setStyleSheet(help_style)
         self.threshold_help.setStyleSheet(help_style)
 
         # SpinBox样式 - 温暖质感
-        spinbox_style = f"""
-            QSpinBox {{
-                font-family: {palette.ui_font};
-                padding: {dp(8)}px {dp(12)}px;
-                border: 1px solid {palette.border_color};
-                border-radius: {dp(6)}px;
-                background-color: {palette.bg_primary};
-                color: {palette.text_primary};
-                font-size: {sp(14)}px;
-                font-weight: 500;
-            }}
-            QSpinBox:focus {{
-                border: 1px solid {palette.accent_color};
-                background-color: {palette.bg_secondary};
-            }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                width: {dp(24)}px;
-                background-color: transparent;
-                border: none;
-                border-radius: {dp(4)}px;
-            }}
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
-                background-color: {palette.border_color};
-            }}
-        """
+        spinbox_style = build_settings_spinbox_style(palette, widget_type="QSpinBox")
         self.version_count_spinbox.setStyleSheet(spinbox_style)
         self.threshold_spinbox.setStyleSheet(spinbox_style)
 
@@ -260,17 +202,12 @@ class AdvancedSettingsWidget(QWidget):
             }}
         """)
 
-        # 重置按钮样式
-        secondary_btn_style = build_settings_secondary_button_style(palette)
-        for btn in (self.reset_btn, self.import_btn, self.export_btn):
-            btn.setStyleSheet(secondary_btn_style)
-
-        self.save_btn.setStyleSheet(build_settings_primary_button_style(palette))
-
-        # 强制刷新样式缓存
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
+        apply_settings_import_export_reset_save_styles(
+            self,
+            palette,
+            save_btn=self.save_btn,
+            secondary_btns=(self.reset_btn, self.import_btn, self.export_btn),
+        )
 
     @handle_errors("加载配置")
     def loadConfig(self):

@@ -16,9 +16,10 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, JSO
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
+from .mixins import ActivationStatusMixin, TestStatusMixin, TimestampsMixin
 
 
-class ImageGenerationConfig(Base):
+class ImageGenerationConfig(Base, ActivationStatusMixin, TestStatusMixin, TimestampsMixin):
     """图片生成配置
 
     支持多种图片生成服务的配置管理，包括：
@@ -54,23 +55,6 @@ class ImageGenerationConfig(Base):
 
     # 高级参数（JSON格式存储）
     extra_params: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
-
-    # 配置状态
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    # 测试相关
-    last_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    test_status: Mapped[Optional[str]] = mapped_column(String(50))  # success, failed, pending
-    test_message: Mapped[Optional[str]] = mapped_column(Text())
-
-    # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
 
     user: Mapped["User"] = relationship("User", back_populates="image_configs")
 

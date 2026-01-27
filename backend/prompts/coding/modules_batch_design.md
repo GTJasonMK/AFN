@@ -135,10 +135,10 @@
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **模块编号正确**：从 start_module_number 开始递增
 3. **类型准确**：使用标准的模块类型
 4. **依赖必须填写**：每个模块的 `dependencies` 字段必须填写，分析模块间的调用关系
 5. **按开发优先级排序**：被依赖的基础模块排在前面，编号小的先开发
 
-**不要输出任何额外的文本、解释或markdown。只返回纯JSON对象。**
+<!-- @include _partials/json_only_return_object.md -->

@@ -14,78 +14,16 @@ import httpx
 
 from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult, ReferenceImageInfo
 from .factory import ImageProviderFactory
+from app.utils.api_format_utils import (
+    build_openai_endpoint,
+    build_openai_image_generations_endpoint,
+    fix_base_url,
+    get_browser_headers,
+)
 from ....models.image_config import ImageGenerationConfig
 from ..schemas import ImageGenerationRequest, QUALITY_PARAMS, get_size_for_ratio
 
 logger = logging.getLogger(__name__)
-
-
-def fix_base_url(base_url: str) -> str:
-    """
-    修复base_url中可能存在的问题
-
-    - 移除尾部斜杠
-    - 修复双斜杠问题
-    """
-    if not base_url:
-        return base_url
-
-    fixed_url = base_url.rstrip('/')
-
-    # 检查是否存在双斜杠（排除协议部分的://）
-    url_without_protocol = fixed_url.replace('https://', '').replace('http://', '')
-    if '//' in url_without_protocol:
-        # 修复双斜杠
-        fixed_url = fixed_url.replace('//v1', '/v1').replace('//chat', '/chat').replace('//images', '/images')
-        logger.warning("base_url包含双斜杠，已自动修复: %s -> %s", base_url, fixed_url)
-
-    return fixed_url
-
-
-def build_chat_endpoint(base_url: str) -> str:
-    """
-    构建聊天API端点
-
-    智能处理各种base_url格式：
-    - http://api.example.com -> http://api.example.com/v1/chat/completions
-    - http://api.example.com/v1 -> http://api.example.com/v1/chat/completions
-    - http://api.example.com/v1/chat/completions -> 保持不变
-    """
-    base = fix_base_url(base_url)
-
-    if base.endswith('/chat/completions'):
-        return base
-    elif base.endswith('/v1'):
-        return f"{base}/chat/completions"
-    else:
-        return f"{base}/v1/chat/completions"
-
-
-def build_image_endpoint(base_url: str) -> str:
-    """
-    构建图片生成API端点
-
-    智能处理各种base_url格式：
-    - http://api.example.com -> http://api.example.com/v1/images/generations
-    - http://api.example.com/v1 -> http://api.example.com/v1/images/generations
-    """
-    base = fix_base_url(base_url)
-
-    if base.endswith('/images/generations'):
-        return base
-    elif base.endswith('/v1'):
-        return f"{base}/images/generations"
-    else:
-        return f"{base}/v1/images/generations"
-
-
-def get_browser_headers() -> Dict[str, str]:
-    """获取模拟浏览器的请求头，帮助绕过一些API限制"""
-    return {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    }
 
 
 @ImageProviderFactory.register("openai_compatible")
@@ -150,7 +88,7 @@ class OpenAICompatibleProvider(BaseImageProvider):
                 message="API URL或API Key未配置"
             )
 
-        try:
+        async def _run() -> ProviderTestResult:
             # 构建模型列表端点
             base = fix_base_url(config.api_base_url)
             if base.endswith('/v1'):
@@ -164,20 +102,12 @@ class OpenAICompatibleProvider(BaseImageProvider):
 
                 response = await client.get(models_url, headers=headers)
 
-                if response.status_code == 200:
-                    return ProviderTestResult(success=True, message="连接成功")
-                elif response.status_code == 401:
-                    return ProviderTestResult(success=False, message="API Key无效")
-                else:
-                    return ProviderTestResult(
-                        success=False,
-                        message=f"连接失败: HTTP {response.status_code}"
-                    )
+                return self._build_test_connection_result_for_response(
+                    response,
+                    on_success=lambda _resp: ProviderTestResult(success=True, message="连接成功"),
+                )
 
-        except httpx.TimeoutException:
-            return ProviderTestResult(success=False, message="连接超时")
-        except Exception as e:
-            return ProviderTestResult(success=False, message=f"连接错误: {str(e)}")
+        return await self._wrap_test_connection(_run)
 
     async def generate(
         self,
@@ -238,7 +168,7 @@ class OpenAICompatibleProvider(BaseImageProvider):
             size = extra_params.get("size", "1024x1024")
 
         # 构建API端点
-        api_url = build_image_endpoint(config.api_base_url)
+        api_url = build_openai_image_generations_endpoint(config.api_base_url)
         logger.info("图片生成API请求URL: %s", api_url)
 
         async with self.create_http_client(config) as client:
@@ -309,7 +239,7 @@ class OpenAICompatibleProvider(BaseImageProvider):
         )
 
         # 构建完整的API URL（智能处理各种base_url格式）
-        api_url = build_chat_endpoint(config.api_base_url)
+        api_url = build_openai_endpoint(config.api_base_url)
         logger.info("聊天API请求URL: %s", api_url)
         logger.info("聊天API请求模型: %s", config.model_name)
 
@@ -361,46 +291,17 @@ class OpenAICompatibleProvider(BaseImageProvider):
             logger.info("最终提取到的图片URL数量: %d", len(urls))
             return urls
 
-    async def generate_with_reference(
+    async def _generate_with_reference_urls(
         self,
         config: ImageGenerationConfig,
         request: ImageGenerationRequest,
         reference_images: List[ReferenceImageInfo],
-    ) -> ProviderGenerateResult:
-        """
-        使用参考图生成图片（img2img）
-
-        通过聊天API的图片输入功能实现。
-        将参考图作为 image_url 类型的消息内容发送给API。
-
-        Args:
-            config: 供应商配置
-            request: 生成请求
-            reference_images: 参考图列表
-
-        Returns:
-            ProviderGenerateResult: 生成结果
-        """
-        if not reference_images:
-            # 没有参考图，降级为普通生成
-            return await self.generate(config, request)
-
-        logger.info(
-            "开始img2img生成: model=%s, 参考图数量=%d",
-            config.model_name, len(reference_images)
-        )
-
-        try:
-            urls = await self._generate_with_chat_api_and_images(
-                config, request, reference_images
-            )
-            logger.info("img2img生成完成: 获取到 %d 个URL", len(urls))
-            return ProviderGenerateResult(success=True, image_urls=urls)
-
-        except Exception as e:
-            error_msg = str(e) if str(e) else f"{type(e).__name__}"
-            logger.error("OpenAI兼容接口img2img生成失败: %s", error_msg)
-            return ProviderGenerateResult(success=False, error_message=error_msg)
+    ) -> List[str]:
+        """img2img：通过聊天 API 的图片输入生成 URL 列表"""
+        logger.info("开始img2img生成: model=%s, 参考图数量=%d", config.model_name, len(reference_images))
+        urls = await self._generate_with_chat_api_and_images(config, request, reference_images)
+        logger.info("img2img生成完成: 获取到 %d 个URL", len(urls))
+        return urls
 
     async def _generate_with_chat_api_and_images(
         self,
@@ -476,7 +377,7 @@ class OpenAICompatibleProvider(BaseImageProvider):
         })
 
         # 构建完整的API URL
-        api_url = build_chat_endpoint(config.api_base_url)
+        api_url = build_openai_endpoint(config.api_base_url)
         logger.info("img2img聊天API请求URL: %s", api_url)
         logger.info("img2img聊天API请求模型: %s, 参考图: %d张", config.model_name, len(reference_images))
 

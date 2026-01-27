@@ -47,7 +47,7 @@ class ContentOptimizationAgent:
         self,
         llm_service: LLMService,
         tool_executor: ToolExecutor,
-        user_id: str,
+        user_id: int,
         optimization_session: Optional[OptimizationSession] = None,
         optimization_mode: OptimizationMode = OptimizationMode.AUTO,
         prompt_service: Optional[PromptService] = None,

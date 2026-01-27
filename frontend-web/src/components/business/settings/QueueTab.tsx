@@ -4,7 +4,7 @@ import { BookButton } from '../../ui/BookButton';
 import { BookInput } from '../../ui/BookInput';
 import { queueApi, QueueConfigResponse, QueueStatusResponse } from '../../../api/queue';
 import { useToast } from '../../feedback/Toast';
-import { RefreshCw } from 'lucide-react';
+import { SettingsTabHeader } from './components/SettingsTabHeader';
 
 export const QueueTab: React.FC = () => {
   const { addToast } = useToast();
@@ -60,13 +60,7 @@ export const QueueTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-book-text-main">队列</div>
-        <BookButton variant="ghost" size="sm" onClick={fetchAll} disabled={loading}>
-          <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </BookButton>
-      </div>
+      <SettingsTabHeader title="队列" loading={loading} onRefresh={fetchAll} showRefreshIcon />
 
       <div className="grid grid-cols-2 gap-3">
         <BookCard className="p-4">
@@ -119,4 +113,3 @@ export const QueueTab: React.FC = () => {
     </div>
   );
 };
-

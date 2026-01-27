@@ -4,7 +4,8 @@ import { BookButton } from '../../ui/BookButton';
 import { BookInput } from '../../ui/BookInput';
 import { settingsApi, MaxTokensConfig } from '../../../api/settings';
 import { useToast } from '../../feedback/Toast';
-import { RefreshCw } from 'lucide-react';
+import { SettingsInfoBox } from './components/SettingsInfoBox';
+import { SettingsTabHeader } from './components/SettingsTabHeader';
 
 const DEFAULTS: MaxTokensConfig = {
   llm_max_tokens_blueprint: 4096,
@@ -63,17 +64,9 @@ export const MaxTokensTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-book-text-main">Max Tokens</div>
-        <BookButton variant="ghost" size="sm" onClick={fetchConfig} disabled={loading}>
-          <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </BookButton>
-      </div>
+      <SettingsTabHeader title="Max Tokens" loading={loading} onRefresh={fetchConfig} showRefreshIcon />
 
-      <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-        说明：该配置会写入 `storage/config.json` 并尝试热更新。数值过大可能导致响应变慢或超出模型限制。
-      </div>
+      <SettingsInfoBox>说明：该配置会写入 `storage/config.json` 并尝试热更新。数值过大可能导致响应变慢或超出模型限制。</SettingsInfoBox>
 
       <BookCard className="p-4">
         <div className="text-xs font-bold text-book-text-muted mb-3">小说系统</div>
@@ -107,4 +100,3 @@ export const MaxTokensTab: React.FC = () => {
     </div>
   );
 };
-

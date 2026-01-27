@@ -25,7 +25,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // eslint-disable-next-line no-console
     console.error('WebUI 渲染异常（ErrorBoundary 捕获）:', error, errorInfo);
   }
 
@@ -70,4 +69,3 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     );
   }
 }
-

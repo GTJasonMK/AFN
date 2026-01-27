@@ -5,10 +5,12 @@
 """
 
 import logging
+import re
 from enum import Enum
 from typing import Dict
 
 logger = logging.getLogger(__name__)
+_SCHEME_RE = re.compile(r"^(https?://)(.*)$", re.IGNORECASE)
 
 
 class APIFormat(Enum):
@@ -45,7 +47,7 @@ def fix_base_url(base_url: str) -> str:
     修复base_url中可能存在的问题
 
     - 移除尾部斜杠
-    - 修复双斜杠问题
+    - 修复双斜杠问题（协议部分保留，仅归一化 path 的连续斜杠）
     """
     if not base_url:
         return base_url
@@ -53,11 +55,14 @@ def fix_base_url(base_url: str) -> str:
     fixed_url = base_url.rstrip('/')
 
     # 检查是否存在双斜杠（排除协议部分的://）
-    url_without_protocol = fixed_url.replace('https://', '').replace('http://', '')
-    if '//' in url_without_protocol:
-        # 修复双斜杠
-        fixed_url = fixed_url.replace('//v1', '/v1').replace('//messages', '/messages').replace('//chat', '/chat')
-        logger.warning("base_url包含双斜杠，已自动修复: %s -> %s", base_url, fixed_url)
+    m = _SCHEME_RE.match(fixed_url)
+    scheme, rest = (m.group(1), m.group(2)) if m else ("", fixed_url)
+    if '//' in rest:
+        # 仅处理 path 中的连续斜杠，避免破坏 http://
+        rest_fixed = re.sub(r"/{2,}", "/", rest)
+        fixed = f"{scheme}{rest_fixed}" if scheme else rest_fixed
+        logger.warning("base_url包含双斜杠，已自动修复: %s -> %s", base_url, fixed)
+        return fixed
 
     return fixed_url
 
@@ -98,6 +103,25 @@ def build_openai_endpoint(base_url: str) -> str:
         return f"{base}/chat/completions"
     else:
         return f"{base}/v1/chat/completions"
+
+
+def build_openai_image_generations_endpoint(base_url: str) -> str:
+    """
+    构建OpenAI Images Generations API端点
+
+    智能处理各种base_url格式：
+    - http://api.example.com -> http://api.example.com/v1/images/generations
+    - http://api.example.com/v1 -> http://api.example.com/v1/images/generations
+    - http://api.example.com/v1/images/generations -> 保持不变
+    """
+    base = fix_base_url(base_url)
+
+    if base.endswith('/images/generations'):
+        return base
+    elif base.endswith('/v1'):
+        return f"{base}/images/generations"
+    else:
+        return f"{base}/v1/images/generations"
 
 
 def get_browser_headers() -> Dict[str, str]:

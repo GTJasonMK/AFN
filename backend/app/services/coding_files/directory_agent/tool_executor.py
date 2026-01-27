@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from .tools import ToolCall, ToolResult, get_tool
 from ...agent_tool_executor_base import BaseToolExecutor
 from .evaluator import PlanningEvaluator
+from ..graph_utils import detect_cycles
 
 logger = logging.getLogger(__name__)
 
@@ -281,35 +282,7 @@ class AgentState:
                 in_degrees[dep] += 1
 
         # 检测循环依赖（简化版）
-        cycles = []
-        visited = set()
-        rec_stack = set()
-
-        def dfs(node, path):
-            if len(cycles) >= 3:
-                return
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
-
-            for neighbor in edges.get(node, []):
-                if neighbor not in visited:
-                    dfs(neighbor, path)
-                elif neighbor in rec_stack:
-                    try:
-                        cycle_start = path.index(neighbor)
-                        cycle = path[cycle_start:]
-                        if len(cycle) > 1:
-                            cycles.append(cycle.copy())
-                    except ValueError:
-                        pass
-
-            path.pop()
-            rec_stack.remove(node)
-
-        for node in edges:
-            if node not in visited:
-                dfs(node, [])
+        cycles = detect_cycles(dict(edges), max_cycles=3)
 
         # 识别高依赖模块
         high_dependency_modules = [
@@ -357,6 +330,8 @@ class ToolExecutor(BaseToolExecutor):
     执行Agent选择的工具，返回执行结果。
     支持LLM评估器进行语义级质量评估。
     """
+
+    TOOL_RESULT_CLASS = ToolResult
 
     def __init__(self, state: AgentState, llm_caller: Optional[Callable] = None):
         """
@@ -406,21 +381,6 @@ class ToolExecutor(BaseToolExecutor):
     def _get_tool_params(self, tool_call: ToolCall) -> Dict[str, Any]:
         """获取工具参数"""
         return tool_call.parameters
-
-    def _build_result(
-        self,
-        tool_name: str,
-        success: bool,
-        result: Any = None,
-        error: Optional[str] = None,
-    ) -> ToolResult:
-        """构建工具结果"""
-        return ToolResult(
-            tool_name=tool_name,
-            success=success,
-            result=result,
-            error=error,
-        )
 
     async def execute_batch(self, tool_calls: List[ToolCall]) -> List[ToolResult]:
         """

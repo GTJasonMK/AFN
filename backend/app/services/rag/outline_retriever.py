@@ -8,6 +8,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
+from ..chapter_context_service import ChapterContextService
 from ..vector_store_service import VectorStoreService
 from ..llm_service import LLMService
 
@@ -37,6 +38,10 @@ class OutlineRAGRetriever:
         self.vector_store = vector_store
         self.llm_service = llm_service
         self.top_k = top_k
+        self._chapter_context_service = ChapterContextService(
+            llm_service=llm_service,
+            vector_store=vector_store,
+        )
 
     async def retrieve_for_chapter_outline(
         self,
@@ -93,16 +98,19 @@ class OutlineRAGRetriever:
         Returns:
             相关摘要列表
         """
-        context_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{part_summary[:500]}"
-
         return await self._retrieve_relevant_summaries(
             project_id=project_id,
             user_id=user_id,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
-            context_text=context_text,
+            context_text=part_summary,
             filter_before_chapter=start_chapter,
         )
+
+    @staticmethod
+    def _build_query_text(*, start_chapter: int, end_chapter: int, context_text: str) -> str:
+        """统一构建检索 query_text，确保范围描述只拼接一次。"""
+        return f"第{start_chapter}到第{end_chapter}章的故事发展。{(context_text or '')[:500]}"
 
     async def _retrieve_relevant_summaries(
         self,
@@ -128,28 +136,21 @@ class OutlineRAGRetriever:
             相关摘要列表
         """
         try:
-            # 构建查询文本
-            query_text = f"第{start_chapter}到第{end_chapter}章的故事发展。{context_text[:500]}"
-
-            # 生成查询向量
-            query_embedding = await self.llm_service.get_embedding(
-                query_text,
-                user_id=user_id,
+            query_text = self._build_query_text(
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                context_text=context_text,
             )
 
-            if not query_embedding:
-                logger.warning(
-                    "项目 %s 大纲生成RAG检索：无法生成查询向量",
-                    project_id,
-                )
-                return []
-
-            # 检索相关摘要
-            summaries = await self.vector_store.query_summaries(
+            rag_context = await self._chapter_context_service.retrieve_for_generation(
                 project_id=project_id,
-                embedding=query_embedding,
-                top_k=self.top_k,
+                query_text=query_text,
+                user_id=user_id,
+                top_k_chunks=0,
+                top_k_summaries=self.top_k,
             )
+
+            summaries = rag_context.summaries
 
             # 过滤：只保留指定章节之前的已完成章节
             if filter_before_chapter is not None:

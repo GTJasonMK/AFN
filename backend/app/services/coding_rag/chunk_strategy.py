@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 
 from .data_types import CodingDataType
 from ..rag_common.chunk_strategy_base import BaseChunkStrategyManager
+from ..rag_common.semantic_chunk_config_mixin import SemanticChunkConfigMixin
 
 
 class ChunkMethod(str, Enum):
@@ -41,7 +42,7 @@ class ChunkMethod(str, Enum):
 
 
 @dataclass
-class ChunkConfig:
+class ChunkConfig(SemanticChunkConfigMixin):
     """单个数据类型的分块配置"""
 
     # 分块方法
@@ -68,22 +69,7 @@ class ChunkConfig:
     # 固定长度分割时的重叠大小
     chunk_overlap: int = 50
 
-    # ==================== 语义分块相关配置 ====================
-
-    # 语义分块：门控阈值（相似度低于此值不进行距离增强）
-    semantic_gate_threshold: float = 0.3
-
-    # 语义分块：距离增强系数
-    semantic_alpha: float = 0.1
-
-    # 语义分块：长度归一化指数（1.0-1.5之间）
-    semantic_gamma: float = 1.1
-
-    # 语义分块：最小块句子数
-    semantic_min_sentences: int = 2
-
-    # 语义分块：最大块句子数
-    semantic_max_sentences: int = 20
+    # ==================== 语义分块相关配置（默认值由 mixin 提供） ====================
 
     # 额外配置参数
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -168,20 +154,12 @@ OPTIMIZED_STRATEGIES: Dict[CodingDataType, ChunkConfig] = {
         method=ChunkMethod.SEMANTIC_DP,  # 使用语义动态规划分块
         min_chunk_length=100,
         max_chunk_length=1500,
-        semantic_gate_threshold=0.3,
-        semantic_alpha=0.1,
-        semantic_gamma=1.1,
-        semantic_min_sentences=2,
         semantic_max_sentences=15,
     ),
     CodingDataType.FILE_PROMPT: ChunkConfig(
         method=ChunkMethod.SEMANTIC_DP,  # 使用语义动态规划分块
         min_chunk_length=100,
         max_chunk_length=1500,
-        semantic_gate_threshold=0.3,
-        semantic_alpha=0.1,
-        semantic_gamma=1.1,
-        semantic_min_sentences=2,
         semantic_max_sentences=15,
     ),
 }

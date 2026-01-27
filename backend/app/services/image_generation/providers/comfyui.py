@@ -51,6 +51,7 @@ class ComfyUIProvider(BaseImageProvider):
 
     PROVIDER_TYPE = "comfyui"
     DISPLAY_NAME = "ComfyUI (本地/远程)"
+    IMG2IMG_TIMEOUT_MESSAGE = f"生成超时（超过{COMFYUI_MAX_POLL_TIME}秒）"
 
     # 默认工作流模板 - 基础文生图流程
     DEFAULT_WORKFLOW = {
@@ -210,7 +211,7 @@ class ComfyUIProvider(BaseImageProvider):
         """测试ComfyUI连接"""
         base_url = self._get_base_url(config)
 
-        try:
+        async def _run() -> ProviderTestResult:
             async with self.create_http_client(config, for_test=True) as client:
                 # 获取系统信息来验证连接
                 response = await client.get(
@@ -247,15 +248,10 @@ class ComfyUIProvider(BaseImageProvider):
                         message=f"连接失败: HTTP {response.status_code}"
                     )
 
-        except httpx.ConnectError:
-            return ProviderTestResult(
-                success=False,
-                message=f"无法连接到ComfyUI服务: {base_url}"
-            )
-        except httpx.TimeoutException:
-            return ProviderTestResult(success=False, message="连接超时")
-        except Exception as e:
-            return ProviderTestResult(success=False, message=f"连接错误: {str(e)}")
+        return await self._wrap_test_connection(
+            _run,
+            connect_error_message=f"无法连接到ComfyUI服务: {base_url}",
+        )
 
     async def generate(
         self,
@@ -649,47 +645,15 @@ class ComfyUIProvider(BaseImageProvider):
             "img2img": True,  # 支持 img2img
         }
 
-    async def generate_with_reference(
+    async def _generate_with_reference_urls(
         self,
         config: ImageGenerationConfig,
         request: ImageGenerationRequest,
         reference_images: List[ReferenceImageInfo],
-    ) -> ProviderGenerateResult:
-        """
-        使用参考图生成图片（img2img）
-
-        ComfyUI 实现：
-        1. 上传参考图到 ComfyUI 的 input 目录
-        2. 使用 LoadImage + VAEEncode 节点加载并编码图片
-        3. 通过 KSampler 的 denoise 参数控制参考强度
-
-        Args:
-            config: 供应商配置
-            request: 生成请求
-            reference_images: 参考图列表
-
-        Returns:
-            ProviderGenerateResult: 生成结果
-        """
-        if not reference_images:
-            # 没有参考图，降级为普通生成
-            return await self.generate(config, request)
-
-        try:
-            # 使用第一张参考图
-            ref_image = reference_images[0]
-            urls = await self._generate_images_img2img(config, request, ref_image)
-            return ProviderGenerateResult(success=True, image_urls=urls)
-        except asyncio.TimeoutError:
-            logger.error("ComfyUI img2img 生成超时")
-            return ProviderGenerateResult(
-                success=False,
-                error_message=f"生成超时（超过{COMFYUI_MAX_POLL_TIME}秒）"
-            )
-        except Exception as e:
-            error_msg = str(e) if str(e) else f"{type(e).__name__}"
-            logger.error("ComfyUI img2img 生成失败: %s", error_msg, exc_info=True)
-            return ProviderGenerateResult(success=False, error_message=error_msg)
+    ) -> List[str]:
+        """img2img：默认取第一张参考图走 ComfyUI 工作流生成 URL 列表"""
+        ref_image = reference_images[0]
+        return await self._generate_images_img2img(config, request, ref_image)
 
     async def _generate_images_img2img(
         self,

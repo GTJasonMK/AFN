@@ -36,6 +36,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+_VECTOR_STORE_DISABLED_DETAIL = "向量库未启用，请在设置中配置嵌入服务"
+_PROJECT_NOT_FOUND_DETAIL = "项目不存在"
+
+
+def _require_vector_store(vector_store: Optional[VectorStoreService]) -> VectorStoreService:
+    """确保向量库可用（不可用则抛出与原逻辑一致的 HTTP 400）。"""
+    if vector_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_VECTOR_STORE_DISABLED_DETAIL,
+        )
+    return vector_store
+
+
+async def _get_project_or_404(
+    coding_project_service: CodingProjectService,
+    project_id: str,
+    user_id: int,
+):
+    """确保项目存在（不存在则抛出与原逻辑一致的 HTTP 404）。"""
+    project = await coding_project_service.get_project_schema(project_id, user_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_PROJECT_NOT_FOUND_DETAIL,
+        )
+    return project
+
+
 def _get_default_source(data_type: Optional[str], chapter_number: int) -> str:
     """
     根据数据类型生成默认来源显示
@@ -157,7 +186,7 @@ async def diagnose_rag_data(
 
     返回项目的RAG数据详细信息，包括有无data_type字段的记录数。
     """
-    if vector_store is None or not vector_store._client:
+    if vector_store is None:
         return {"error": "向量库未启用"}
 
     # 验证项目
@@ -272,20 +301,8 @@ async def check_rag_completeness(
 
     对比数据库记录数和向量库记录数，返回各类型的完整性状态。
     """
-    # 检查向量库是否启用
-    if vector_store is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="向量库未启用，请在设置中配置嵌入服务"
-        )
-
-    # 获取项目数据
-    project = await coding_project_service.get_project_schema(project_id, user.id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="项目不存在"
-        )
+    vector_store = _require_vector_store(vector_store)
+    await _get_project_or_404(coding_project_service, project_id, user.id)
 
     # 创建入库服务并检查完整性
     report, types_detail = await run_completeness_check(
@@ -332,20 +349,8 @@ async def ingest_all_rag_data(
     智能入库模式（默认）：先检查完整性，只入库不完整的类型。
     强制模式（force=True）：遍历10种数据类型，全部重新入库。
     """
-    # 检查向量库是否启用
-    if vector_store is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="向量库未启用，请在设置中配置嵌入服务"
-        )
-
-    # 获取项目数据
-    project = await coding_project_service.get_project_schema(project_id, user.id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="项目不存在"
-        )
+    vector_store = _require_vector_store(vector_store)
+    await _get_project_or_404(coding_project_service, project_id, user.id)
 
     # 创建入库服务
     ingestion_service = CodingProjectIngestionService(
@@ -439,12 +444,7 @@ async def reindex_coding_project(
     使用CodingProjectIngestionService进行入库，与ingest_all_rag_data保持一致。
     这是一个幂等操作，会增量更新索引。
     """
-    # 检查向量库是否启用
-    if vector_store is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="向量库未启用，请在设置中配置嵌入服务"
-        )
+    vector_store = _require_vector_store(vector_store)
 
     # 验证项目归属
     await coding_project_service.ensure_project_owner(project_id, user.id)
@@ -506,20 +506,8 @@ async def query_coding_rag(
 
     根据查询内容从向量数据库中检索相关的功能Prompt片段。
     """
-    # 检查向量库是否启用
-    if vector_store is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="向量库未启用，请在设置中配置嵌入服务"
-        )
-
-    # 验证项目存在
-    project = await coding_project_service.get_project_schema(project_id, user.id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="项目不存在"
-        )
+    vector_store = _require_vector_store(vector_store)
+    await _get_project_or_404(coding_project_service, project_id, user.id)
 
     # 生成查询向量
     query_embedding = await llm_service.get_embedding(

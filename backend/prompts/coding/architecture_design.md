@@ -201,11 +201,11 @@
 
 ## 重要提醒
 
-1. **只输出纯JSON**：不要添加解释文字或markdown标记
+<!-- @include _partials/json_only_rule.md -->
 2. **system_suggestions 是建议而非最终结构**：后续用户会通过"生成系统划分"来确定实际系统
 3. **技术选型必须明确**：禁止使用"或"、"可选"、"根据需要"等模糊表述。每个技术决策必须给出确定的选型，例如：
    - 正确："PostgreSQL 15 + Redis 7"
    - 错误："MySQL或PostgreSQL"、"可以使用Redis或Memcached"
 4. **需求要全面**：从对话中尽可能多地提取有价值的需求信息
 
-**不要输出任何额外的文本、解释或markdown。只返回纯JSON对象。**
+<!-- @include _partials/json_only_return_object.md -->

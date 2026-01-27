@@ -6,11 +6,10 @@
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
 from ..schemas.novel import ChapterAnalysisData
 from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm_json, LLMProfile
@@ -50,6 +49,71 @@ class ChapterAnalysisService:
         self.session = session
         self.llm_service = LLMService(session)
         self.prompt_service = PromptService(session)
+
+    @staticmethod
+    def parse_stored_analysis_data(raw: Any) -> Optional[ChapterAnalysisData]:
+        """解析数据库中已保存的 analysis_data
+
+        约定：analysis_data 存储为 dict（JSON），解析失败或为空则返回 None。
+        """
+        if not raw or not isinstance(raw, dict) or len(raw) == 0:
+            return None
+        try:
+            return ChapterAnalysisData.model_validate(raw)
+        except Exception:
+            return None
+
+    async def analyze_and_store_chapter_analysis(
+        self,
+        *,
+        chapter: Any,
+        content: str,
+        title: str,
+        chapter_number: int,
+        novel_title: str,
+        user_id: Optional[int] = None,
+        timeout: float = 300.0,
+    ) -> Optional[ChapterAnalysisData]:
+        """分析章节并写回 chapter.analysis_data（成功时）。"""
+        analysis_data = await self.analyze_chapter(
+            content=content,
+            title=title,
+            chapter_number=chapter_number,
+            novel_title=novel_title,
+            user_id=user_id,
+            timeout=timeout,
+        )
+        if analysis_data:
+            chapter.analysis_data = analysis_data.model_dump()
+        return analysis_data
+
+    async def ensure_analysis_data(
+        self,
+        *,
+        chapter: Any,
+        content: str,
+        title: str,
+        chapter_number: int,
+        novel_title: str,
+        user_id: Optional[int] = None,
+        timeout: float = 300.0,
+        force_regenerate: bool = False,
+    ) -> Optional[ChapterAnalysisData]:
+        """确保章节 analysis_data 可用（缺失则生成；可选强制重算）。"""
+        if not force_regenerate:
+            existing = self.parse_stored_analysis_data(getattr(chapter, "analysis_data", None))
+            if existing:
+                return existing
+
+        return await self.analyze_and_store_chapter_analysis(
+            chapter=chapter,
+            content=content,
+            title=title,
+            chapter_number=chapter_number,
+            novel_title=novel_title,
+            user_id=user_id,
+            timeout=timeout,
+        )
 
     async def analyze_chapter(
         self,

@@ -25,8 +25,8 @@ from ..schemas.novel import (
     NovelProject as NovelProjectSchema,
     NovelSectionResponse,
     NovelSectionType,
-    PartOutline as PartOutlineSchema,
 )
+from .part_outline_serializer import build_part_outline_schema
 
 
 class NovelSerializer:
@@ -170,20 +170,7 @@ class NovelSerializer:
                 total_chapters=blueprint_obj.total_chapters,
                 chapters_per_part=blueprint_obj.chapters_per_part,
                 part_outlines=[
-                    PartOutlineSchema(
-                        part_number=part.part_number,
-                        title=part.title or "",
-                        start_chapter=part.start_chapter,
-                        end_chapter=part.end_chapter,
-                        summary=part.summary or "",
-                        theme=part.theme or "",
-                        key_events=part.key_events or [],
-                        character_arcs=part.character_arcs or {},
-                        conflicts=part.conflicts or [],
-                        ending_hook=part.ending_hook,
-                        generation_status=part.generation_status,
-                        progress=part.progress,
-                    )
+                    build_part_outline_schema(part)
                     for part in sorted(project.part_outlines, key=lambda p: p.part_number)
                 ],
                 avatar_svg=blueprint_obj.avatar_svg,

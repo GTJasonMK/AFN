@@ -6,7 +6,7 @@ RAG入库通用基础实现
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Callable, Type
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type
 
 logger = logging.getLogger(__name__)
 
@@ -67,25 +67,42 @@ class BaseProjectIngestionService:
     子类负责提供数据类型枚举、分割器与具体入库方法映射。
     """
 
+    DATA_TYPE_ENUM: Optional[Type[Any]] = None
+    SPLITTER_FACTORY: Optional[Callable[[], Any]] = None
+    LOG_TITLE: str = "开始入库"
+    LOGGER_OBJ: Optional[logging.Logger] = None
+    RECORD_GENERATOR_METHODS: Dict[Any, str] = {}
+
     def __init__(
         self,
         session: Any,
         vector_store: Any,
         llm_service: Any,
-        user_id: str,
-        data_type_enum: Type[Any],
-        splitter: Any,
-        log_title: str,
+        user_id: int,
+        data_type_enum: Optional[Type[Any]] = None,
+        splitter: Optional[Any] = None,
+        log_title: Optional[str] = None,
         logger_obj: Optional[logging.Logger] = None,
     ):
         self.session = session
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.user_id = user_id
-        self.data_type_enum = data_type_enum
-        self.splitter = splitter
-        self._log_title = log_title
-        self._logger = logger_obj or logger
+        self.user_id = self._to_int(user_id, default=1)
+
+        resolved_data_type_enum = data_type_enum or self.DATA_TYPE_ENUM
+        if not resolved_data_type_enum:
+            raise RuntimeError("子类必须提供 DATA_TYPE_ENUM 或在初始化时传入 data_type_enum")
+        self.data_type_enum = resolved_data_type_enum
+
+        resolved_splitter = splitter
+        if resolved_splitter is None:
+            if not self.SPLITTER_FACTORY:
+                raise RuntimeError("子类必须提供 SPLITTER_FACTORY 或在初始化时传入 splitter")
+            resolved_splitter = self.SPLITTER_FACTORY()
+        self.splitter = resolved_splitter
+
+        self._log_title = log_title or self.LOG_TITLE
+        self._logger = logger_obj or self.LOGGER_OBJ or logger
 
     # ==================== 子类需要实现的方法 ====================
 
@@ -94,12 +111,178 @@ class BaseProjectIngestionService:
         raise NotImplementedError("子类必须实现 _get_ingest_method_map")
 
     async def _generate_records_for_type(self, project_id: str, data_type: Any) -> List[Any]:
-        """生成指定类型的入库记录"""
-        raise NotImplementedError("子类必须实现 _generate_records_for_type")
+        """
+        生成指定类型的入库记录（默认实现）
+
+        默认通过 `RECORD_GENERATOR_METHODS` 做表驱动分发，将 data_type 映射到
+        子类的 `_generate_*_records(project_id)` 方法名。
+        """
+        method_name = self.RECORD_GENERATOR_METHODS.get(data_type)
+        if not method_name:
+            return []
+        method = getattr(self, method_name, None)
+        if not method:
+            return []
+        return await method(project_id)
 
     def _get_display_name(self, data_type: Any) -> str:
         """获取数据类型显示名称"""
         return self.data_type_enum.get_display_name(data_type.value)
+
+    # ==================== 子类可覆盖的 hook（默认不处理） ====================
+
+    def _prepare_metadata_for_vector_store(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """将 metadata 转换为可写入向量库的结构（默认直接返回）"""
+        return metadata
+
+    def _prepare_embedding_for_vector_store(self, embedding: Any) -> Any:
+        """将 embedding 转换为可写入向量库的结构（默认直接返回）"""
+        return embedding
+
+    def _log_ingest_sample(self, result: IngestionResult, chunk_records: List[Dict[str, Any]]) -> None:
+        """入库前的样本日志（默认 no-op，子类可按需覆盖）"""
+        return None
+
+    def _get_source_info(self, record: Any) -> tuple:
+        """子类需提供：根据记录生成 (chapter_number, chapter_title) 用于来源展示"""
+        raise NotImplementedError("子类必须实现 _get_source_info")
+
+    @staticmethod
+    def _to_int(value: Any, *, default: int) -> int:
+        """尽量把 value 规范化为 int（兼容 numpy/int/str 等），失败时返回 default"""
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    async def _batch_get_embeddings(
+        self,
+        texts: List[str],
+        batch_size: int = 10,
+    ) -> List[Optional[List[float]]]:
+        """批量获取 embedding（失败时以 None 占位，保持索引对齐）"""
+        embeddings: List[Optional[List[float]]] = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            for text in batch:
+                try:
+                    embedding = await self.llm_service.get_embedding(
+                        text,
+                        user_id=self.user_id,
+                    )
+                    embeddings.append(embedding)
+                except Exception as exc:
+                    self._logger.warning("生成embedding失败: %s", str(exc))
+                    embeddings.append(None)
+
+        return embeddings
+
+    async def _get_sentence_embeddings(self, sentences: List[str]) -> Any:
+        """为语义分块器提供句子嵌入矩阵（失败句子用零向量占位）。"""
+        import numpy as np
+
+        if not sentences:
+            return np.array([])
+
+        raw_embeddings: List[Optional[List[float]]] = []
+        for sentence in sentences:
+            try:
+                embedding = await self.llm_service.get_embedding(
+                    sentence,
+                    user_id=self.user_id,
+                )
+                raw_embeddings.append(embedding or None)
+            except Exception as exc:
+                self._logger.warning("获取句子嵌入失败: %s", str(exc))
+                raw_embeddings.append(None)
+
+        dim = next((len(e) for e in raw_embeddings if e), 1536)
+        embeddings = [
+            e if (e and len(e) == dim) else ([0.0] * dim)
+            for e in raw_embeddings
+        ]
+        return np.array(embeddings)
+
+    async def _ingest_records(
+        self,
+        records: List[Any],
+        result: IngestionResult,
+        project_id: str,
+    ) -> IngestionResult:
+        """将记录入库到向量库（通用骨架实现）"""
+        if not records:
+            return result
+
+        if not self.vector_store:
+            result.success = False
+            result.error_message = "向量库未启用"
+            return result
+
+        embeddings = await self._batch_get_embeddings([r.content for r in records])
+        if len(embeddings) != len(records):
+            result.success = False
+            result.error_message = "生成embedding数量不匹配"
+            return result
+
+        chunk_records: List[Dict[str, Any]] = []
+        for idx, (record, embedding) in enumerate(zip(records, embeddings)):
+            if not embedding:
+                result.failed_count += 1
+                continue
+
+            chunk_id = record.get_chunk_id()
+            metadata = {
+                **record.metadata,
+                "data_type": record.data_type.value,
+                "paragraph_hash": record.get_content_hash(),
+                "length": len(record.content),
+                "source_id": record.source_id,
+            }
+            metadata = self._prepare_metadata_for_vector_store(metadata)
+
+            chapter_number, chapter_title = self._get_source_info(record)
+            chapter_number_int = self._to_int(chapter_number, default=0)
+
+            chunk_index = record.metadata.get("section_index", idx)
+            chunk_index_int = self._to_int(chunk_index, default=idx)
+
+            chunk_records.append(
+                {
+                    "id": chunk_id,
+                    "project_id": project_id,
+                    "chapter_number": chapter_number_int,
+                    "chunk_index": chunk_index_int,
+                    "chapter_title": chapter_title,
+                    "content": record.content,
+                    "embedding": self._prepare_embedding_for_vector_store(embedding),
+                    "metadata": metadata,
+                }
+            )
+
+        try:
+            if chunk_records:
+                self._log_ingest_sample(result, chunk_records)
+
+            await self.vector_store.upsert_chunks(records=chunk_records)
+            result.added_count = len(chunk_records)
+            self._logger.info(
+                "入库完成: type=%s count=%d",
+                result.data_type.value,
+                result.added_count,
+            )
+        except Exception as exc:
+            result.success = False
+            result.error_message = str(exc)
+            self._logger.error(
+                "入库失败: type=%s error=%s",
+                result.data_type.value,
+                str(exc),
+            )
+
+        return result
 
     # ==================== 通用流程实现 ====================
 
