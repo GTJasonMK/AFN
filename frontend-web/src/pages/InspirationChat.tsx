@@ -8,6 +8,7 @@ import { BookButton } from '../components/ui/BookButton';
 import { BookTextarea } from '../components/ui/BookInput';
 import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
+import { confirmDialog } from '../components/feedback/ConfirmDialog';
 
 interface Message {
   id: number;
@@ -34,20 +35,41 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const [options, setOptions] = useState<any[]>([]);
   const [conversationState, setConversationState] = useState<any>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const completionHintShownRef = useRef(false);
   
   // Load chat history
   useEffect(() => {
+    completionHintShownRef.current = false;
     if (id) {
       const loadHistory = async () => {
         const history = mode === 'novel'
           ? await novelsApi.getChatHistory(id)
           : await codingApi.getChatHistory(id);
-        setMessages(history.map((msg: any) => ({
+        const mapped: Message[] = history.map((msg: any) => ({
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
           content: msg.content,
-        })));
-        if (history.length > 2) setShowBlueprintBtn(true);
+        }));
+
+        // 对齐桌面端：首次进入时也显示一条欢迎语（作为对话气泡，而不是空态占位）
+        if (mapped.length === 0) {
+          const welcome =
+            mode === 'novel'
+              ? "你好！我是AFN AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
+              : "你好！我是AFN需求分析助手。\n\n请告诉我你想要构建什么样的系统，我会帮你分析需求并设计项目架构。";
+          setMessages([
+            {
+              id: Date.now(),
+              role: 'assistant',
+              content: welcome,
+            },
+          ]);
+        } else {
+          setMessages(mapped);
+        }
+
+        // 避免路由切换后遗留旧状态
+        setShowBlueprintBtn(history.length > 2);
       };
       loadHistory().catch((e) => console.error(e));
     }
@@ -70,26 +92,42 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       }]);
     } else if (event === 'ai_message_chunk') {
       setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMsg = newMessages[newMessages.length - 1];
-        if (lastMsg && lastMsg.isStreaming) {
-          lastMsg.content += data.text;
+        const lastIdx = prev.length - 1;
+        if (lastIdx >= 0 && prev[lastIdx].isStreaming) {
+          return prev.map((msg, idx) =>
+            idx === lastIdx ? { ...msg, content: msg.content + data.text } : msg
+          );
         }
-        return newMessages;
+        return prev;
       });
     } else if (event === 'option') {
       setOptions(prev => [...prev, data.option]);
     } else if (event === 'complete') {
       setIsTyping(false);
       if (data?.conversation_state) setConversationState(data.conversation_state);
-      if (data?.ready_for_blueprint) setShowBlueprintBtn(true);
+      const readyForBlueprint = Boolean(data?.ready_for_blueprint);
+      if (readyForBlueprint) setShowBlueprintBtn(true);
+      const shouldAddHint = mode === 'coding' && readyForBlueprint && !completionHintShownRef.current;
+      if (shouldAddHint) completionHintShownRef.current = true;
       setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMsg = newMessages[newMessages.length - 1];
-        if (lastMsg) {
-          lastMsg.isStreaming = false;
+        const lastIdx = prev.length - 1;
+        let next = prev;
+        if (lastIdx >= 0 && next[lastIdx].isStreaming) {
+          next = next.map((msg, idx) =>
+            idx === lastIdx ? { ...msg, isStreaming: false } : msg
+          );
         }
-        return newMessages;
+        if (shouldAddHint) {
+          next = [
+            ...next,
+            {
+              id: Date.now(),
+              role: 'assistant',
+              content: '需求分析已完成！点击右上角「生成架构设计」按钮，开始生成项目架构。',
+            },
+          ];
+        }
+        return next;
       });
     } else if (event === 'error') {
       setIsTyping(false);
@@ -99,27 +137,33 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 
   const { connect } = useSSE(handleEvent);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || !id) return;
+  const sendText = async (text: string) => {
+    if (!id) return;
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return;
 
     const userMsg: Message = {
       id: Date.now(),
       role: 'user',
-      content: inputValue
+      content: trimmed
     };
 
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
     setIsTyping(true);
 
-    const endpoint = mode === 'novel' 
-        ? `/novels/${id}/inspiration/converse-stream`
-        : codingApi.converseStream(id);
+    const endpoint = mode === 'novel'
+      ? `/novels/${id}/inspiration/converse-stream`
+      : codingApi.converseStream(id);
 
     await connect(endpoint, {
       user_input: { text: userMsg.content },
       conversation_state: conversationState || {}
     });
+  };
+
+  const handleSend = async () => {
+    await sendText(inputValue);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -176,14 +220,19 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
           setBlueprintTip(String(res?.ai_message || '蓝图已重新生成'));
         } catch (e: any) {
           const status = Number(e?.response?.status || 0);
-          const detail = String(e?.response?.data?.detail || '');
-          if (status === 409) {
-            const ok = confirm(`${detail || '检测到已有章节大纲/后续数据。重新生成蓝图将清理后续数据。'}\n\n是否强制重新生成？`);
-            if (!ok) return;
-            const res = await novelsApi.generateBlueprint(id, { forceRegenerate: true });
-            setBlueprintPreview(res?.blueprint || null);
-            setBlueprintTip(String(res?.ai_message || '蓝图已强制重新生成'));
-          } else {
+	          const detail = String(e?.response?.data?.detail || '');
+	          if (status === 409) {
+	            const ok = await confirmDialog({
+	              title: '强制重新生成蓝图',
+	              message: `${detail || '检测到已有章节大纲/后续数据。重新生成蓝图将清理后续数据。'}\n\n是否强制重新生成？`,
+	              confirmText: '强制重生成',
+	              dialogType: 'danger',
+	            });
+	            if (!ok) return;
+	            const res = await novelsApi.generateBlueprint(id, { forceRegenerate: true });
+	            setBlueprintPreview(res?.blueprint || null);
+	            setBlueprintTip(String(res?.ai_message || '蓝图已强制重新生成'));
+	          } else {
             throw e;
           }
         }
@@ -293,7 +342,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
             className="shadow-lg shadow-book-primary/20 animate-in fade-in slide-in-from-top-4 duration-500"
           >
             <Wand2 size={16} className="mr-2 fill-current" />
-            {isGeneratingBlueprint ? '生成中…' : '生成蓝图'}
+            {isGeneratingBlueprint ? '生成中…' : (mode === 'coding' ? '生成架构设计' : '生成蓝图')}
           </BookButton>
         )}
       </div>
@@ -348,7 +397,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
               {options.map((opt, idx) => (
                 <button
                   key={idx}
-                  onClick={() => setInputValue(opt.label)}
+                  onClick={() => sendText(`选择：${String(opt?.label || '')}`)}
                   className="px-4 py-2 rounded-full border border-book-primary/30 bg-book-bg-paper text-book-primary text-sm hover:bg-book-primary hover:text-white transition-all duration-300 shadow-sm hover:shadow-md active:scale-95"
                 >
                   {opt.label}

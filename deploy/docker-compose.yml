@@ -1,0 +1,38 @@
+# 生成日期：2026-02-02（Codex）
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      # 基础
+      LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
+      SECRET_KEY: ${SECRET_KEY}
+
+      # WebUI 登录（部署前决定；修改后需重启服务）
+      AFN_AUTH_ENABLED: ${AFN_AUTH_ENABLED:-false}
+      AFN_AUTH_ALLOW_REGISTRATION: ${AFN_AUTH_ALLOW_REGISTRATION:-true}
+
+      # 可选：OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # 可选：本地嵌入模型缓存目录（与 storage 挂载同一卷，便于持久化）
+      SENTENCE_TRANSFORMERS_HOME: /app/storage/models
+      HF_HOME: /app/storage/models/huggingface
+    volumes:
+      - ../storage:/app/storage
+    expose:
+      - "8123"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${AFN_HTTP_PORT:-80}:80"
+

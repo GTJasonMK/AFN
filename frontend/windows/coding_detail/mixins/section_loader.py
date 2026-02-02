@@ -81,7 +81,6 @@ class SectionLoaderMixin:
                 project_id=self.project_id
             )
             section.editRequested.connect(self.onEditRequested)
-            section.regenerateBlueprintRequested.connect(self._on_regenerate_blueprint)
 
         elif section_id == 'architecture':
             # 架构设计：合并蓝图展示 + 两层结构（系统/模块）

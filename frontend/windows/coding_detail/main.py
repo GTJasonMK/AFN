@@ -274,39 +274,6 @@ class CodingDetail(
         logger.error(f"RAG同步失败: {error_msg}")
         MessageService.show_error(self, f"RAG同步失败：{error_msg}")
 
-    def _on_regenerate_blueprint(self, preference: str):
-        """处理蓝图重新生成请求
-
-        Args:
-            preference: 用户的偏好指导（可为空字符串）
-        """
-        logger.info(f"重新生成蓝图: project_id={self.project_id}, preference={preference}")
-
-        self.show_loading("正在重新生成架构设计蓝图...")
-
-        worker = AsyncAPIWorker(
-            self.api_client.generate_coding_blueprint,
-            self.project_id,
-            allow_incomplete=True,
-            preference=preference if preference else None
-        )
-        worker.success.connect(self._on_blueprint_regenerated)
-        worker.error.connect(self._on_blueprint_regenerate_error)
-        self.worker_manager.start(worker, 'regenerate_blueprint')
-
-    def _on_blueprint_regenerated(self, result):
-        """蓝图重新生成成功"""
-        self.hide_loading()
-        logger.info("蓝图重新生成成功")
-        MessageService.show_success(self, "架构设计蓝图已重新生成")
-        self.refreshProject()
-
-    def _on_blueprint_regenerate_error(self, error_msg: str):
-        """蓝图重新生成失败"""
-        self.hide_loading()
-        logger.error(f"蓝图重新生成失败: {error_msg}")
-        MessageService.show_error(self, f"重新生成失败：{error_msg}")
-
     def _on_file_clicked(self, file_id: int):
         """处理文件点击事件 - 跳转到文件Prompt生成页面
 

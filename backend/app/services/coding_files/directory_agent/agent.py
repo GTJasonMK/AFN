@@ -384,6 +384,7 @@ class DirectoryPlanningAgent:
             system_prompt=messages[0]["content"],
             conversation_history=messages[1:],
             user_id=self.user_id,
+            response_format=None,
         )
 
         return response
@@ -469,6 +470,7 @@ class DirectoryPlanningAgent:
                 system_prompt="你是一个专业的对话压缩助手，负责将冗长的Agent对话历史压缩为简洁的摘要。",
                 conversation_history=[{"role": "user", "content": compress_prompt}],
                 user_id=self.user_id,
+                response_format=None,
             )
 
             # 重置对话历史

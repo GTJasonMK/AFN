@@ -38,6 +38,18 @@ class Settings(BaseSettings):
         description="访问令牌过期时间，单位分钟"
     )
 
+    # -------------------- WebUI 用户系统（可选） --------------------
+    auth_enabled: bool = Field(
+        default=False,
+        env="AFN_AUTH_ENABLED",
+        description="是否启用 WebUI 登录认证（开启后将要求登录并启用多用户数据隔离）",
+    )
+    auth_allow_registration: bool = Field(
+        default=True,
+        env="AFN_AUTH_ALLOW_REGISTRATION",
+        description="是否允许 WebUI 自助注册（仅在启用登录时生效）",
+    )
+
     # -------------------- 数据库配置 --------------------
     database_url: Optional[str] = Field(
         default=None,
@@ -329,6 +341,13 @@ class Settings(BaseSettings):
         description="Agent对话历史最大字符数，超过后触发压缩（基于128k上下文窗口）",
     )
 
+    # -------------------- 功能开关 --------------------
+    coding_project_enabled: bool = Field(
+        default=False,
+        env="CODING_PROJECT_ENABLED",
+        description="是否启用编程项目(Prompt工程)功能，默认关闭",
+    )
+
     # -------------------- 请求队列配置 --------------------
     llm_max_concurrent: int = Field(
         default=8,
@@ -540,6 +559,14 @@ def get_settings() -> Settings:
         # Agent配置
         if 'agent_context_max_chars' in json_config:
             instance.agent_context_max_chars = json_config['agent_context_max_chars']
+
+        # 功能开关
+        if 'coding_project_enabled' in json_config:
+            instance.coding_project_enabled = json_config['coding_project_enabled']
+        if 'auth_enabled' in json_config:
+            instance.auth_enabled = bool(json_config['auth_enabled'])
+        if 'auth_allow_registration' in json_config:
+            instance.auth_allow_registration = bool(json_config['auth_allow_registration'])
 
     return instance
 

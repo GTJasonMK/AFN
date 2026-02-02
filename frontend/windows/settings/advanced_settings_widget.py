@@ -50,6 +50,10 @@ class AdvancedSettingsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(dp(16))
 
+        # 功能开关配置组（放在最前面）
+        self.feature_group = self._create_feature_toggles_group()
+        layout.addWidget(self.feature_group)
+
         # 章节生成配置组
         self.chapter_group = self._create_chapter_generation_group()
         layout.addWidget(self.chapter_group)
@@ -73,6 +77,32 @@ class AdvancedSettingsWidget(QWidget):
         self.save_btn = buttons["save_btn"]
 
         layout.addLayout(button_layout)
+
+    def _create_feature_toggles_group(self):
+        """创建功能开关配置组"""
+        group = QGroupBox("功能开关")
+
+        form_layout = QFormLayout(group)
+        form_layout.setContentsMargins(dp(24), dp(16), dp(24), dp(24))
+        form_layout.setSpacing(dp(16))
+
+        # 编程项目功能开关
+        coding_widget = QWidget()
+        coding_layout = QHBoxLayout(coding_widget)
+        coding_layout.setContentsMargins(0, 0, 0, 0)
+        coding_layout.setSpacing(dp(12))
+
+        self.coding_enabled_checkbox = QCheckBox("启用编程项目(Prompt工程)功能")
+        self.coding_enabled_checkbox.setChecked(False)  # 默认关闭
+        coding_layout.addWidget(self.coding_enabled_checkbox)
+
+        self.coding_help = QLabel("关闭后首页将隐藏编程项目相关入口")
+        coding_layout.addWidget(self.coding_help)
+        coding_layout.addStretch()
+
+        form_layout.addRow("", coding_widget)
+
+        return group
 
     def _create_chapter_generation_group(self):
         """创建章节生成配置组"""
@@ -157,6 +187,7 @@ class AdvancedSettingsWidget(QWidget):
 
         # GroupBox样式 - 书香风格
         group_style = build_settings_group_box_style(palette)
+        self.feature_group.setStyleSheet(group_style)
         self.chapter_group.setStyleSheet(group_style)
         self.outline_group.setStyleSheet(group_style)
 
@@ -167,6 +198,7 @@ class AdvancedSettingsWidget(QWidget):
 
         # 帮助文字样式
         help_style = build_settings_help_label_style(palette)
+        self.coding_help.setStyleSheet(help_style)
         self.version_help.setStyleSheet(help_style)
         self.parallel_help.setStyleSheet(help_style)
         self.threshold_help.setStyleSheet(help_style)
@@ -177,7 +209,7 @@ class AdvancedSettingsWidget(QWidget):
         self.threshold_spinbox.setStyleSheet(spinbox_style)
 
         # CheckBox样式
-        self.parallel_checkbox.setStyleSheet(f"""
+        checkbox_style = f"""
             QCheckBox {{
                 font-family: {palette.ui_font};
                 font-size: {sp(14)}px;
@@ -198,9 +230,10 @@ class AdvancedSettingsWidget(QWidget):
             QCheckBox::indicator:checked {{
                 background-color: {palette.accent_color};
                 border-color: {palette.accent_color};
-                /* image: url(resources/icons/check_white.svg); 暂时注释掉图标 */
             }}
-        """)
+        """
+        self.coding_enabled_checkbox.setStyleSheet(checkbox_style)
+        self.parallel_checkbox.setStyleSheet(checkbox_style)
 
         apply_settings_import_export_reset_save_styles(
             self,
@@ -215,6 +248,9 @@ class AdvancedSettingsWidget(QWidget):
         self.config_data = self.api_client.get_advanced_config()
 
         # 更新UI
+        self.coding_enabled_checkbox.setChecked(
+            self.config_data.get('coding_project_enabled', False)
+        )
         self.version_count_spinbox.setValue(
             self.config_data.get('writer_chapter_version_count', 3)
         )
@@ -228,11 +264,13 @@ class AdvancedSettingsWidget(QWidget):
     @handle_errors("保存配置")
     def saveConfig(self):
         """保存配置"""
-        # 收集配置数据
+        # 收集配置数据（保留未在UI中显示的字段的原值）
         config = {
+            'coding_project_enabled': self.coding_enabled_checkbox.isChecked(),
             'writer_chapter_version_count': self.version_count_spinbox.value(),
             'writer_parallel_generation': self.parallel_checkbox.isChecked(),
             'part_outline_threshold': self.threshold_spinbox.value(),
+            'agent_context_max_chars': self.config_data.get('agent_context_max_chars', 128000),
         }
 
         # 调用API保存
@@ -246,6 +284,7 @@ class AdvancedSettingsWidget(QWidget):
 
     def resetToDefaults(self):
         """恢复默认值"""
+        self.coding_enabled_checkbox.setChecked(False)  # 编程项目默认关闭
         self.version_count_spinbox.setValue(3)
         self.parallel_checkbox.setChecked(True)
         self.threshold_spinbox.setValue(25)

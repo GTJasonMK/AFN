@@ -38,6 +38,7 @@ class HomePage(BasePage):
         self.recent_projects = []  # 最近项目（按时间排序，最多10个）
         self.all_projects = []  # 全部项目（按首字母排序）
         self._entrance_animated = False  # 入场动画是否已播放
+        self._coding_enabled = False  # 编程项目功能是否启用（默认关闭）
         super().__init__(parent)
         self.setupUI()
 
@@ -862,15 +863,17 @@ class HomePage(BasePage):
             for novel in novels:
                 novel['project_type'] = 'novel'
 
-            # 获取编程项目
-            try:
-                coding_projects = self.api_client.list_coding_projects()
-                # 为编程项目添加类型标识
-                for coding in coding_projects:
-                    coding['project_type'] = 'coding'
-            except Exception as e:
-                logger.warning("获取编程项目失败: %s", e)
-                coding_projects = []
+            # 仅在编程项目功能启用时获取编程项目
+            coding_projects = []
+            if getattr(self, '_coding_enabled', False):
+                try:
+                    coding_projects = self.api_client.list_coding_projects()
+                    # 为编程项目添加类型标识
+                    for coding in coding_projects:
+                        coding['project_type'] = 'coding'
+                except Exception as e:
+                    logger.warning("获取编程项目失败: %s", e)
+                    coding_projects = []
 
             # 合并两类项目
             return novels + coding_projects
@@ -1014,10 +1017,32 @@ class HomePage(BasePage):
 
     def refresh(self, **params):
         """刷新页面"""
+        # 获取高级配置，检查编程项目是否启用
+        try:
+            config = self.api_client.get_advanced_config()
+            self._coding_enabled = config.get('coding_project_enabled', False)
+        except Exception:
+            self._coding_enabled = False
+
+        # 控制编程项目入口可见性
+        if hasattr(self, 'create_coding_btn'):
+            self.create_coding_btn.setVisible(self._coding_enabled)
+
         self._load_recent_projects()
 
     def onShow(self):
         """页面显示时"""
+        # 获取高级配置，检查编程项目是否启用
+        try:
+            config = self.api_client.get_advanced_config()
+            self._coding_enabled = config.get('coding_project_enabled', False)
+        except Exception:
+            self._coding_enabled = False
+
+        # 控制编程项目入口可见性
+        if hasattr(self, 'create_coding_btn'):
+            self.create_coding_btn.setVisible(self._coding_enabled)
+
         # 随机更换箴言，每次返回首页时显示不同的启发性标语
         if hasattr(self, 'quote_label') and hasattr(self, 'quote_sub_label'):
             self._current_quote = random.choice(CREATIVE_QUOTES)

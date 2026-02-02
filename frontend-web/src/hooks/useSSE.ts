@@ -32,6 +32,7 @@ export const useSSE = (
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
@@ -67,6 +68,10 @@ export const useSSE = (
           }
           if (line.startsWith('data:')) {
             const dataPart = line.substring('data:'.length).trimStart();
+            // SSE规范：多个data行用换行符连接
+            if (currentData.length > 0) {
+              currentData += '\n';
+            }
             currentData += dataPart;
             continue;
           }

@@ -5,6 +5,7 @@ import { BookCard } from '../ui/BookCard';
 import { BookButton } from '../ui/BookButton';
 import { Layers, RefreshCw, Image as ImageIcon, FileDown, Copy, Info, XCircle, Play, Trash2 } from 'lucide-react';
 import { useToast } from '../feedback/Toast';
+import { confirmDialog } from '../feedback/ConfirmDialog';
 
 interface MangaPromptViewerProps {
   projectId: string;
@@ -73,6 +74,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   const [pdfInfo, setPdfInfo] = useState<ChapterMangaPDFResponse | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfGeneratingLayout, setPdfGeneratingLayout] = useState<'full' | 'manga' | null>(null);
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [batchSkipExistingImages, setBatchSkipExistingImages] = useState(true);
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; message: string } | null>(null);
@@ -261,6 +264,70 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   useEffect(() => {
     setActiveTab('storyboard');
   }, [chapterNumber]);
+
+  // PDF 预览状态：章节/文件变化时关闭预览并释放 blob URL，避免自动触发下载
+  useEffect(() => {
+    setPdfPreviewOpen(false);
+  }, [chapterNumber, projectId]);
+
+  useEffect(() => {
+    if (!pdfPreviewUrl) return;
+    return () => {
+      try {
+        URL.revokeObjectURL(pdfPreviewUrl);
+      } catch {
+        // ignore
+      }
+    };
+  }, [pdfPreviewUrl]);
+
+  useEffect(() => {
+    // 当最新 PDF 发生变化时，关闭预览并释放旧 URL
+    setPdfPreviewOpen(false);
+    setPdfPreviewUrl((prev) => {
+      if (prev) {
+        try {
+          URL.revokeObjectURL(prev);
+        } catch {
+          // ignore
+        }
+      }
+      return null;
+    });
+  }, [pdfInfo?.download_url]);
+
+  useEffect(() => {
+    // 仅在用户展开“PDF 预览”后才拉取 PDF 内容，并用 blob URL 进行预览
+    if (!pdfPreviewOpen) return;
+    const url = pdfInfo?.success ? (pdfInfo.download_url || '') : '';
+    if (!url) return;
+    if (pdfPreviewUrl) return;
+
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(resolveAssetUrl(url), { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        if (!isMountedRef.current) return;
+        setPdfPreviewUrl(objectUrl);
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
+        console.error(e);
+        addToast('PDF 预览加载失败，请稍后重试或直接点击“下载”', 'error');
+        setPdfPreviewOpen(false);
+      }
+    })();
+
+    return () => {
+      try {
+        controller.abort();
+      } catch {
+        // ignore
+      }
+    };
+  }, [addToast, pdfInfo?.download_url, pdfInfo?.success, pdfPreviewOpen, pdfPreviewUrl]);
 
   // 按项目持久化漫画分镜生成参数（避免每次重复设置）
   useEffect(() => {
@@ -603,7 +670,12 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   }, []);
 
   const handleDeleteImage = useCallback(async (img: GeneratedImageInfo, label: string) => {
-    const ok = confirm(`确定要删除图片吗？\n${label}`);
+    const ok = await confirmDialog({
+      title: '删除图片',
+      message: `确定要删除图片吗？\n${label}`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
     if (!ok) return;
     try {
       await imageGenerationApi.deleteImage(img.id, { silent: true } as any);
@@ -706,7 +778,12 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   };
 
   const handleDeleteMangaPrompts = async () => {
-    const ok = confirm('确定要删除本章的漫画分镜数据吗？（不会自动删除已生成的图片）');
+    const ok = await confirmDialog({
+      title: '删除分镜数据',
+      message: '确定要删除本章的漫画分镜数据吗？\n（不会自动删除已生成的图片）',
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
     if (!ok) return;
     try {
       stopProgressPolling();
@@ -1277,17 +1354,43 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                       </a>
                     </div>
 
-                    <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
+                    <details
+                      className="group rounded-lg border border-book-border/40 bg-book-bg-paper"
+                      onToggle={(e) => {
+                        const open = (e.currentTarget as HTMLDetailsElement).open;
+                        setPdfPreviewOpen(open);
+                        if (!open) {
+                          setPdfPreviewUrl((prev) => {
+                            if (prev) {
+                              try {
+                                URL.revokeObjectURL(prev);
+                              } catch {
+                                // ignore
+                              }
+                            }
+                            return null;
+                          });
+                        }
+                      }}
+                    >
                       <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">
                         PDF 预览
-                        <span className="ml-2 text-[11px] font-normal text-book-text-muted">点击展开</span>
+                        <span className="ml-2 text-[11px] font-normal text-book-text-muted">点击展开（不会自动下载）</span>
                       </summary>
                       <div className="px-3 pb-3">
-                        <iframe
-                          src={resolveAssetUrl(pdfInfo.download_url)}
-                          className="w-full h-[70vh] rounded-md border border-book-border/40 bg-book-bg"
-                          title="manga-pdf-preview"
-                        />
+                        {pdfPreviewOpen ? (
+                          pdfPreviewUrl ? (
+                            <iframe
+                              src={pdfPreviewUrl}
+                              className="w-full h-[70vh] rounded-md border border-book-border/40 bg-book-bg"
+                              title="manga-pdf-preview"
+                            />
+                          ) : (
+                            <div className="h-[70vh] rounded-md border border-book-border/40 bg-book-bg flex items-center justify-center text-xs text-book-text-muted">
+                              PDF 加载中…
+                            </div>
+                          )
+                        ) : null}
                       </div>
                     </details>
                   </div>

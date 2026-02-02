@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { BookCard } from '../../ui/BookCard';
 import { BookButton } from '../../ui/BookButton';
 import { BookInput } from '../../ui/BookInput';
@@ -16,7 +16,7 @@ export const QueueTab: React.FC = () => {
   const [llmMax, setLlmMax] = useState('1');
   const [imageMax, setImageMax] = useState('1');
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
       const [s, c] = await Promise.all([queueApi.getStatus(), queueApi.getConfig()]);
@@ -31,10 +31,39 @@ export const QueueTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAll();
+  }, [fetchAll]);
+
+  // 对齐桌面端：状态定时刷新（2秒一次）
+  useEffect(() => {
+    let cancelled = false;
+
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const s = await queueApi.getStatus();
+        if (cancelled) return;
+        setStatus(s);
+      } catch (e) {
+        // 仅记录日志；不打断用户操作
+        console.error(e);
+      }
+    };
+
+    const timer = window.setInterval(tick, 2000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   const handleSave = async () => {
@@ -109,6 +138,9 @@ export const QueueTab: React.FC = () => {
         {!config && !loading && (
           <div className="mt-3 text-xs text-book-text-muted">无法读取当前配置，请检查后端是否已启动。</div>
         )}
+        <div className="mt-3 text-xs text-book-text-muted">
+          提示：队列状态每 2 秒自动刷新（仅在当前浏览器标签页前台时刷新）。
+        </div>
       </BookCard>
     </div>
   );

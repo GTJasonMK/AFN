@@ -10,9 +10,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from ...core.dependencies import require_admin_user
 from .settings_models import ConfigImportResult
 from .settings_utils import load_config, save_config
 
@@ -51,7 +52,7 @@ async def export_queue_config() -> QueueConfigExportData:
     )
 
 
-@router.post("/queue-config/import", response_model=ConfigImportResult)
+@router.post("/queue-config/import", response_model=ConfigImportResult, dependencies=[Depends(require_admin_user)])
 async def import_queue_config(import_data: dict) -> ConfigImportResult:
     """
     导入队列配置
@@ -110,4 +111,3 @@ async def import_queue_config(import_data: dict) -> ConfigImportResult:
 
 
 __all__ = ["router", "QueueConfigExportData", "import_queue_config"]
-

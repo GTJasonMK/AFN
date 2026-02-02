@@ -4,6 +4,7 @@
 负责实际执行Agent调用的工具，并返回结果。
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -292,6 +293,48 @@ class ToolExecutor(BaseToolExecutor):
     def _log_execute_error(self, tool_name: ToolName, error: Exception) -> None:
         """记录工具执行错误"""
         logger.error("工具执行失败: %s - %s", tool_name.value, error, exc_info=True)
+
+    async def execute(self, tool_call: ToolCall, state: AgentState) -> ToolResult:
+        """
+        执行工具调用（覆盖基类以支持state参数）
+
+        Args:
+            tool_call: 工具调用信息
+            state: Agent状态
+
+        Returns:
+            工具执行结果
+        """
+        self._log_tool_call(tool_call)
+
+        tool_name = self._get_tool_name(tool_call)
+        handler = self._handlers.get(tool_name)
+
+        if not handler:
+            return self._build_result(
+                tool_name=tool_name,
+                success=False,
+                error=self._format_unknown_tool_error(tool_name),
+            )
+
+        try:
+            params = self._get_tool_params(tool_call)
+            if asyncio.iscoroutinefunction(handler):
+                result = await handler(params, state)
+            else:
+                result = handler(params, state)
+            return self._build_result(
+                tool_name=tool_name,
+                success=True,
+                result=result,
+            )
+        except Exception as e:
+            self._log_execute_error(tool_name, e)
+            return self._build_result(
+                tool_name=tool_name,
+                success=False,
+                error=str(e),
+            )
 
     # ==================== 信息获取工具 ====================
 

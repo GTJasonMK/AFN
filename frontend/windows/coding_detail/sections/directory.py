@@ -1,7 +1,8 @@
 """
-目录结构Section - 展示和管理项目目录结构
+目录结构Section - 详细展示和编辑项目目录结构
 
-显示实际的项目文件树结构（类似IDE的文件浏览器），支持Agent规划和文件管理。
+显示实际的项目文件树结构，每个节点直接展示详细信息，支持编辑目录和文件的描述信息。
+Agent规划功能仅在工作台中可用。
 """
 
 import logging
@@ -9,29 +10,495 @@ from typing import Dict, Any, List, Optional
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QHeaderView, QTextEdit, QMenu, QCheckBox
+    QTreeWidget, QTreeWidgetItem, QHeaderView, QDialog, QLineEdit,
+    QTextEdit, QComboBox, QFormLayout, QDialogButtonBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction
 
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
 from api.manager import APIClientManager
 from utils.async_worker import AsyncAPIWorker
-from utils.sse_worker import SSEWorker
 from utils.message_service import MessageService
 
 logger = logging.getLogger(__name__)
 
 
-class DirectorySection(BaseSection):
-    """目录结构Section
+class DirectoryEditDialog(QDialog):
+    """目录编辑对话框"""
 
-    展示项目的实际文件树结构（类似IDE文件浏览器）。
+    def __init__(self, node_data: Dict, parent=None):
+        super().__init__(parent)
+        self.node_data = node_data
+        self.setWindowTitle("编辑目录")
+        self.setMinimumWidth(dp(400))
+        self._setup_ui()
+        self._apply_styles()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+        layout.setSpacing(dp(16))
+
+        # 表单布局
+        form_layout = QFormLayout()
+        form_layout.setSpacing(dp(12))
+
+        # 名称（只读）
+        self.name_edit = QLineEdit(self.node_data.get('name', ''))
+        self.name_edit.setReadOnly(True)
+        self.name_edit.setStyleSheet(f"background-color: {theme_manager.BG_TERTIARY};")
+        form_layout.addRow("名称:", self.name_edit)
+
+        # 路径（只读）
+        path = self.node_data.get('path', '')
+        if path:
+            self.path_edit = QLineEdit(path)
+            self.path_edit.setReadOnly(True)
+            self.path_edit.setStyleSheet(f"background-color: {theme_manager.BG_TERTIARY};")
+            form_layout.addRow("路径:", self.path_edit)
+
+        # 描述（可编辑）
+        self.description_edit = QTextEdit()
+        self.description_edit.setPlainText(self.node_data.get('description', ''))
+        self.description_edit.setMaximumHeight(dp(100))
+        self.description_edit.setPlaceholderText("输入目录描述...")
+        form_layout.addRow("描述:", self.description_edit)
+
+        layout.addLayout(form_layout)
+
+        # 按钮
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+            QLabel {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {dp(13)}px;
+            }}
+            QLineEdit {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-size: {dp(13)}px;
+            }}
+            QTextEdit {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-size: {dp(13)}px;
+            }}
+            QPushButton {{
+                background-color: {theme_manager.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px {dp(16)}px;
+                font-size: {dp(13)}px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme_manager.PRIMARY}DD;
+            }}
+        """)
+
+    def get_data(self) -> Dict:
+        """获取编辑后的数据"""
+        return {
+            'description': self.description_edit.toPlainText().strip()
+        }
+
+
+class FileEditDialog(QDialog):
+    """文件编辑对话框"""
+
+    def __init__(self, file_data: Dict, parent=None):
+        super().__init__(parent)
+        self.file_data = file_data
+        self.setWindowTitle("编辑文件")
+        self.setMinimumWidth(dp(450))
+        self._setup_ui()
+        self._apply_styles()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(20), dp(20), dp(20), dp(20))
+        layout.setSpacing(dp(16))
+
+        # 表单布局
+        form_layout = QFormLayout()
+        form_layout.setSpacing(dp(12))
+
+        # 文件名（只读）
+        self.filename_edit = QLineEdit(self.file_data.get('filename', ''))
+        self.filename_edit.setReadOnly(True)
+        self.filename_edit.setStyleSheet(f"background-color: {theme_manager.BG_TERTIARY};")
+        form_layout.addRow("文件名:", self.filename_edit)
+
+        # 路径（只读）
+        path = self.file_data.get('file_path', '')
+        if path:
+            self.path_edit = QLineEdit(path)
+            self.path_edit.setReadOnly(True)
+            self.path_edit.setStyleSheet(f"background-color: {theme_manager.BG_TERTIARY};")
+            form_layout.addRow("路径:", self.path_edit)
+
+        # 描述（可编辑）
+        self.description_edit = QTextEdit()
+        self.description_edit.setPlainText(self.file_data.get('description', ''))
+        self.description_edit.setMaximumHeight(dp(80))
+        self.description_edit.setPlaceholderText("输入文件描述...")
+        form_layout.addRow("描述:", self.description_edit)
+
+        # 用途（可编辑）
+        self.purpose_edit = QTextEdit()
+        self.purpose_edit.setPlainText(self.file_data.get('purpose', ''))
+        self.purpose_edit.setMaximumHeight(dp(80))
+        self.purpose_edit.setPlaceholderText("输入文件用途...")
+        form_layout.addRow("用途:", self.purpose_edit)
+
+        # 优先级（可编辑）
+        self.priority_combo = QComboBox()
+        self.priority_combo.addItems(['high', 'medium', 'low'])
+        current_priority = self.file_data.get('priority', 'medium')
+        index = self.priority_combo.findText(current_priority)
+        if index >= 0:
+            self.priority_combo.setCurrentIndex(index)
+        form_layout.addRow("优先级:", self.priority_combo)
+
+        layout.addLayout(form_layout)
+
+        # 按钮
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {theme_manager.BG_PRIMARY};
+            }}
+            QLabel {{
+                color: {theme_manager.TEXT_PRIMARY};
+                font-size: {dp(13)}px;
+            }}
+            QLineEdit {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-size: {dp(13)}px;
+            }}
+            QTextEdit {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-size: {dp(13)}px;
+            }}
+            QComboBox {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                border: 1px solid {theme_manager.BORDER_DEFAULT};
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px;
+                font-size: {dp(13)}px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme_manager.BG_SECONDARY};
+                color: {theme_manager.TEXT_PRIMARY};
+                selection-background-color: {theme_manager.PRIMARY};
+            }}
+            QPushButton {{
+                background-color: {theme_manager.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: {dp(4)}px;
+                padding: {dp(8)}px {dp(16)}px;
+                font-size: {dp(13)}px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme_manager.PRIMARY}DD;
+            }}
+        """)
+
+    def get_data(self) -> Dict:
+        """获取编辑后的数据"""
+        return {
+            'description': self.description_edit.toPlainText().strip(),
+            'purpose': self.purpose_edit.toPlainText().strip(),
+            'priority': self.priority_combo.currentText()
+        }
+
+
+class DirectoryNodeWidget(QWidget):
+    """目录节点内容组件 - 显示目录详细信息"""
+
+    editClicked = pyqtSignal(int, dict)  # node_id, node_data
+
+    def __init__(self, node_data: Dict, parent=None):
+        super().__init__(parent)
+        self.node_data = node_data
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        layout.setSpacing(dp(2))
+
+        # 第一行：目录名
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(dp(8))
+
+        node_type = self.node_data.get('node_type', 'directory')
+        name = self.node_data.get('name', '')
+
+        # 目录名标签
+        name_label = QLabel(f"[D] {name}/")
+        name_label.setStyleSheet(f"""
+            color: {theme_manager.TEXT_PRIMARY};
+            font-weight: 600;
+            font-size: {dp(13)}px;
+        """)
+        header_layout.addWidget(name_label)
+
+        # 类型标签
+        type_display = self._get_type_display(node_type)
+        type_label = QLabel(type_display)
+        type_label.setStyleSheet(f"""
+            color: {theme_manager.TEXT_TERTIARY};
+            font-size: {dp(11)}px;
+            background-color: {theme_manager.BG_TERTIARY};
+            padding: {dp(2)}px {dp(6)}px;
+            border-radius: {dp(3)}px;
+        """)
+        header_layout.addWidget(type_label)
+
+        header_layout.addStretch()
+
+        # 编辑按钮
+        edit_btn = QPushButton("编辑")
+        edit_btn.setObjectName("edit_btn")
+        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit_btn.setStyleSheet(f"""
+            QPushButton#edit_btn {{
+                background-color: transparent;
+                color: {theme_manager.PRIMARY};
+                border: 1px solid {theme_manager.PRIMARY};
+                border-radius: {dp(3)}px;
+                padding: {dp(2)}px {dp(8)}px;
+                font-size: {dp(11)}px;
+            }}
+            QPushButton#edit_btn:hover {{
+                background-color: {theme_manager.PRIMARY}20;
+            }}
+        """)
+        edit_btn.clicked.connect(self._on_edit_clicked)
+        header_layout.addWidget(edit_btn)
+
+        layout.addLayout(header_layout)
+
+        # 第二行：描述
+        description = self.node_data.get('description', '')
+        if description:
+            desc_label = QLabel(f"描述: {description}")
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(f"""
+                color: {theme_manager.TEXT_SECONDARY};
+                font-size: {dp(11)}px;
+                padding-left: {dp(16)}px;
+            """)
+            layout.addWidget(desc_label)
+
+    def _get_type_display(self, node_type: str) -> str:
+        mapping = {
+            'root': '项目根目录',
+            'directory': '目录',
+            'module': '模块',
+            'package': '包',
+            'config': '配置',
+        }
+        return mapping.get(node_type, node_type)
+
+    def _on_edit_clicked(self):
+        node_id = self.node_data.get('id')
+        if node_id:
+            self.editClicked.emit(node_id, self.node_data)
+
+
+class FileNodeWidget(QWidget):
+    """文件节点内容组件 - 显示文件详细信息"""
+
+    editClicked = pyqtSignal(int, dict)  # file_id, file_data
+
+    def __init__(self, file_data: Dict, parent=None):
+        super().__init__(parent)
+        self.file_data = file_data
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        layout.setSpacing(dp(2))
+
+        # 第一行：文件名 + 类型 + 优先级 + 编辑按钮
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(dp(8))
+
+        filename = self.file_data.get('filename', '')
+        file_type = self.file_data.get('file_type', 'source')
+        priority = self.file_data.get('priority', 'medium')
+        status = self.file_data.get('status', 'pending')
+
+        # 文件名
+        name_label = QLabel(f"    {filename}")
+        name_label.setStyleSheet(f"""
+            color: {theme_manager.TEXT_PRIMARY};
+            font-size: {dp(12)}px;
+        """)
+        header_layout.addWidget(name_label)
+
+        # 类型标签
+        type_display = self._get_file_type_display(file_type)
+        type_label = QLabel(type_display)
+        type_label.setStyleSheet(f"""
+            color: {theme_manager.TEXT_TERTIARY};
+            font-size: {dp(10)}px;
+            background-color: {theme_manager.BG_TERTIARY};
+            padding: {dp(1)}px {dp(4)}px;
+            border-radius: {dp(2)}px;
+        """)
+        header_layout.addWidget(type_label)
+
+        # 优先级标签
+        priority_colors = {
+            'high': theme_manager.ERROR,
+            'medium': theme_manager.WARNING,
+            'low': theme_manager.SUCCESS,
+        }
+        priority_color = priority_colors.get(priority, theme_manager.TEXT_TERTIARY)
+        priority_display = {'high': '高', 'medium': '中', 'low': '低'}.get(priority, priority)
+        priority_label = QLabel(priority_display)
+        priority_label.setStyleSheet(f"""
+            color: {priority_color};
+            font-size: {dp(10)}px;
+            background-color: {priority_color}20;
+            padding: {dp(1)}px {dp(4)}px;
+            border-radius: {dp(2)}px;
+        """)
+        header_layout.addWidget(priority_label)
+
+        # 状态标签
+        status_display = self._get_status_display(status)
+        status_label = QLabel(status_display)
+        status_label.setStyleSheet(f"""
+            color: {theme_manager.TEXT_TERTIARY};
+            font-size: {dp(10)}px;
+        """)
+        header_layout.addWidget(status_label)
+
+        header_layout.addStretch()
+
+        # 编辑按钮
+        edit_btn = QPushButton("编辑")
+        edit_btn.setObjectName("file_edit_btn")
+        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit_btn.setStyleSheet(f"""
+            QPushButton#file_edit_btn {{
+                background-color: transparent;
+                color: {theme_manager.PRIMARY};
+                border: 1px solid {theme_manager.PRIMARY};
+                border-radius: {dp(3)}px;
+                padding: {dp(2)}px {dp(8)}px;
+                font-size: {dp(11)}px;
+            }}
+            QPushButton#file_edit_btn:hover {{
+                background-color: {theme_manager.PRIMARY}20;
+            }}
+        """)
+        edit_btn.clicked.connect(self._on_edit_clicked)
+        header_layout.addWidget(edit_btn)
+
+        layout.addLayout(header_layout)
+
+        # 第二行：描述
+        description = self.file_data.get('description', '')
+        if description:
+            desc_label = QLabel(f"描述: {description}")
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(f"""
+                color: {theme_manager.TEXT_SECONDARY};
+                font-size: {dp(11)}px;
+                padding-left: {dp(32)}px;
+            """)
+            layout.addWidget(desc_label)
+
+        # 第三行：用途
+        purpose = self.file_data.get('purpose', '')
+        if purpose:
+            purpose_label = QLabel(f"用途: {purpose}")
+            purpose_label.setWordWrap(True)
+            purpose_label.setStyleSheet(f"""
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {dp(11)}px;
+                padding-left: {dp(32)}px;
+            """)
+            layout.addWidget(purpose_label)
+
+    def _get_file_type_display(self, file_type: str) -> str:
+        mapping = {
+            'source': '源代码',
+            'config': '配置',
+            'test': '测试',
+            'doc': '文档',
+            'resource': '资源',
+        }
+        return mapping.get(file_type, file_type)
+
+    def _get_status_display(self, status: str) -> str:
+        mapping = {
+            'pending': '待生成',
+            'generating': '生成中',
+            'generated': '已生成',
+            'reviewed': '已审查',
+            'error': '失败',
+        }
+        return mapping.get(status, status)
+
+    def _on_edit_clicked(self):
+        file_id = self.file_data.get('id')
+        if file_id:
+            self.editClicked.emit(file_id, self.file_data)
+
+
+class DirectorySection(BaseSection):
+    """目录结构Section - 详细展示和编辑
+
+    展示项目的实际文件树结构，每个节点直接显示详细信息，支持编辑。
+    Agent规划功能已移至工作台。
     """
 
-    # 额外信号（refreshRequested继承自BaseSection）
+    # 信号
     loadingRequested = pyqtSignal(str)
     loadingFinished = pyqtSignal()
     fileClicked = pyqtSignal(int)  # file_id - 用于跳转到文件Prompt生成页面
@@ -49,18 +516,14 @@ class DirectorySection(BaseSection):
         self.directory_tree = directory_tree or {}
         self.api_client = APIClientManager.get_client()
         self._data_loaded = False
-        self._has_paused_state = False  # 是否有暂停的Agent状态
-        self._paused_state_info = {}  # 暂停状态的详细信息
-        self._detailed_mode = False  # Agent输出详细模式
 
         super().__init__([], editable, parent)
         self.setupUI()
 
-        # 初始化后自动加载目录树数据和Agent状态
+        # 初始化后自动加载目录树数据
         if self.project_id:
             if not self.directory_tree.get('root_nodes'):
                 self._load_directory_tree()
-            self._check_agent_state()
 
     def _create_ui_structure(self):
         """创建UI结构"""
@@ -69,36 +532,7 @@ class DirectorySection(BaseSection):
         layout.setSpacing(dp(16))
 
         # 标题栏
-        total_dirs = self.directory_tree.get('total_directories', 0)
-        total_files = self.directory_tree.get('total_files', 0)
-        stats_text = f"{total_dirs} 目录 / {total_files} 文件"
-
-        # 继续规划按钮（默认隐藏）
-        self.agent_continue_btn = QPushButton("继续规划")
-        self.agent_continue_btn.setObjectName("agent_continue_btn")
-        self.agent_continue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.agent_continue_btn.clicked.connect(self._on_agent_continue)
-        self.agent_continue_btn.setVisible(False)
-
-        # 放弃暂停状态按钮（默认隐藏）
-        self.agent_discard_btn = QPushButton("重新开始")
-        self.agent_discard_btn.setObjectName("agent_discard_btn")
-        self.agent_discard_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.agent_discard_btn.clicked.connect(self._on_agent_discard)
-        self.agent_discard_btn.setVisible(False)
-
-        # Agent规划按钮
-        self.agent_plan_btn = QPushButton("Agent规划整个项目")
-        self.agent_plan_btn.setObjectName("agent_plan_btn")
-        self.agent_plan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.agent_plan_btn.clicked.connect(self._on_agent_plan)
-
-        # 仅优化目录按钮（当有目录结构时显示）
-        self.agent_optimize_btn = QPushButton("仅优化目录")
-        self.agent_optimize_btn.setObjectName("agent_optimize_btn")
-        self.agent_optimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.agent_optimize_btn.clicked.connect(self._on_agent_optimize)
-        self.agent_optimize_btn.setVisible(False)  # 默认隐藏，有目录时显示
+        stats_text = self._build_stats_text(self.directory_tree)
 
         # 刷新按钮
         refresh_btn = QPushButton("刷新")
@@ -106,68 +540,24 @@ class DirectorySection(BaseSection):
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self._on_refresh)
 
+        # 展开/折叠按钮：用于快速核对“总计统计”与实际展开看到的节点
+        expand_btn = QPushButton("展开全部")
+        expand_btn.setObjectName("expand_btn")
+        expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        expand_btn.clicked.connect(self._on_expand_all)
+
+        collapse_btn = QPushButton("折叠全部")
+        collapse_btn.setObjectName("collapse_btn")
+        collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        collapse_btn.clicked.connect(self._on_collapse_all)
+
         header, labels = self._build_section_header(
             "目录结构",
             stat_items=[(stats_text, "stats_label")],
-            right_widgets=[
-                self.agent_continue_btn,
-                self.agent_discard_btn,
-                self.agent_plan_btn,
-                self.agent_optimize_btn,
-                refresh_btn,
-            ],
+            right_widgets=[collapse_btn, expand_btn, refresh_btn],
         )
         self.stats_label = labels.get("stats_label")
         layout.addWidget(header)
-
-        # Agent思考过程面板（默认隐藏）
-        self.agent_panel = QFrame()
-        self.agent_panel.setObjectName("agent_panel")
-        self.agent_panel.setVisible(False)
-        agent_panel_layout = QVBoxLayout(self.agent_panel)
-        agent_panel_layout.setContentsMargins(dp(12), dp(12), dp(12), dp(12))
-        agent_panel_layout.setSpacing(dp(8))
-
-        # Agent面板标题栏
-        agent_header = QHBoxLayout()
-        agent_title = QLabel("Agent思考过程")
-        agent_title.setObjectName("agent_title")
-        agent_header.addWidget(agent_title)
-
-        self.agent_status_label = QLabel("准备中...")
-        self.agent_status_label.setObjectName("agent_status")
-        agent_header.addWidget(self.agent_status_label)
-
-        agent_header.addStretch()
-
-        # 详细模式复选框
-        self.detailed_mode_checkbox = QCheckBox("详细模式")
-        self.detailed_mode_checkbox.setObjectName("detailed_mode_checkbox")
-        self.detailed_mode_checkbox.setChecked(self._detailed_mode)
-        self.detailed_mode_checkbox.toggled.connect(self._on_detailed_mode_toggled)
-        agent_header.addWidget(self.detailed_mode_checkbox)
-
-        self.agent_stop_btn = QPushButton("停止")
-        self.agent_stop_btn.setObjectName("agent_stop_btn")
-        self.agent_stop_btn.clicked.connect(self._on_agent_stop)
-        agent_header.addWidget(self.agent_stop_btn)
-
-        self.agent_close_btn = QPushButton("关闭")
-        self.agent_close_btn.setObjectName("agent_close_btn")
-        self.agent_close_btn.clicked.connect(self._on_agent_panel_close)
-        agent_header.addWidget(self.agent_close_btn)
-
-        agent_panel_layout.addLayout(agent_header)
-
-        # Agent输出文本框
-        self.agent_output = QTextEdit()
-        self.agent_output.setObjectName("agent_output")
-        self.agent_output.setReadOnly(True)
-        self.agent_output.setMinimumHeight(dp(200))
-        self.agent_output.setMaximumHeight(dp(300))
-        agent_panel_layout.addWidget(self.agent_output)
-
-        layout.addWidget(self.agent_panel)
 
         # 目录树容器
         tree_container = QWidget()
@@ -179,23 +569,16 @@ class DirectorySection(BaseSection):
         # 创建目录树
         self.tree_widget = QTreeWidget()
         self.tree_widget.setObjectName("directory_tree")
-        self.tree_widget.setHeaderLabels(["名称", "类型", "状态"])
-        self.tree_widget.setColumnCount(3)
+        self.tree_widget.setHeaderHidden(True)  # 隐藏表头，因为使用自定义widget
+        self.tree_widget.setColumnCount(1)
         self.tree_widget.setRootIsDecorated(True)
         self.tree_widget.setAnimated(True)
-        self.tree_widget.setExpandsOnDoubleClick(True)
-        self.tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree_widget.customContextMenuRequested.connect(self._on_context_menu)
+        self.tree_widget.setExpandsOnDoubleClick(False)  # 禁用双击展开，使用双击跳转
         self.tree_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         # 设置列宽
         header_view = self.tree_widget.header()
-        header_view.setStretchLastSection(False)
-        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tree_widget.setColumnWidth(1, dp(80))
-        self.tree_widget.setColumnWidth(2, dp(80))
+        header_view.setStretchLastSection(True)
 
         tree_layout.addWidget(self.tree_widget)
         layout.addWidget(tree_container, 1)  # 让树占用剩余空间
@@ -204,6 +587,71 @@ class DirectorySection(BaseSection):
         self._populate_tree()
 
         self._apply_styles()
+
+    def _compute_tree_stats(self, directory_tree: Dict[str, Any]) -> Dict[str, int]:
+        """基于目录树数据递归统计目录/文件数量（以实际展示为准）。"""
+        root_nodes = directory_tree.get("root_nodes") or []
+
+        def walk(nodes: List[Dict[str, Any]]) -> tuple[int, int, int]:
+            total_dirs = 0
+            total_files = 0
+            init_files = 0
+
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+
+                total_dirs += 1
+                files = node.get("files") or []
+                if isinstance(files, list):
+                    valid_files = [f for f in files if isinstance(f, dict)]
+                    total_files += len(valid_files)
+                    init_files += sum(1 for f in valid_files if f.get("filename") == "__init__.py")
+
+                children = node.get("children") or []
+                if isinstance(children, list) and children:
+                    child_dirs, child_files, child_inits = walk(children)
+                    total_dirs += child_dirs
+                    total_files += child_files
+                    init_files += child_inits
+
+            return total_dirs, total_files, init_files
+
+        dirs, files, init_files = walk(root_nodes)
+        return {
+            "total_directories": dirs,
+            "total_files": files,
+            "init_files": init_files,
+        }
+
+    def _build_stats_text(self, directory_tree: Dict[str, Any]) -> str:
+        """构建统计文案：优先使用树结构递归统计，避免与实际展示不一致。"""
+        computed = self._compute_tree_stats(directory_tree)
+        computed_dirs = computed["total_directories"]
+        computed_files = computed["total_files"]
+        init_files = computed["init_files"]
+
+        backend_dirs = directory_tree.get("total_directories", 0)
+        backend_files = directory_tree.get("total_files", 0)
+
+        # 若后端字段与树结构不一致，优先展示“实际树结构统计”，并在日志中记录差异。
+        if (backend_dirs, backend_files) != (computed_dirs, computed_files):
+            logger.warning(
+                "目录树统计不一致：tree=%d/%d, backend=%d/%d",
+                computed_dirs,
+                computed_files,
+                backend_dirs,
+                backend_files,
+            )
+
+        extra_parts = []
+        if init_files:
+            non_init_files = max(0, computed_files - init_files)
+            extra_parts.append(f"__init__.py: {init_files}")
+            extra_parts.append(f"非__init__.py: {non_init_files}")
+
+        extra = f"（{'，'.join(extra_parts)}）" if extra_parts else ""
+        return f"总计 {computed_dirs} 目录 / {computed_files} 文件{extra}"
 
     def _populate_tree(self):
         """填充目录树"""
@@ -214,9 +662,14 @@ class DirectorySection(BaseSection):
         if not root_nodes:
             # 空状态
             empty_item = QTreeWidgetItem(self.tree_widget)
-            empty_item.setText(0, "暂无目录结构")
-            empty_item.setText(1, "")
-            empty_item.setText(2, "点击「Agent规划整个项目」生成")
+            empty_widget = QLabel("暂无目录结构，请在工作台中使用 Agent 生成")
+            empty_widget.setStyleSheet(f"""
+                color: {theme_manager.TEXT_TERTIARY};
+                font-size: {dp(13)}px;
+                padding: {dp(20)}px;
+            """)
+            empty_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tree_widget.setItemWidget(empty_item, 0, empty_widget)
             empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
             return
 
@@ -231,28 +684,17 @@ class DirectorySection(BaseSection):
                 item.setExpanded(True)
 
     def _add_tree_node(self, parent_item, node_data: Dict):
-        """递归添加树节点"""
+        """递归添加目录节点"""
         item = QTreeWidgetItem(parent_item)
-
-        # 设置节点数据
         item.setData(0, Qt.ItemDataRole.UserRole, node_data)
 
-        node_type = node_data.get('node_type', 'directory')
-        name = node_data.get('name', '')
+        # 创建目录节点组件
+        node_widget = DirectoryNodeWidget(node_data)
+        node_widget.editClicked.connect(self._on_edit_directory)
+        self.tree_widget.setItemWidget(item, 0, node_widget)
 
-        # 根据类型设置显示
-        if node_type == 'root':
-            item.setText(0, f"[R] {name}/")
-            item.setText(1, "项目根目录")
-            item.setText(2, "")
-        elif node_type in ('directory', 'module', 'package', 'config'):
-            item.setText(0, f"[D] {name}/")
-            item.setText(1, self._get_type_display(node_type))
-            item.setText(2, "")
-        else:
-            item.setText(0, f"[D] {name}/")
-            item.setText(1, node_type)
-            item.setText(2, "")
+        # 设置适当的高度
+        item.setSizeHint(0, node_widget.sizeHint())
 
         # 添加该目录下的文件
         files = node_data.get('files', [])
@@ -269,142 +711,96 @@ class DirectorySection(BaseSection):
         item = QTreeWidgetItem(parent_item)
         item.setData(0, Qt.ItemDataRole.UserRole, {'type': 'file', 'data': file_data})
 
-        filename = file_data.get('filename', '')
-        file_type = file_data.get('file_type', 'source')
-        status = file_data.get('status', 'pending')
+        # 创建文件节点组件
+        file_widget = FileNodeWidget(file_data)
+        file_widget.editClicked.connect(self._on_edit_file)
+        self.tree_widget.setItemWidget(item, 0, file_widget)
 
-        item.setText(0, f"    {filename}")
-        item.setText(1, self._get_file_type_display(file_type))
-        item.setText(2, self._get_status_display(status))
+        # 设置适当的高度
+        item.setSizeHint(0, file_widget.sizeHint())
 
-    def _get_type_display(self, node_type: str) -> str:
-        """获取目录类型显示文本"""
-        mapping = {
-            'root': '项目根目录',
-            'directory': '目录',
-            'module': '模块',
-            'package': '包',
-            'config': '配置',
-        }
-        return mapping.get(node_type, node_type)
+    def _on_edit_directory(self, node_id: int, node_data: Dict):
+        """编辑目录"""
+        logger.info(f"编辑目录: node_id={node_id}")
 
-    def _get_file_type_display(self, file_type: str) -> str:
-        """获取文件类型显示文本"""
-        mapping = {
-            'source': '源代码',
-            'config': '配置',
-            'test': '测试',
-            'doc': '文档',
-            'resource': '资源',
-        }
-        return mapping.get(file_type, file_type)
+        dialog = DirectoryEditDialog(node_data, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_data()
+            self._save_directory(node_id, data)
 
-    def _get_status_display(self, status: str) -> str:
-        """获取状态显示文本"""
-        mapping = {
-            'pending': '待生成',
-            'generating': '生成中',
-            'generated': '已生成',
-            'reviewed': '已审查',
-            'error': '失败',
-        }
-        return mapping.get(status, status)
+    def _on_edit_file(self, file_id: int, file_data: Dict):
+        """编辑文件"""
+        logger.info(f"编辑文件: file_id={file_id}")
 
-    def _on_context_menu(self, position):
-        """右键菜单"""
-        item = self.tree_widget.itemAt(position)
-        if not item:
-            return
+        dialog = FileEditDialog(file_data, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_data()
+            self._save_file(file_id, data)
 
-        node_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not node_data:
-            return
+    def _save_directory(self, node_id: int, data: Dict):
+        """保存目录修改"""
+        self.loadingRequested.emit("正在保存...")
 
-        menu = QMenu(self)
+        worker = AsyncAPIWorker(
+            self.api_client.update_directory,
+            self.project_id,
+            node_id,
+            description=data.get('description')
+        )
+        worker.success.connect(self._on_directory_saved)
+        worker.error.connect(self._on_save_error)
+        self._register_worker(worker)
+        worker.start()
 
-        # 判断是文件还是目录
-        if isinstance(node_data, dict) and node_data.get('type') == 'file':
-            # 文件节点
-            file_data = node_data.get('data', {})
-            file_id = file_data.get('id')
-            status = file_data.get('status', 'pending')
+    def _save_file(self, file_id: int, data: Dict):
+        """保存文件修改"""
+        self.loadingRequested.emit("正在保存...")
 
-            if status == 'pending':
-                action = QAction("生成Prompt", self)
-                action.triggered.connect(lambda: self._on_generate_file(file_id))
-                menu.addAction(action)
-            else:
-                action = QAction("编辑Prompt", self)
-                action.triggered.connect(lambda: self._on_edit_file(file_id))
-                menu.addAction(action)
-        else:
-            # 目录节点
-            dir_id = node_data.get('id')
-            module_number = node_data.get('module_number')
+        worker = AsyncAPIWorker(
+            self.api_client.update_source_file,
+            self.project_id,
+            file_id,
+            description=data.get('description'),
+            purpose=data.get('purpose'),
+            priority=data.get('priority')
+        )
+        worker.success.connect(self._on_file_saved)
+        worker.error.connect(self._on_save_error)
+        self._register_worker(worker)
+        worker.start()
 
-            if module_number:
-                action = QAction("重新生成该模块目录", self)
-                action.triggered.connect(lambda: self._on_regenerate_module_directory(module_number))
-                menu.addAction(action)
+    def _on_directory_saved(self, result):
+        """目录保存成功"""
+        self.loadingFinished.emit()
+        MessageService.show_success(self, "目录信息已保存")
+        # 刷新显示
+        self._load_directory_tree()
 
-        if menu.actions():
-            menu.exec(self.tree_widget.viewport().mapToGlobal(position))
+    def _on_file_saved(self, result):
+        """文件保存成功"""
+        self.loadingFinished.emit()
+        MessageService.show_success(self, "文件信息已保存")
+        # 刷新显示
+        self._load_directory_tree()
+
+    def _on_save_error(self, error_msg: str):
+        """保存失败"""
+        self.loadingFinished.emit()
+        logger.error(f"保存失败: {error_msg}")
+        MessageService.show_error(self, f"保存失败: {error_msg}")
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
-        """双击项目"""
+        """双击项目 - 如果是文件节点，跳转到编辑"""
         node_data = item.data(0, Qt.ItemDataRole.UserRole)
         if not node_data:
             return
 
-        # 如果是文件节点，跳转到编辑
+        # 如果是文件节点，跳转到Prompt生成页面
         if isinstance(node_data, dict) and node_data.get('type') == 'file':
             file_data = node_data.get('data', {})
             file_id = file_data.get('id')
             if file_id:
                 self.fileClicked.emit(file_id)
-
-    def _on_generate_file(self, file_id: int):
-        """生成文件Prompt"""
-        logger.info(f"生成文件Prompt: file_id={file_id}")
-        self.fileClicked.emit(file_id)
-
-    def _on_edit_file(self, file_id: int):
-        """编辑文件Prompt"""
-        logger.info(f"编辑文件Prompt: file_id={file_id}")
-        self.fileClicked.emit(file_id)
-
-    def _on_regenerate_module_directory(self, module_number: int):
-        """重新生成模块目录"""
-        from components.dialogs import get_regenerate_preference
-
-        module_name = next(
-            (m.get('name', f'模块{module_number}')
-             for m in self.modules if m.get('module_number') == module_number),
-            f'模块{module_number}'
-        )
-
-        preference, ok = get_regenerate_preference(
-            self,
-            title=f"重新生成目录结构 - {module_name}",
-            message=f"模块 [{module_name}] 的目录结构将被重新生成。",
-            placeholder="例如：增加测试目录、调整目录层级、添加配置文件等"
-        )
-        if not ok:
-            return
-
-        self.loadingRequested.emit(f"正在为 {module_name} 生成目录结构...")
-
-        worker = AsyncAPIWorker(
-            self.api_client.generate_directory_structure,
-            self.project_id,
-            module_number,
-            preference=preference,
-            clear_existing=True
-        )
-        worker.success.connect(self._on_directory_generated)
-        worker.error.connect(self._on_generate_error)
-        self._register_worker(worker)
-        worker.start()
 
     def _apply_styles(self):
         """应用样式"""
@@ -419,59 +815,6 @@ class DirectorySection(BaseSection):
                 font-size: {dp(13)}px;
                 margin-left: {dp(12)}px;
             }}
-            QPushButton#agent_plan_btn {{
-                background-color: {theme_manager.SUCCESS};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(14)}px;
-                font-size: {dp(12)}px;
-                font-weight: 500;
-            }}
-            QPushButton#agent_plan_btn:hover {{
-                background-color: {theme_manager.SUCCESS}DD;
-            }}
-            QPushButton#agent_plan_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-            QPushButton#agent_optimize_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(14)}px;
-                font-size: {dp(12)}px;
-                font-weight: 500;
-            }}
-            QPushButton#agent_optimize_btn:hover {{
-                background-color: {theme_manager.PRIMARY}DD;
-            }}
-            QPushButton#agent_optimize_btn:disabled {{
-                background-color: {theme_manager.TEXT_TERTIARY};
-            }}
-            QPushButton#agent_continue_btn {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(14)}px;
-                font-size: {dp(12)}px;
-                font-weight: 500;
-            }}
-            QPushButton#agent_continue_btn:hover {{
-                background-color: {theme_manager.PRIMARY}DD;
-            }}
-            QPushButton#agent_discard_btn {{
-                background-color: transparent;
-                color: {theme_manager.WARNING};
-                border: 1px solid {theme_manager.WARNING};
-                border-radius: {dp(4)}px;
-                padding: {dp(6)}px {dp(12)}px;
-                font-size: {dp(12)}px;
-            }}
-            QPushButton#agent_discard_btn:hover {{
-                background-color: {theme_manager.WARNING}10;
-            }}
             QPushButton#refresh_btn {{
                 background-color: transparent;
                 color: {theme_manager.PRIMARY};
@@ -483,103 +826,36 @@ class DirectorySection(BaseSection):
             QPushButton#refresh_btn:hover {{
                 background-color: {theme_manager.PRIMARY}10;
             }}
-            QFrame#agent_panel {{
-                background-color: {theme_manager.BG_SECONDARY};
-                border: 1px solid {theme_manager.PRIMARY}40;
-                border-radius: {dp(8)}px;
-            }}
-            QLabel#agent_title {{
+            QPushButton#expand_btn, QPushButton#collapse_btn {{
+                background-color: transparent;
                 color: {theme_manager.PRIMARY};
-                font-size: {dp(14)}px;
-                font-weight: 600;
-            }}
-            QLabel#agent_status {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(12)}px;
-                margin-left: {dp(8)}px;
-            }}
-            QPushButton#agent_stop_btn {{
-                background-color: {theme_manager.WARNING};
-                color: white;
-                border: none;
-                border-radius: {dp(4)}px;
-                padding: {dp(4)}px {dp(10)}px;
-                font-size: {dp(11)}px;
-            }}
-            QPushButton#agent_stop_btn:hover {{
-                background-color: {theme_manager.WARNING}DD;
-            }}
-            QCheckBox#detailed_mode_checkbox {{
-                color: {theme_manager.TEXT_SECONDARY};
-                font-size: {dp(11)}px;
-                margin-right: {dp(8)}px;
-            }}
-            QCheckBox#detailed_mode_checkbox::indicator {{
-                width: {dp(14)}px;
-                height: {dp(14)}px;
-            }}
-            QCheckBox#detailed_mode_checkbox::indicator:unchecked {{
-                border: 1px solid {theme_manager.TEXT_TERTIARY};
-                border-radius: {dp(3)}px;
-                background-color: transparent;
-            }}
-            QCheckBox#detailed_mode_checkbox::indicator:checked {{
                 border: 1px solid {theme_manager.PRIMARY};
-                border-radius: {dp(3)}px;
-                background-color: {theme_manager.PRIMARY};
-            }}
-            QPushButton#agent_close_btn {{
-                background-color: transparent;
-                color: {theme_manager.TEXT_SECONDARY};
-                border: 1px solid {theme_manager.TEXT_TERTIARY};
                 border-radius: {dp(4)}px;
-                padding: {dp(4)}px {dp(10)}px;
-                font-size: {dp(11)}px;
+                padding: {dp(6)}px {dp(12)}px;
+                font-size: {dp(12)}px;
             }}
-            QPushButton#agent_close_btn:hover {{
-                background-color: {theme_manager.TEXT_TERTIARY}20;
-            }}
-            QTextEdit#agent_output {{
-                background-color: {theme_manager.BG_PRIMARY};
-                color: {theme_manager.TEXT_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(4)}px;
-                font-family: Consolas, 'Microsoft YaHei', monospace;
-                font-size: {dp(11)}px;
-                padding: {dp(8)}px;
+            QPushButton#expand_btn:hover, QPushButton#collapse_btn:hover {{
+                background-color: {theme_manager.PRIMARY}10;
             }}
             QTreeWidget#directory_tree {{
                 background-color: {theme_manager.book_bg_secondary()};
                 color: {theme_manager.book_text_primary()};
                 border: 1px solid {theme_manager.BORDER_DEFAULT};
                 border-radius: {dp(8)}px;
-                font-family: Consolas, 'Microsoft YaHei', monospace;
-                font-size: {dp(12)}px;
                 padding: {dp(8)}px;
             }}
             QTreeWidget#directory_tree::item {{
-                color: {theme_manager.book_text_primary()};
-                padding: {dp(4)}px 0;
                 border-radius: {dp(4)}px;
+                padding: {dp(2)}px 0;
             }}
             QTreeWidget#directory_tree::item:hover {{
-                background-color: {theme_manager.PRIMARY}15;
+                background-color: {theme_manager.PRIMARY}10;
             }}
             QTreeWidget#directory_tree::item:selected {{
-                background-color: {theme_manager.PRIMARY}25;
-                color: {theme_manager.book_text_primary()};
+                background-color: {theme_manager.PRIMARY}20;
             }}
             QTreeWidget#directory_tree::branch {{
                 background-color: transparent;
-            }}
-            QHeaderView::section {{
-                background-color: {theme_manager.book_bg_primary()};
-                color: {theme_manager.book_text_secondary()};
-                border: none;
-                border-bottom: 1px solid {theme_manager.BORDER_DEFAULT};
-                padding: {dp(8)}px;
-                font-size: {dp(11)}px;
-                font-weight: 500;
             }}
         """)
 
@@ -590,6 +866,23 @@ class DirectorySection(BaseSection):
     def _on_refresh(self):
         """刷新"""
         self._load_directory_tree()
+
+    def _on_expand_all(self):
+        """展开全部目录节点（用于快速核对目录/文件数量）"""
+        if hasattr(self, "tree_widget") and self.tree_widget:
+            self.tree_widget.expandAll()
+
+    def _on_collapse_all(self):
+        """折叠全部目录节点（保留顶层展开）"""
+        if not hasattr(self, "tree_widget") or not self.tree_widget:
+            return
+
+        self.tree_widget.collapseAll()
+        # 保留第一层展开，避免“空白树”的错觉
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            if item:
+                item.setExpanded(True)
 
     def _load_directory_tree(self):
         """加载目录树数据"""
@@ -609,21 +902,22 @@ class DirectorySection(BaseSection):
 
     def _on_directory_tree_loaded(self, result):
         """目录树加载成功"""
-        logger.info(f"目录树加载成功: {result.get('total_directories', 0)} 目录, {result.get('total_files', 0)} 文件")
+        computed = self._compute_tree_stats(result)
+        non_init_files = max(0, computed["total_files"] - computed["init_files"])
+        logger.info(
+            "目录树加载成功: %d 目录, %d 文件（__init__.py=%d, 非__init__.py=%d）",
+            computed["total_directories"],
+            computed["total_files"],
+            computed["init_files"],
+            non_init_files,
+        )
         self.directory_tree = result
         self._data_loaded = True
 
         # 更新统计
         if hasattr(self, 'stats_label') and self.stats_label:
-            total_dirs = result.get('total_directories', 0)
-            total_files = result.get('total_files', 0)
-            stats_text = f"{total_dirs} 目录 / {total_files} 文件"
+            stats_text = self._build_stats_text(result)
             self.stats_label.setText(stats_text)
-
-        # 根据是否有目录结构来显示/隐藏优化按钮
-        has_directories = result.get('total_directories', 0) > 0
-        if hasattr(self, 'agent_optimize_btn'):
-            self.agent_optimize_btn.setVisible(has_directories and not self._has_paused_state)
 
         # 重新填充目录树
         self._populate_tree()
@@ -632,98 +926,6 @@ class DirectorySection(BaseSection):
         """目录树加载失败"""
         logger.warning(f"目录树加载失败: {error_msg}")
         # 不显示错误，可能只是还没有生成目录结构
-
-    def _update_tree_from_agent_data(self, directories: list, files: list):
-        """
-        从Agent事件数据直接更新目录树
-
-        Agent执行过程中数据还未保存到数据库，所以直接使用事件中的数据更新UI。
-
-        Args:
-            directories: 目录列表，每项包含 path, description, purpose
-            files: 文件列表，每项包含 path, filename, module_number, description, quality_ok
-        """
-        logger.info(f"从Agent数据更新目录树: {len(directories)} 目录, {len(files)} 文件")
-
-        # 构建树形结构
-        # 按路径组织文件
-        files_by_dir = {}
-        for f in files:
-            dir_path = "/".join(f.get("path", "").split("/")[:-1]) or "/"
-            if dir_path not in files_by_dir:
-                files_by_dir[dir_path] = []
-            files_by_dir[dir_path].append({
-                "path": f.get("path", ""),
-                "filename": f.get("filename", ""),
-                "module_number": f.get("module_number"),
-                "description": f.get("description", ""),
-                "quality_ok": f.get("quality_ok", True),
-            })
-
-        # 构建目录节点
-        def build_node(dir_info):
-            path = dir_info.get("path", "")
-            return {
-                "path": path,
-                "name": path.split("/")[-1] if "/" in path else path,
-                "description": dir_info.get("description", ""),
-                "purpose": dir_info.get("purpose", ""),
-                "files": files_by_dir.get(path, []),
-                "children": [],
-            }
-
-        # 按路径深度排序目录
-        sorted_dirs = sorted(directories, key=lambda d: d.get("path", "").count("/"))
-
-        # 构建目录树
-        root_nodes = []
-        nodes_by_path = {}
-
-        for dir_info in sorted_dirs:
-            path = dir_info.get("path", "")
-            node = build_node(dir_info)
-            nodes_by_path[path] = node
-
-            # 查找父目录
-            if "/" in path:
-                parent_path = "/".join(path.split("/")[:-1])
-                if parent_path in nodes_by_path:
-                    nodes_by_path[parent_path]["children"].append(node)
-                else:
-                    # 父目录不存在，作为根节点
-                    root_nodes.append(node)
-            else:
-                # 顶级目录
-                root_nodes.append(node)
-
-        # 更新目录树数据
-        self.directory_tree = {
-            "root_nodes": root_nodes,
-            "total_directories": len(directories),
-            "total_files": len(files),
-        }
-
-        # 重新填充目录树UI
-        self._populate_tree()
-        logger.info("目录树UI已从Agent数据更新")
-
-    def _on_directory_generated(self, result):
-        """目录生成完成"""
-        self.loadingFinished.emit()
-        dirs_created = result.get('directories_created', 0)
-        files_created = result.get('files_created', 0)
-        logger.info(f"目录生成完成: {dirs_created} 目录, {files_created} 文件")
-        MessageService.show_success(
-            self,
-            f"成功生成 {dirs_created} 个目录和 {files_created} 个文件"
-        )
-        self.refreshRequested.emit()
-
-    def _on_generate_error(self, error_msg: str):
-        """生成失败"""
-        self.loadingFinished.emit()
-        logger.error(f"目录生成失败: {error_msg}")
-        MessageService.show_error(self, f"生成失败：{error_msg}")
 
     def updateData(
         self,
@@ -738,665 +940,13 @@ class DirectorySection(BaseSection):
 
         # 更新统计
         if hasattr(self, 'stats_label') and self.stats_label:
-            total_dirs = self.directory_tree.get('total_directories', 0)
-            total_files = self.directory_tree.get('total_files', 0)
-            stats_text = f"{total_dirs} 目录 / {total_files} 文件"
+            stats_text = self._build_stats_text(self.directory_tree)
             self.stats_label.setText(stats_text)
 
         self._populate_tree()
 
-    # ==================== Agent规划相关方法 ====================
-
-    def _on_agent_plan(self):
-        """开始Agent规划"""
-        if not self.project_id:
-            MessageService.show_warning(self, "请先保存项目")
-            return
-
-        # 检查是否有模块
-        if not self.modules:
-            MessageService.show_warning(
-                self,
-                "请先在「架构设计」Tab中生成系统和模块划分"
-            )
-            return
-
-        # 检查是否已有目录结构
-        total_dirs = self.directory_tree.get('total_directories', 0)
-        if total_dirs > 0:
-            confirmed = MessageService.confirm(
-                self,
-                message="项目已有目录结构，重新规划将清除现有的所有目录和文件。\n\n确定要继续吗？",
-                title="重新规划目录结构",
-                confirm_text="确定",
-                cancel_text="取消",
-            )
-            if not confirmed:
-                return
-
-        logger.info(f"开始Agent规划: project_id={self.project_id}")
-
-        # 显示Agent面板
-        self.agent_panel.setVisible(True)
-        self.agent_output.clear()
-        self.agent_status_label.setText("正在连接...")
-        self.agent_plan_btn.setEnabled(False)
-        self.agent_stop_btn.setEnabled(True)
-
-        # 启动SSE连接，设置clear_existing=True清除旧目录
-        url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"clear_existing": True})
-        # 连接所有必要的信号
-        # progress_received: SSEWorker内置的progress事件处理
-        self._sse_worker.progress_received.connect(self._on_progress_received)
-        # complete: SSEWorker内置的complete事件处理
-        self._sse_worker.complete.connect(self._on_complete_received)
-        # event_received: 自定义事件（structure, state_saved等）
-        self._sse_worker.event_received.connect(self._on_agent_event)
-        self._sse_worker.error.connect(self._on_agent_error)
-        self._sse_worker.finished.connect(self._on_agent_finished)
-        self._sse_worker.start()
-
-    def _on_agent_optimize(self):
-        """仅优化现有目录结构"""
-        if not self.project_id:
-            MessageService.show_warning(self, "请先保存项目")
-            return
-
-        # 检查是否有模块
-        if not self.modules:
-            MessageService.show_warning(
-                self,
-                "请先在「架构设计」Tab中生成系统和模块划分"
-            )
-            return
-
-        # 检查是否有目录结构
-        total_dirs = self.directory_tree.get('total_directories', 0)
-        if total_dirs == 0:
-            MessageService.show_warning(
-                self,
-                "项目没有目录结构，请先使用「Agent规划整个项目」生成"
-            )
-            return
-
-        logger.info(f"开始优化目录结构: project_id={self.project_id}")
-
-        # 显示Agent面板
-        self.agent_panel.setVisible(True)
-        self.agent_output.clear()
-        self.agent_status_label.setText("正在连接...")
-        self.agent_plan_btn.setEnabled(False)
-        self.agent_optimize_btn.setEnabled(False)
-        self.agent_stop_btn.setEnabled(True)
-
-        self._append_agent_output("[系统] 从现有目录结构开始优化...\n", "info")
-
-        # 启动SSE连接，使用plan-v2端点但不清除现有结构
-        url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"clear_existing": False})
-        # 连接所有必要的信号
-        self._sse_worker.progress_received.connect(self._on_progress_received)
-        self._sse_worker.complete.connect(self._on_complete_received)
-        self._sse_worker.event_received.connect(self._on_agent_event)
-        self._sse_worker.error.connect(self._on_agent_error)
-        self._sse_worker.finished.connect(self._on_agent_finished)
-        self._sse_worker.start()
-
-    def _on_progress_received(self, data: dict):
-        """处理SSEWorker的progress_received信号"""
-        self._on_agent_event("progress", data)
-
-    def _on_complete_received(self, data: dict):
-        """处理SSEWorker的complete信号"""
-        self._on_agent_event("complete", data)
-
-    def _on_agent_event(self, event_type: str, data: dict):
-        """处理Agent事件（兼容新V2 API和旧API事件）"""
-        # 调试日志：打印所有收到的事件
-        logger.info("[Agent事件] 收到事件: type=%s, data_keys=%s", event_type, list(data.keys()) if data else [])
-
-        # ============ 新V2 API ReAct事件 ============
-
-        # 阶段变化事件
-        if event_type == "phase":
-            phase = data.get("phase", "")
-            message = data.get("message", "")
-            phase_names = {
-                "gathering": "信息收集",
-                "analyzing": "结构分析",
-                "optimizing": "优化中",
-                "finalizing": "最终验证",
-            }
-            phase_name = phase_names.get(phase, phase)
-            self.agent_status_label.setText(phase_name)
-            self._append_agent_output(f"\n{'='*40}\n", "phase")
-            self._append_agent_output(f"[阶段] {message}\n", "phase")
-
-        # Agent思考过程事件
-        elif event_type == "thought":
-            iteration = data.get("iteration", 0)
-            thought = data.get("thought", "")
-            thought_type = data.get("type", "reasoning")
-
-            if thought_type == "reasoning":
-                # 推理思考
-                if self._detailed_mode:
-                    display_thought = thought
-                else:
-                    display_thought = thought[:300] + "..." if len(thought) > 300 else thought
-                self._append_agent_output(f"[思考#{iteration}] {display_thought}\n", "thinking")
-            elif thought_type == "conclusion":
-                # 结论
-                self._append_agent_output(f"[结论] {thought}\n", "success")
-
-        # Agent反思事件
-        elif event_type == "reflection":
-            iteration = data.get("iteration", 0)
-            message = data.get("message", "")
-            self._append_agent_output(f"\n[反思#{iteration}] {message}\n", "warning")
-
-        # 信息收集事件
-        elif event_type == "info_gathered":
-            tool = data.get("tool", "")
-            reason = data.get("reason", "")
-            success = data.get("success", False)
-            round_num = data.get("round", 1)
-
-            status = "成功" if success else "失败"
-            tool_display = tool.replace("get_", "").replace("_", " ").title()
-            self._append_agent_output(f"[收集#{round_num}] {tool_display}: {status}\n", "info")
-            if reason and self._detailed_mode:
-                self._append_agent_output(f"  原因: {reason}\n", "thinking")
-
-        # 信息收集完成
-        elif event_type == "gathering_complete":
-            items = data.get("items_collected", 0)
-            types = data.get("collected_types", [])
-            self._append_agent_output(f"[收集完成] 共收集 {items} 项信息\n", "success")
-            if types and self._detailed_mode:
-                type_list = ", ".join([t.replace("get_", "") for t in types])
-                self._append_agent_output(f"  类型: {type_list}\n", "info")
-
-        # 分析结果事件
-        elif event_type == "analysis":
-            coverage = data.get("coverage_rate", 0) * 100
-            issues = data.get("total_issues", 0)
-            missing = data.get("missing_modules", [])
-            self._append_agent_output(f"[分析结果] 覆盖率: {coverage:.1f}%, 问题数: {issues}\n", "info")
-            if missing:
-                self._append_agent_output(f"[分析结果] 未覆盖模块: {missing[:10]}\n", "warning")
-
-        # 工具执行事件（优化阶段）
-        elif event_type == "action":
-            iteration = data.get("iteration", 0)
-            tool = data.get("tool", "")
-            reasoning = data.get("reasoning", "")
-
-            # 简化工具名显示
-            tool_display = tool.replace("_", " ").title()
-            self._append_agent_output(f"[动作#{iteration}] {tool_display}\n", "action")
-            if reasoning and self._detailed_mode:
-                self._append_agent_output(f"  理由: {reasoning}\n", "info")
-
-        # ============ V2 API基础事件 ============
-        elif event_type == "progress":
-            stage = data.get("stage", "")
-            message = data.get("message", "")
-
-            stage_names = {
-                "phase1": "第一阶段：生成目录结构",
-                "phase1_complete": "第一阶段完成",
-                "phase2": "第二阶段：优化结构",
-                "phase2_complete": "第二阶段完成",
-                "saving": "保存到数据库",
-                "resuming": "正在恢复",
-            }
-            stage_name = stage_names.get(stage, stage)
-            self.agent_status_label.setText(stage_name)
-            self._append_agent_output(f"[进度] {message}\n", "phase")
-
-            # 显示覆盖率信息
-            if "coverage_rate" in data:
-                coverage = data.get("coverage_rate", 0) * 100
-                self._append_agent_output(f"[统计] 模块覆盖率: {coverage:.1f}%\n", "info")
-            if "total_directories" in data:
-                dirs = data.get("total_directories", 0)
-                files = data.get("total_files", 0)
-                self._append_agent_output(f"[统计] 目录: {dirs}, 文件: {files}\n", "info")
-
-        elif event_type == "state_saved":
-            # 状态已保存事件
-            phase = data.get("phase", "")
-            message = data.get("message", "状态已保存")
-            self._append_agent_output(f"[保存] {message}\n", "success")
-
-        elif event_type == "structure":
-            dirs = len(data.get("directories", []))
-            files = len(data.get("files", []))
-            shared = data.get("shared_modules", [])
-            self._append_agent_output(f"\n[结构] 生成了 {dirs} 个目录和 {files} 个文件\n", "success")
-            if shared:
-                self._append_agent_output(f"[结构] 共享模块: {', '.join(shared)}\n", "info")
-            # 立即刷新目录树显示
-            self._load_directory_tree()
-
-        elif event_type == "structure_update":
-            # 实时目录结构更新（Agent执行操作工具后触发）
-            # 注意：此时数据还未保存到数据库，直接使用事件中的数据更新UI
-            logger.info("[Agent事件] 处理structure_update事件，直接更新UI")
-
-            stats = data.get("stats", {})
-            dirs_count = stats.get("total_directories", 0)
-            files_count = stats.get("total_files", 0)
-            covered = stats.get("covered_modules", 0)
-            total = stats.get("total_modules", 0)
-
-            # 更新统计显示
-            if hasattr(self, 'stats_label') and self.stats_label:
-                self.stats_label.setText(f"{dirs_count} 目录 / {files_count} 文件")
-                logger.info("[Agent事件] 更新统计标签: %d 目录 / %d 文件", dirs_count, files_count)
-
-            # 显示进度信息
-            coverage_pct = (covered / total * 100) if total > 0 else 0
-            self._append_agent_output(
-                f"[结构更新] 目录: {dirs_count}, 文件: {files_count}, 覆盖率: {coverage_pct:.0f}%\n",
-                "info"
-            )
-
-            # 直接使用事件数据更新目录树（不从数据库获取，因为数据还没保存）
-            directories = data.get("directories", [])
-            files = data.get("files", [])
-            self._update_tree_from_agent_data(directories, files)
-
-        elif event_type == "complete":
-            self.agent_status_label.setText("规划完成")
-            dirs = data.get("directories_created", 0)
-            files = data.get("files_created", 0)
-            coverage = data.get("coverage_rate", 0) * 100
-            message = data.get("message", "")
-            self._append_agent_output(f"\n[完成] {message}\n", "success")
-            self._append_agent_output(f"[统计] 保存了 {dirs} 个目录和 {files} 个文件，覆盖率 {coverage:.1f}%\n", "success")
-            self.agent_stop_btn.setEnabled(False)
-            # 立即刷新目录树显示
-            self._load_directory_tree()
-
-        elif event_type == "error":
-            error_msg = data.get("message", "未知错误")
-            stage = data.get("stage", "")
-            self.agent_status_label.setText("发生错误")
-            self._append_agent_output(f"\n[错误] {error_msg}\n", "error")
-            if stage:
-                self._append_agent_output(f"[错误] 发生在: {stage}\n", "error")
-            self.agent_stop_btn.setEnabled(False)
-
-        # ============ 旧API事件（保留兼容） ============
-        elif event_type == "workflow_start":
-            self.agent_status_label.setText("开始规划...")
-            self._append_agent_output("[系统] 开始规划目录结构\n", "info")
-
-        elif event_type == "phase_start":
-            phase = data.get("phase", "")
-            phase_names = {
-                "analyzing": "分析阶段",
-                "designing": "设计阶段",
-                "planning": "规划阶段",
-                "validating": "验证阶段",
-                "outputting": "输出阶段",
-            }
-            phase_name = phase_names.get(phase, phase)
-            self.agent_status_label.setText(f"{phase_name}...")
-            self._append_agent_output(f"\n[阶段] 进入{phase_name}\n", "phase")
-
-        elif event_type == "phase_complete":
-            phase = data.get("phase", "")
-            self._append_agent_output(f"[阶段] {phase}完成\n", "phase")
-
-        elif event_type == "thinking":
-            thinking = data.get("content", "")
-            if thinking:
-                if self._detailed_mode:
-                    display_thinking = thinking
-                else:
-                    display_thinking = thinking[:200] + "..." if len(thinking) > 200 else thinking
-                self._append_agent_output(f"[思考] {display_thinking}\n", "thinking")
-
-        elif event_type == "action":
-            tool_name = data.get("tool_name", "")
-            self._append_agent_output(f"[行动] 调用工具: {tool_name}\n", "action")
-
-        elif event_type == "observation":
-            if self._detailed_mode:
-                result = data.get("full_result", "") or data.get("result", "")
-            else:
-                result = data.get("result", "")
-            if result:
-                self._append_agent_output(f"[观察] {result}\n", "observation")
-
-        elif event_type == "directory_planned":
-            dir_path = data.get("path", "")
-            self._append_agent_output(f"[目录] 规划目录: {dir_path}\n", "directory")
-
-        elif event_type == "file_planned":
-            file_path = data.get("path", "")
-            self._append_agent_output(f"[文件] 规划文件: {file_path}\n", "file")
-
-        elif event_type == "structure_ready":
-            self._append_agent_output("\n[系统] 目录结构规划完成\n", "success")
-
-        elif event_type == "save_complete":
-            dirs = data.get("directories_created", 0)
-            files = data.get("files_created", 0)
-            self._append_agent_output(
-                f"\n[保存] 已保存 {dirs} 个目录和 {files} 个文件到数据库\n",
-                "success"
-            )
-
-        elif event_type == "workflow_complete":
-            self.agent_status_label.setText("规划完成")
-            self._append_agent_output("\n[系统] 规划完成!\n", "success")
-            self.agent_stop_btn.setEnabled(False)
-
-        elif event_type == "workflow_error":
-            error_msg = data.get("message", "未知错误")
-            self.agent_status_label.setText("发生错误")
-            self._append_agent_output(f"\n[错误] {error_msg}\n", "error")
-            self.agent_stop_btn.setEnabled(False)
-
-    def _on_detailed_mode_toggled(self, checked: bool):
-        """详细模式切换"""
-        self._detailed_mode = checked
-        mode_text = "详细模式已开启，将显示完整的思考和观察内容" if checked else "详细模式已关闭，内容将被截断显示"
-        self._append_agent_output(f"[系统] {mode_text}\n", "info")
-
-    def _append_agent_output(self, text: str, style: str = "normal"):
-        """追加Agent输出，带样式"""
-        cursor = self.agent_output.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-
-        color_map = {
-            "info": theme_manager.TEXT_SECONDARY,
-            "phase": theme_manager.PRIMARY,
-            "thinking": theme_manager.TEXT_TERTIARY,
-            "action": theme_manager.WARNING,
-            "observation": theme_manager.TEXT_SECONDARY,
-            "directory": theme_manager.SUCCESS,
-            "file": theme_manager.SUCCESS,
-            "success": theme_manager.SUCCESS,
-            "warning": theme_manager.WARNING,
-            "error": theme_manager.ERROR,
-            "normal": theme_manager.TEXT_PRIMARY,
-        }
-        color = color_map.get(style, theme_manager.TEXT_PRIMARY)
-
-        # 将换行符转换为HTML换行标签
-        html_text = text.replace('\n', '<br>')
-        cursor.insertHtml(f'<span style="color: {color};">{html_text}</span>')
-
-        self.agent_output.verticalScrollBar().setValue(
-            self.agent_output.verticalScrollBar().maximum()
-        )
-
-    def _on_agent_error(self, error_msg: str):
-        """Agent错误处理"""
-        logger.error(f"Agent SSE错误: {error_msg}")
-        self.agent_status_label.setText("连接错误")
-        self._append_agent_output(f"\n[错误] 连接失败: {error_msg}\n", "error")
-        self.agent_plan_btn.setEnabled(True)
-        self.agent_optimize_btn.setEnabled(True)
-        self.agent_stop_btn.setEnabled(False)
-
-    def _on_agent_finished(self):
-        """Agent完成处理"""
-        logger.info("Agent规划流程结束")
-        self.agent_plan_btn.setEnabled(True)
-        self.agent_optimize_btn.setEnabled(True)
-        self.agent_continue_btn.setEnabled(True)
-        self.agent_discard_btn.setEnabled(True)
-        self.agent_stop_btn.setEnabled(False)
-        # 刷新目录树和Agent状态
-        self._load_directory_tree()
-        self._check_agent_state()
-
-    def _on_agent_stop(self):
-        """停止Agent"""
-        if not self.project_id:
-            return
-
-        # 先调用API保存状态为暂停
-        self._append_agent_output("\n[系统] 正在保存进度...\n", "info")
-        self.agent_stop_btn.setEnabled(False)
-
-        worker = AsyncAPIWorker(
-            self.api_client.pause_directory_agent,
-            self.project_id,
-            "用户手动停止"
-        )
-        worker.success.connect(self._on_agent_pause_success)
-        worker.error.connect(self._on_agent_pause_error)
-        self._register_worker(worker)
-        worker.start()
-
-    def _on_agent_pause_success(self, result):
-        """暂停成功，断开SSE连接"""
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            self._sse_worker.stop()
-            self._sse_worker = None
-
-        self.agent_status_label.setText("已暂停")
-
-        total_dirs = result.get('total_directories', 0)
-        total_files = result.get('total_files', 0)
-        phase = result.get('current_phase', '')
-
-        self._append_agent_output(
-            f"\n[系统] 进度已保存 ({total_dirs}目录/{total_files}文件)\n",
-            "success"
-        )
-        self._append_agent_output("[系统] 可以稍后点击「继续规划」继续\n", "info")
-
-        self.agent_plan_btn.setEnabled(True)
-        self.agent_continue_btn.setEnabled(True)
-        self.agent_discard_btn.setEnabled(True)
-        self.agent_stop_btn.setEnabled(False)
-
-        # 更新状态信息并刷新按钮
-        self._has_paused_state = True
-        self._paused_state_info = {
-            'has_paused_state': True,
-            'current_phase': phase,
-            'total_directories': total_dirs,
-            'total_files': total_files,
-        }
-        self._update_buttons_for_state()
-
-    def _on_agent_pause_error(self, error_msg: str):
-        """暂停失败，仍然断开连接"""
-        logger.warning(f"暂停Agent失败: {error_msg}")
-
-        # 即使保存失败，也要断开连接
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            self._sse_worker.stop()
-            self._sse_worker = None
-
-        self.agent_status_label.setText("已停止(未保存)")
-        self._append_agent_output(f"\n[警告] 保存进度失败: {error_msg}\n", "warning")
-        self._append_agent_output("[系统] 连接已断开，进度可能丢失\n", "warning")
-
-        self.agent_plan_btn.setEnabled(True)
-        self.agent_stop_btn.setEnabled(False)
-
-        # 延迟检查状态
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(500, self._check_agent_state)
-
-    def _on_agent_panel_close(self):
-        """关闭Agent面板"""
-        # 如果Agent正在运行，先暂停保存状态
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            # 异步保存状态后再关闭
-            worker = AsyncAPIWorker(
-                self.api_client.pause_directory_agent,
-                self.project_id,
-                "用户关闭面板"
-            )
-            worker.success.connect(self._on_panel_close_pause_success)
-            worker.error.connect(self._on_panel_close_pause_error)
-            self._register_worker(worker)
-            worker.start()
-        else:
-            # 没有运行中的Agent，直接关闭
-            self.agent_panel.setVisible(False)
-            self._check_agent_state()
-
-    def _on_panel_close_pause_success(self, result):
-        """面板关闭暂停成功"""
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            self._sse_worker.stop()
-            self._sse_worker = None
-        self.agent_panel.setVisible(False)
-        self.agent_plan_btn.setEnabled(True)
-        self._check_agent_state()
-
-    def _on_panel_close_pause_error(self, error_msg: str):
-        """面板关闭暂停失败"""
-        logger.warning(f"关闭面板时暂停Agent失败: {error_msg}")
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            self._sse_worker.stop()
-            self._sse_worker = None
-        self.agent_panel.setVisible(False)
-        self.agent_plan_btn.setEnabled(True)
-        self._check_agent_state()
-
-    # ==================== Agent状态检查和继续规划 ====================
-
-    def _check_agent_state(self):
-        """检查是否有暂停的Agent状态"""
-        if not self.project_id:
-            self._has_paused_state = False
-            self._paused_state_info = {}
-            self._update_buttons_for_state()
-            return
-
-        worker = AsyncAPIWorker(
-            self.api_client.get_directory_agent_state,
-            self.project_id
-        )
-        worker.success.connect(self._on_agent_state_loaded)
-        worker.error.connect(lambda e: logger.warning(f"检查Agent状态失败: {e}"))
-        self._register_worker(worker)
-        worker.start()
-
-    def _on_agent_state_loaded(self, result):
-        """Agent状态加载完成"""
-        self._has_paused_state = result.get('has_paused_state', False)
-        self._paused_state_info = result
-
-        if self._has_paused_state:
-            logger.info(
-                "检测到暂停的Agent状态: phase=%s, dirs=%d, files=%d",
-                result.get('current_phase', ''),
-                result.get('total_directories', 0),
-                result.get('total_files', 0)
-            )
-
-        self._update_buttons_for_state()
-
-    def _update_buttons_for_state(self):
-        """根据Agent状态更新按钮显示"""
-        has_directories = self.directory_tree.get('total_directories', 0) > 0
-
-        if self._has_paused_state:
-            # 有暂停状态：显示继续和放弃按钮
-            self.agent_continue_btn.setVisible(True)
-            self.agent_discard_btn.setVisible(True)
-            self.agent_plan_btn.setVisible(False)
-            self.agent_optimize_btn.setVisible(False)  # 暂停状态时隐藏优化按钮
-
-            # 更新继续按钮文本，显示进度信息
-            dirs = self._paused_state_info.get('total_directories', 0)
-            files = self._paused_state_info.get('total_files', 0)
-            phase = self._paused_state_info.get('current_phase', '')
-            if dirs > 0 or files > 0:
-                self.agent_continue_btn.setText(f"继续规划 ({dirs}目录/{files}文件)")
-            else:
-                self.agent_continue_btn.setText("继续规划")
-        else:
-            # 无暂停状态：显示规划按钮
-            self.agent_continue_btn.setVisible(False)
-            self.agent_discard_btn.setVisible(False)
-            self.agent_plan_btn.setVisible(True)
-            # 只有在有目录结构时才显示优化按钮
-            self.agent_optimize_btn.setVisible(has_directories)
-
-    def _on_agent_continue(self):
-        """继续规划"""
-        if not self.project_id:
-            return
-
-        logger.info(f"继续Agent规划: project_id={self.project_id}")
-
-        # 显示Agent面板
-        self.agent_panel.setVisible(True)
-        self.agent_output.clear()
-        self.agent_status_label.setText("正在恢复...")
-        self.agent_continue_btn.setEnabled(False)
-        self.agent_discard_btn.setEnabled(False)
-        self.agent_stop_btn.setEnabled(True)
-
-        self._append_agent_output("[系统] 正在从上次中断处继续...\n", "info")
-
-        # 启动SSE连接（带resume参数）
-        url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"resume": True})
-        # 连接所有必要的信号（与_on_agent_plan保持一致）
-        self._sse_worker.progress_received.connect(self._on_progress_received)
-        self._sse_worker.complete.connect(self._on_complete_received)
-        self._sse_worker.event_received.connect(self._on_agent_event)
-        self._sse_worker.error.connect(self._on_agent_error)
-        self._sse_worker.finished.connect(self._on_agent_finished)
-        self._sse_worker.start()
-
-    def _on_agent_discard(self):
-        """放弃暂停状态，重新开始"""
-        confirmed = MessageService.confirm(
-            self,
-            message="确定要放弃已有的规划进度吗？\n\n这将删除保存的状态，您需要重新开始规划。",
-            title="放弃已有进度",
-            confirm_text="确定放弃",
-            cancel_text="取消",
-        )
-        if not confirmed:
-            return
-
-        logger.info(f"放弃Agent状态: project_id={self.project_id}")
-
-        worker = AsyncAPIWorker(
-            self.api_client.clear_directory_agent_state,
-            self.project_id
-        )
-        worker.success.connect(self._on_agent_state_cleared)
-        worker.error.connect(lambda e: MessageService.show_error(self, f"清除状态失败: {e}"))
-        self._register_worker(worker)
-        worker.start()
-
-    def _on_agent_state_cleared(self, result):
-        """Agent状态已清除"""
-        logger.info("Agent状态已清除")
-        self._has_paused_state = False
-        self._paused_state_info = {}
-        self._update_buttons_for_state()
-        MessageService.show_success(self, "已清除保存的进度，可以重新开始规划")
-
     def cleanup(self):
         """清理资源"""
-        if hasattr(self, '_sse_worker') and self._sse_worker:
-            try:
-                self._sse_worker.stop()
-            except Exception:
-                pass
-            self._sse_worker = None
-
         self._cleanup_workers()
 
 

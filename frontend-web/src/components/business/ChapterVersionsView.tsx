@@ -1,54 +1,72 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { BookCard } from '../ui/BookCard';
 import { BookButton } from '../ui/BookButton';
 import { Modal } from '../ui/Modal';
 import { BookTextarea } from '../ui/BookInput';
 import { useToast } from '../feedback/Toast';
-import { Files, RefreshCw, Check, Copy } from 'lucide-react';
+import { writerApi } from '../../api/writer';
+import { Files, RefreshCw, Check, Copy, Loader2 } from 'lucide-react';
 
 const countChars = (text: string) => text.replace(/\s/g, '').length;
 
 interface ChapterVersionsViewProps {
-  versions: string[];
-  selectedIndex: number | null;
-  onSelectVersion: (index: number) => void;
-  onRetryVersion: (index: number, customPrompt?: string) => void;
-  onUseContent?: (content: string) => void;
+  projectId: string;
+  chapterNumber: number;
+  onSelectVersion?: (index: number) => void;
+  onRetryVersion?: (index: number, customPrompt?: string) => void | Promise<void>;
 }
 
 export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
-  versions,
-  selectedIndex,
+  projectId,
+  chapterNumber,
   onSelectVersion,
   onRetryVersion,
-  onUseContent,
 }) => {
   const { addToast } = useToast();
+  const [versions, setVersions] = useState<string[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const safeVersions = useMemo(() => (Array.isArray(versions) ? versions : []), [versions]);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const chapter = await writerApi.getChapter(projectId, chapterNumber);
+      const vs = Array.isArray(chapter.versions) ? chapter.versions : [];
+      setVersions(vs);
+      setSelectedIndex(typeof chapter.selected_version === 'number' ? chapter.selected_version : null);
+    } catch (e) {
+      console.error(e);
+      addToast('获取版本数据失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast, chapterNumber, projectId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const items = useMemo(() => {
-    return safeVersions.map((content, idx) => ({
+    return versions.map((content, idx) => ({
       idx,
       wordCount: countChars(content || ''),
       preview: (content || '').trim().slice(0, 120),
     }));
-  }, [safeVersions]);
+  }, [versions]);
 
-  const [activeIndex, setActiveIndex] = useState<number>(() => {
-    if (typeof selectedIndex === 'number' && selectedIndex >= 0 && selectedIndex < safeVersions.length) return selectedIndex;
-    return 0;
-  });
+  const [activeIndex, setActiveIndex] = useState<number>(0);
 
   useEffect(() => {
-    if (typeof selectedIndex !== 'number') return;
-    if (selectedIndex < 0 || selectedIndex >= safeVersions.length) return;
-    setActiveIndex(selectedIndex);
-  }, [safeVersions.length, selectedIndex]);
+    if (typeof selectedIndex === 'number' && selectedIndex >= 0 && selectedIndex < versions.length) {
+      setActiveIndex(selectedIndex);
+    } else if (versions.length > 0 && activeIndex >= versions.length) {
+      setActiveIndex(0);
+    }
+  }, [activeIndex, selectedIndex, versions.length]);
 
   const [retryIndex, setRetryIndex] = useState<number | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
-  const retryContent = retryIndex === null ? '' : (safeVersions[retryIndex] || '');
+  const retryContent = retryIndex === null ? '' : (versions[retryIndex] || '');
 
   const handleCopy = async (text: string, label: string) => {
     try {
@@ -60,7 +78,46 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
     }
   };
 
-  if (!safeVersions || safeVersions.length === 0) {
+  const handleSelectVersion = async (index: number) => {
+    if (onSelectVersion) {
+      onSelectVersion(index);
+    } else {
+      try {
+        await writerApi.selectVersion(projectId, chapterNumber, index);
+        setSelectedIndex(index);
+        addToast('版本已选择', 'success');
+      } catch (e) {
+        console.error(e);
+        addToast('选择版本失败', 'error');
+      }
+    }
+  };
+
+  const handleRetryVersion = async (index: number, prompt?: string) => {
+    if (onRetryVersion) {
+      await onRetryVersion(index, prompt);
+      await fetchData();
+    } else {
+      try {
+        await writerApi.retryVersion(projectId, chapterNumber, index, prompt);
+        addToast('已提交重新生成任务', 'success');
+        await fetchData();
+      } catch (e) {
+        console.error(e);
+        addToast('重新生成失败', 'error');
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 size={24} className="animate-spin text-book-primary" />
+      </div>
+    );
+  }
+
+  if (!versions || versions.length === 0) {
     return (
       <div className="space-y-4">
         <BookCard className="p-4">
@@ -76,10 +133,9 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
     );
   }
 
-	  const currentContent = safeVersions[activeIndex] || '';
+	  const currentContent = versions[activeIndex] || '';
 	  const currentWordCount = countChars(currentContent || '');
 	  const isSelected = typeof selectedIndex === 'number' && selectedIndex === activeIndex;
-    const canUseContent = Boolean(onUseContent);
 
   return (
     <div className="space-y-4">
@@ -88,15 +144,17 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
           <div className="font-bold text-book-text-main flex items-center gap-2">
             <Files size={16} className="text-book-primary" />
             版本管理
-            <span className="text-xs text-book-text-muted font-normal">共 {safeVersions.length} 个</span>
+            <span className="text-xs text-book-text-muted font-normal">共 {versions.length} 个</span>
             {typeof selectedIndex === 'number' ? (
-              <span className="text-xs text-book-text-muted font-normal">· 已选：版本 {selectedIndex + 1}</span>
+              <span className="text-xs text-book-text-muted font-normal"> 已选：版本 {selectedIndex + 1}</span>
             ) : null}
           </div>
+          <BookButton variant="ghost" size="sm" onClick={fetchData}>
+            <RefreshCw size={14} />
+          </BookButton>
         </div>
 	        <div className="text-[11px] text-book-text-muted mt-2 leading-relaxed">
-	          提示：选择版本会更新后端“已选版本”，并同步刷新写作台编辑器内容（如有未保存修改会提示确认）。
-            {canUseContent ? ' 你也可以使用“填入编辑器”（仅本地，不改变已选版本）。' : ''}
+	          提示：选择版本会更新后端"已选版本"，并同步刷新写作台编辑器内容（如有未保存修改会提示确认）。
 	        </div>
 	      </BookCard>
 
@@ -157,28 +215,10 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
         </div>
 
 	        <div className="mt-4 flex items-center justify-end gap-2">
-            {canUseContent ? (
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const ok = confirm(
-                    '将该版本全文填入编辑器（仅本地，不会改变“已选版本”）。\n\n注意：这会覆盖你当前编辑器内容，未保存修改可能丢失。\n是否继续？'
-                  );
-                  if (!ok) return;
-                  onUseContent?.(currentContent || '');
-                  addToast('已填入编辑器（未保存）', 'success');
-                }}
-                disabled={!currentContent}
-                title="仅将该版本内容填入编辑器（不改已选版本）"
-              >
-                填入编辑器
-              </BookButton>
-            ) : null}
 	          <BookButton
 	            variant={isSelected ? 'ghost' : 'primary'}
 	            size="sm"
-	            onClick={() => onSelectVersion(activeIndex)}
+	            onClick={() => handleSelectVersion(activeIndex)}
 	            disabled={isSelected}
           >
             {isSelected ? '已选择' : '选择该版本'}
@@ -210,10 +250,10 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
             </BookButton>
             <BookButton
               variant="primary"
-              onClick={() => {
+              onClick={async () => {
                 if (retryIndex === null) return;
                 const promptText = customPrompt.trim();
-                onRetryVersion(retryIndex, promptText ? promptText : undefined);
+                await handleRetryVersion(retryIndex, promptText ? promptText : undefined);
                 setRetryIndex(null);
               }}
             >
@@ -231,7 +271,7 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
             placeholder="例如：加强冲突、补足动机、提升画面感、减少口水对白…"
           />
           <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-            说明：留空则按系统默认策略重生成该版本；填写则会把你的提示作为优化方向。\n            本操作会更新版本列表，但不会自动覆盖你当前未保存的编辑内容。
+            说明：留空则按系统默认策略重生成该版本；填写则会把你的提示作为优化方向。本操作会更新版本列表，但不会自动覆盖你当前未保存的编辑内容。
           </div>
 
           {retryContent && retryContent.trim() ? (
@@ -240,7 +280,7 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
               <div className="max-h-40 overflow-auto rounded-lg border border-book-border/40 bg-book-bg-paper p-3 custom-scrollbar">
                 <pre className="whitespace-pre-wrap text-book-text-main font-serif leading-relaxed">
                   {retryContent.trim().slice(0, 600)}
-                  {retryContent.trim().length > 600 ? '\n…' : ''}
+                  {retryContent.trim().length > 600 ? '\n...' : ''}
                 </pre>
               </div>
             </div>

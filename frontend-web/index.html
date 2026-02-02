@@ -8,6 +8,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Portal 容器：用于 Dropdown/浮层等，避免直接渲染到 body 导致的 DOM 插入顺序异常 -->
+    <div id="afn-portal-root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

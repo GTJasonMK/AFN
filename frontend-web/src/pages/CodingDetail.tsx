@@ -1,22 +1,34 @@
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { codingApi, CodingDependency, CodingModule, CodingSystem } from '../api/coding';
+import { codingApi, CodingDependency, CodingFilePriority, CodingModule, CodingSystem } from '../api/coding';
 import { DirectoryTree } from '../components/coding/DirectoryTree';
 import { Editor } from '../components/business/Editor'; // Reuse Editor for now
-import { ArrowLeft, Layout, Code, FileCode, Boxes, Layers, GitBranch, RefreshCw, Plus, Wand2, Sparkles, Database, Search } from 'lucide-react';
+import { FileCode, GitBranch, RefreshCw, Wand2, Sparkles, Database, Search, Layout } from 'lucide-react';
 import { BookButton } from '../components/ui/BookButton';
 import { useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/feedback/Toast';
+import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
 
-type CodingTab = 'files' | 'blueprint' | 'systems' | 'modules' | 'dependencies' | 'rag';
+// 照抄桌面端 coding_detail/mixins/tab_manager.py 的Tab配置
+type CodingTab = 'overview' | 'architecture' | 'directory' | 'generation';
 
 export const CodingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { addToast } = useToast();
+
+  // 对齐桌面端：从 CodingDetail 可直达 CodingDesk，并可携带 fileId 定位到指定文件
+  const openCodingDesk = useCallback(
+    (fileId?: number) => {
+      if (!id) return;
+      const fid = typeof fileId === 'number' && Number.isFinite(fileId) && fileId > 0 ? fileId : null;
+      navigate(fid ? `/coding/desk/${id}?fileId=${fid}` : `/coding/desk/${id}`);
+    },
+    [id, navigate]
+  );
   
   // 可选偏好弹窗：替代浏览器 prompt()，统一交互体验
   const pendingPreferenceActionRef = useRef<((preference?: string) => void | Promise<void>) | null>(null);
@@ -25,16 +37,60 @@ export const CodingDetail: React.FC = () => {
   const [preferenceModalHint, setPreferenceModalHint] = useState<string | null>(null);
   const [preferenceModalValue, setPreferenceModalValue] = useState('');
 
-  const [activeTab, setActiveTab] = useState<CodingTab>('files');
+  const [activeTab, setActiveTab] = useState<CodingTab>('overview');
+  const activeTabStorageKey = useMemo(() => (id ? `afn:coding_detail:active_tab:${id}` : ''), [id]);
+
+  // 对齐桌面端“页缓存”体验：Web 侧记忆上次停留的 Tab（避免路由重建后总回到 overview）
+  useEffect(() => {
+    if (!activeTabStorageKey) return;
+    try {
+      const saved = localStorage.getItem(activeTabStorageKey) || '';
+      if (saved === 'overview' || saved === 'architecture' || saved === 'directory' || saved === 'generation') {
+        setActiveTab(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeTabStorageKey]);
+
+  useEffect(() => {
+    if (!activeTabStorageKey) return;
+    try {
+      localStorage.setItem(activeTabStorageKey, activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, activeTabStorageKey]);
 
   const [project, setProject] = useState<any>(null);
   const [treeData, setTreeData] = useState<any>(null);
+  const [treeExpandAllToken, setTreeExpandAllToken] = useState(0);
+  const [treeCollapseAllToken, setTreeCollapseAllToken] = useState(0);
+  const [selectedDirectory, setSelectedDirectory] = useState<any>(null);
   const [currentFile, setCurrentFile] = useState<any>(null);
   const [content, setContent] = useState('');
   const [versions, setVersions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // File info modal（对齐桌面端 DirectorySection 的“编辑文件信息”能力）
+  const [isFileInfoModalOpen, setIsFileInfoModalOpen] = useState(false);
+  const [fileInfoForm, setFileInfoForm] = useState<{
+    description: string;
+    purpose: string;
+    priority: CodingFilePriority;
+  }>({
+    description: '',
+    purpose: '',
+    priority: 'medium',
+  });
+  const [fileInfoSaving, setFileInfoSaving] = useState(false);
+
+  // Directory info modal（对齐桌面端 DirectorySection 的“编辑目录信息”能力）
+  const [isDirectoryInfoModalOpen, setIsDirectoryInfoModalOpen] = useState(false);
+  const [directoryInfoForm, setDirectoryInfoForm] = useState<{ description: string }>({ description: '' });
+  const [directoryInfoSaving, setDirectoryInfoSaving] = useState(false);
 
   const [systems, setSystems] = useState<CodingSystem[]>([]);
   const [modules, setModules] = useState<CodingModule[]>([]);
@@ -69,11 +125,6 @@ export const CodingDetail: React.FC = () => {
   const [targetSystemNumber, setTargetSystemNumber] = useState<number | ''>('');
   const [genAllRunning, setGenAllRunning] = useState(false);
   const [genAllLogs, setGenAllLogs] = useState<string[]>([]);
-
-  // Dependencies add form
-  const [depFrom, setDepFrom] = useState('');
-  const [depTo, setDepTo] = useState('');
-  const [depDesc, setDepDesc] = useState('');
 
   // RAG
   const [ragCompleteness, setRagCompleteness] = useState<any | null>(null);
@@ -122,6 +173,16 @@ export const CodingDetail: React.FC = () => {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  }, [id]);
+
+  const refreshTreeData = useCallback(async () => {
+    if (!id) return;
+    try {
+      const tree = await codingApi.getDirectoryTree(id);
+      setTreeData(tree);
+    } catch (e) {
+      console.error(e);
     }
   }, [id]);
 
@@ -203,15 +264,20 @@ export const CodingDetail: React.FC = () => {
     }
   }, [addToast, id]);
 
-  const ingestRag = useCallback(async (force: boolean) => {
-    if (!id) return;
-    if (force) {
-      const ok = confirm('强制全量入库会对所有类型重新入库，耗时更长。是否继续？');
-      if (!ok) return;
-    }
-    setRagIngesting(true);
-    try {
-      const res = await codingApi.ingestAllRagData(id, force);
+	  const ingestRag = useCallback(async (force: boolean) => {
+	    if (!id) return;
+	    if (force) {
+	      const ok = await confirmDialog({
+	        title: '确认入库',
+	        message: '强制全量入库会对所有类型重新入库，耗时更长。是否继续？',
+	        confirmText: '继续',
+	        dialogType: 'warning',
+	      });
+	      if (!ok) return;
+	    }
+	    setRagIngesting(true);
+	    try {
+	      const res = await codingApi.ingestAllRagData(id, force);
       if (res.success) {
         addToast('RAG 入库完成', 'success');
       } else {
@@ -245,17 +311,18 @@ export const CodingDetail: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
-    if (activeTab === 'systems') {
-      refreshSystems();
-    }
-    if (activeTab === 'modules') {
+    // 概览Tab需要加载系统和模块数据
+    if (activeTab === 'overview') {
       Promise.allSettled([refreshSystems(), refreshModules()]);
     }
-    if (activeTab === 'dependencies') {
-      Promise.allSettled([refreshModules(), refreshDependencies()]);
+    // 架构设计Tab需要加载系统和模块数据
+    if (activeTab === 'architecture') {
+      Promise.allSettled([refreshSystems(), refreshModules()]);
     }
-    if (activeTab === 'rag') {
-      refreshRagCompleteness();
+    // 目录结构Tab只需要目录树（已在loadData中加载）
+    // 生成管理Tab需要RAG和依赖数据
+    if (activeTab === 'generation') {
+      Promise.allSettled([refreshModules(), refreshDependencies(), refreshRagCompleteness()]);
     }
   }, [activeTab, id, refreshDependencies, refreshModules, refreshRagCompleteness, refreshSystems]);
 
@@ -263,20 +330,46 @@ export const CodingDetail: React.FC = () => {
     return [...new Set(systems.map((s) => Number(s.system_number || 0)).filter((n) => n > 0))].sort((a, b) => a - b);
   }, [systems]);
 
+  const currentFileBaseContent = useMemo(() => {
+    if (!currentFile) return '';
+    return String((currentFile as any).content ?? (currentFile as any).description ?? '// 暂无内容');
+  }, [currentFile]);
+
+  const isCurrentFileDirty = useMemo(() => {
+    if (!currentFile) return false;
+    return content !== currentFileBaseContent;
+  }, [content, currentFile, currentFileBaseContent]);
+
+  const allSourceFiles = useMemo(() => {
+    const out: any[] = [];
+    const walk = (nodes: any[]) => {
+      if (!Array.isArray(nodes)) return;
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue;
+        const files = Array.isArray((node as any).files) ? (node as any).files : [];
+        for (const f of files) out.push(f);
+        const children = Array.isArray((node as any).children) ? (node as any).children : [];
+        if (children.length > 0) walk(children);
+      }
+    };
+    walk(Array.isArray(treeData?.root_nodes) ? treeData.root_nodes : []);
+    return out;
+  }, [treeData]);
+
+  const generatedSourceFiles = useMemo(() => {
+    return allSourceFiles
+      .filter((f) => Boolean(f?.has_content))
+      .sort((a, b) => String(a?.file_path || a?.filename || '').localeCompare(String(b?.file_path || b?.filename || '')));
+  }, [allSourceFiles]);
+
+  const generatedTotalVersions = useMemo(() => {
+    return generatedSourceFiles.reduce((acc, f) => acc + Number(f?.version_count || 0), 0);
+  }, [generatedSourceFiles]);
+
   useEffect(() => {
     if (targetSystemNumber !== '' || sortedSystemNumbers.length === 0) return;
     setTargetSystemNumber(sortedSystemNumbers[0]);
   }, [sortedSystemNumbers, targetSystemNumber]);
-
-  const moduleNameOptions = useMemo(() => {
-    return [...new Set(modules.map((m) => String(m.name || '')).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  }, [modules]);
-
-  const openCreateSystem = () => {
-    setEditingSystem(null);
-    setSystemForm({ name: '', description: '', responsibilitiesText: '', techRequirements: '' });
-    setIsSystemModalOpen(true);
-  };
 
   const openEditSystem = (sys: CodingSystem) => {
     setEditingSystem(sys);
@@ -330,28 +423,38 @@ export const CodingDetail: React.FC = () => {
     }
   };
 
-  const deleteSystem = async (sys: CodingSystem) => {
-    if (!id) return;
-    const ok = confirm(`确定要删除系统「${sys.name}」吗？（会同时删除关联模块）`);
-    if (!ok) return;
-    try {
-      await codingApi.deleteSystem(id, sys.system_number);
-      addToast('系统已删除', 'success');
-      await Promise.allSettled([refreshSystems(), refreshModules()]);
+	  const deleteSystem = async (sys: CodingSystem) => {
+	    if (!id) return;
+	    const ok = await confirmDialog({
+	      title: '删除系统',
+	      message: `确定要删除系统「${sys.name}」吗？\n（会同时删除关联模块）`,
+	      confirmText: '删除',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
+	    try {
+	      await codingApi.deleteSystem(id, sys.system_number);
+	      addToast('系统已删除', 'success');
+	      await Promise.allSettled([refreshSystems(), refreshModules()]);
     } catch (e) {
       console.error(e);
       addToast('删除失败', 'error');
     }
   };
 
-	  const generateSystems = async () => {
-	    if (!id) return;
-	    const ok = confirm('自动生成系统将删除当前所有系统/模块数据并重建。是否继续？');
-	    if (!ok) return;
-      openPreferenceModal({
-        title: '输入偏好指导（可选）',
-        hint: '留空则按默认策略生成；填写可指定技术栈/分层/命名习惯等偏好。',
-        onConfirm: async (preference?: string) => {
+		  const generateSystems = async () => {
+		    if (!id) return;
+		    const ok = await confirmDialog({
+		      title: '自动生成系统',
+		      message: '自动生成系统将删除当前所有系统/模块数据并重建。\n是否继续？',
+		      confirmText: '继续',
+		      dialogType: 'danger',
+		    });
+		    if (!ok) return;
+	      openPreferenceModal({
+	        title: '输入偏好指导（可选）',
+	        hint: '留空则按默认策略生成；填写可指定技术栈/分层/命名习惯等偏好。',
+	        onConfirm: async (preference?: string) => {
           try {
             setTabLoading(true);
             const list = await codingApi.generateSystems(id, { preference: preference || undefined });
@@ -367,19 +470,6 @@ export const CodingDetail: React.FC = () => {
         },
       });
 	  };
-
-  const openCreateModule = () => {
-    setEditingModule(null);
-    setModuleForm({
-      systemNumber: targetSystemNumber === '' ? '' : targetSystemNumber,
-      name: '',
-      type: 'service',
-      description: '',
-      iface: '',
-      dependenciesText: '',
-    });
-    setIsModuleModalOpen(true);
-  };
 
   const openEditModule = (m: CodingModule) => {
     setEditingModule(m);
@@ -443,33 +533,43 @@ export const CodingDetail: React.FC = () => {
     }
   };
 
-  const deleteModule = async (m: CodingModule) => {
-    if (!id) return;
-    const ok = confirm(`确定要删除模块「${m.name}」吗？`);
-    if (!ok) return;
-    try {
-      await codingApi.deleteModule(id, m.module_number);
-      addToast('模块已删除', 'success');
-      await Promise.allSettled([refreshModules(), refreshSystems(), refreshDependencies()]);
+	  const deleteModule = async (m: CodingModule) => {
+	    if (!id) return;
+	    const ok = await confirmDialog({
+	      title: '删除模块',
+	      message: `确定要删除模块「${m.name}」吗？`,
+	      confirmText: '删除',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
+	    try {
+	      await codingApi.deleteModule(id, m.module_number);
+	      addToast('模块已删除', 'success');
+	      await Promise.allSettled([refreshModules(), refreshSystems(), refreshDependencies()]);
     } catch (e) {
       console.error(e);
       addToast('删除失败', 'error');
     }
   };
 
-	  const generateModulesForSystem = async () => {
-	    if (!id) return;
-	    const sysNo = Number(targetSystemNumber || 0);
-	    if (!sysNo) {
-	      addToast('请选择系统', 'error');
-	      return;
-	    }
-	    const ok = confirm(`为系统 #${sysNo} 生成模块？（会覆盖该系统下旧模块）`);
-	    if (!ok) return;
-      openPreferenceModal({
-        title: '输入偏好指导（可选）',
-        hint: '留空则按默认策略生成；填写可指定模块边界/命名/依赖倾向等。',
-        onConfirm: async (preference?: string) => {
+		  const generateModulesForSystem = async () => {
+		    if (!id) return;
+		    const sysNo = Number(targetSystemNumber || 0);
+		    if (!sysNo) {
+		      addToast('请选择系统', 'error');
+		      return;
+		    }
+		    const ok = await confirmDialog({
+		      title: '生成模块',
+		      message: `为系统 #${sysNo} 生成模块？\n（会覆盖该系统下旧模块）`,
+		      confirmText: '覆盖生成',
+		      dialogType: 'warning',
+		    });
+		    if (!ok) return;
+	      openPreferenceModal({
+	        title: '输入偏好指导（可选）',
+	        hint: '留空则按默认策略生成；填写可指定模块边界/命名/依赖倾向等。',
+	        onConfirm: async (preference?: string) => {
           try {
             setTabLoading(true);
             await codingApi.generateModules(id, { systemNumber: sysNo, preference: preference || undefined });
@@ -534,14 +634,19 @@ export const CodingDetail: React.FC = () => {
     return () => disconnectModulesStream();
   }, [disconnectModulesStream]);
 
-	  const startGenerateAllModules = async () => {
-	    if (!id) return;
-	    const ok = confirm('为所有系统批量生成模块（SSE流式）？这会逐个系统覆盖其旧模块。');
-	    if (!ok) return;
-      openPreferenceModal({
-        title: '输入偏好指导（可选）',
-        hint: '留空则按默认策略生成；填写可指定模块风格/依赖策略等偏好。',
-        onConfirm: async (preference?: string) => {
+		  const startGenerateAllModules = async () => {
+		    if (!id) return;
+		    const ok = await confirmDialog({
+		      title: '批量生成模块',
+		      message: '为所有系统批量生成模块（SSE流式）？\n这会逐个系统覆盖其旧模块。',
+		      confirmText: '继续',
+		      dialogType: 'warning',
+		    });
+		    if (!ok) return;
+	      openPreferenceModal({
+	        title: '输入偏好指导（可选）',
+	        hint: '留空则按默认策略生成；填写可指定模块风格/依赖策略等偏好。',
+	        onConfirm: async (preference?: string) => {
           const { endpoint, body } = codingApi.generateAllModulesStream(id, { preference: preference || undefined });
           setGenAllRunning(true);
           setGenAllLogs(['初始化…']);
@@ -549,29 +654,6 @@ export const CodingDetail: React.FC = () => {
         },
       });
 	  };
-
-  const addDependency = async () => {
-    if (!id) return;
-    const from = depFrom.trim();
-    const to = depTo.trim();
-    if (!from || !to) {
-      addToast('请选择源模块与目标模块', 'error');
-      return;
-    }
-    if (from === to) {
-      addToast('源模块与目标模块不能相同', 'error');
-      return;
-    }
-    try {
-      await codingApi.createDependency(id, { from_module: from, to_module: to, description: depDesc || undefined });
-      addToast('依赖已添加', 'success');
-      setDepDesc('');
-      await Promise.allSettled([refreshDependencies(), refreshModules()]);
-    } catch (e) {
-      console.error(e);
-      addToast('添加失败', 'error');
-    }
-  };
 
   const deleteDependency = async (d: CodingDependency) => {
     if (!id) return;
@@ -587,6 +669,7 @@ export const CodingDetail: React.FC = () => {
 
   const handleSelectFile = async (fileId: number) => {
     if (!id) return;
+    setSelectedDirectory(null);
     try {
       const file = await codingApi.getFile(id, fileId);
       setCurrentFile(file);
@@ -598,6 +681,68 @@ export const CodingDetail: React.FC = () => {
       console.error(e);
     }
   };
+
+  const openFileInfoModal = useCallback(() => {
+    if (!currentFile) return;
+    const raw = String((currentFile as any).priority || '').toLowerCase();
+    const priority: CodingFilePriority = raw === 'high' || raw === 'low' || raw === 'medium' ? raw : 'medium';
+    setFileInfoForm({
+      description: String((currentFile as any).description || ''),
+      purpose: String((currentFile as any).purpose || ''),
+      priority,
+    });
+    setIsFileInfoModalOpen(true);
+  }, [currentFile]);
+
+  const saveFileInfo = useCallback(async () => {
+    if (!id || !currentFile) return;
+    setFileInfoSaving(true);
+    try {
+      await codingApi.updateFileInfo(id, currentFile.id, {
+        description: (fileInfoForm.description || '').trim() || undefined,
+        purpose: (fileInfoForm.purpose || '').trim() || undefined,
+        priority: fileInfoForm.priority,
+      });
+      addToast('文件信息已保存', 'success');
+      setIsFileInfoModalOpen(false);
+
+      // 刷新当前文件与目录树展示
+      const file = await codingApi.getFile(id, currentFile.id);
+      setCurrentFile(file);
+      await refreshTreeData();
+    } catch (e) {
+      console.error(e);
+      addToast('保存失败', 'error');
+    } finally {
+      setFileInfoSaving(false);
+    }
+  }, [addToast, currentFile, fileInfoForm.description, fileInfoForm.priority, fileInfoForm.purpose, id, refreshTreeData]);
+
+  const openDirectoryInfoModal = useCallback(() => {
+    if (!selectedDirectory) return;
+    setDirectoryInfoForm({ description: String((selectedDirectory as any).description || '') });
+    setIsDirectoryInfoModalOpen(true);
+  }, [selectedDirectory]);
+
+  const saveDirectoryInfo = useCallback(async () => {
+    if (!id || !selectedDirectory) return;
+    const nodeId = Number((selectedDirectory as any).id || 0);
+    if (!nodeId) return;
+    setDirectoryInfoSaving(true);
+    try {
+      const desc = (directoryInfoForm.description || '').trim();
+      await codingApi.updateDirectoryInfo(id, nodeId, { description: desc || undefined });
+      addToast('目录信息已保存', 'success');
+      setIsDirectoryInfoModalOpen(false);
+      setSelectedDirectory({ ...(selectedDirectory as any), description: desc });
+      await refreshTreeData();
+    } catch (e) {
+      console.error(e);
+      addToast('保存失败', 'error');
+    } finally {
+      setDirectoryInfoSaving(false);
+    }
+  }, [addToast, directoryInfoForm.description, id, refreshTreeData, selectedDirectory]);
 
   const handleGenerate = async () => {
     if (!id || !currentFile) return;
@@ -619,6 +764,9 @@ export const CodingDetail: React.FC = () => {
 
       const versionList = await codingApi.getFileVersions(id, currentFile.id);
       setVersions(versionList.versions || []);
+
+      // 刷新目录树统计与“已生成内容”列表
+      await refreshTreeData();
     } catch (e) {
       console.error(e);
       addToast('保存失败', 'error');
@@ -627,14 +775,31 @@ export const CodingDetail: React.FC = () => {
     }
   };
 
+  const handleHeaderSave = async () => {
+    if (isSaving) return;
+    if (!currentFile) {
+      addToast('请先在“目录结构”里选择一个文件', 'info');
+      return;
+    }
+    if (!isCurrentFileDirty) {
+      addToast('没有需要保存的修改', 'info');
+      return;
+    }
+    await handleSave();
+  };
+
   const handleSelectVersion = async (index: number) => {
     if (!id || !currentFile) return;
     const target = versions[index];
     if (!target) return;
     try {
       await codingApi.selectFileVersion(id, currentFile.id, target.id);
-      setContent(target.content);
       addToast('已切换版本', 'success');
+      const file = await codingApi.getFile(id, currentFile.id);
+      setCurrentFile(file);
+      setContent(file.content || file.description || target.content);
+      const versionList = await codingApi.getFileVersions(id, currentFile.id);
+      setVersions(versionList.versions || []);
     } catch (e) {
       console.error(e);
       addToast('切换失败', 'error');
@@ -650,7 +815,7 @@ export const CodingDetail: React.FC = () => {
       setIsGenerating(false);
       addToast('生成完成', 'success');
       if (id && currentFile?.id) {
-        handleSelectFile(currentFile.id);
+        Promise.allSettled([handleSelectFile(currentFile.id), loadData()]);
       }
       return;
     }
@@ -666,56 +831,72 @@ export const CodingDetail: React.FC = () => {
 
   if (loading) return <div className="flex h-screen items-center justify-center">加载中...</div>;
 
+  // 照抄桌面端 coding_detail/mixins/tab_manager.py 的Tab配置
   const tabs = [
-    { id: 'files', label: '文件', icon: FileCode },
-    { id: 'blueprint', label: '蓝图', icon: Layout },
-    { id: 'systems', label: '系统', icon: Boxes },
-    { id: 'modules', label: '模块', icon: Layers },
-    { id: 'dependencies', label: '依赖', icon: GitBranch },
-    { id: 'rag', label: 'RAG', icon: Database },
+    { id: 'overview', label: '概览', icon: FileCode },
+    { id: 'architecture', label: '架构设计', icon: Layout },
+    { id: 'directory', label: '目录结构', icon: GitBranch },
+    { id: 'generation', label: '生成管理', icon: Database },
   ] as const;
 
   return (
     <div className="flex flex-col h-screen bg-book-bg">
-      {/* Header */}
-      <div className="h-12 border-b border-book-border bg-book-bg-paper flex items-center px-4 justify-between shrink-0 z-30 shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/')}
-            className="flex items-center text-book-text-sub hover:text-book-primary transition-colors text-sm font-medium"
-          >
-            <ArrowLeft size={16} className="mr-1" />
-            返回列表
-          </button>
-          <div className="font-serif font-bold text-book-text-main text-base tracking-wide flex items-center gap-2">
-            <Code size={16} className="text-book-accent" />
-            {project?.title}
+      {/* Header - 完全照抄桌面端 coding_detail/mixins/header_manager.py */}
+      <div className="h-[110px] border-b border-book-border bg-book-bg-paper flex items-center px-6 gap-4 shrink-0 z-30">
+        {/* 左侧：项目图标 64x64 */}
+        <div className="w-16 h-16 rounded-lg bg-book-primary flex items-center justify-center shrink-0">
+          <span className="text-white text-3xl font-bold">C</span>
+        </div>
+
+        {/* 中间：项目信息区域 */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          {/* 标题行 */}
+          <div className="text-lg font-bold text-book-text-main truncate">
+            {project?.title || '加载中...'}
+          </div>
+          {/* 元信息行：类型 | 状态 */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-0.5 bg-book-bg rounded text-book-text-sub">
+              {project?.blueprint?.project_type_desc || '项目类型'}
+            </span>
+            <span className="text-book-text-muted">|</span>
+            <span className="px-2 py-0.5 bg-book-bg rounded text-book-text-sub">
+              {project?.status || '状态'}
+            </span>
+          </div>
+          {/* 统计信息行 */}
+          <div className="flex items-center gap-4 text-xs text-book-text-muted mt-1">
+            <span>{systems.length} 系统</span>
+            <span>{modules.length} 模块</span>
+            <span>0 功能</span>
+            <span>{Number(treeData?.total_files || 0)} 文件</span>
           </div>
         </div>
-        
-        <div className="flex gap-2">
-          <BookButton size="sm" variant="ghost" onClick={() => navigate(`/coding/inspiration/${id}`)}>
-            <Layout size={16} className="mr-1" /> 架构设计
+
+        {/* 右侧：操作按钮 - 照抄桌面端：保存、进入写作台、返回 */}
+        <div className="flex items-center gap-2 shrink-0">
+          <BookButton
+            size="sm"
+            variant={isCurrentFileDirty ? 'primary' : 'secondary'}
+            onClick={handleHeaderSave}
+            disabled={isSaving}
+            title={
+              !currentFile
+                ? '请先在“目录结构”里选择一个文件'
+                : (isCurrentFileDirty ? '有未保存的修改' : '没有需要保存的修改')
+            }
+          >
+            {isSaving ? '保存中…' : (isCurrentFileDirty ? '保存*' : '保存')}
           </BookButton>
-          <BookButton size="sm" variant="ghost" onClick={() => navigate(`/coding/desk/${id}`)} title="进入编程工作台（文件级 Prompt 编辑/审查/目录规划）">
-            <FileCode size={16} className="mr-1" /> 工作台
+          <BookButton
+            size="sm"
+            variant="primary"
+            onClick={() => openCodingDesk(typeof currentFile?.id === 'number' ? currentFile.id : undefined)}
+          >
+            进入写作台
           </BookButton>
-          {isGenerating && (
-            <BookButton
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                disconnectFileStream();
-                setIsGenerating(false);
-                addToast('已断开生成流（后台任务可能仍在运行）', 'info');
-              }}
-              title="仅断开 SSE 连接（不保证取消后台任务）"
-            >
-              停止生成
-            </BookButton>
-          )}
-          <BookButton size="sm" variant="ghost" onClick={() => setActiveTab('blueprint')}>
-            查看蓝图
+          <BookButton size="sm" variant="secondary" onClick={() => navigate('/')}>
+            返回
           </BookButton>
         </div>
       </div>
@@ -744,22 +925,359 @@ export const CodingDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        {activeTab === 'files' ? (
-          <div className="flex h-full overflow-hidden">
-            {/* Sidebar: File Tree */}
-            <div className="w-64 bg-book-bg-paper border-r border-book-border/60 flex flex-col">
-              <div className="p-3 border-b border-book-border/30 text-xs font-bold text-book-text-sub uppercase tracking-wider">
-                Explorer
+      {/* 照抄桌面端 coding_detail 的4个Tab内容区域 */}
+      <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        {/* Tab 1: 概览 - 照抄 overview.py */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {/* 项目进度Section */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-bold text-book-text-main">项目进度</div>
+                <div className="text-sm font-bold text-book-primary">
+                  {(() => {
+                    let completed = 0;
+                    if (project?.blueprint?.one_sentence_summary || project?.blueprint?.architecture_synopsis) completed++;
+                    if (systems.length > 0) completed++;
+                    if (modules.length > 0) completed++;
+                    if (treeData?.root_nodes?.length > 0) completed++;
+                    return Math.round((completed / 4) * 100);
+                  })()}%
+                </div>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <DirectoryTree data={treeData} onSelectFile={handleSelectFile} />
+              <div className="h-2 bg-book-border rounded-full mb-4">
+                <div
+                  className="h-full bg-book-primary rounded-full transition-all"
+                  style={{
+                    width: `${(() => {
+                      let completed = 0;
+                      if (project?.blueprint?.one_sentence_summary || project?.blueprint?.architecture_synopsis) completed++;
+                      if (systems.length > 0) completed++;
+                      if (modules.length > 0) completed++;
+                      if (treeData?.root_nodes?.length > 0) completed++;
+                      return Math.round((completed / 4) * 100);
+                    })()}%`,
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-book-text-muted">
+                <span className={project?.blueprint ? 'text-green-600' : ''}>1.蓝图</span>
+                <span>--</span>
+                <span className={systems.length > 0 ? 'text-green-600' : ''}>2.系统</span>
+                <span>--</span>
+                <span className={modules.length > 0 ? 'text-green-600' : ''}>3.模块</span>
+                <span>--</span>
+                <span className={treeData?.root_nodes?.length > 0 ? 'text-green-600' : ''}>4.目录</span>
+              </div>
+            </BookCard>
+
+            {/* 项目摘要Section */}
+            <BookCard className="p-5">
+              <div className="text-sm font-bold text-book-text-main mb-3">项目摘要</div>
+              <div className="text-sm text-book-text-main mb-4">
+                {project?.blueprint?.one_sentence_summary || '暂无摘要，请先生成蓝图'}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-book-text-muted">项目类型</div>
+                  <div className="text-sm text-book-text-sub">{project?.blueprint?.project_type_desc || '未定义'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-book-text-muted">目标受众</div>
+                  <div className="text-sm text-book-text-sub">{project?.blueprint?.target_audience || '未定义'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-book-text-muted">技术风格</div>
+                  <div className="text-sm text-book-text-sub">{project?.blueprint?.tech_style || '未定义'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-book-text-muted">项目调性</div>
+                  <div className="text-sm text-book-text-sub">{project?.blueprint?.project_tone || '未定义'}</div>
+                </div>
+              </div>
+              {project?.blueprint?.architecture_synopsis && (
+                <div className="mt-4">
+                  <div className="text-xs text-book-text-muted mb-1">架构概述</div>
+                  <div className="text-sm text-book-text-sub whitespace-pre-wrap">{project.blueprint.architecture_synopsis}</div>
+                </div>
+              )}
+            </BookCard>
+
+            {/* 技术栈Section */}
+            <BookCard className="p-5">
+              <div className="text-sm font-bold text-book-text-main mb-3">技术栈</div>
+              {!project?.blueprint?.tech_stack ? (
+                <div className="text-sm text-book-text-muted">暂无技术栈信息，请先生成蓝图</div>
+              ) : (
+                <>
+                  {project.blueprint.tech_stack.core_constraints && (
+                    <div className="text-sm text-book-text-sub mb-3">
+                      核心约束: {project.blueprint.tech_stack.core_constraints}
+                    </div>
+                  )}
+                  {Array.isArray(project.blueprint.tech_stack.components) && project.blueprint.tech_stack.components.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {project.blueprint.tech_stack.components.slice(0, 8).map((comp: any, idx: number) => {
+                        const name = typeof comp === 'string' ? comp : comp?.name || '';
+                        return (
+                          <span key={idx} className="px-2 py-1 text-xs bg-book-primary/10 text-book-primary rounded border border-book-primary/30">
+                            {name}
+                          </span>
+                        );
+                      })}
+                      {project.blueprint.tech_stack.components.length > 8 && (
+                        <span className="text-xs text-book-text-muted">+{project.blueprint.tech_stack.components.length - 8}</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </BookCard>
+          </div>
+        )}
+
+        {/* Tab 2: 架构设计 - 照抄 architecture.py */}
+        {activeTab === 'architecture' && (
+          <div className="space-y-6">
+            {/* 蓝图概要Section */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-bold text-book-text-main">蓝图概要</div>
+                <BookButton size="sm" variant="primary" onClick={handleGenerateBlueprint}>
+                  <Wand2 size={16} className="mr-1" />
+                  {project?.blueprint ? '重新生成' : '生成蓝图'}
+                </BookButton>
+              </div>
+              {project?.blueprint?.tech_stack && (
+                <div className="p-3 rounded bg-book-bg border border-book-border/40 mb-4">
+                  <div className="text-xs font-bold text-book-text-main mb-2">技术栈</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(project.blueprint.tech_stack.components || []).slice(0, 6).map((comp: any, idx: number) => (
+                      <span key={idx} className="px-2 py-0.5 text-xs bg-book-primary/10 text-book-primary rounded">
+                        {typeof comp === 'string' ? comp : comp?.name || ''}
+                      </span>
+                    ))}
+                  </div>
+                  {project.blueprint.tech_stack.core_constraints && (
+                    <div className="text-xs text-book-text-sub mt-2">约束: {project.blueprint.tech_stack.core_constraints}</div>
+                  )}
+                </div>
+              )}
+              {Array.isArray(project?.blueprint?.core_requirements) && project.blueprint.core_requirements.length > 0 && (
+                <div className="p-3 rounded bg-book-bg border border-book-border/40 mb-4">
+                  <div className="text-xs font-bold text-book-text-main mb-2">核心需求 ({project.blueprint.core_requirements.length})</div>
+                  {project.blueprint.core_requirements.slice(0, 3).map((r: any, idx: number) => (
+                    <div key={idx} className="text-xs text-book-text-sub">- {(r.requirement || '').slice(0, 80)}{(r.requirement || '').length > 80 ? '...' : ''}</div>
+                  ))}
+                  {project.blueprint.core_requirements.length > 3 && (
+                    <div className="text-xs text-book-text-muted italic">... 还有 {project.blueprint.core_requirements.length - 3} 项</div>
+                  )}
+                </div>
+              )}
+              {Array.isArray(project?.blueprint?.technical_challenges) && project.blueprint.technical_challenges.length > 0 && (
+                <div className="p-3 rounded bg-book-bg border border-book-border/40">
+                  <div className="text-xs font-bold text-book-text-main mb-2">技术挑战 ({project.blueprint.technical_challenges.length})</div>
+                  {project.blueprint.technical_challenges.slice(0, 3).map((c: any, idx: number) => (
+                    <div key={idx} className="text-xs text-book-text-sub">- {(c.challenge || '').slice(0, 80)}{(c.challenge || '').length > 80 ? '...' : ''}</div>
+                  ))}
+                  {project.blueprint.technical_challenges.length > 3 && (
+                    <div className="text-xs text-book-text-muted italic">... 还有 {project.blueprint.technical_challenges.length - 3} 项</div>
+                  )}
+                </div>
+              )}
+            </BookCard>
+
+            {/* 项目结构Section */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-base font-bold text-book-text-main">项目结构</div>
+                  <span className="text-sm text-book-text-muted">{systems.length} 系统 / {modules.length} 模块</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <BookButton size="sm" variant="ghost" onClick={startGenerateAllModules} disabled={genAllRunning || tabLoading}>
+                    <Wand2 size={16} className="mr-1" />
+                    一键生成所有模块
+                  </BookButton>
+                  <BookButton size="sm" variant="primary" onClick={generateSystems} disabled={tabLoading}>
+                    <Wand2 size={16} className="mr-1" />
+                    生成系统划分
+                  </BookButton>
+                </div>
+              </div>
+
+              {genAllLogs.length > 0 && (
+                <BookCard className="p-4 mb-4">
+                  <div className="text-xs text-book-text-muted mb-2">生成进度</div>
+                  <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1 text-xs text-book-text-main font-mono">
+                    {genAllLogs.map((line, idx) => (
+                      <div key={idx}>{line}</div>
+                    ))}
+                  </div>
+                </BookCard>
+              )}
+
+              {systems.length === 0 ? (
+                <BookCard className="p-8 text-center">
+                  <div className="text-sm text-book-text-muted">
+                    暂无系统划分<br /><br />
+                    点击「生成系统划分」按钮，AI将自动将项目划分为多个子系统
+                  </div>
+                </BookCard>
+              ) : (
+                <div className="space-y-4">
+                  {systems.map((sys) => {
+                    const sysModules = modules.filter((m) => m.system_number === sys.system_number);
+                    return (
+                      <BookCard key={sys.system_number} className="p-4">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <div className="font-bold text-book-text-main">#{sys.system_number} · {sys.name}</div>
+                            <div className="text-xs text-book-text-muted mt-1">{sysModules.length} 模块 · {sys.generation_status}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <BookButton size="sm" variant="ghost" onClick={() => generateModulesForSystem()} disabled={tabLoading || genAllRunning}>
+                              <Wand2 size={14} className="mr-1" />
+                              生成模块
+                            </BookButton>
+                            <button className="text-xs text-book-primary font-bold hover:underline" onClick={() => openEditSystem(sys)}>编辑</button>
+                            <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteSystem(sys)}>删除</button>
+                          </div>
+                        </div>
+                        {sys.description && (
+                          <div className="text-sm text-book-text-sub mb-3">{sys.description}</div>
+                        )}
+                        {Array.isArray(sys.responsibilities) && sys.responsibilities.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {sys.responsibilities.slice(0, 6).map((r, idx) => (
+                              <span key={idx} className="text-[11px] px-2 py-0.5 rounded-full bg-book-bg border border-book-border/40 text-book-text-sub">{r}</span>
+                            ))}
+                          </div>
+                        )}
+                        {sysModules.length > 0 && (
+                          <div className="border-t border-book-border/30 pt-3 space-y-2">
+                            {sysModules.map((m) => (
+                              <div key={m.module_number} className="flex items-center justify-between p-2 rounded bg-book-bg/50">
+                                <div>
+                                  <span className="text-sm text-book-text-main">#{m.module_number} · {m.name}</span>
+                                  <span className="text-xs text-book-text-muted ml-2">{m.type}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button className="text-xs text-book-primary font-bold hover:underline" onClick={() => openEditModule(m)}>编辑</button>
+                                  <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteModule(m)}>删除</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </BookCard>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: 目录结构 - 照抄 directory.py */}
+        {activeTab === 'directory' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-base font-bold text-book-text-main">目录结构</div>
+                <span className="text-sm text-book-text-muted">
+                  总计 {treeData?.total_directories || 0} 目录 / {treeData?.total_files || 0} 文件
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <BookButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setTreeExpandAllToken((v) => v + 1)}
+                  disabled={!treeData?.root_nodes?.length}
+                >
+                  展开全部
+                </BookButton>
+                <BookButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setTreeCollapseAllToken((v) => v + 1)}
+                  disabled={!treeData?.root_nodes?.length}
+                >
+                  折叠全部
+                </BookButton>
+                <BookButton size="sm" variant="ghost" onClick={loadData} disabled={loading}>
+                  <RefreshCw size={16} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+                  刷新
+                </BookButton>
               </div>
             </div>
 
-            {/* Main: Editor */}
-            <div className="flex-1 min-w-0 bg-book-bg">
-              {currentFile ? (
+            <BookCard className="p-4">
+              {!treeData?.root_nodes?.length ? (
+                <div className="py-8 text-center text-sm text-book-text-muted">
+                  暂无目录结构，请在工作台中使用 Agent 生成
+                </div>
+              ) : (
+                <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
+                  <DirectoryTree
+                    data={treeData}
+                    onSelectFile={handleSelectFile}
+                    onSelectDirectory={setSelectedDirectory}
+                    expandAllToken={treeExpandAllToken}
+                    collapseAllToken={treeCollapseAllToken}
+                  />
+                </div>
+              )}
+            </BookCard>
+
+            {selectedDirectory && (
+              <BookCard className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-book-text-main truncate">
+                      {selectedDirectory.name || '目录'}
+                    </div>
+                    <div className="text-xs text-book-text-muted truncate">
+                      {selectedDirectory.path || ''}
+                    </div>
+                  </div>
+                  <BookButton size="sm" variant="ghost" onClick={openDirectoryInfoModal}>
+                    编辑目录描述
+                  </BookButton>
+                </div>
+                <div className="text-sm text-book-text-sub whitespace-pre-wrap">
+                  {selectedDirectory.description || '暂无描述'}
+                </div>
+              </BookCard>
+            )}
+
+            {currentFile && (
+              <BookCard className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm font-bold text-book-text-main">{currentFile.filename || currentFile.file_path}</div>
+                  <div className="flex items-center gap-2">
+                    <BookButton size="sm" variant="ghost" onClick={openFileInfoModal} disabled={!currentFile}>
+                      编辑信息
+                    </BookButton>
+                    <BookButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => openCodingDesk(typeof currentFile?.id === 'number' ? currentFile.id : undefined)}
+                      disabled={!currentFile}
+                      title="在工作台中打开并定位到该文件"
+                    >
+                      在工作台打开
+                    </BookButton>
+                    <BookButton size="sm" variant="ghost" onClick={handleGenerate} disabled={isGenerating}>
+                      <Wand2 size={16} className={`mr-1 ${isGenerating ? 'animate-spin' : ''}`} />
+                      生成
+                    </BookButton>
+                    <BookButton size="sm" variant="primary" onClick={handleSave} disabled={isSaving}>
+                      {isSaving ? '保存中...' : '保存'}
+                    </BookButton>
+                  </div>
+                </div>
                 <Editor
                   content={content}
                   versions={versions.map((v, idx) => ({
@@ -770,6 +1288,7 @@ export const CodingDetail: React.FC = () => {
                     created_at: v.created_at || new Date().toISOString(),
                     provider: v.provider || 'local',
                   }))}
+                  isDirty={isCurrentFileDirty}
                   isSaving={isSaving}
                   isGenerating={isGenerating}
                   onChange={setContent}
@@ -777,562 +1296,192 @@ export const CodingDetail: React.FC = () => {
                   onGenerate={handleGenerate}
                   onSelectVersion={handleSelectVersion}
                 />
-              ) : (
-                <div className="h-full flex items-center justify-center text-book-text-muted">
-                  选择一个文件查看详情
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="h-full overflow-y-auto p-6 custom-scrollbar">
-            {activeTab === 'blueprint' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-serif font-bold text-lg text-book-text-main flex items-center gap-2">
-                    <Layout size={18} className="text-book-accent" />
-                    架构蓝图
-                  </div>
-                  <BookButton size="sm" variant="primary" onClick={handleGenerateBlueprint}>
-                    <Wand2 size={16} className="mr-1" />
-                    {project?.blueprint ? '重新生成蓝图' : '生成蓝图'}
-                  </BookButton>
-                </div>
-
-                {!project?.blueprint ? (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted leading-relaxed">
-                      当前项目尚未生成蓝图。请先完成“架构设计”对话，或直接点击右上角“生成蓝图”。
-                    </div>
-                  </BookCard>
-                ) : (
-                  <>
-                    <BookCard className="p-5 space-y-2">
-                      <div className="text-sm text-book-text-muted">{project.blueprint.project_type_desc || '（未设置项目类型）'}</div>
-                      <div className="text-lg font-bold text-book-text-main">{project.blueprint.one_sentence_summary || '（暂无一句话概要）'}</div>
-                    </BookCard>
-
-                    <BookCard className="p-5">
-                      <div className="text-xs text-book-text-muted mb-2">架构概述</div>
-                      <div className="text-sm text-book-text-main whitespace-pre-wrap leading-relaxed">
-                        {project.blueprint.architecture_synopsis || '暂无内容'}
-                      </div>
-                    </BookCard>
-
-                    {project.blueprint.tech_stack && (
-                      <BookCard className="p-5">
-                        <div className="text-xs text-book-text-muted mb-2">技术栈</div>
-                        <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed">
-                          {JSON.stringify(project.blueprint.tech_stack, null, 2)}
-                        </pre>
-                      </BookCard>
-                    )}
-
-                    {Array.isArray(project.blueprint.core_requirements) && project.blueprint.core_requirements.length > 0 && (
-                      <BookCard className="p-5">
-                        <div className="text-xs text-book-text-muted mb-3">核心需求</div>
-                        <div className="space-y-2">
-                          {project.blueprint.core_requirements.map((r: any, idx: number) => (
-                            <div key={`req-${idx}`} className="p-3 rounded border border-book-border/40 bg-book-bg">
-                              <div className="text-xs text-book-text-muted">{r.category} · {r.priority}</div>
-                              <div className="text-sm text-book-text-main mt-1">{r.requirement}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </BookCard>
-                    )}
-
-                    {Array.isArray(project.blueprint.technical_challenges) && project.blueprint.technical_challenges.length > 0 && (
-                      <BookCard className="p-5">
-                        <div className="text-xs text-book-text-muted mb-3">技术挑战</div>
-                        <div className="space-y-2">
-                          {project.blueprint.technical_challenges.map((c: any, idx: number) => (
-                            <div key={`ch-${idx}`} className="p-3 rounded border border-book-border/40 bg-book-bg">
-                              <div className="text-xs text-book-text-muted">影响：{c.impact || 'medium'}</div>
-                              <div className="text-sm text-book-text-main mt-1">{c.challenge}</div>
-                              {c.solution_direction ? (
-                                <div className="text-xs text-book-text-muted mt-2 whitespace-pre-wrap">方向：{c.solution_direction}</div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </BookCard>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'systems' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-serif font-bold text-lg text-book-text-main flex items-center gap-2">
-                    <Boxes size={18} className="text-book-primary" />
-                    系统划分
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton size="sm" variant="ghost" onClick={refreshSystems} disabled={tabLoading}>
-                      <RefreshCw size={16} className={`mr-1 ${tabLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </BookButton>
-                    <BookButton size="sm" variant="ghost" onClick={generateSystems} disabled={tabLoading}>
-                      <Wand2 size={16} className="mr-1" />
-                      生成系统
-                    </BookButton>
-                    <BookButton size="sm" variant="primary" onClick={openCreateSystem} disabled={tabLoading}>
-                      <Plus size={16} className="mr-1" />
-                      新增系统
-                    </BookButton>
-                  </div>
-                </div>
-
-                {systems.length === 0 ? (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted">暂无系统。可先生成蓝图，再点击“生成系统”。</div>
-                  </BookCard>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {systems.map((s) => (
-                      <BookCard key={s.system_number} className="p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="font-bold text-book-text-main truncate">
-                              #{s.system_number} · {s.name}
-                            </div>
-                            <div className="text-xs text-book-text-muted mt-1">
-                              模块数：{s.module_count || 0} · 状态：{s.generation_status} · 进度：{s.progress ?? 0}%
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button className="text-xs text-book-primary font-bold hover:underline" onClick={() => openEditSystem(s)}>
-                              编辑
-                            </button>
-                            <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteSystem(s)}>
-                              删除
-                            </button>
-                          </div>
-                        </div>
-
-                        {s.description ? (
-                          <div className="mt-3 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-                            {s.description}
-                          </div>
-                        ) : null}
-
-                        {Array.isArray(s.responsibilities) && s.responsibilities.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {s.responsibilities.slice(0, 8).map((r, idx) => (
-                              <span key={`r-${s.system_number}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full bg-book-bg border border-book-border/40 text-book-text-sub">
-                                {r}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </BookCard>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'modules' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-serif font-bold text-lg text-book-text-main flex items-center gap-2">
-                    <Layers size={18} className="text-book-primary" />
-                    模块列表
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton size="sm" variant="ghost" onClick={() => Promise.allSettled([refreshSystems(), refreshModules()])} disabled={tabLoading}>
-                      <RefreshCw size={16} className={`mr-1 ${tabLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </BookButton>
-                    <BookButton size="sm" variant="ghost" onClick={startGenerateAllModules} disabled={genAllRunning || tabLoading}>
-                      <Wand2 size={16} className="mr-1" />
-                      生成全部模块
-                    </BookButton>
-                    <BookButton size="sm" variant="primary" onClick={openCreateModule} disabled={tabLoading}>
-                      <Plus size={16} className="mr-1" />
-                      新增模块
-                    </BookButton>
-                  </div>
-                </div>
-
-                <BookCard className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="text-xs font-bold text-book-text-sub">目标系统</div>
-                    <select
-                      className="px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                      value={targetSystemNumber}
-                      onChange={(e) => setTargetSystemNumber(e.target.value ? Number(e.target.value) : '')}
-                      disabled={tabLoading || genAllRunning}
-                    >
-                      <option value="">请选择</option>
-                      {sortedSystemNumbers.map((n) => (
-                        <option key={n} value={n}>
-                          系统 #{n}
-                        </option>
-                      ))}
-                    </select>
-                    <BookButton size="sm" variant="secondary" onClick={generateModulesForSystem} disabled={tabLoading || genAllRunning}>
-                      <Wand2 size={16} className="mr-1" />
-                      生成该系统模块
-                    </BookButton>
-                    {genAllRunning && (
-                      <button
-                        className="text-xs text-book-text-muted font-bold hover:underline"
-                        onClick={() => {
-                          disconnectModulesStream();
-                          setGenAllRunning(false);
-                          addToast('已停止模块生成流（后台可能仍在运行）', 'info');
-                        }}
-                      >
-                        停止
-                      </button>
-                    )}
-                  </div>
-                </BookCard>
-
-                {genAllLogs.length > 0 && (
-                  <BookCard className="p-4">
-                    <div className="text-xs text-book-text-muted mb-2">生成进度</div>
-                    <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1 text-xs text-book-text-main">
-                      {genAllLogs.map((line, idx) => (
-                        <div key={`log-${idx}`} className="font-mono whitespace-pre-wrap">
-                          {line}
-                        </div>
-                      ))}
-                    </div>
-                  </BookCard>
-                )}
-
-                {modules.length === 0 ? (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted">暂无模块。可先生成系统，再生成模块。</div>
-                  </BookCard>
-                ) : (
-                  <div className="space-y-3">
-                    {modules
-                      .slice()
-                      .sort((a, b) => Number(a.module_number || 0) - Number(b.module_number || 0))
-                      .map((m) => (
-                        <BookCard key={m.module_number} className="p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-bold text-book-text-main truncate">
-                                #{m.module_number} · {m.name}
-                              </div>
-                              <div className="text-xs text-book-text-muted mt-1">
-                                系统 #{m.system_number} · 类型 {m.type} · 状态 {m.generation_status}
-                              </div>
-                              {m.description ? (
-                                <div className="mt-2 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-                                  {m.description}
-                                </div>
-                              ) : null}
-                              {Array.isArray(m.dependencies) && m.dependencies.length > 0 ? (
-                                <div className="mt-2 text-xs text-book-text-muted">
-                                  依赖：{m.dependencies.join('、')}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button className="text-xs text-book-primary font-bold hover:underline" onClick={() => openEditModule(m)}>
-                                编辑
-                              </button>
-                              <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteModule(m)}>
-                                删除
-                              </button>
-                            </div>
-                          </div>
-                        </BookCard>
-                      ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'dependencies' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-serif font-bold text-lg text-book-text-main flex items-center gap-2">
-                    <GitBranch size={18} className="text-book-primary" />
-                    模块依赖
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton size="sm" variant="ghost" onClick={() => Promise.allSettled([refreshModules(), refreshDependencies()])} disabled={tabLoading}>
-                      <RefreshCw size={16} className={`mr-1 ${tabLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </BookButton>
-                    <BookButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!id) return;
-                        try {
-                          const res = await codingApi.syncDependencies(id);
-                          addToast(res?.message || '已同步依赖关系统计', 'success');
-                          await refreshDependencies();
-                        } catch (e) {
-                          console.error(e);
-                          addToast('同步失败', 'error');
-                        }
-                      }}
-                      disabled={tabLoading}
-                    >
-                      <RefreshCw size={16} className="mr-1" />
-                      同步
-                    </BookButton>
-                  </div>
-                </div>
-
-                <BookCard className="p-4 space-y-3">
-                  <div className="text-xs font-bold text-book-text-sub">新增依赖</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="text-xs font-bold text-book-text-sub">
-                      源模块
-                      <select
-                        className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                        value={depFrom}
-                        onChange={(e) => setDepFrom(e.target.value)}
-                      >
-                        <option value="">请选择</option>
-                        {moduleNameOptions.map((n) => (
-                          <option key={`from-${n}`} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="text-xs font-bold text-book-text-sub">
-                      目标模块
-                      <select
-                        className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                        value={depTo}
-                        onChange={(e) => setDepTo(e.target.value)}
-                      >
-                        <option value="">请选择</option>
-                        {moduleNameOptions.map((n) => (
-                          <option key={`to-${n}`} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="text-xs font-bold text-book-text-sub">
-                      描述（可选）
-                      <input
-                        className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                        value={depDesc}
-                        onChange={(e) => setDepDesc(e.target.value)}
-                        placeholder="例如：调用/事件/共享数据"
-                      />
-                    </label>
-                  </div>
-                  <div className="flex justify-end">
-                    <BookButton size="sm" variant="primary" onClick={addDependency}>
-                      <Plus size={16} className="mr-1" />
-                      添加
-                    </BookButton>
-                  </div>
-                </BookCard>
-
-                {dependencies.length === 0 ? (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted">暂无依赖关系。</div>
-                  </BookCard>
-                ) : (
-                  <div className="space-y-3">
-                    {dependencies.map((d) => (
-                      <BookCard key={`${d.from_module}->${d.to_module}-${d.position}`} className="p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="font-bold text-book-text-main">
-                              {d.from_module} → {d.to_module}
-                            </div>
-                            <div className="text-xs text-book-text-muted mt-1 whitespace-pre-wrap">
-                              {d.description || ''}
-                            </div>
-                          </div>
-                          <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteDependency(d)}>
-                            删除
-                          </button>
-                        </div>
-                      </BookCard>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'rag' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-serif font-bold text-lg text-book-text-main flex items-center gap-2">
-                    <Database size={18} className="text-book-primary" />
-                    RAG / 知识库
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton size="sm" variant="ghost" onClick={refreshRagCompleteness} disabled={ragLoading || ragIngesting}>
-                      <RefreshCw size={16} className={`mr-1 ${ragLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </BookButton>
-                    <BookButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => ingestRag(false)}
-                      disabled={ragLoading || ragIngesting}
-                    >
-                      <Database size={16} className={`mr-1 ${ragIngesting ? 'animate-pulse' : ''}`} />
-                      {ragIngesting ? '入库中…' : '入库'}
-                    </BookButton>
-                    <BookButton
-                      size="sm"
-                      variant="primary"
-                      onClick={() => ingestRag(true)}
-                      disabled={ragLoading || ragIngesting}
-                    >
-                      强制重建
-                    </BookButton>
-                  </div>
-                </div>
-
-                {ragLoading && (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted">RAG 状态加载中…</div>
-                  </BookCard>
-                )}
-
-                {!ragLoading && ragCompleteness && (
-                  <>
-                    <BookCard className="p-4 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-bold text-book-text-main">完整性</div>
-                        <div className={`text-sm font-bold ${ragCompleteness.complete ? 'text-book-primary' : 'text-book-accent'}`}>
-                          {ragCompleteness.complete ? '已完成' : '未完成'}
-                        </div>
-                      </div>
-                      <div className="text-xs text-book-text-muted">
-                        DB：{ragCompleteness.total_db_count} · 向量：{ragCompleteness.total_vector_count}
-                      </div>
-                    </BookCard>
-
-                    <BookCard className="p-4">
-                      <div className="text-xs font-bold text-book-text-sub mb-3">类型明细</div>
-                      <div className="space-y-2">
-                        {Object.entries(ragCompleteness.types || {}).map(([k, v]: any) => {
-                          const complete = Boolean(v?.complete);
-                          const missing = typeof v?.missing === 'number' ? v.missing : null;
-                          const displayName = String(v?.display_name || k);
-                          return (
-                            <div key={k} className="p-3 rounded border border-book-border/40 bg-book-bg">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="font-bold text-book-text-main text-sm truncate">{displayName}</div>
-                                <div className={`text-xs font-bold ${complete ? 'text-book-primary' : 'text-book-accent'}`}>
-                                  {complete ? '完成' : (missing !== null ? `缺 ${missing}` : '未完成')}
-                                </div>
-                              </div>
-                              <div className="text-xs text-book-text-muted mt-1">
-                                DB：{v?.db_count ?? 0} · 向量：{v?.vector_count ?? 0}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </BookCard>
-                  </>
-                )}
-
-                {!ragLoading && !ragCompleteness && (
-                  <BookCard className="p-5">
-                    <div className="text-sm text-book-text-muted leading-relaxed">
-                      暂无法获取 RAG 完整性信息。若后端未启用向量库/嵌入服务，请先在设置中完成配置后再重试。
-                    </div>
-                  </BookCard>
-                )}
-
-                <BookCard className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-bold text-book-text-sub">检索查询</div>
-                    <BookButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={runRagQuery}
-                      disabled={ragQueryLoading || !(ragQuery || '').trim()}
-                    >
-                      <Search size={16} className={`mr-1 ${ragQueryLoading ? 'animate-spin' : ''}`} />
-                      查询
-                    </BookButton>
-                  </div>
-
-                  <input
-                    className="w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                    value={ragQuery}
-                    onChange={(e) => setRagQuery(e.target.value)}
-                    placeholder="输入问题，例如：模块职责/依赖关系/异常处理..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') runRagQuery();
-                    }}
-                  />
-
-                  {ragResult ? (
-                    <div className="space-y-4">
-                      {Array.isArray((ragResult as any).summaries) && (ragResult as any).summaries.length > 0 && (
-                        <div>
-                          <div className="text-xs font-bold text-book-text-sub mb-2">摘要</div>
-                          <div className="space-y-2">
-                            {(ragResult as any).summaries.map((s: any, idx: number) => (
-                              <BookCard key={`s-${s?.chapter_number ?? 'unknown'}-${idx}`} className="p-3 bg-book-bg/50 border-book-border/50">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-bold text-book-text-main truncate">{s?.title || `条目 ${idx + 1}`}</div>
-                                  <div className="text-[10px] text-book-text-muted font-mono">
-                                    {typeof s?.score === 'number' ? s.score.toFixed(3) : ''}
-                                  </div>
-                                </div>
-                                <div className="text-xs text-book-text-muted mt-2 whitespace-pre-wrap leading-relaxed">{s?.summary || ''}</div>
-                              </BookCard>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {Array.isArray((ragResult as any).chunks) && (ragResult as any).chunks.length > 0 && (
-                        <div>
-                          <div className="text-xs font-bold text-book-text-sub mb-2">片段</div>
-                          <div className="space-y-2">
-                            {(ragResult as any).chunks.map((c: any, idx: number) => (
-                              <BookCard key={`c-${c?.chapter_number ?? 'unknown'}-${idx}`} className="p-3 bg-book-bg/50 border-book-border/50">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-bold text-book-text-main truncate">
-                                    {c?.data_type ? `[${c.data_type}] ` : ''}{c?.source || 'unknown'}
-                                  </div>
-                                  <div className="text-[10px] text-book-text-muted font-mono">
-                                    {typeof c?.score === 'number' ? c.score.toFixed(3) : ''}
-                                  </div>
-                                </div>
-                                <div className="text-xs text-book-text-muted mt-2 whitespace-pre-wrap leading-relaxed">{c?.content || ''}</div>
-                              </BookCard>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {(!(ragResult as any).summaries?.length && !(ragResult as any).chunks?.length) && (
-                        <div className="py-10 text-center text-book-text-muted text-sm">未命中结果</div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="py-10 text-center text-book-text-muted text-xs">
-                      <Sparkles size={22} className="mx-auto mb-2 opacity-70" />
-                      输入问题以检索已入库的项目知识
-                    </div>
-                  )}
-                </BookCard>
-              </div>
+              </BookCard>
             )}
           </div>
         )}
-	      </div>
+
+        {/* Tab 4: 生成管理 - 照抄 generation.py */}
+        {activeTab === 'generation' && (
+          <div className="space-y-6">
+            {/* RAG状态Section */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-bold text-book-text-main">RAG状态</div>
+                <div className="flex items-center gap-2">
+                  <BookButton size="sm" variant="ghost" onClick={() => ingestRag(false)} disabled={ragLoading || ragIngesting}>
+                    <Database size={16} className={`mr-1 ${ragIngesting ? 'animate-pulse' : ''}`} />
+                    {ragIngesting ? '入库中...' : '同步RAG'}
+                  </BookButton>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-6">
+                <div>
+                  <div className="text-xs text-book-text-muted mb-1">数据完整性</div>
+                  <div className="h-2 bg-book-border rounded-full mb-1">
+                    <div
+                      className={`h-full rounded-full ${ragCompleteness?.complete ? 'bg-green-500' : 'bg-yellow-500'}`}
+                      style={{ width: ragCompleteness?.complete ? '100%' : '50%' }}
+                    />
+                  </div>
+                  <div className="text-xs text-book-text-sub">
+                    {ragCompleteness?.total_vector_count ?? '--'} / {ragCompleteness?.total_db_count ?? '--'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-book-text-muted mb-1">已入库</div>
+                  <div className="text-xl font-bold text-green-600">{ragCompleteness?.total_vector_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-book-text-muted mb-1">待入库</div>
+                  <div className="text-xl font-bold text-yellow-600">
+                    {Math.max(0, (ragCompleteness?.total_db_count ?? 0) - (ragCompleteness?.total_vector_count ?? 0))}
+                  </div>
+                </div>
+              </div>
+            </BookCard>
+
+            {/* 依赖关系Section */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-bold text-book-text-main">依赖关系</div>
+                  <span className="text-xs text-book-text-muted">({dependencies.length})</span>
+                </div>
+                <BookButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    if (!id) return;
+                    try {
+                      const res = await codingApi.syncDependencies(id);
+                      addToast(res?.message || '已同步', 'success');
+                      await refreshDependencies();
+                    } catch (e) {
+                      console.error(e);
+                      addToast('同步失败', 'error');
+                    }
+                  }}
+                  disabled={tabLoading}
+                >
+                  <RefreshCw size={16} className="mr-1" />
+                  同步依赖
+                </BookButton>
+              </div>
+              {dependencies.length === 0 ? (
+                <div className="text-sm text-book-text-muted text-center py-4">暂无依赖关系</div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                  {dependencies.slice(0, 10).map((d, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded bg-book-bg/50">
+                      <span className="text-sm text-book-text-main">{d.from_module} → {d.to_module}</span>
+                      <button className="text-xs text-red-600 font-bold hover:underline" onClick={() => deleteDependency(d)}>删除</button>
+                    </div>
+                  ))}
+                  {dependencies.length > 10 && (
+                    <div className="text-xs text-book-text-muted text-center">... 还有 {dependencies.length - 10} 条</div>
+                  )}
+                </div>
+              )}
+            </BookCard>
+
+            {/* 已生成内容Section - 对齐桌面端 generation.py */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-bold text-book-text-main">已生成内容</div>
+                  <span className="text-xs text-book-text-muted">({generatedSourceFiles.length})</span>
+                  {generatedTotalVersions > 0 && (
+                    <span className="text-xs text-book-text-muted">{generatedTotalVersions} 版本</span>
+                  )}
+                </div>
+                <BookButton size="sm" variant="ghost" onClick={loadData} disabled={loading}>
+                  <RefreshCw size={16} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+                  刷新
+                </BookButton>
+              </div>
+              {generatedSourceFiles.length === 0 ? (
+                <div className="text-sm text-book-text-muted text-center py-4">暂无已生成内容</div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                  {generatedSourceFiles.slice(0, 20).map((f: any) => (
+                    <div key={f.id} className="flex items-center justify-between p-2 rounded bg-book-bg/50 border border-book-border/40">
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-book-text-main truncate">{f.filename || f.file_path}</div>
+                        <div className="text-xs text-book-text-muted truncate">{f.file_path || ''}</div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-xs text-book-text-muted">{Number(f.version_count || 0)} 版本</span>
+                        <button
+                          type="button"
+                          className="text-xs text-book-primary font-bold hover:underline"
+                          onClick={() => {
+                            setActiveTab('directory');
+                            if (typeof f.id === 'number') handleSelectFile(f.id);
+                          }}
+                        >
+                          打开
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-book-primary font-bold hover:underline"
+                          onClick={() => {
+                            if (typeof f.id === 'number') openCodingDesk(f.id);
+                          }}
+                        >
+                          工作台
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {generatedSourceFiles.length > 20 && (
+                    <div className="text-xs text-book-text-muted text-center">... 还有 {generatedSourceFiles.length - 20} 个</div>
+                  )}
+                </div>
+              )}
+            </BookCard>
+
+            {/* RAG检索Section */}
+            <BookCard className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-bold text-book-text-main">检索查询</div>
+                <BookButton size="sm" variant="ghost" onClick={runRagQuery} disabled={ragQueryLoading || !ragQuery?.trim()}>
+                  <Search size={16} className={`mr-1 ${ragQueryLoading ? 'animate-spin' : ''}`} />
+                  查询
+                </BookButton>
+              </div>
+              <input
+                className="w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main mb-4"
+                value={ragQuery}
+                onChange={(e) => setRagQuery(e.target.value)}
+                placeholder="输入问题，例如：模块职责/依赖关系/异常处理..."
+                onKeyDown={(e) => { if (e.key === 'Enter') runRagQuery(); }}
+              />
+              {ragResult ? (
+                <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar">
+                  {Array.isArray((ragResult as any).chunks) && (ragResult as any).chunks.map((c: any, idx: number) => (
+                    <div key={idx} className="p-3 rounded bg-book-bg/50 border border-book-border/40">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-book-text-main">{c?.source || 'unknown'}</span>
+                        <span className="text-[10px] text-book-text-muted font-mono">{c?.score?.toFixed(3) || ''}</span>
+                      </div>
+                      <div className="text-xs text-book-text-sub whitespace-pre-wrap">{c?.content || ''}</div>
+                    </div>
+                  ))}
+                  {(!(ragResult as any).chunks?.length) && (
+                    <div className="text-sm text-book-text-muted text-center py-4">未命中结果</div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm text-book-text-muted text-center py-8">
+                  <Sparkles size={24} className="mx-auto mb-2 opacity-50" />
+                  输入问题以检索已入库的项目知识
+                </div>
+              )}
+            </BookCard>
+          </div>
+        )}
+      </div>
 
       <Modal
         isOpen={isPreferenceModalOpen}
@@ -1372,6 +1521,92 @@ export const CodingDetail: React.FC = () => {
             onChange={(e) => setPreferenceModalValue(e.target.value)}
             placeholder="例如：优先领域层/应用层分层；命名用驼峰；尽量少引入新依赖…"
           />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isDirectoryInfoModalOpen}
+        onClose={() => setIsDirectoryInfoModalOpen(false)}
+        title="编辑目录信息"
+        maxWidthClassName="max-w-2xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <BookButton
+              variant="ghost"
+              onClick={() => setIsDirectoryInfoModalOpen(false)}
+              disabled={directoryInfoSaving}
+            >
+              取消
+            </BookButton>
+            <BookButton variant="primary" onClick={saveDirectoryInfo} disabled={directoryInfoSaving}>
+              {directoryInfoSaving ? '保存中…' : '保存'}
+            </BookButton>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-book-text-muted break-all">
+            {selectedDirectory?.path || selectedDirectory?.name || ''}
+          </div>
+          <BookTextarea
+            label="描述"
+            rows={6}
+            value={directoryInfoForm.description}
+            onChange={(e) => setDirectoryInfoForm({ description: e.target.value })}
+            placeholder="例如：该目录用于…"
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isFileInfoModalOpen}
+        onClose={() => setIsFileInfoModalOpen(false)}
+        title="编辑文件信息"
+        maxWidthClassName="max-w-2xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <BookButton variant="ghost" onClick={() => setIsFileInfoModalOpen(false)} disabled={fileInfoSaving}>
+              取消
+            </BookButton>
+            <BookButton variant="primary" onClick={saveFileInfo} disabled={fileInfoSaving}>
+              {fileInfoSaving ? '保存中…' : '保存'}
+            </BookButton>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-book-text-muted break-all">
+            {currentFile?.file_path || currentFile?.filename || ''}
+          </div>
+
+          <BookTextarea
+            label="描述"
+            rows={4}
+            value={fileInfoForm.description}
+            onChange={(e) => setFileInfoForm({ ...fileInfoForm, description: e.target.value })}
+            placeholder="例如：该文件负责…"
+          />
+
+          <BookTextarea
+            label="用途"
+            rows={4}
+            value={fileInfoForm.purpose}
+            onChange={(e) => setFileInfoForm({ ...fileInfoForm, purpose: e.target.value })}
+            placeholder="例如：提供…接口/实现…逻辑"
+          />
+
+          <label className="text-xs font-bold text-book-text-sub">
+            优先级
+            <select
+              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              value={fileInfoForm.priority}
+              onChange={(e) => setFileInfoForm({ ...fileInfoForm, priority: e.target.value as CodingFilePriority })}
+            >
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
         </div>
       </Modal>
 

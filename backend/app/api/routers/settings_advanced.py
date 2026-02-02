@@ -11,10 +11,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.config import settings
+from ...core.dependencies import require_admin_user
 from .settings_models import ConfigImportResult
 from .settings_utils import (
     build_hot_reload_response,
@@ -31,6 +32,7 @@ router = APIRouter()
 class AdvancedConfigResponse(BaseModel):
     """高级配置响应"""
 
+    coding_project_enabled: bool = Field(description="是否启用编程项目功能")
     writer_chapter_version_count: int = Field(description="章节候选版本数量")
     writer_parallel_generation: bool = Field(description="是否启用并行生成")
     part_outline_threshold: int = Field(description="长篇分部大纲阈值")
@@ -40,6 +42,7 @@ class AdvancedConfigResponse(BaseModel):
 class AdvancedConfigUpdate(BaseModel):
     """高级配置更新请求"""
 
+    coding_project_enabled: bool = Field(description="是否启用编程项目功能")
     writer_chapter_version_count: int = Field(ge=1, le=5, description="章节候选版本数量（1-5）")
     writer_parallel_generation: bool = Field(description="是否启用并行生成")
     part_outline_threshold: int = Field(ge=10, le=100, description="长篇分部大纲阈值（10-100）")
@@ -64,6 +67,7 @@ async def get_advanced_config() -> AdvancedConfigResponse:
         当前配置值
     """
     return AdvancedConfigResponse(
+        coding_project_enabled=settings.coding_project_enabled,
         writer_chapter_version_count=settings.writer_chapter_versions,
         writer_parallel_generation=settings.writer_parallel_generation,
         part_outline_threshold=settings.part_outline_threshold,
@@ -71,7 +75,7 @@ async def get_advanced_config() -> AdvancedConfigResponse:
     )
 
 
-@router.put("/advanced-config")
+@router.put("/advanced-config", dependencies=[Depends(require_admin_user)])
 async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]:
     """
     更新高级配置
@@ -105,7 +109,7 @@ async def update_advanced_config(config: AdvancedConfigUpdate) -> Dict[str, Any]
         raise HTTPException(status_code=500, detail=f"保存配置失败：{str(e)}")
 
 
-@router.get("/advanced-config/export")
+@router.get("/advanced-config/export", dependencies=[Depends(require_admin_user)])
 async def export_advanced_config() -> AdvancedConfigExportData:
     """
     导出高级配置
@@ -118,6 +122,9 @@ async def export_advanced_config() -> AdvancedConfigExportData:
     return AdvancedConfigExportData(
         export_time=datetime.now(timezone.utc).isoformat(),
         config={
+            "coding_project_enabled": current_config.get(
+                "coding_project_enabled", settings.coding_project_enabled
+            ),
             "writer_chapter_version_count": current_config.get(
                 "writer_chapter_version_count", settings.writer_chapter_versions
             ),
@@ -130,7 +137,7 @@ async def export_advanced_config() -> AdvancedConfigExportData:
     )
 
 
-@router.post("/advanced-config/import", response_model=ConfigImportResult)
+@router.post("/advanced-config/import", response_model=ConfigImportResult, dependencies=[Depends(require_admin_user)])
 async def import_advanced_config(import_data: dict) -> ConfigImportResult:
     """
     导入高级配置
@@ -156,6 +163,12 @@ async def import_advanced_config(import_data: dict) -> ConfigImportResult:
         current_config = load_config()
 
         # 更新配置（带验证）
+        if "coding_project_enabled" in config_data:
+            value = bool(config_data["coding_project_enabled"])
+            current_config["coding_project_enabled"] = value
+            settings.coding_project_enabled = value
+            details.append(f"编程项目功能已{'启用' if value else '禁用'}")
+
         if "writer_chapter_version_count" in config_data:
             value = config_data["writer_chapter_version_count"]
             if 1 <= value <= 5:

@@ -1,13 +1,17 @@
 """
-依赖注入模块（PyQt桌面版 - 无需认证）
+依赖注入模块（默认桌面版 / WebUI 可选登录）
 
-桌面版使用固定的默认用户，无需登录认证。
+默认行为：
+- 桌面版/开发环境：使用固定的默认用户（desktop_user），无需登录认证。
+
+可选行为（WebUI）：
+- 当 `settings.auth_enabled=True` 时：要求登录（JWT），并启用多用户数据隔离（按 user_id）。
 """
 
 import logging
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_session
@@ -17,34 +21,97 @@ from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
+AUTH_COOKIE_NAME = "afn_access_token"
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    """从 Authorization: Bearer <token> 中提取 token。"""
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) != 2:
+        return None
+    scheme, token = parts[0], parts[1]
+    if scheme.lower() != "bearer":
+        return None
+    return token.strip() or None
+
 
 async def get_default_user(
     session: AsyncSession = Depends(get_session),
+    request: Request | None = None,
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> UserInDB:
     """
-    获取默认用户（桌面版专用）
+    获取“当前用户”。
 
-    桌面版自动使用默认用户，无需登录认证。
-    默认用户在数据库初始化时自动创建。
+    - 当 auth_enabled=False：返回默认用户 desktop_user（与历史桌面版逻辑一致）。
+    - 当 auth_enabled=True：从 Cookie 或 Authorization Bearer 读取 JWT，并解析为当前用户。
 
     Raises:
-        HTTPException: 当默认用户不存在时抛出500错误
+        HTTPException: 未登录/令牌无效/用户不存在时抛出 401；默认用户缺失时抛出 500
     """
     repo = UserRepository(session)
 
-    # 尝试获取默认用户（username="desktop_user"）
-    user = await repo.get_by_username("desktop_user")
+    if not getattr(settings, "auth_enabled", False):
+        # 兼容旧行为：无登录时直接注入默认用户（username="desktop_user"）
+        user = await repo.get_by_username("desktop_user")
+        if not user:
+            logger.error("默认用户 'desktop_user' 未找到，数据库可能未正确初始化")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="默认用户未初始化，请删除 storage/afn.db 后重启应用",
+            )
+        return UserInDB.model_validate(user)
 
-    if not user:
-        # 默认用户不存在，立即失败
-        # 不应该回退到获取任意用户，这会导致数据混乱
-        logger.error("默认用户 'desktop_user' 未找到，数据库可能未正确初始化")
+    # 开启登录：必须提供 token
+    token = _extract_bearer_token(authorization)
+    if not token and request is not None:
+        try:
+            token = request.cookies.get(AUTH_COOKIE_NAME) or None
+        except Exception:
+            token = None
+
+    if not token:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="默认用户未初始化，请删除 storage/afn.db 后重启应用"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录或登录已过期，请先登录",
         )
 
+    try:
+        from jose import JWTError, jwt
+
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        sub = payload.get("sub")
+        if sub is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期，请重新登录")
+        user_id = int(sub)
+    except HTTPException:
+        raise
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录信息无效，请重新登录")
+    except Exception as exc:
+        # jose.JWTError / 过期等
+        logger.debug("JWT 解析失败: %s", exc)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期，请重新登录")
+
+    user = await repo.get_by_id(user_id)
+    if not user or not getattr(user, "is_active", True):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已被禁用")
+
     return UserInDB.model_validate(user)
+
+
+async def require_admin_user(
+    current_user: UserInDB = Depends(get_default_user),
+) -> UserInDB:
+    """管理员权限校验：当前实现以 username == 'desktop_user' 作为管理员。"""
+    if (current_user.username or "").strip() != "desktop_user":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限（desktop_user）",
+        )
+    return current_user
 
 
 async def get_vector_store() -> Optional["VectorStoreService"]:
@@ -407,4 +474,3 @@ async def get_theme_config_service(
     """
     from ..services.theme_config_service import ThemeConfigService
     return ThemeConfigService(session)
-

@@ -2,12 +2,14 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ToastContainer } from './components/feedback/Toast';
 import { ErrorBoundary } from './components/feedback/ErrorBoundary';
+import { ConfirmDialogHost } from './components/feedback/ConfirmDialog';
 import { Settings, Moon, Sun, Loader2 } from 'lucide-react';
 import { SettingsModal } from './components/business/SettingsModal';
 import { useUIStore } from './store/ui';
 import { themeConfigsApi } from './api/themeConfigs';
 import { applyThemeFromUnifiedConfig, clearThemeVariables } from './theme/applyTheme';
 import { readWebAppearanceConfig, WEB_APPEARANCE_CHANGED_EVENT, WEB_APPEARANCE_STORAGE_KEY } from './theme/webAppearance';
+import { AuthGate } from './components/auth/AuthGate';
 
 // Route-level code splitting：降低首屏 JS 体积，避免把写作台/漫画等重组件打进同一个 chunk
 const NovelList = lazy(() => import('./pages/NovelList').then((m) => ({ default: m.NovelList })));
@@ -19,8 +21,8 @@ const CodingDetail = lazy(() => import('./pages/CodingDetail').then((m) => ({ de
 const CodingDesk = lazy(() => import('./pages/CodingDesk').then((m) => ({ default: m.CodingDesk })));
 
 const RouteFallback: React.FC = () => (
-  <div className="min-h-[60vh] flex items-center justify-center p-6">
-    <div className="flex items-center gap-2 text-sm text-book-text-muted">
+  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/20 backdrop-blur-sm p-6">
+    <div className="flex items-center gap-2 text-sm text-book-text-muted bg-book-bg-paper/90 border border-book-border/60 rounded-lg px-4 py-3 shadow-lg">
       <Loader2 size={18} className="animate-spin" />
       加载中…
     </div>
@@ -104,6 +106,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       ) : null}
 
       <ToastContainer />
+      <ConfirmDialogHost />
       <SettingsModal isOpen={isSettingsOpen} onClose={closeSettings} />
       
       <main className="flex-1 flex flex-col min-h-0">
@@ -140,20 +143,22 @@ function App() {
     <Router>
       <Layout>
         <ErrorBoundary>
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
-              <Route path="/" element={<NovelList />} />
-              <Route path="/inspiration/:id" element={<InspirationChat />} />
-              <Route path="/blueprint/:id" element={<BlueprintPreview />} />
-              <Route path="/novel/:id" element={<NovelDetail />} />
-              <Route path="/write/:id" element={<WritingDesk />} />
-              
-              {/* Coding Routes */}
-              <Route path="/coding/inspiration/:id" element={<InspirationChat mode="coding" />} />
-              <Route path="/coding/detail/:id" element={<CodingDetail />} />
-              <Route path="/coding/desk/:id" element={<CodingDesk />} />
-            </Routes>
-          </Suspense>
+          <AuthGate>
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/" element={<NovelList />} />
+                <Route path="/inspiration/:id" element={<InspirationChat />} />
+                <Route path="/blueprint/:id" element={<BlueprintPreview />} />
+                <Route path="/novel/:id" element={<NovelDetail />} />
+                <Route path="/write/:id" element={<WritingDesk />} />
+
+                {/* Coding Routes */}
+                <Route path="/coding/inspiration/:id" element={<InspirationChat mode="coding" />} />
+                <Route path="/coding/detail/:id" element={<CodingDetail />} />
+                <Route path="/coding/desk/:id" element={<CodingDesk />} />
+              </Routes>
+            </Suspense>
+          </AuthGate>
         </ErrorBoundary>
       </Layout>
     </Router>

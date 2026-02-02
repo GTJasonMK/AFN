@@ -3,7 +3,6 @@
 
 显示：
 - 项目进度指示器
-- 快捷操作按钮区
 - 项目摘要卡片
 - 技术栈信息
 """
@@ -12,10 +11,10 @@ import logging
 from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget,
     QGridLayout, QProgressBar
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt
 
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
@@ -39,13 +38,9 @@ class CodingOverviewSection(BaseSection):
 
     展示：
     - 项目进度指示器（工作流程步骤）
-    - 快捷操作按钮区
     - 项目摘要卡片
     - 技术栈信息
     """
-
-    # 信号
-    regenerateBlueprintRequested = pyqtSignal(str)
 
     def __init__(self, data: Dict[str, Any] = None, editable: bool = True, project_id: str = None, parent=None):
         self.project_id = project_id
@@ -60,15 +55,11 @@ class CodingOverviewSection(BaseSection):
         self.progress_section = self._create_progress_section()
         layout.addWidget(self.progress_section)
 
-        # 2. 快捷操作Section
-        self.actions_section = self._create_actions_section()
-        layout.addWidget(self.actions_section)
-
-        # 3. 项目摘要Section
+        # 2. 项目摘要Section
         self.summary_section = self._create_summary_section()
         layout.addWidget(self.summary_section)
 
-        # 4. 技术栈Section
+        # 3. 技术栈Section
         tech_stack = self._data.get('tech_stack', {}) if self._data else {}
         self.tech_stack_section = self._create_tech_stack_section(tech_stack)
         layout.addWidget(self.tech_stack_section)
@@ -192,57 +183,6 @@ class CodingOverviewSection(BaseSection):
                 completed += 1
 
         return int((completed / len(WORKFLOW_STEPS)) * 100)
-
-    def _create_actions_section(self) -> QFrame:
-        """创建快捷操作Section"""
-        section = QFrame()
-        section.setObjectName("actions_section")
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(dp(16), dp(16), dp(16), dp(16))
-        layout.setSpacing(dp(12))
-
-        # 标题
-        title = QLabel("快捷操作")
-        title.setObjectName("section_title")
-        layout.addWidget(title)
-
-        # 操作按钮区
-        buttons_widget = QWidget()
-        buttons_layout = QHBoxLayout(buttons_widget)
-        buttons_layout.setContentsMargins(0, 0, 0, 0)
-        buttons_layout.setSpacing(dp(12))
-
-        # 生成蓝图按钮
-        self.gen_blueprint_btn = self._create_action_button(
-            "生成蓝图",
-            "从需求分析生成架构设计蓝图",
-            self._on_regenerate_blueprint
-        )
-        buttons_layout.addWidget(self.gen_blueprint_btn)
-
-        # Agent规划按钮（主要操作）
-        self.agent_plan_btn = self._create_action_button(
-            "Agent规划",
-            "使用AI Agent规划整个项目结构",
-            self._on_agent_plan,
-            primary=True
-        )
-        buttons_layout.addWidget(self.agent_plan_btn)
-
-        buttons_layout.addStretch()
-        layout.addWidget(buttons_widget)
-
-        self._apply_actions_style(section)
-        return section
-
-    def _create_action_button(self, text: str, tooltip: str, callback, primary: bool = False) -> QPushButton:
-        """创建操作按钮"""
-        btn = QPushButton(text)
-        btn.setObjectName("action_btn_primary" if primary else "action_btn")
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip(tooltip)
-        btn.clicked.connect(callback)
-        return btn
 
     def _create_summary_section(self) -> QFrame:
         """创建项目摘要Section"""
@@ -398,27 +338,6 @@ class CodingOverviewSection(BaseSection):
         self._apply_tech_stack_style(section)
         return section
 
-    # ========== 事件处理 ==========
-
-    def _on_regenerate_blueprint(self):
-        """重新生成蓝图"""
-        from components.dialogs import get_regenerate_preference
-
-        preference, ok = get_regenerate_preference(
-            self,
-            title="重新生成架构设计蓝图",
-            message="重新生成将基于已有的需求分析对话重新设计架构。\n\n"
-                    "现有的蓝图数据将被覆盖。",
-            placeholder="例如：更注重微服务架构、增加缓存层设计、简化技术栈等"
-        )
-        if ok:
-            self.regenerateBlueprintRequested.emit(preference if preference else "")
-
-    def _on_agent_plan(self):
-        """Agent规划"""
-        from utils.message_service import MessageService
-        MessageService.show_info(self, "Agent规划功能开发中，请在目录结构Tab中使用Agent规划功能")
-
     # ========== 样式方法 ==========
 
     def _apply_progress_style(self, section: QFrame):
@@ -473,45 +392,6 @@ class CodingOverviewSection(BaseSection):
             QLabel#step_label_pending {{
                 color: {theme_manager.TEXT_TERTIARY};
                 font-size: {sp(11)}px;
-            }}
-        """)
-
-    def _apply_actions_style(self, section: QFrame):
-        """应用快捷操作样式"""
-        section.setStyleSheet(f"""
-            QFrame#actions_section {{
-                background-color: {theme_manager.book_bg_secondary()};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(8)}px;
-            }}
-            QLabel#section_title {{
-                color: {theme_manager.TEXT_PRIMARY};
-                font-size: {sp(15)}px;
-                font-weight: 600;
-            }}
-            QPushButton#action_btn {{
-                background-color: {theme_manager.book_bg_primary()};
-                color: {theme_manager.TEXT_PRIMARY};
-                border: 1px solid {theme_manager.BORDER_DEFAULT};
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(16)}px;
-                font-size: {sp(13)}px;
-            }}
-            QPushButton#action_btn:hover {{
-                background-color: {theme_manager.PRIMARY}15;
-                border-color: {theme_manager.PRIMARY};
-            }}
-            QPushButton#action_btn_primary {{
-                background-color: {theme_manager.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: {dp(6)}px;
-                padding: {dp(10)}px {dp(16)}px;
-                font-size: {sp(13)}px;
-                font-weight: 500;
-            }}
-            QPushButton#action_btn_primary:hover {{
-                background-color: {theme_manager.PRIMARY_DARK};
             }}
         """)
 
@@ -587,8 +467,6 @@ class CodingOverviewSection(BaseSection):
         """应用主题"""
         if hasattr(self, 'progress_section'):
             self._apply_progress_style(self.progress_section)
-        if hasattr(self, 'actions_section'):
-            self._apply_actions_style(self.actions_section)
         if hasattr(self, 'summary_section'):
             self._apply_summary_style(self.summary_section)
         if hasattr(self, 'tech_stack_section'):

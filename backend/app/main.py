@@ -55,7 +55,10 @@ async def _preload_embedding_model_if_needed(session: AsyncSession) -> None:
 
         model_name = (active_config.model_name or "").strip()
         if not model_name:
-            logger.warning("嵌入模型预加载跳过：provider=local 但未配置 model_name")
+            logger.info(
+                "嵌入模型预加载跳过：provider=local 但未配置 model_name（仅影响启动预热；首次使用将按需加载）。"
+                "如需启动预热，请在「设置 - 嵌入模型」中填写模型名称，例如：BAAI/bge-base-zh-v1.5"
+            )
             return
 
         # 仅在确认需要预加载时才导入 embedding_service（避免不必要的启动开销）

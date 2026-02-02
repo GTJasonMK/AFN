@@ -3,6 +3,7 @@ import { BookCard } from '../../ui/BookCard';
 import { BookButton } from '../../ui/BookButton';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { themeConfigsApi, ThemeConfigListItem, ThemeConfigUnifiedRead, ThemeMode } from '../../../api/themeConfigs';
 import { applyThemeFromUnifiedConfig } from '../../../theme/applyTheme';
 import { CheckCircle2, Circle, Copy, Download, Edit3, Palette, RotateCcw, Trash2, Upload } from 'lucide-react';
@@ -375,7 +376,12 @@ export const ThemeTab: React.FC = () => {
   };
 
   const handleReset = async (cfg: ThemeConfigListItem) => {
-    const ok = confirm(`将重置主题配置“${cfg.config_name}”为默认值。是否继续？`);
+    const ok = await confirmDialog({
+      title: '重置主题配置',
+      message: `将重置主题配置“${cfg.config_name}”为默认值。\n是否继续？`,
+      confirmText: '重置',
+      dialogType: 'warning',
+    });
     if (!ok) return;
 
     setBusyId(cfg.id);
@@ -402,7 +408,12 @@ export const ThemeTab: React.FC = () => {
   };
 
   const handleDelete = async (cfg: ThemeConfigListItem) => {
-    const ok = confirm(`将删除主题配置“${cfg.config_name}”。\n注意：激活中的配置可能无法删除（需先激活其他配置）。\n是否继续？`);
+    const ok = await confirmDialog({
+      title: '删除主题配置',
+      message: `将删除主题配置“${cfg.config_name}”。\n注意：激活中的配置可能无法删除（需先激活其他配置）。\n是否继续？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
     if (!ok) return;
 
     setBusyId(cfg.id);
@@ -746,15 +757,20 @@ export const ThemeTab: React.FC = () => {
                 </BookButton>
                 {Number(editingConfig.config_version || 1) === 1 ? (
                   <BookButton
-                    variant="secondary"
-                    size="sm"
-                    onClick={async () => {
-                      const ok = confirm('将迁移到 V2（组件模式）并填充默认 V2 字段。是否继续？');
-                      if (!ok) return;
-                      setEditingLoading(true);
-                      try {
-                        await themeConfigsApi.migrateToV2(editingId!);
-                        const cfg = await themeConfigsApi.getUnified(editingId!);
+	                    variant="secondary"
+	                    size="sm"
+	                    onClick={async () => {
+	                      const ok = await confirmDialog({
+	                        title: '迁移到 V2',
+	                        message: '将迁移到 V2（组件模式）并填充默认 V2 字段。\n是否继续？',
+	                        confirmText: '迁移',
+	                        dialogType: 'warning',
+	                      });
+	                      if (!ok) return;
+	                      setEditingLoading(true);
+	                      try {
+	                        await themeConfigsApi.migrateToV2(editingId!);
+	                        const cfg = await themeConfigsApi.getUnified(editingId!);
                         setEditingConfig(cfg);
                         setEditingJson(buildEditPayloadText(cfg));
                         addToast('已迁移到 V2（组件模式）', 'success');

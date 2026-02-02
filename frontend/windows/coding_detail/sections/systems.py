@@ -317,6 +317,37 @@ class SystemNode(QFrame):
         empty_label.setObjectName("empty_hint")
         return empty_label
 
+    def _clear_cards(self, cards: list):
+        """清理卡片列表"""
+        for card in cards:
+            try:
+                card.deleteLater()
+            except RuntimeError:
+                pass
+        cards.clear()
+
+    def _render_card_list(
+        self,
+        items,
+        layout,
+        cards: list,
+        card_factory,
+        empty_factory=None,
+    ):
+        """渲染卡片列表（清理 -> 空态 -> 构建）"""
+        self._clear_cards(cards)
+
+        if not items:
+            empty_widget = empty_factory() if empty_factory else QLabel("暂无数据")
+            layout.addWidget(empty_widget)
+            cards.append(empty_widget)
+            return
+
+        for item in items:
+            card = card_factory(item)
+            layout.addWidget(card)
+            cards.append(card)
+
     def _populate_modules(self, layout):
         """填充模块列表"""
         def build_node(module):

@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ChapterList } from '../components/business/ChapterList';
-import { Editor, type EditorHandle } from '../components/business/Editor';
-import { AssistantPanel, type AssistantTabId } from '../components/business/AssistantPanel';
-import { OutlineEditModal } from '../components/business/OutlineEditModal';
-import { BatchGenerateModal } from '../components/business/BatchGenerateModal';
-import { ProtagonistProfilesModal } from '../components/business/ProtagonistProfilesModal';
+	import { ChapterList } from '../components/business/ChapterList';
+	import { WorkspaceTabs, type WorkspaceHandle } from '../components/business/WorkspaceTabs';
+	import { ChapterPromptPreviewView } from '../components/business/ChapterPromptPreviewView';
+	import { AssistantPanel } from '../components/business/AssistantPanel';
+	import { OutlineEditModal } from '../components/business/OutlineEditModal';
+	import { BatchGenerateModal } from '../components/business/BatchGenerateModal';
+	import { ProtagonistProfilesModal } from '../components/business/ProtagonistProfilesModal';
 import { writerApi, Chapter } from '../api/writer';
 import { novelsApi } from '../api/novels';
 import { useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/feedback/Toast';
-import { ArrowLeft, FileDown, FileUp, LayoutPanelLeft, LayoutPanelTop, PanelRight, Sparkles, Map as MapIcon, ChevronLeft, ChevronRight, Edit3, User } from 'lucide-react';
+import { confirmDialog } from '../components/feedback/ConfirmDialog';
+import { ArrowLeft } from 'lucide-react';
 import { BookButton } from '../components/ui/BookButton';
 import { BookCard } from '../components/ui/BookCard';
 import { Dropdown } from '../components/ui/Dropdown';
@@ -122,13 +124,10 @@ export const WritingDesk: React.FC = () => {
 		      return true;
 		    }
 		  });
-      const [assistantRequestedTab, setAssistantRequestedTab] = useState<AssistantTabId | null>(null);
 				  const [isSaving, setIsSaving] = useState(false);
 				  const [isGenerating, setIsGenerating] = useState(false);
 				  const [isRagIngesting, setIsRagIngesting] = useState(false);
 				  const [projectInfo, setProjectInfo] = useState<any>(null);
-				  const [characterNames, setCharacterNames] = useState<string[]>([]);
-				  const [characterProfiles, setCharacterProfiles] = useState<Record<string, string>>({});
 				  const [writingNotes, setWritingNotes] = useState(() => {
 				    if (!id) return '';
 				    try {
@@ -137,10 +136,12 @@ export const WritingDesk: React.FC = () => {
 			      return '';
 			    }
 			  });
-		  const [isWritingNotesModalOpen, setIsWritingNotesModalOpen] = useState(false);
-		  const [writingNotesDraft, setWritingNotesDraft] = useState('');
-		  const [isProtagonistModalOpen, setIsProtagonistModalOpen] = useState(false);
-		  const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
+			  const [isWritingNotesModalOpen, setIsWritingNotesModalOpen] = useState(false);
+			  const [writingNotesDraft, setWritingNotesDraft] = useState('');
+			  const [isPromptPreviewModalOpen, setIsPromptPreviewModalOpen] = useState(false);
+			  const [promptPreviewNotes, setPromptPreviewNotes] = useState('');
+			  const [isProtagonistModalOpen, setIsProtagonistModalOpen] = useState(false);
+			  const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
 		  const [importChapterNumber, setImportChapterNumber] = useState<number>(1);
 		  const [importChapterTitle, setImportChapterTitle] = useState('');
 		  const [importChapterContent, setImportChapterContent] = useState('');
@@ -151,7 +152,7 @@ export const WritingDesk: React.FC = () => {
 		  const [genProgress, setGenProgress] = useState<{ stage?: string; message?: string; current?: number; total?: number } | null>(null);
 			  const isDirty = useMemo(() => content !== loadedContent, [content, loadedContent]);
 			  const contentChars = useMemo(() => (content || '').replace(/\s/g, '').length, [content]);
-		  const editorRef = useRef<EditorHandle | null>(null);
+		  const editorRef = useRef<WorkspaceHandle | null>(null);
 		  const currentChapterRef = useRef<Chapter | null>(null);
 		  const contentRef = useRef('');
 		  const isDirtyRef = useRef(false);
@@ -173,16 +174,6 @@ export const WritingDesk: React.FC = () => {
       const [optionalPromptTitle, setOptionalPromptTitle] = useState('输入优化提示词（可选）');
 	      const [optionalPromptHint, setOptionalPromptHint] = useState<string | null>(null);
 	      const [optionalPromptValue, setOptionalPromptValue] = useState('');
-
-        // 章节/项目切换时：清理一次“外部请求 Tab”（避免旧请求误触发）
-        useEffect(() => {
-          setAssistantRequestedTab(null);
-        }, [id]);
-
-        const openAssistantTab = (tab: AssistantTabId) => {
-          setIsAssistantOpen(true);
-          setAssistantRequestedTab(tab);
-        };
 
 			  // 左侧章节栏显示状态：按项目持久化（避免每次进入都要手动开关）
 			  useEffect(() => {
@@ -416,23 +407,26 @@ export const WritingDesk: React.FC = () => {
 		        addToast('生成中，建议先点击右上角“停止”再切换章节', 'info');
 		        return false;
 		      }
-		      if (isDirtyRef.current) {
-		        // 先强制写入一次本地草稿，降低误操作丢稿概率
-		        const currentNo = currentChapterRef.current?.chapter_number;
-		        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
-		        if (draftOk) setDraftRevision((v) => v + 1);
-		        if (!draftOk && !draftSaveWarnedRef.current) {
-		          draftSaveWarnedRef.current = true;
-		          addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
-		        }
-		        const ok = confirm(
-		          draftOk
-		            ? '当前章节有未保存修改。\n切换章节会离开当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
-		            : '当前章节有未保存修改。\n本地草稿保存失败，切换章节可能丢失未保存内容。\n是否继续？'
-		        );
-		        if (!ok) return false;
-		      }
-		    }
+			      if (isDirtyRef.current) {
+			        // 先强制写入一次本地草稿，降低误操作丢稿概率
+			        const currentNo = currentChapterRef.current?.chapter_number;
+			        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+			        if (draftOk) setDraftRevision((v) => v + 1);
+			        if (!draftOk && !draftSaveWarnedRef.current) {
+			          draftSaveWarnedRef.current = true;
+			          addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
+			        }
+			        const ok = await confirmDialog({
+			          title: '未保存修改',
+			          message: draftOk
+			            ? '当前章节有未保存修改。\n切换章节会离开当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
+			            : '当前章节有未保存修改。\n本地草稿保存失败，切换章节可能丢失未保存内容。\n是否继续？',
+			          confirmText: '继续',
+			          dialogType: 'warning',
+			        });
+			        if (!ok) return false;
+			      }
+			    }
 
 	    const currentParam = searchParams.get('chapter');
 	    if (updateUrl && String(chapterNumber) !== String(currentParam || '')) {
@@ -471,19 +465,25 @@ export const WritingDesk: React.FC = () => {
 		        if (!draftPromptedRef.current.has(draftKey)) {
 		          draftPromptedRef.current.add(draftKey);
 		          const draft = safeReadDraft(draftKey);
-		          if (draft && draft.content && draft.content !== nextContent) {
-		            let ts = draft.updatedAt;
-		            try {
-		              ts = new Date(draft.updatedAt).toLocaleString();
-		            } catch {
-		              // ignore
-		            }
-		            const ok = confirm(`检测到本地草稿（${ts}）。\n是否恢复到编辑器？`);
-		            if (ok) {
-		              setContent(draft.content);
-		              addToast('已恢复本地草稿（未保存）', 'success');
-		            }
-		          }
+			          if (draft && draft.content && draft.content !== nextContent) {
+			            let ts = draft.updatedAt;
+			            try {
+			              ts = new Date(draft.updatedAt).toLocaleString();
+			            } catch {
+			              // ignore
+			            }
+			            const ok = await confirmDialog({
+			              title: '恢复草稿',
+			              message: `检测到本地草稿（${ts}）。\n是否恢复到编辑器？`,
+			              confirmText: '恢复',
+			              cancelText: '保持当前',
+			              dialogType: 'warning',
+			            });
+			            if (ok) {
+			              setContent(draft.content);
+			              addToast('已恢复本地草稿（未保存）', 'success');
+			            }
+			          }
 		        }
 		      }
 		      return true;
@@ -520,29 +520,32 @@ export const WritingDesk: React.FC = () => {
 		    return () => window.clearTimeout(t);
 		  }, [addToast, content, currentChapter, id, isDirty]);
 
-		  const safeNavigate = useCallback((to: string) => {
-		    if (!id) return;
-		    if (isGeneratingRef.current) {
-		      addToast('生成中，建议先点击右上角“停止”再离开写作台', 'info');
-		      return;
-		    }
-		    if (isDirtyRef.current) {
-		      const currentNo = currentChapterRef.current?.chapter_number;
-		      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
-		      if (draftOk) setDraftRevision((v) => v + 1);
-		      if (!draftOk && !draftSaveWarnedRef.current) {
-		        draftSaveWarnedRef.current = true;
-		        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请谨慎离开写作台', 'info');
-		      }
-		      const ok = confirm(
-		        draftOk
-		          ? '当前章节有未保存修改。\n离开写作台会结束当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
-		          : '当前章节有未保存修改。\n本地草稿保存失败，离开写作台可能丢失未保存内容。\n是否继续？'
-		      );
-		      if (!ok) return;
-		    }
-		    navigate(to);
-		  }, [addToast, id, navigate]);
+			  const safeNavigate = useCallback(async (to: string) => {
+			    if (!id) return;
+			    if (isGeneratingRef.current) {
+			      addToast('生成中，建议先点击右上角“停止”再离开写作台', 'info');
+			      return;
+			    }
+			    if (isDirtyRef.current) {
+			      const currentNo = currentChapterRef.current?.chapter_number;
+			      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+			      if (draftOk) setDraftRevision((v) => v + 1);
+			      if (!draftOk && !draftSaveWarnedRef.current) {
+			        draftSaveWarnedRef.current = true;
+			        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请谨慎离开写作台', 'info');
+			      }
+			      const ok = await confirmDialog({
+			        title: '未保存修改',
+			        message: draftOk
+			          ? '当前章节有未保存修改。\n离开写作台会结束当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
+			          : '当前章节有未保存修改。\n本地草稿保存失败，离开写作台可能丢失未保存内容。\n是否继续？',
+			        confirmText: '继续',
+			        dialogType: 'warning',
+			      });
+			      if (!ok) return;
+			    }
+			    navigate(to);
+			  }, [addToast, id, navigate]);
 
 		  const locateInEditor = useCallback((rawText: string) => {
 		    const textRaw = String(rawText || '');
@@ -578,11 +581,6 @@ export const WritingDesk: React.FC = () => {
 		  const selectRangeInEditor = useCallback((start: number, end: number) => {
 		    editorRef.current?.focusAndSelect(start, end);
 		  }, []);
-
-				  const handleEditWritingNotes = () => {
-				    setWritingNotesDraft(writingNotes || '');
-				    setIsWritingNotesModalOpen(true);
-				  };
 
         const openOptionalPromptModal = useCallback((opts: {
           title?: string;
@@ -633,42 +631,6 @@ export const WritingDesk: React.FC = () => {
 		    }
 		  };
 
-      const handleExportCurrentChapter = useCallback((format: 'txt' | 'markdown') => {
-        const ch = currentChapterRef.current;
-        if (!ch) {
-          addToast('请先选择章节', 'info');
-          return;
-        }
-
-        const chapterNo = Number(ch.chapter_number);
-        const titleRaw = String(ch.title || `第${chapterNo}章`).trim();
-        const title = sanitizeFilenamePart(titleRaw);
-        const body = String(contentRef.current || '').trimEnd();
-
-        const baseTitle = sanitizeFilenamePart(String(projectInfo?.title || 'novel').trim()) || 'novel';
-        const filenameTitle = sanitizeFilenamePart(title ? `第${chapterNo}章_${title}` : `第${chapterNo}章`);
-        const ext = format === 'markdown' ? 'md' : 'txt';
-
-        const prefix = format === 'markdown' ? `# 第${chapterNo}章 ${titleRaw}\n\n` : `第${chapterNo}章  ${titleRaw}\n\n`;
-        const text = `${prefix}${body}\n`;
-
-        try {
-          const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.setAttribute('download', `${baseTitle}_${filenameTitle || `chapter_${chapterNo}`}.${ext}`);
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(url);
-          addToast('已导出本章', 'success');
-        } catch (e) {
-          console.error(e);
-          addToast('导出失败', 'error');
-        }
-      }, [addToast, projectInfo?.title]);
-
       const openImportChapterModal = useCallback(() => {
         const nextChapterNum = chapters.length > 0
           ? Math.max(...chapters.map((c) => Number(c.chapter_number) || 0)) + 1
@@ -681,6 +643,7 @@ export const WritingDesk: React.FC = () => {
         setImportEncoding('utf-8');
         setIsImportChapterModalOpen(true);
       }, [chapters]);
+
 
       const pickImportFile = useCallback(() => {
         importFileInputRef.current?.click();
@@ -744,53 +707,6 @@ export const WritingDesk: React.FC = () => {
 
 	      setChapters(merged);
 
-	      // 角色信息：用于写作台“角色立绘”Tab（确保可显示所有角色并支持“一键生成缺失”）
-	      const characterList = Array.isArray(project.blueprint?.characters) ? project.blueprint.characters : [];
-	      const nameSet = new Set<string>();
-	      const profiles: Record<string, string> = {};
-	      for (const c of characterList) {
-	        const name = String((c as any)?.name || '').trim();
-	        if (!name) continue;
-	        nameSet.add(name);
-
-	        const keys = [
-	          'appearance',
-	          'appearance_description',
-	          'looks',
-	          'look',
-	          'visual',
-	          'portrait',
-	          'portrait_prompt',
-	          'image_prompt',
-	          'description',
-	          'desc',
-	          'profile',
-	          '外貌',
-	          '外观',
-	          '形象',
-	          '描述',
-	        ];
-	        let desc = '';
-	        for (const k of keys) {
-	          const v = (c as any)?.[k];
-	          if (typeof v === 'string' && v.trim()) {
-	            desc = v.trim();
-	            break;
-	          }
-	        }
-	        if (!desc) {
-	          const parts: string[] = [];
-	          for (const [k, v] of Object.entries(c || {})) {
-	            if (k === 'name') continue;
-	            if (typeof v === 'string' && v.trim()) parts.push(v.trim());
-	          }
-	          desc = parts.join('；').trim();
-	        }
-	        if (desc) profiles[name] = desc.length > 600 ? desc.slice(0, 600) : desc;
-	      }
-	      setCharacterNames(Array.from(nameSet).sort((a, b) => a.localeCompare(b, 'zh-CN')));
-	      setCharacterProfiles(profiles);
-	
 	      setProjectInfo({
 	        title: project.title,
 	        summary: project.blueprint?.one_sentence_summary || "暂无概要",
@@ -840,21 +756,24 @@ export const WritingDesk: React.FC = () => {
 	      addToast('生成中，暂不支持新增章节', 'info');
 	      return;
 	    }
-	    if (isDirty) {
-	      const currentNo = currentChapterRef.current?.chapter_number;
-	      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
-	      if (draftOk) setDraftRevision((v) => v + 1);
-	      if (!draftOk && !draftSaveWarnedRef.current) {
-	        draftSaveWarnedRef.current = true;
-	        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
-	      }
-	      const ok = confirm(
-	        draftOk
-	          ? '当前章节有未保存修改。\n继续新增章节会离开当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
-	          : '当前章节有未保存修改。\n本地草稿保存失败，继续新增章节可能丢失未保存内容。\n是否继续？'
-	      );
-	      if (!ok) return;
-	    }
+		    if (isDirty) {
+		      const currentNo = currentChapterRef.current?.chapter_number;
+		      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+		      if (draftOk) setDraftRevision((v) => v + 1);
+		      if (!draftOk && !draftSaveWarnedRef.current) {
+		        draftSaveWarnedRef.current = true;
+		        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
+		      }
+		      const ok = await confirmDialog({
+		        title: '未保存修改',
+		        message: draftOk
+		          ? '当前章节有未保存修改。\n继续新增章节会离开当前编辑（已自动保存本地草稿，可随时恢复）。\n是否继续？'
+		          : '当前章节有未保存修改。\n本地草稿保存失败，继续新增章节可能丢失未保存内容。\n是否继续？',
+		        confirmText: '继续',
+		        dialogType: 'warning',
+		      });
+		      if (!ok) return;
+		    }
 	    const nextChapterNum = chapters.length > 0 
 	      ? Math.max(...chapters.map(c => c.chapter_number)) + 1 
 	      : 1;
@@ -951,26 +870,32 @@ export const WritingDesk: React.FC = () => {
 	    }
 	  });
 
-	  const handleGenerate = async () => {
-	    if (!id || !currentChapter) return;
+		  const handleGenerate = async () => {
+		    if (!id || !currentChapter) return;
 	    if (isSaving) {
 	      addToast('正在保存，请稍候…', 'info');
 	      return;
 	    }
-	    if (isDirty) {
-	      const draftOk = safeWriteDraft(getDraftKey(id, currentChapter.chapter_number), contentRef.current);
-	      if (draftOk) setDraftRevision((v) => v + 1);
-	      if (!draftOk && !draftSaveWarnedRef.current) {
-	        draftSaveWarnedRef.current = true;
-	        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
-	      }
-	      const ok = confirm('检测到未保存修改。\n确定：先保存再生成\n取消：直接生成（不包含未保存修改）');
-	      if (ok) {
-	        await handleSave();
-	      } else {
-	        addToast('将基于已保存内容生成（未保存修改不会参与）', 'info');
-	      }
-		    }
+		    if (isDirty) {
+		      const draftOk = safeWriteDraft(getDraftKey(id, currentChapter.chapter_number), contentRef.current);
+		      if (draftOk) setDraftRevision((v) => v + 1);
+		      if (!draftOk && !draftSaveWarnedRef.current) {
+		        draftSaveWarnedRef.current = true;
+		        addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请尽快点击“保存”', 'info');
+		      }
+		      const ok = await confirmDialog({
+		        title: '未保存修改',
+		        message: '检测到未保存修改。\n\n请选择：\n- 先保存再生成（推荐）\n- 直接生成（不包含未保存修改）',
+		        confirmText: '先保存再生成',
+		        cancelText: '直接生成',
+		        dialogType: 'warning',
+		      });
+		      if (ok) {
+		        await handleSave();
+		      } else {
+		        addToast('将基于已保存内容生成（未保存修改不会参与）', 'info');
+		      }
+			    }
 		    setIsGenerating(true);
 		    setGenProgress({ stage: 'initializing', message: '初始化…' });
         // 让左侧列表立即显示“生成中”状态（对齐桌面端体验）
@@ -986,11 +911,22 @@ export const WritingDesk: React.FC = () => {
           if (Number(prev.chapter_number) !== Number(currentChapter.chapter_number)) return prev;
           return { ...prev, generation_status: 'generating' };
         });
-		    await connect(`/writer/novels/${id}/chapters/generate-stream`, {
-		        chapter_number: currentChapter.chapter_number,
-		        writing_notes: writingNotes?.trim() || undefined,
-		    });
-		  };
+			    await connect(`/writer/novels/${id}/chapters/generate-stream`, {
+			        chapter_number: currentChapter.chapter_number,
+			        writing_notes: writingNotes?.trim() || undefined,
+			    });
+			  };
+
+        // 对齐桌面端：章节页头提供“预览提示词”（用于测试 RAG 与上下文构建）
+        const openPromptPreviewModal = useCallback(() => {
+          if (!id || !currentChapter) return;
+          setPromptPreviewNotes((prev) => {
+            const v = String(prev || '').trim();
+            if (v) return prev;
+            return writingNotes || '';
+          });
+          setIsPromptPreviewModalOpen(true);
+        }, [currentChapter, id, writingNotes]);
 
   useEffect(() => {
     return () => disconnect();
@@ -1002,10 +938,15 @@ export const WritingDesk: React.FC = () => {
 	      addToast('生成中，暂不支持切换版本', 'info');
 	      return;
 	    }
-	    if (isDirty) {
-	      const ok = confirm('当前章节有未保存修改，切换版本会丢失本地改动。是否继续？');
-	      if (!ok) return;
-	    }
+		    if (isDirty) {
+		      const ok = await confirmDialog({
+		        title: '切换版本',
+		        message: '当前章节有未保存修改，切换版本会丢失本地改动。\n是否继续？',
+		        confirmText: '继续切换',
+		        dialogType: 'warning',
+		      });
+		      if (!ok) return;
+		    }
 	    const versions = Array.isArray(currentChapter.versions) ? currentChapter.versions : [];
 	    const versionContent = versions[index];
 	    if (!versionContent) return;
@@ -1035,32 +976,6 @@ export const WritingDesk: React.FC = () => {
     }
   };
 
-  const handleRetryVersion = async (index: number, customPrompt?: string) => {
-    if (!id || !currentChapter) return;
-    try {
-      await writerApi.retryVersion(id, currentChapter.chapter_number, index, customPrompt);
-      addToast('已提交重新生成任务', 'success');
-      await handleSelectChapter(currentChapter.chapter_number, { skipConfirm: true, preserveLocalContent: isDirty });
-      if (isDirty) addToast('已更新版本列表；因未保存修改，未覆盖当前编辑内容', 'info');
-    } catch (e) {
-      console.error(e);
-      addToast('重新生成失败', 'error');
-    }
-  };
-
-  const handleEvaluateChapter = async () => {
-    if (!id || !currentChapter) return;
-    try {
-      await writerApi.evaluateChapter(id, currentChapter.chapter_number);
-      addToast('评审完成', 'success');
-      await handleSelectChapter(currentChapter.chapter_number, { skipConfirm: true, preserveLocalContent: isDirty });
-      if (isDirty) addToast('已更新评审结果；因未保存修改，未覆盖当前编辑内容', 'info');
-    } catch (e) {
-      console.error(e);
-      addToast('评审失败', 'error');
-    }
-  };
-
 	  // Chapter Actions
 	  const handleEditOutline = (chapter: Chapter) => {
 	    setEditingChapter(chapter);
@@ -1075,36 +990,43 @@ export const WritingDesk: React.FC = () => {
       }
 
       // 未保存修改：先写入本地草稿，降低误操作丢稿风险
-      if (isDirtyRef.current) {
-        const currentNo = currentChapterRef.current?.chapter_number;
-        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
-        if (draftOk) setDraftRevision((v) => v + 1);
-        if (!draftOk && !draftSaveWarnedRef.current) {
-          draftSaveWarnedRef.current = true;
-          addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请谨慎执行级联删除类操作', 'info');
-        }
-        const ok = confirm(
-          draftOk
-            ? '当前章节有未保存修改。\n继续“重生成大纲”可能导致后续数据变化（甚至级联删除）。\n已自动保存本地草稿（可随时恢复）。\n是否继续？'
-            : '当前章节有未保存修改。\n本地草稿保存失败，继续“重生成大纲”可能丢失未保存内容。\n是否继续？'
-        );
-        if (!ok) return;
-      }
+	      if (isDirtyRef.current) {
+	        const currentNo = currentChapterRef.current?.chapter_number;
+	        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+	        if (draftOk) setDraftRevision((v) => v + 1);
+	        if (!draftOk && !draftSaveWarnedRef.current) {
+	          draftSaveWarnedRef.current = true;
+	          addToast('本地草稿保存失败（浏览器存储不可用或容量不足），请谨慎执行级联删除类操作', 'info');
+	        }
+	        const ok = await confirmDialog({
+	          title: '未保存修改',
+	          message: draftOk
+	            ? '当前章节有未保存修改。\n继续“重生成大纲”可能导致后续数据变化（甚至级联删除）。\n已自动保存本地草稿（可随时恢复）。\n是否继续？'
+	            : '当前章节有未保存修改。\n本地草稿保存失败，继续“重生成大纲”可能丢失未保存内容。\n是否继续？',
+	          confirmText: '继续',
+	          dialogType: 'warning',
+	        });
+	        if (!ok) return;
+	      }
 
       const maxChapter = chapters.length
         ? Math.max(...chapters.map((c) => Number(c.chapter_number) || 0))
         : chapter.chapter_number;
       const isLast = Number(chapter.chapter_number) === Number(maxChapter);
 
-      let cascadeDelete = false;
-      if (!isLast && maxChapter > chapter.chapter_number) {
-        const ok = confirm(
-          `串行生成原则：只能直接重生成最后一章（当前最后一章为第${maxChapter}章）。\n\n` +
-            `若要重生成第${chapter.chapter_number}章，必须级联删除第${chapter.chapter_number + 1}-${maxChapter}章的大纲/章节内容/向量数据。\n\n是否继续？`
-        );
-        if (!ok) return;
-        cascadeDelete = true;
-      }
+	      let cascadeDelete = false;
+	      if (!isLast && maxChapter > chapter.chapter_number) {
+	        const ok = await confirmDialog({
+	          title: '串行生成原则',
+	          message:
+	            `串行生成原则：只能直接重生成最后一章（当前最后一章为第${maxChapter}章）。\n\n` +
+	            `若要重生成第${chapter.chapter_number}章，必须级联删除第${chapter.chapter_number + 1}-${maxChapter}章的大纲/章节内容/向量数据。\n\n是否继续？`,
+	          confirmText: '继续',
+	          dialogType: 'danger',
+	        });
+	        if (!ok) return;
+	        cascadeDelete = true;
+	      }
 
       openOptionalPromptModal({
         title: `重生成大纲 - 第${chapter.chapter_number}章`,
@@ -1148,41 +1070,51 @@ export const WritingDesk: React.FC = () => {
       });
     };
 
-		  const handleResetChapter = async (chapter: Chapter) => {
-		    if (!id) return;
-		    if (confirm(`确定要清空第 ${chapter.chapter_number} 章的内容吗？这将删除所有已生成的版本。`)) {
-		        try {
-            await writerApi.resetChapter(id, chapter.chapter_number);
-            addToast('章节已重置', 'success');
-            const wasCurrent = currentChapter?.chapter_number === chapter.chapter_number;
-            await loadProjectData();
-            if (wasCurrent) {
-                await handleSelectChapter(chapter.chapter_number, { skipConfirm: true });
-            }
-        } catch (e) {
-            addToast('操作失败', 'error');
-        }
-    }
-  };
-
-	  const handleDeleteChapter = async (chapter: Chapter) => {
-	    if (!id) return;
-	    if (confirm(`确定要删除第 ${chapter.chapter_number} 章吗？此操作不可恢复。`)) {
-	        try {
-	            await writerApi.deleteChapters(id, [chapter.chapter_number]);
-	            addToast('章节已删除', 'success');
-	            const wasCurrent = currentChapter?.chapter_number === chapter.chapter_number;
-	            if (wasCurrent) {
-	              setCurrentChapter(null);
-	              setContent('');
-	              setLoadedContent('');
-	            }
-	            await loadProjectData();
-	        } catch (e) {
-	            addToast('删除失败', 'error');
-	        }
-	    }
+			  const handleResetChapter = async (chapter: Chapter) => {
+			    if (!id) return;
+			    const ok = await confirmDialog({
+			      title: '清空章节内容',
+			      message: `确定要清空第 ${chapter.chapter_number} 章的内容吗？\n这将删除所有已生成的版本。`,
+			      confirmText: '清空',
+			      dialogType: 'danger',
+			    });
+			    if (!ok) return;
+			    try {
+	          await writerApi.resetChapter(id, chapter.chapter_number);
+	          addToast('章节已重置', 'success');
+	          const wasCurrent = currentChapter?.chapter_number === chapter.chapter_number;
+	          await loadProjectData();
+	          if (wasCurrent) {
+	              await handleSelectChapter(chapter.chapter_number, { skipConfirm: true });
+	          }
+	      } catch (e) {
+	          addToast('操作失败', 'error');
+	      }
 	  };
+
+		  const handleDeleteChapter = async (chapter: Chapter) => {
+		    if (!id) return;
+		    const ok = await confirmDialog({
+		      title: '删除章节',
+		      message: `确定要删除第 ${chapter.chapter_number} 章吗？\n此操作不可恢复。`,
+		      confirmText: '删除',
+		      dialogType: 'danger',
+		    });
+		    if (!ok) return;
+		    try {
+		        await writerApi.deleteChapters(id, [chapter.chapter_number]);
+		        addToast('章节已删除', 'success');
+		        const wasCurrent = currentChapter?.chapter_number === chapter.chapter_number;
+		        if (wasCurrent) {
+		          setCurrentChapter(null);
+		          setContent('');
+		          setLoadedContent('');
+		        }
+		        await loadProjectData();
+		    } catch (e) {
+		        addToast('删除失败', 'error');
+		    }
+		  };
 
 	  useEffect(() => {
 	    const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1196,222 +1128,82 @@ export const WritingDesk: React.FC = () => {
 
 		  if (!id) return null;
 
-		  const chapterNumbers = Array.from(
-		    new Set(
-		      (Array.isArray(chapters) ? chapters : [])
-		        .map((c) => Number((c as any)?.chapter_number || 0))
-		        .filter((n) => Number.isFinite(n) && n > 0)
-		    )
-		  ).sort((a, b) => a - b);
-		  const currentNo = currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null;
-		  const currentIdx = currentNo ? chapterNumbers.indexOf(currentNo) : -1;
-		  const prevChapter = currentIdx > 0 ? chapterNumbers[currentIdx - 1] : null;
-		  const nextChapter = currentIdx >= 0 && currentIdx < chapterNumbers.length - 1 ? chapterNumbers[currentIdx + 1] : null;
 
 		  return (
 		    <div className="flex flex-col h-screen bg-book-bg">
-		      <div className="h-12 border-b border-book-border bg-book-bg-paper flex items-center px-4 justify-between shrink-0 z-30 shadow-sm">
-		        <button 
+		      {/* 简化的顶部导航栏 - 照抄桌面端 header.py */}
+		      <div className="h-14 border-b border-book-border bg-book-bg-paper flex items-center px-4 justify-between shrink-0 z-30 shadow-sm">
+		        {/* 左侧：返回按钮 */}
+		        <button
 		          onClick={() => safeNavigate('/')}
-	          className="flex items-center text-book-text-sub hover:text-book-primary transition-colors text-sm font-medium"
+	          className="flex items-center justify-center w-9 h-9 rounded-full bg-book-primary text-white hover:opacity-90 transition-opacity"
+	          title="返回项目列表"
 	        >
-	          <ArrowLeft size={16} className="mr-1" />
-	          返回列表
+	          <ArrowLeft size={18} />
         </button>
-		        <div className="min-w-0 flex flex-col items-center leading-tight">
-		          <div className="font-serif font-bold text-book-text-main text-base tracking-wide truncate max-w-[44vw]">
-		            {(projectInfo?.title || '写作台')}
-		            {currentChapter ? ` · 第${currentChapter.chapter_number}章${isDirty ? '*' : ''}` : ' · 未选择章节'}
+
+        {/* 中间：项目信息 */}
+		        <div className="flex-1 min-w-0 mx-4 px-4 py-2 bg-book-bg rounded-lg border border-book-border/50">
+		          <div className="font-serif font-bold text-book-text-main text-sm truncate">
+		            {projectInfo?.title || '写作台'}
 		          </div>
-		          <div
-		            className="text-[11px] text-book-text-muted truncate max-w-[44vw]"
-		            title={currentChapter?.title ? String(currentChapter.title) : undefined}
-		          >
-		            {currentChapter ? (currentChapter.title ? String(currentChapter.title) : '未命名章节') : '请选择左侧章节开始写作'}
+		          <div className="text-[11px] text-book-text-muted truncate">
+		            {projectInfo?.style || '自由创作'}
+		            {' · '}
+		            {chapters.filter(ch => ch.content).length}/{chapters.length}章
+		            {contentChars > 0 && ` · ${contentChars}字`}
 		          </div>
 		        </div>
-	        <div className="flex items-center justify-end gap-3 min-w-[20rem]">
-	          <button
-	            onClick={handleEditWritingNotes}
-	            className={`
-	              text-xs font-bold transition-colors truncate max-w-[10rem]
-	              ${writingNotes.trim() ? 'text-book-primary hover:text-book-accent' : 'text-book-text-muted hover:text-book-accent'}
-	            `}
-	            title={writingNotes.trim() ? writingNotes.trim().slice(0, 120) : '写作指导（可选）'}
+
+	        {/* 右侧：操作按钮 */}
+	        <div className="flex items-center gap-2">
+	          {/* 导入/导出按钮（下拉菜单） */}
+	          <Dropdown
+	            label="导入/导出"
+	            items={[
+	              { label: '导入章节', onClick: openImportChapterModal },
+	              { label: '导出为 TXT', onClick: () => handleExport('txt') },
+	              { label: '导出为 Markdown', onClick: () => handleExport('markdown') },
+	            ]}
+	          />
+
+	          {/* 项目详情按钮 */}
+	          <BookButton
+	            variant="primary"
+	            size="sm"
+	            onClick={() => safeNavigate(`/novel/${id}`)}
+	            title="打开项目详情"
 	          >
-	            写作指导{writingNotes.trim() ? '*' : ''}
-	          </button>
+	            项目详情
+	          </BookButton>
 
-	          <div className="text-[11px] text-book-text-muted font-mono hidden sm:block" title="当前编辑字数（去除空白）">
-	            {contentChars}
-	          </div>
+	          {/* RAG助手切换按钮 */}
+	          <BookButton
+	            variant={isAssistantOpen ? 'primary' : 'ghost'}
+	            size="sm"
+	            onClick={() => setIsAssistantOpen((v) => !v)}
+	            title={isAssistantOpen ? '隐藏助手面板' : '显示助手面板'}
+	          >
+	            {isAssistantOpen ? '隐藏助手' : '显示助手'}
+	          </BookButton>
+	        </div>
 
-		          <div className="flex items-center gap-2">
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              className="px-2"
-		              onClick={() => {
-		                if (!prevChapter) return;
-		                handleSelectChapter(prevChapter);
-		              }}
-		              disabled={!prevChapter}
-		              title={prevChapter ? `上一章：第${prevChapter}章` : '没有上一章'}
-		            >
-		              <ChevronLeft size={16} />
-		            </BookButton>
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              className="px-2"
-		              onClick={() => {
-		                if (!nextChapter) return;
-		                handleSelectChapter(nextChapter);
-		              }}
-		              disabled={!nextChapter}
-		              title={nextChapter ? `下一章：第${nextChapter}章` : '没有下一章'}
-		            >
-		              <ChevronRight size={16} />
-		            </BookButton>
-
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              onClick={() => currentChapter && handleEditOutline(currentChapter)}
-		              disabled={!currentChapter}
-		              title="编辑当前章节大纲"
-		            >
-		              <Edit3 size={14} className="mr-1" />
-		              大纲
-		            </BookButton>
-
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              onClick={() => safeNavigate(`/novel/${id}`)}
-		              title="打开项目详情"
-		            >
-		              <LayoutPanelTop size={14} className="mr-1" />
-		              详情
-		            </BookButton>
-
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              onClick={() => safeNavigate(`/inspiration/${id}`)}
-		              title="打开灵感对话"
-		            >
-		              <Sparkles size={14} className="mr-1" />
-		              对话
-		            </BookButton>
-
-			            <BookButton
-			              variant="ghost"
-			              size="sm"
-			              onClick={() => safeNavigate(`/blueprint/${id}`)}
-			              title="预览蓝图设定"
-			            >
-			              <MapIcon size={14} className="mr-1" />
-			              蓝图
-			            </BookButton>
-
-			            <Dropdown
-			              items={[
-			                {
-			                  label: '主角档案',
-			                  icon: <User size={12} />,
-			                  onClick: () => setIsProtagonistModalOpen(true),
-			                },
-			                {
-			                  label: '批量生成大纲',
-			                  icon: <Sparkles size={12} />,
-			                  onClick: () => setIsBatchModalOpen(true),
-			                },
-			                {
-			                  label: '导入章节',
-			                  icon: <FileUp size={12} />,
-			                  onClick: openImportChapterModal,
-			                },
-			                {
-			                  label: '导出本章TXT',
-			                  icon: <FileDown size={12} />,
-			                  onClick: () => handleExportCurrentChapter('txt'),
-			                },
-			                {
-			                  label: '导出本章MD',
-			                  icon: <FileDown size={12} />,
-			                  onClick: () => handleExportCurrentChapter('markdown'),
-			                },
-			                { label: '助手：大纲', onClick: () => openAssistantTab('outline') },
-			                { label: '助手：提示词', onClick: () => openAssistantTab('prompt') },
-			                { label: '助手：版本', onClick: () => openAssistantTab('versions') },
-			                { label: '助手：评审', onClick: () => openAssistantTab('review') },
-			                { label: '助手：摘要', onClick: () => openAssistantTab('summary') },
-			                { label: '助手：分析', onClick: () => openAssistantTab('analysis') },
-			                { label: '助手：优化', onClick: () => openAssistantTab('optimize') },
-			                { label: '助手：角色', onClick: () => openAssistantTab('portraits') },
-			                { label: '助手：状态', onClick: () => openAssistantTab('state') },
-			                { label: '助手：漫画', onClick: () => openAssistantTab('manga') },
-			                { label: '助手：知识库', onClick: () => openAssistantTab('rag') },
-			              ]}
-			            />
-
-			            <BookButton
-			              variant="ghost"
-			              size="sm"
-		              onClick={() => handleExport('txt')}
-	              title="导出 TXT"
-	            >
-	              <FileDown size={14} className="mr-1" />
-	              TXT
-	            </BookButton>
-
-	            <BookButton
-	              variant="ghost"
-	              size="sm"
-	              onClick={() => handleExport('markdown')}
-	              title="导出 Markdown"
-	            >
-	              <FileDown size={14} className="mr-1" />
-	              MD
-	            </BookButton>
-
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              onClick={() => setIsSidebarOpen((v) => !v)}
-		              title={isSidebarOpen ? '隐藏左侧章节栏' : '显示左侧章节栏'}
-		            >
-		              <LayoutPanelLeft size={14} className="mr-1" />
-		              {isSidebarOpen ? '隐藏章节' : '显示章节'}
-		            </BookButton>
-
-		            <BookButton
-		              variant="ghost"
-		              size="sm"
-		              onClick={() => setIsAssistantOpen((v) => !v)}
-		              title={isAssistantOpen ? '隐藏右侧助手面板' : '显示右侧助手面板'}
-		            >
-		              <PanelRight size={14} className="mr-1" />
-		              {isAssistantOpen ? '隐藏助手' : '显示助手'}
-		            </BookButton>
-		          </div>
-
+          {/* 生成进度（仅在生成时显示） */}
 	          {isGenerating && (
-	            <>
+	            <div className="flex items-center gap-3 ml-4">
 	              <div className="min-w-0 text-right">
 	                <div className="text-[11px] text-book-text-muted truncate">
-	                  {genProgress?.message || genProgress?.stage || '生成中…'}
+	                  {genProgress?.message || genProgress?.stage || '生成中...'}
                 </div>
                 {typeof genProgress?.current === 'number' && typeof genProgress?.total === 'number' && genProgress.total > 0 ? (
-                  <div className="mt-1 h-1.5 w-48 bg-book-border/30 rounded-full overflow-hidden">
+                  <div className="mt-1 h-1.5 w-32 bg-book-border/30 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-book-primary transition-all duration-300"
                       style={{ width: `${Math.min(100, Math.max(0, (genProgress.current / genProgress.total) * 100))}%` }}
                     />
                   </div>
                 ) : (
-                  <div className="mt-1 h-1.5 w-48 bg-book-border/30 rounded-full overflow-hidden">
+                  <div className="mt-1 h-1.5 w-32 bg-book-border/30 rounded-full overflow-hidden">
                     <div className="h-full w-1/3 bg-book-primary animate-pulse" />
                   </div>
                 )}
@@ -1421,17 +1213,16 @@ export const WritingDesk: React.FC = () => {
                   disconnect();
                   setIsGenerating(false);
                   setGenProgress(null);
-                  addToast('已断开生成流（后台任务可能仍在运行）', 'info');
+                  addToast('已停止生成', 'info');
                 }}
-                className="text-xs text-book-text-muted hover:text-book-accent transition-colors font-bold"
-                title="仅断开 SSE 连接（不保证取消后台任务）"
+                className="text-xs text-book-accent hover:text-book-accent/80 transition-colors font-bold"
+                title="停止生成"
               >
                 停止
               </button>
-            </>
+            </div>
           )}
         </div>
-	      </div>
 
 		      <div className="flex-1 flex overflow-hidden">
 		        {isSidebarOpen && (
@@ -1464,31 +1255,33 @@ export const WritingDesk: React.FC = () => {
 
 		        <div className="flex-1 min-w-0 bg-book-bg">
 		          {currentChapter ? (
-			          <Editor 
-			            ref={editorRef}
-			            content={content}
-			            selectedVersionIndex={
-			              isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null)
-			            }
-		            isDirty={isDirty}
-		            versions={(Array.isArray(currentChapter?.versions) ? currentChapter?.versions : []).map((v, idx) => ({
-		              id: `v-${idx}`,
-		              chapter_id: `${id}-${currentChapter?.chapter_number || 0}`,
-		              version_label: `版本 ${idx + 1}`,
-		              content: v,
-		              created_at: new Date().toISOString(),
-		              provider: 'llm',
-		            }))}
-	            isSaving={isSaving}
-	            isGenerating={isGenerating}
-	            onChange={setContent}
-	            onSave={handleSave}
-	            onGenerate={handleGenerate}
-	            onSelectVersion={handleVersionSelect}
-	            onIngestRag={handleRagIngest}
-	            isIngestingRag={isRagIngesting}
-			          />
-		          ) : (
+				          <WorkspaceTabs
+				            ref={editorRef}
+				            projectId={id}
+				            chapter={currentChapter}
+				            content={content}
+				            selectedVersionIndex={
+				              isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null)
+				            }
+			            versions={(Array.isArray(currentChapter?.versions) ? currentChapter?.versions : []).map((v, idx) => ({
+			              id: `v-${idx}`,
+			              chapter_id: `${id}-${currentChapter?.chapter_number || 0}`,
+			              version_label: `版本 ${idx + 1}`,
+			              content: v,
+			              created_at: new Date().toISOString(),
+			              provider: 'llm',
+			            }))}
+		            isSaving={isSaving}
+		            isGenerating={isGenerating}
+		            onChange={setContent}
+		            onSave={handleSave}
+		            onGenerate={handleGenerate}
+		            onPreviewPrompt={openPromptPreviewModal}
+		            onSelectVersion={handleVersionSelect}
+		            onIngestRag={handleRagIngest}
+		            isIngestingRag={isRagIngesting}
+				          />
+			          ) : (
 		            <div className="h-full w-full flex items-center justify-center p-8">
 		              <BookCard className="max-w-xl w-full p-6">
 		                <div className="font-serif text-lg font-bold text-book-text-main">未选择章节</div>
@@ -1523,22 +1316,11 @@ export const WritingDesk: React.FC = () => {
 			              title="拖拽调整助手面板宽度"
 			            />
 			            <div className="shrink-0 h-full" style={{ width: assistantWidth }}>
-				              <AssistantPanel 
+				              <AssistantPanel
 				                  projectId={id}
 				                  chapterNumber={currentChapter?.chapter_number}
-				                  chapter={currentChapter}
 				                  content={content}
-                          characterNames={characterNames}
-                          characterProfiles={characterProfiles}
-	                        requestedTab={assistantRequestedTab}
 				                  onChangeContent={setContent}
-				                  writingNotes={writingNotes}
-				                  onChangeWritingNotes={setWritingNotes}
-				                  onIngestRag={handleRagIngest}
-			                  isIngestingRag={isRagIngesting}
-			                  onSelectVersion={handleVersionSelect}
-			                  onRetryVersion={handleRetryVersion}
-			                  onEvaluateChapter={handleEvaluateChapter}
 			                  onLocateText={locateInEditor}
 			                  onSelectRange={selectRangeInEditor}
 			                  onJumpToChapter={async (chapterNo) => {
@@ -1551,18 +1333,46 @@ export const WritingDesk: React.FC = () => {
 		      </div>
 
 	      {/* Modals */}
-	      <input
-	        ref={importFileInputRef}
-	        type="file"
-	        accept=".txt,.md,text/plain,text/markdown"
-	        style={{ display: 'none' }}
-	        onChange={onImportFileChange}
-	      />
+		      <input
+		        ref={importFileInputRef}
+		        type="file"
+		        accept=".txt,.md,text/plain,text/markdown"
+		        style={{ display: 'none' }}
+		        onChange={onImportFileChange}
+		      />
 
-	      <OutlineEditModal 
-	        isOpen={isOutlineModalOpen}
-	        onClose={() => setIsOutlineModalOpen(false)}
-	        chapter={editingChapter}
+		      <Modal
+		        isOpen={isPromptPreviewModalOpen}
+		        onClose={() => setIsPromptPreviewModalOpen(false)}
+		        title={`第 ${currentChapter?.chapter_number ?? ''} 章 - 提示词预览`}
+		        maxWidthClassName="max-w-6xl"
+		        className="max-h-[90vh]"
+		        footer={
+		          <div className="flex justify-end gap-2">
+		            <BookButton variant="ghost" onClick={() => setIsPromptPreviewModalOpen(false)}>
+		              关闭
+		            </BookButton>
+		          </div>
+		        }
+		      >
+		        <div className="max-h-[75vh] overflow-auto custom-scrollbar pr-1">
+		          {currentChapter ? (
+		            <ChapterPromptPreviewView
+		              projectId={id}
+		              chapterNumber={currentChapter.chapter_number}
+		              writingNotes={promptPreviewNotes}
+		              onChangeWritingNotes={setPromptPreviewNotes}
+		            />
+		          ) : (
+		            <div className="text-sm text-book-text-muted">请先选择章节</div>
+		          )}
+		        </div>
+		      </Modal>
+
+		      <OutlineEditModal 
+		        isOpen={isOutlineModalOpen}
+		        onClose={() => setIsOutlineModalOpen(false)}
+		        chapter={editingChapter}
 	        projectId={id}
         onSuccess={loadProjectData}
       />
@@ -1735,16 +1545,21 @@ export const WritingDesk: React.FC = () => {
               <BookButton variant="ghost" onClick={() => setIsWritingNotesModalOpen(false)}>
                 取消
               </BookButton>
-              <BookButton
-                variant="secondary"
-                onClick={() => {
-                  const ok = confirm('确定清空写作指导？');
-                  if (!ok) return;
-                  setWritingNotesDraft('');
-                }}
-              >
-                清空
-              </BookButton>
+	              <BookButton
+	                variant="secondary"
+	                onClick={async () => {
+	                  const ok = await confirmDialog({
+	                    title: '清空写作指导',
+	                    message: '确定清空写作指导？',
+	                    confirmText: '清空',
+	                    dialogType: 'warning',
+	                  });
+	                  if (!ok) return;
+	                  setWritingNotesDraft('');
+	                }}
+	              >
+	                清空
+	              </BookButton>
               <BookButton
                 variant="primary"
                 onClick={() => {

@@ -5,8 +5,9 @@ import { writerApi } from '../api/writer';
 import { BookButton } from '../components/ui/BookButton';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
-import { ArrowLeft, Save, Play, Sparkles, RefreshCw, Map as MapIcon, Users, FileText, Share, Plus, Trash2, Download, Link2, User, Database } from 'lucide-react';
+import { Play, Sparkles, RefreshCw, Map as MapIcon, Users, FileText, Share, Plus, Trash2, Download, Link2 } from 'lucide-react';
 import { useToast } from '../components/feedback/Toast';
+import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { Modal } from '../components/ui/Modal';
 import { OutlineEditModal } from '../components/business/OutlineEditModal';
 import { BatchGenerateModal } from '../components/business/BatchGenerateModal';
@@ -15,7 +16,57 @@ import { ProtagonistProfilesModal } from '../components/business/ProtagonistProf
 import { PartOutlineGenerateModal } from '../components/business/PartOutlineGenerateModal';
 import { PartOutlineDetailModal } from '../components/business/PartOutlineDetailModal';
 
-type Tab = 'overview' | 'world' | 'characters' | 'relationships' | 'outlines';
+type Tab = 'overview' | 'world' | 'characters' | 'relationships' | 'outlines' | 'chapters';
+
+const sanitizeFilenamePart = (raw: string) => {
+  // Windows 不允许的文件名字符：<>:"/\\|?* + 控制字符
+  return String(raw || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const stableStringify = (value: any): string => {
+  const seen = new WeakSet<object>();
+
+  const normalize = (v: any): any => {
+    if (v === null || v === undefined) return v;
+    const t = typeof v;
+    if (t === 'string' || t === 'number' || t === 'boolean') return v;
+    if (Array.isArray(v)) return v.map(normalize);
+    if (t !== 'object') return String(v);
+
+    if (seen.has(v)) return null;
+    seen.add(v);
+
+    const out: Record<string, any> = {};
+    for (const key of Object.keys(v).sort()) {
+      const nv = normalize(v[key]);
+      if (nv !== undefined) out[key] = nv;
+    }
+    return out;
+  };
+
+  try {
+    return JSON.stringify(normalize(value));
+  } catch {
+    return JSON.stringify(String(value ?? ''));
+  }
+};
+
+const buildNovelBlueprintSnapshot = (blueprint: any): string => {
+  const bp = blueprint || {};
+  return stableStringify({
+    one_sentence_summary: String(bp.one_sentence_summary || ''),
+    full_synopsis: String(bp.full_synopsis || ''),
+    genre: String(bp.genre || ''),
+    target_audience: String(bp.target_audience || ''),
+    style: String(bp.style || ''),
+    tone: String(bp.tone || ''),
+    characters: Array.isArray(bp.characters) ? bp.characters : [],
+    relationships: Array.isArray(bp.relationships) ? bp.relationships : [],
+  });
+};
 
 export const NovelDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,15 +75,50 @@ export const NovelDetail: React.FC = () => {
   
   const [project, setProject] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const activeTabStorageKey = useMemo(() => (id ? `afn:novel_detail:active_tab:${id}` : ''), [id]);
+
+  // 对齐桌面端“页缓存”体验：Web 侧记忆上次停留的 Tab（避免路由重建后总回到 overview）
+  useEffect(() => {
+    if (!activeTabStorageKey) return;
+    try {
+      const saved = localStorage.getItem(activeTabStorageKey) || '';
+      if (
+        saved === 'overview' ||
+        saved === 'world' ||
+        saved === 'characters' ||
+        saved === 'relationships' ||
+        saved === 'outlines' ||
+        saved === 'chapters'
+      ) {
+        setActiveTab(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeTabStorageKey]);
+
+  useEffect(() => {
+    if (!activeTabStorageKey) return;
+    try {
+      localStorage.setItem(activeTabStorageKey, activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, activeTabStorageKey]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [ragSyncing, setRagSyncing] = useState(false);
+  const [isEditTitleModalOpen, setIsEditTitleModalOpen] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
+  const [editTitleSaving, setEditTitleSaving] = useState(false);
 
   // Form states
   const [blueprintData, setBlueprintData] = useState<any>({});
   const [worldSettingDraft, setWorldSettingDraft] = useState<string>('{}');
   const [worldEditMode, setWorldEditMode] = useState<'structured' | 'json'>('structured');
+  const [savedBlueprintSnapshot, setSavedBlueprintSnapshot] = useState<string>('');
+  const [savedWorldSettingDraft, setSavedWorldSettingDraft] = useState<string>('{}');
 
   // Chapter outlines edit
   const [editingChapter, setEditingChapter] = useState<any | null>(null);
@@ -65,6 +151,24 @@ export const NovelDetail: React.FC = () => {
   // 导入分析进度（导入小说专用）
   const [importStatus, setImportStatus] = useState<any | null>(null);
   const [importStatusLoading, setImportStatusLoading] = useState(false);
+  const [importStarting, setImportStarting] = useState(false);
+
+  // 已完成章节（项目详情页展示，桌面端 ChaptersSection 对齐）
+  const [chaptersSearch, setChaptersSearch] = useState('');
+  const [selectedCompletedChapterNumber, setSelectedCompletedChapterNumber] = useState<number | null>(null);
+  const [selectedCompletedChapter, setSelectedCompletedChapter] = useState<any | null>(null);
+  const [selectedCompletedChapterLoading, setSelectedCompletedChapterLoading] = useState(false);
+
+  // 章节导入（TXT/MD，支持 utf-8/gb18030）
+  const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
+  const [importChapterNumber, setImportChapterNumber] = useState<number>(1);
+  const [importChapterTitle, setImportChapterTitle] = useState('');
+  const [importChapterContent, setImportChapterContent] = useState('');
+  const [importEncoding, setImportEncoding] = useState<'utf-8' | 'gb18030'>('utf-8');
+  const [importFileName, setImportFileName] = useState('');
+  const [importFileBuffer, setImportFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [importingChapter, setImportingChapter] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   
   // Character Edit State
   const [editingCharIndex, setEditingCharIndex] = useState<number | null>(null);
@@ -163,6 +267,26 @@ export const NovelDetail: React.FC = () => {
     return map;
   }, [project]);
 
+  const completedChapters = useMemo(() => {
+    const list = Array.isArray(project?.chapters) ? project.chapters : [];
+    const completed = list.filter((c: any) => {
+      const hasSelected = typeof c?.selected_version === 'number';
+      const hasContent = Boolean(String(c?.content || '').trim());
+      return hasSelected || hasContent;
+    });
+    return [...completed].sort((a, b) => Number(a?.chapter_number || 0) - Number(b?.chapter_number || 0));
+  }, [project]);
+
+  const filteredCompletedChapters = useMemo(() => {
+    const q = String(chaptersSearch || '').trim();
+    if (!q) return completedChapters;
+    return completedChapters.filter((c: any) => {
+      const n = String(c?.chapter_number || '');
+      const title = String(c?.title || '');
+      return n.includes(q) || title.includes(q) || `第${n}章`.includes(q);
+    });
+  }, [chaptersSearch, completedChapters]);
+
   const characterNames = useMemo(() => {
     const list = Array.isArray(blueprintData?.characters) ? blueprintData.characters : [];
     const set = new Set<string>();
@@ -255,6 +379,132 @@ export const NovelDetail: React.FC = () => {
     }
   }, [worldSettingDraft]);
 
+  const currentBlueprintSnapshot = useMemo(() => {
+    return buildNovelBlueprintSnapshot(blueprintData);
+  }, [blueprintData]);
+
+  const isBlueprintDirty = useMemo(() => {
+    // 首次加载前不提示“未保存”
+    if (!savedBlueprintSnapshot) return false;
+    return currentBlueprintSnapshot !== savedBlueprintSnapshot || worldSettingDraft !== savedWorldSettingDraft;
+  }, [currentBlueprintSnapshot, savedBlueprintSnapshot, savedWorldSettingDraft, worldSettingDraft]);
+
+  const dirtySummary = useMemo(() => {
+    if (!isBlueprintDirty) return '';
+
+    const parts: string[] = [];
+    try {
+      const saved = savedBlueprintSnapshot ? JSON.parse(savedBlueprintSnapshot) : null;
+      const cur = currentBlueprintSnapshot ? JSON.parse(currentBlueprintSnapshot) : null;
+      if (saved && cur) {
+        const overviewChanged =
+          cur.one_sentence_summary !== saved.one_sentence_summary ||
+          cur.full_synopsis !== saved.full_synopsis ||
+          cur.genre !== saved.genre ||
+          cur.target_audience !== saved.target_audience ||
+          cur.style !== saved.style ||
+          cur.tone !== saved.tone;
+        if (overviewChanged) parts.push('概览');
+
+        const charsChanged = stableStringify(cur.characters) !== stableStringify(saved.characters);
+        if (charsChanged) parts.push('角色');
+
+        const relChanged = stableStringify(cur.relationships) !== stableStringify(saved.relationships);
+        if (relChanged) parts.push('关系');
+      }
+    } catch {
+      // ignore
+    }
+
+    if (worldSettingDraft !== savedWorldSettingDraft) parts.push('世界观');
+
+    if (!parts.length) return '有未保存的修改';
+    return `有未保存的修改：${parts.join('、')}`;
+  }, [currentBlueprintSnapshot, isBlueprintDirty, savedBlueprintSnapshot, savedWorldSettingDraft, worldSettingDraft]);
+
+  const safeNavigate = useCallback(async (to: string) => {
+    if (isBlueprintDirty) {
+      const ok = await confirmDialog({
+        title: '未保存修改',
+        message: `${dirtySummary || '有未保存的修改'}。\n\n确定要离开当前页面吗？`,
+        confirmText: '离开',
+        dialogType: 'warning',
+      });
+      if (!ok) return;
+    }
+    navigate(to);
+  }, [dirtySummary, isBlueprintDirty, navigate]);
+
+  // 仅用 ref 保存脏状态，避免频繁重绑 popstate 监听（编辑表单时会高频 re-render）
+  const isBlueprintDirtyRef = useRef(false);
+  const dirtySummaryRef = useRef('');
+  const historyIdxRef = useRef<number>(0);
+  const ignoreNextPopStateRef = useRef(false);
+
+  useEffect(() => {
+    isBlueprintDirtyRef.current = isBlueprintDirty;
+    dirtySummaryRef.current = dirtySummary;
+  }, [dirtySummary, isBlueprintDirty]);
+
+  useEffect(() => {
+    // React Router 会在 history.state 里维护 idx（0,1,2...），用于判断 back/forward 方向
+    try {
+      const idx = Number((window.history.state as any)?.idx);
+      if (Number.isFinite(idx)) historyIdxRef.current = idx;
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      let nextIdx = NaN;
+      try {
+        nextIdx = Number((window.history.state as any)?.idx);
+      } catch {
+        nextIdx = NaN;
+      }
+
+      // 处理“我们自己 go(-1/+1) 回滚”的二次 popstate
+      if (ignoreNextPopStateRef.current) {
+        ignoreNextPopStateRef.current = false;
+        if (Number.isFinite(nextIdx)) historyIdxRef.current = nextIdx;
+        return;
+      }
+
+      // 非脏状态：仅更新 idx 基线，允许正常后退/前进
+      if (!isBlueprintDirtyRef.current) {
+        if (Number.isFinite(nextIdx)) historyIdxRef.current = nextIdx;
+        return;
+      }
+
+      const prevIdx = historyIdxRef.current;
+      const delta = Number.isFinite(nextIdx) ? nextIdx - prevIdx : 0;
+      const ok = confirm(`${dirtySummaryRef.current || '有未保存的修改'}。\n\n确定要离开当前页面吗？`);
+      if (ok) {
+        if (Number.isFinite(nextIdx)) historyIdxRef.current = nextIdx;
+        return;
+      }
+
+      ignoreNextPopStateRef.current = true;
+      // 尝试回滚：用户点 back => delta<0 => go(+1)；点 forward => delta>0 => go(-1)
+      if (delta < 0) {
+        navigate(1);
+        return;
+      }
+      if (delta > 0) {
+        navigate(-1);
+        return;
+      }
+
+      // 无法判断方向时尽量回到原页面（通常是 back 场景）
+      navigate(1);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [navigate]);
+
   const worldSettingObj = useMemo(() => {
     try {
       const txt = (worldSettingDraft || '').trim();
@@ -325,7 +575,14 @@ export const NovelDetail: React.FC = () => {
           }
         }
         if (!ws || typeof ws !== 'object' || Array.isArray(ws)) ws = {};
-        setWorldSettingDraft(JSON.stringify(ws, null, 2));
+        const pretty = JSON.stringify(ws, null, 2);
+        setWorldSettingDraft(pretty);
+        setSavedWorldSettingDraft(pretty);
+        setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot(data.blueprint));
+      } else {
+        // 无蓝图时也初始化基线，避免误判“未保存”
+        setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot({}));
+        setSavedWorldSettingDraft('{}');
       }
 
       // 导入小说：同步拉取分析进度
@@ -349,6 +606,46 @@ export const NovelDetail: React.FC = () => {
       setLoading(false);
     }
   }, [id]);
+
+  const fetchProjectButton = useCallback(async () => {
+    if (isBlueprintDirty) {
+      const ok = await confirmDialog({
+        title: '刷新确认',
+        message: `${dirtySummary || '有未保存的修改'}。\n\n确定要刷新并丢弃本地修改吗？`,
+        confirmText: '刷新并丢弃',
+        dialogType: 'warning',
+      });
+      if (!ok) return;
+    }
+    await fetchProject();
+  }, [dirtySummary, fetchProject, isBlueprintDirty]);
+
+  const openEditTitleModal = useCallback(() => {
+    setEditTitleValue(String(project?.title || '').trim());
+    setIsEditTitleModalOpen(true);
+  }, [project?.title]);
+
+  const saveProjectTitle = useCallback(async () => {
+    if (!id) return;
+    const next = (editTitleValue || '').trim();
+    if (!next) {
+      addToast('标题不能为空', 'error');
+      return;
+    }
+
+    setEditTitleSaving(true);
+    try {
+      await novelsApi.update(id, { title: next });
+      addToast('标题已更新', 'success');
+      setIsEditTitleModalOpen(false);
+      await fetchProject();
+    } catch (e) {
+      console.error(e);
+      addToast('标题更新失败', 'error');
+    } finally {
+      setEditTitleSaving(false);
+    }
+  }, [addToast, editTitleValue, fetchProject, id]);
 
   const refreshImportStatus = useCallback(async () => {
     if (!id) return;
@@ -377,17 +674,63 @@ export const NovelDetail: React.FC = () => {
     }
   }, [addToast, fetchProject, id, refreshImportStatus]);
 
-  const handleRegenerateOutline = useCallback((chapterNumber: number) => {
+  const startImportAnalysis = useCallback(async () => {
+    if (!id) return;
+
+    const status = String(importStatus?.status || project?.import_analysis_status || 'pending');
+    const isResume = status === 'failed' || status === 'cancelled';
+
+    const ok = await confirmDialog({
+      title: '导入分析',
+      message: isResume
+        ? '检测到之前的分析未完成，将尝试从断点继续。\n\n确定要继续分析吗？'
+        : '将开始分析导入的小说内容，过程可能较久。\n\n确定要开始分析吗？',
+      confirmText: isResume ? '继续分析' : '开始分析',
+      dialogType: 'warning',
+    });
+    if (!ok) return;
+
+    setImportStarting(true);
+    try {
+      await novelsApi.startImportAnalysis(id);
+      addToast(isResume ? '已开始继续分析…' : '已开始分析…', 'success');
+      await refreshImportStatus();
+      await fetchProject();
+    } catch (e) {
+      console.error(e);
+      addToast('启动失败', 'error');
+    } finally {
+      setImportStarting(false);
+    }
+  }, [addToast, fetchProject, id, importStatus?.status, project?.import_analysis_status, refreshImportStatus]);
+
+  // 导入分析进行中：自动刷新进度（替代桌面端的进度对话框轮询体验）
+  useEffect(() => {
+    if (!id) return;
+    const status = String(importStatus?.status || project?.import_analysis_status || '');
+    if (status !== 'analyzing') return;
+
+    const timer = window.setInterval(() => {
+      refreshImportStatus().catch(() => {});
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [id, importStatus?.status, project?.import_analysis_status, refreshImportStatus]);
+
+  const handleRegenerateOutline = useCallback(async (chapterNumber: number) => {
     if (!id) return;
     const max = chapterOutlines.length ? Number(chapterOutlines[chapterOutlines.length - 1]?.chapter_number || 0) : chapterNumber;
     const isLast = chapterNumber === max;
 
     let cascadeDelete = false;
     if (!isLast && max > 0) {
-      const ok = confirm(
-        `串行生成原则：只能直接重生成最后一章（当前最后一章为第${max}章）。\n\n` +
-        `若要重生成第${chapterNumber}章，必须级联删除第${chapterNumber + 1}-${max}章的大纲/章节内容/向量数据。\n\n是否继续？`
-      );
+      const ok = await confirmDialog({
+        title: '串行生成原则',
+        message:
+          `串行生成原则：只能直接重生成最后一章（当前最后一章为第${max}章）。\n\n` +
+          `若要重生成第${chapterNumber}章，必须级联删除第${chapterNumber + 1}-${max}章的大纲/章节内容/向量数据。\n\n是否继续？`,
+        confirmText: '继续',
+        dialogType: 'danger',
+      });
       if (!ok) return;
       cascadeDelete = true;
     }
@@ -432,9 +775,13 @@ export const NovelDetail: React.FC = () => {
         return;
       }
 
+      const prettyWorld = JSON.stringify(parsedWorldSetting, null, 2);
       const payload = { ...blueprintData, world_setting: parsedWorldSetting };
       await novelsApi.updateBlueprint(id, payload);
       setBlueprintData(payload);
+      setWorldSettingDraft(prettyWorld);
+      setSavedWorldSettingDraft(prettyWorld);
+      setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot(payload));
       addToast('蓝图已保存', 'success');
     } catch (e) {
       console.error(e);
@@ -478,9 +825,12 @@ export const NovelDetail: React.FC = () => {
 
       // 后端会在存在章节大纲/章节内容时返回 409，提示需要用户确认 force
       if (status === 409 && !refineForce) {
-        const ok = confirm(
-          `${detail || '检测到已有后续数据，优化蓝图会清空这些数据。'}\n\n是否强制优化？`
-        );
+        const ok = await confirmDialog({
+          title: '强制优化蓝图',
+          message: `${detail || '检测到已有后续数据，优化蓝图会清空这些数据。'}\n\n是否强制优化？`,
+          confirmText: '强制优化',
+          dialogType: 'danger',
+        });
         if (ok) {
           try {
             setRefineForce(true);
@@ -520,13 +870,16 @@ export const NovelDetail: React.FC = () => {
   };
 
   const handleRagSync = async () => {
-    if (!id) return;
-    if (ragSyncing) return;
+	    if (!id) return;
+	    if (ragSyncing) return;
 
-    const ok = confirm(
-      '将同步项目到向量库：摘要/分析/索引/向量入库。\n\n强制全量入库会对所有类型重新入库，耗时更长。\n\n是否继续？'
-    );
-    if (!ok) return;
+	    const ok = await confirmDialog({
+	      title: 'RAG 同步',
+	      message: '将同步项目到向量库：摘要/分析/索引/向量入库。\n\n强制全量入库会对所有类型重新入库，耗时更长。\n\n是否继续？',
+	      confirmText: '继续',
+	      dialogType: 'warning',
+	    });
+	    if (!ok) return;
 
     setRagSyncing(true);
     try {
@@ -577,7 +930,13 @@ export const NovelDetail: React.FC = () => {
 
   const handleDeleteAvatar = async () => {
     if (!id) return;
-    if (!confirm('确定要删除该小说头像吗？')) return;
+    const ok = await confirmDialog({
+      title: '删除头像',
+      message: '确定要删除该小说头像吗？',
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     setAvatarLoading(true);
     try {
       await novelsApi.deleteAvatar(id);
@@ -619,16 +978,19 @@ export const NovelDetail: React.FC = () => {
     setIsPartGenerateModalOpen(true);
   }, [addToast, id, partTotalChapters]);
 
-  const handleRegenerateAllPartOutlines = useCallback(async () => {
-    if (!id) return;
-    const ok = confirm(
-      '重生成所有部分大纲将删除所有已生成的章节大纲（以及可能存在的章节内容/向量数据）。\n\n是否继续？'
-    );
-    if (!ok) return;
-    openOptionalPromptModal({
-      title: '输入优化提示词（可选）',
-      hint: '留空则按默认策略重生成；填写则会作为优化方向参与生成。',
-          onConfirm: async (promptText?: string) => {
+	  const handleRegenerateAllPartOutlines = useCallback(async () => {
+	    if (!id) return;
+	    const ok = await confirmDialog({
+	      title: '重生成所有部分大纲',
+	      message: '重生成所有部分大纲将删除所有已生成的章节大纲（以及可能存在的章节内容/向量数据）。\n\n是否继续？',
+	      confirmText: '继续',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
+	    openOptionalPromptModal({
+	      title: '输入优化提示词（可选）',
+	      hint: '留空则按默认策略重生成；填写则会作为优化方向参与生成。',
+	          onConfirm: async (promptText?: string) => {
         setRegeneratingPartKey('all');
         try {
           const res = await writerApi.regenerateAllPartOutlines(id, promptText, { timeout: 0 });
@@ -646,16 +1008,19 @@ export const NovelDetail: React.FC = () => {
     });
   }, [addToast, fetchPartProgress, fetchProject, id, openOptionalPromptModal]);
 
-  const handleRegenerateLastPartOutline = useCallback(async () => {
-    if (!id) return;
-    const ok = confirm(
-      '重生成最后一个部分大纲将删除该部分对应的章节大纲（以及可能存在的章节内容/向量数据）。\n\n是否继续？'
-    );
-    if (!ok) return;
-    openOptionalPromptModal({
-      title: '输入优化提示词（可选）',
-      hint: '留空则按默认策略重生成；填写则会作为优化方向参与生成。',
-      onConfirm: async (promptText?: string) => {
+	  const handleRegenerateLastPartOutline = useCallback(async () => {
+	    if (!id) return;
+	    const ok = await confirmDialog({
+	      title: '重生成最后一个部分',
+	      message: '重生成最后一个部分大纲将删除该部分对应的章节大纲（以及可能存在的章节内容/向量数据）。\n\n是否继续？',
+	      confirmText: '继续',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
+	    openOptionalPromptModal({
+	      title: '输入优化提示词（可选）',
+	      hint: '留空则按默认策略重生成；填写则会作为优化方向参与生成。',
+	      onConfirm: async (promptText?: string) => {
         setRegeneratingPartKey('last');
         try {
           const res = await writerApi.regenerateLastPartOutline(id, promptText, { timeout: 0 });
@@ -679,15 +1044,19 @@ export const NovelDetail: React.FC = () => {
     const maxPart = parts.length ? Math.max(...parts.map((p: any) => Number(p.part_number || 0))) : partNumber;
     const isLast = partNumber === maxPart;
 
-    let cascadeDelete = false;
-    if (!isLast && maxPart > 0) {
-      const ok = confirm(
-        `串行生成原则：只能直接重生成最后一个部分（当前最后一个为第${maxPart}部分）。\n\n` +
-        `若要重生成第${partNumber}部分，必须级联删除第${partNumber + 1}-${maxPart}部分的大纲，以及对应章节大纲/内容/向量数据。\n\n是否继续？`
-      );
-      if (!ok) return;
-      cascadeDelete = true;
-    }
+	    let cascadeDelete = false;
+	    if (!isLast && maxPart > 0) {
+	      const ok = await confirmDialog({
+	        title: '串行生成原则',
+	        message:
+	          `串行生成原则：只能直接重生成最后一个部分（当前最后一个为第${maxPart}部分）。\n\n` +
+	          `若要重生成第${partNumber}部分，必须级联删除第${partNumber + 1}-${maxPart}部分的大纲，以及对应章节大纲/内容/向量数据。\n\n是否继续？`,
+	        confirmText: '继续',
+	        dialogType: 'danger',
+	      });
+	      if (!ok) return;
+	      cascadeDelete = true;
+	    }
 
     openOptionalPromptModal({
       title: '输入优化提示词（可选）',
@@ -720,21 +1089,33 @@ export const NovelDetail: React.FC = () => {
     const partNumber = Number(part?.part_number || 0);
     const start = Number(part?.start_chapter || 0);
     const end = Number(part?.end_chapter || 0);
-    if (!partNumber || !start || !end || end < start) {
-      addToast('部分信息不完整，无法生成章节大纲', 'error');
-      return;
-    }
+	    if (!partNumber || !start || !end || end < start) {
+	      addToast('部分信息不完整，无法生成章节大纲', 'error');
+	      return;
+	    }
 
-    const ok = confirm(`为第${partNumber}部分生成章节大纲（第${start}-${end}章）？`);
-    if (!ok) return;
+	    const ok = await confirmDialog({
+	      title: '生成章节大纲',
+	      message: `为第${partNumber}部分生成章节大纲（第${start}-${end}章）？`,
+	      confirmText: '生成',
+	      dialogType: 'warning',
+	    });
+	    if (!ok) return;
 
     const hasExisting = chapterOutlines.some((o: any) => {
       const n = Number(o?.chapter_number || 0);
       return n >= start && n <= end;
     });
-    const regenerate = hasExisting
-      ? confirm('检测到该部分范围内已存在章节大纲，是否重新生成并覆盖？（不覆盖则仅补齐缺失章节）')
-      : false;
+	    let regenerate = false;
+	    if (hasExisting) {
+	      regenerate = await confirmDialog({
+	        title: '覆盖确认',
+	        message: '检测到该部分范围内已存在章节大纲，是否重新生成并覆盖？\n（不覆盖则仅补齐缺失章节）',
+	        confirmText: '重新生成并覆盖',
+	        cancelText: '仅补齐缺失',
+	        dialogType: 'warning',
+	      });
+	    }
 
     setGeneratingPartChapters(partNumber);
     try {
@@ -762,6 +1143,146 @@ export const NovelDetail: React.FC = () => {
     }
   }, [id, activeTab, fetchPartProgress]);
 
+  // 章节导入：按编码解码文件内容（避免 Windows TXT 因编码不同出现乱码）
+  useEffect(() => {
+    if (!importFileBuffer) return;
+    try {
+      const decoder = new TextDecoder(importEncoding);
+      const text = decoder.decode(new Uint8Array(importFileBuffer));
+      setImportChapterContent(text);
+    } catch (e) {
+      console.error(e);
+      if (importEncoding !== 'utf-8') {
+        addToast('当前浏览器不支持该编码，已回退为 UTF-8', 'info');
+        setImportEncoding('utf-8');
+      } else {
+        addToast('文件解码失败，请尝试重新选择文件或更换编码', 'error');
+      }
+    }
+  }, [addToast, importEncoding, importFileBuffer]);
+
+  // 已完成章节 Tab：默认选中第一章；若选择的章节被删除则自动回退到第一章
+  useEffect(() => {
+    if (activeTab !== 'chapters') return;
+    if (!completedChapters.length) {
+      setSelectedCompletedChapterNumber(null);
+      setSelectedCompletedChapter(null);
+      return;
+    }
+    setSelectedCompletedChapterNumber((prev) => {
+      if (prev && completedChapters.some((c: any) => Number(c?.chapter_number || 0) === Number(prev))) return prev;
+      const first = Number(completedChapters[0]?.chapter_number || 0);
+      return first || null;
+    });
+  }, [activeTab, completedChapters]);
+
+  // 已完成章节 Tab：按需加载正文（避免一次性把所有正文塞进页面）
+  useEffect(() => {
+    if (activeTab !== 'chapters') return;
+    if (!id) return;
+    const chapterNo = Number(selectedCompletedChapterNumber || 0);
+    if (!chapterNo) {
+      setSelectedCompletedChapter(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedCompletedChapterLoading(true);
+    writerApi
+      .getChapter(id, chapterNo)
+      .then((data) => {
+        if (cancelled) return;
+        setSelectedCompletedChapter(data);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (cancelled) return;
+        setSelectedCompletedChapter(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSelectedCompletedChapterLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, id, selectedCompletedChapterNumber]);
+
+  const openImportChapterModal = useCallback(() => {
+    const maxOutline = chapterOutlines.length
+      ? Math.max(0, ...chapterOutlines.map((o: any) => Number(o?.chapter_number || 0)))
+      : 0;
+    const fromDb = Array.isArray(project?.chapters)
+      ? Math.max(0, ...project.chapters.map((c: any) => Number(c?.chapter_number || 0)))
+      : 0;
+    const next = Math.max(maxOutline, fromDb) + 1;
+    const chapterNo = Math.max(1, Number.isFinite(next) ? next : 1);
+
+    setImportChapterNumber(chapterNo);
+    setImportChapterTitle(`第${chapterNo}章`);
+    setImportChapterContent('');
+    setImportFileName('');
+    setImportFileBuffer(null);
+    setImportEncoding('utf-8');
+    setIsImportChapterModalOpen(true);
+  }, [chapterOutlines, project]);
+
+  const pickImportFile = useCallback(() => {
+    importFileInputRef.current?.click();
+  }, []);
+
+  const onImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      const buf = await file.arrayBuffer();
+      setImportFileName(file.name);
+      setImportFileBuffer(buf);
+      const defaultTitle = sanitizeFilenamePart(file.name.replace(/\.[^.]+$/, ''));
+      setImportChapterTitle((prev) => (String(prev || '').trim() ? prev : (defaultTitle || prev)));
+    } catch (err) {
+      console.error(err);
+      addToast('读取文件失败', 'error');
+    }
+  }, [addToast]);
+
+  const exportSelectedChapter = useCallback((format: 'txt' | 'markdown') => {
+    if (!id) return;
+    const chapterNo = Number(selectedCompletedChapterNumber || 0);
+    if (!chapterNo) {
+      addToast('请先选择章节', 'info');
+      return;
+    }
+
+    const titleRaw = String(selectedCompletedChapter?.title || `第${chapterNo}章`).trim();
+    const filenameTitle = sanitizeFilenamePart(titleRaw ? `第${chapterNo}章_${titleRaw}` : `第${chapterNo}章`);
+    const baseTitle = sanitizeFilenamePart(String(project?.title || 'novel').trim()) || 'novel';
+
+    const body = String(selectedCompletedChapter?.content || '').trimEnd();
+    const ext = format === 'markdown' ? 'md' : 'txt';
+    const prefix = format === 'markdown' ? `# 第${chapterNo}章 ${titleRaw}\n\n` : `第${chapterNo}章  ${titleRaw}\n\n`;
+    const text = `${prefix}${body}\n`;
+
+    try {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${baseTitle}_${filenameTitle || `chapter_${chapterNo}`}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      addToast('已导出本章', 'success');
+    } catch (e) {
+      console.error(e);
+      addToast('导出失败', 'error');
+    }
+  }, [addToast, id, project?.title, selectedCompletedChapter?.content, selectedCompletedChapter?.title, selectedCompletedChapterNumber]);
+
   const handleEditChar = (index: number) => {
     setEditingCharIndex(index);
     setCharForm({ ...blueprintData.characters[index] });
@@ -785,12 +1306,17 @@ export const NovelDetail: React.FC = () => {
     setIsCharModalOpen(false);
   };
 
-  const handleDeleteChar = (index: number) => {
-    if (confirm('确定要删除这个角色吗？')) {
-      const newChars = [...blueprintData.characters];
-      newChars.splice(index, 1);
-      setBlueprintData({ ...blueprintData, characters: newChars });
-    }
+  const handleDeleteChar = async (index: number) => {
+    const ok = await confirmDialog({
+      title: '删除角色',
+      message: '确定要删除这个角色吗？',
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
+    const newChars = [...blueprintData.characters];
+    newChars.splice(index, 1);
+    setBlueprintData({ ...blueprintData, characters: newChars });
   };
 
   const handleAddRel = () => {
@@ -832,119 +1358,160 @@ export const NovelDetail: React.FC = () => {
     setIsRelModalOpen(false);
   };
 
-  const handleDeleteRel = (index: number) => {
+  const handleDeleteRel = async (index: number) => {
     const list = Array.isArray(blueprintData.relationships) ? blueprintData.relationships : [];
     const rel = list[index];
     if (!rel) return;
     const label = `${rel.character_from || ''} → ${rel.character_to || ''}`;
-    if (!confirm(`确定要删除该关系吗？\n${label}`)) return;
+    const ok = await confirmDialog({
+      title: '删除关系',
+      message: `确定要删除该关系吗？\n${label}`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     const next = list.filter((_: any, i: number) => i !== index);
     setBlueprintData({ ...blueprintData, relationships: next });
   };
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isBlueprintDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isBlueprintDirty]);
 
   if (loading) return <div className="flex h-screen items-center justify-center text-book-text-muted">加载中...</div>;
   if (!project) return <div className="flex h-screen items-center justify-center text-book-text-muted">项目不存在</div>;
 
   return (
     <div className="min-h-screen bg-book-bg flex flex-col">
-	      {/* Header */}
-	      <div className="h-16 border-b border-book-border/40 bg-book-bg-paper/80 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-20">
+	      {/* Header - 完全照抄桌面端 novel_detail/mixins/header_manager.py */}
+	      <div className="h-[100px] border-b border-book-border bg-book-bg-paper flex items-center justify-between px-6 sticky top-0 z-20">
+	        {/* 左侧：项目图标 + 信息 */}
 	        <div className="flex items-center gap-4">
-	          <button 
-	            onClick={() => navigate('/')}
-            className="flex items-center text-book-text-sub hover:text-book-primary transition-colors group"
-          >
-            <div className="p-1.5 rounded-full bg-book-bg border border-book-border group-hover:border-book-primary/50 shadow-sm transition-colors">
-	              <ArrowLeft size={16} />
-	            </div>
-	          </button>
-
-	          <div className="w-10 h-10 rounded-xl bg-book-bg border border-book-border/60 shadow-inner flex items-center justify-center overflow-hidden avatar-svg">
+	          {/* 项目图标 64x64 */}
+		          <button
+	              type="button"
+	              onClick={async () => {
+	                if (avatarLoading) return;
+	                if (!project?.blueprint) {
+	                  addToast('请先生成蓝图后再生成头像', 'error');
+	                  return;
+	                }
+	                if (blueprintData?.avatar_svg) {
+	                  const ok = await confirmDialog({
+	                    title: '重新生成头像',
+	                    message: '确定要重新生成头像吗？\n当前头像将被替换。',
+	                    confirmText: '重新生成',
+	                    dialogType: 'warning',
+	                  });
+	                  if (!ok) return;
+	                }
+	                handleGenerateAvatar();
+	              }}
+              disabled={avatarLoading}
+              className="w-16 h-16 rounded border-2 border-book-primary flex items-center justify-center shrink-0 hover:border-book-primary/70 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              title={blueprintData?.avatar_svg ? '点击重新生成头像' : '点击生成小说头像'}
+            >
 	            {blueprintData?.avatar_svg ? (
 	              <div
 	                className="w-full h-full"
 	                dangerouslySetInnerHTML={{ __html: String(blueprintData.avatar_svg) }}
 	              />
 	            ) : (
-	              <User size={18} className="text-book-text-muted/70" />
+	              <span className="text-3xl font-bold text-book-text-main">
+                  {String(project?.title || 'B').trim().slice(0, 1) || 'B'}
+                </span>
 	            )}
+	          </button>
+
+	          {/* 项目信息 */}
+	          <div className="flex flex-col gap-1">
+	            {/* 标题行 */}
+	            <div className="flex items-center gap-2">
+	              <h1 className="font-serif font-bold text-[28px] text-book-text-main tracking-wide">{project.title}</h1>
+	              <button
+	                className="text-xs text-book-text-sub underline hover:text-book-primary"
+	                onClick={openEditTitleModal}
+	              >
+	                编辑
+	              </button>
+                {blueprintData?.avatar_svg ? (
+                  <button
+                    className="text-xs text-book-text-sub underline hover:text-red-600 disabled:opacity-50"
+                    onClick={handleDeleteAvatar}
+                    disabled={avatarLoading}
+                    title="删除当前小说头像"
+                  >
+                    删除头像
+                  </button>
+                ) : null}
+	            </div>
+	            {/* 元信息行：类型 + 状态 */}
+	            <div className="flex items-center gap-2 text-xs">
+	              <span className="px-2 py-0.5 border border-book-border rounded text-book-text-sub">
+	                {blueprintData.genre || '未分类'}
+	              </span>
+	              <span className="px-2 py-0.5 border border-book-border rounded text-book-text-sub italic">
+	                {project.status}
+	              </span>
+	            </div>
 	          </div>
+	        </div>
 
-	          <div>
-	            <h1 className="font-serif font-bold text-lg text-book-text-main">{project.title}</h1>
-	            <div className="flex items-center gap-2 text-xs text-book-text-muted">
-              <span className="px-1.5 py-0.5 rounded bg-book-bg border border-book-border">{blueprintData.genre || '未分类'}</span>
-              <span>•</span>
-              <span>{project.status}</span>
-            </div>
-          </div>
-        </div>
-
+	        {/* 右侧操作按钮 - 完全照抄桌面端：保存、返回写作台、导出、RAG同步、优化蓝图、开始创作 */}
 	        <div className="flex items-center gap-3">
-	          {blueprintData?.avatar_svg ? (
-	            <>
-	              <BookButton variant="ghost" size="sm" onClick={handleGenerateAvatar} disabled={avatarLoading}>
-	                <Sparkles size={16} className="mr-2" />
-	                {avatarLoading ? '生成中…' : '重生成头像'}
-	              </BookButton>
-	              <BookButton variant="ghost" size="sm" onClick={handleDeleteAvatar} disabled={avatarLoading}>
-	                <Trash2 size={16} className="mr-2" />
-	                删除头像
-	              </BookButton>
-	            </>
-	          ) : (
-	            <BookButton variant="ghost" size="sm" onClick={handleGenerateAvatar} disabled={avatarLoading}>
-	              <Sparkles size={16} className="mr-2" />
-	              {avatarLoading ? '生成中…' : '生成头像'}
-	            </BookButton>
-	          )}
-		          <BookButton variant="ghost" size="sm" onClick={handleExport}>
-		            <Download size={16} className="mr-2" />
-		            导出
-		          </BookButton>
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={handleRagSync}
-                disabled={ragSyncing}
-                title="同步项目到向量库：摘要/分析/索引/向量入库（强制全量）"
-              >
-                <Database size={16} className={`mr-2 ${ragSyncing ? 'animate-pulse' : ''}`} />
-                {ragSyncing ? 'RAG同步中…' : 'RAG同步'}
-              </BookButton>
-	            <BookButton
-	              variant="ghost"
-	              size="sm"
-	              onClick={() => setIsProtagonistModalOpen(true)}
-              title="主角档案（属性/行为/快照/回滚）"
+	          <BookButton
+              variant={isBlueprintDirty ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={handleSave}
+              disabled={saving || Boolean(worldSettingError)}
+              title={
+                worldSettingError
+                  ? '世界观 JSON 无效：请先修正再保存'
+                  : (isBlueprintDirty ? (dirtySummary || '有未保存的修改') : '保存蓝图')
+              }
             >
-              <User size={16} className="mr-2" />
-              主角档案
-            </BookButton>
-          <BookButton variant="ghost" size="sm" onClick={handleSave} disabled={saving}>
-            <Save size={16} className="mr-2" />
-            {saving ? '保存中...' : '保存修改'}
-          </BookButton>
-          <BookButton variant="secondary" size="sm" onClick={openRefineModal}>
-            <Sparkles size={16} className="mr-2" />
-            优化蓝图
-          </BookButton>
-          <BookButton variant="primary" size="sm" onClick={() => navigate(`/write/${id}`)}>
-            <Play size={16} className="mr-2 fill-current" />
-            进入写作
-          </BookButton>
-        </div>
+	            {saving ? '保存中...' : (isBlueprintDirty ? '保存*' : '保存')}
+	          </BookButton>
+	          <BookButton variant="secondary" size="sm" onClick={() => safeNavigate(`/write/${id}`)}>
+	            返回写作台
+	          </BookButton>
+	          <BookButton variant="secondary" size="sm" onClick={handleExport}>
+	            导出
+	          </BookButton>
+	          <BookButton
+	            variant="secondary"
+	            size="sm"
+	            onClick={handleRagSync}
+	            disabled={ragSyncing}
+	            title="同步项目到向量库"
+	          >
+	            {ragSyncing ? 'RAG同步中…' : 'RAG同步'}
+	          </BookButton>
+	          <BookButton variant="secondary" size="sm" onClick={openRefineModal}>
+	            优化蓝图
+	          </BookButton>
+	          <BookButton variant="primary" size="sm" onClick={() => safeNavigate(`/write/${id}`)}>
+	            开始创作
+	          </BookButton>
+	        </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - 照抄桌面端 novel_detail/mixins/tab_manager.py */}
       <div className="border-b border-book-border/40 bg-book-bg-paper px-8">
         <div className="flex gap-8">
             {[
               { id: 'overview', label: '概览', icon: FileText },
             { id: 'world', label: '世界观', icon: MapIcon },
             { id: 'characters', label: '角色', icon: Users },
-            { id: 'relationships', label: '关系网', icon: Link2 },
-            { id: 'outlines', label: '大纲', icon: Share },
+            { id: 'relationships', label: '关系', icon: Link2 },
+            { id: 'outlines', label: '章节大纲', icon: Share },
+            { id: 'chapters', label: '已生成章节', icon: FileText },
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1003,6 +1570,22 @@ export const NovelDetail: React.FC = () => {
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="font-bold text-sm text-book-text-main">导入分析</h3>
                       <div className="flex items-center gap-2">
+                        {(() => {
+                          const status = String(importStatus?.status || project.import_analysis_status || 'pending');
+                          const canStart = status !== 'completed' && status !== 'analyzing';
+                          if (!canStart) return null;
+                          const isResume = status === 'failed' || status === 'cancelled';
+                          return (
+                            <button
+                              onClick={startImportAnalysis}
+                              className="text-xs text-book-primary font-bold hover:underline disabled:opacity-50"
+                              disabled={importStatusLoading || importStarting}
+                              title={isResume ? '继续导入分析（从断点尝试恢复）' : '开始导入分析'}
+                            >
+                              {importStarting ? '启动中…' : (isResume ? '继续分析' : '开始分析')}
+                            </button>
+                          );
+                        })()}
                         <button
                           onClick={refreshImportStatus}
                           className="text-xs text-book-primary font-bold hover:underline"
@@ -1318,8 +1901,8 @@ export const NovelDetail: React.FC = () => {
           </div>
         )}
         
-        {activeTab === 'outlines' && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-10">
+	        {activeTab === 'outlines' && (
+	          <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-10">
             {/* Chapter Outlines */}
             <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
@@ -1353,7 +1936,7 @@ export const NovelDetail: React.FC = () => {
                   <BookButton size="sm" variant="ghost" onClick={() => setIsBatchModalOpen(true)}>
                     <Sparkles size={16} className="mr-1" /> 批量生成章节大纲
                   </BookButton>
-                  <BookButton size="sm" variant="ghost" onClick={() => navigate(`/write/${id}`)}>
+                  <BookButton size="sm" variant="ghost" onClick={() => safeNavigate(`/write/${id}`)}>
                     <Play size={16} className="mr-1" /> 前往写作台
                   </BookButton>
                 </div>
@@ -1365,7 +1948,7 @@ export const NovelDetail: React.FC = () => {
                   {blueprintData?.total_chapters ? ` / 计划 ${blueprintData.total_chapters} 章` : ''}
                 </span>
                 <button
-                  onClick={fetchProject}
+                  onClick={fetchProjectButton}
                   className="text-book-primary font-bold hover:underline"
                   disabled={loading}
                 >
@@ -1385,7 +1968,7 @@ export const NovelDetail: React.FC = () => {
                       <BookCard
                         key={chapterNumber}
                         className="p-5 hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => navigate(`/write/${id}?chapter=${chapterNumber}`)}
+                        onClick={() => safeNavigate(`/write/${id}?chapter=${chapterNumber}`)}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -1432,7 +2015,7 @@ export const NovelDetail: React.FC = () => {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigate(`/write/${id}?chapter=${chapterNumber}`);
+                                safeNavigate(`/write/${id}?chapter=${chapterNumber}`);
                               }}
                               className="text-xs text-book-text-sub font-bold hover:underline"
                               title="打开写作台并定位章节"
@@ -1542,7 +2125,7 @@ export const NovelDetail: React.FC = () => {
                   <div className="flex items-center justify-between text-sm text-book-text-muted">
                     <span>进度：{partProgress.completed_parts}/{partProgress.total_parts}</span>
                     <button
-                      onClick={() => navigate(`/write/${id}`)}
+                      onClick={() => safeNavigate(`/write/${id}`)}
                       className="text-book-primary hover:text-book-primary-light transition-colors font-bold"
                     >
                       前往写作台 →
@@ -1636,15 +2219,257 @@ export const NovelDetail: React.FC = () => {
                   <p>尚未生成部分大纲。生成后可在此查看进度与内容。</p>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-      </div>
+	            </div>
+	          </div>
+	        )}
 
-      {/* Optional Prompt Modal（用于“重生成”类操作的可选优化提示词） */}
-      <Modal
-        isOpen={isPromptModalOpen}
-        onClose={() => {
+	        {activeTab === 'chapters' && (
+	          <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+	            {completedChapters.length ? (
+	              <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+	                <BookCard className="p-4 h-fit lg:sticky lg:top-6">
+	                  <div className="flex items-center justify-between gap-2 mb-3">
+	                    <div className="font-serif font-bold text-lg text-book-text-main">已完成章节</div>
+	                    <div className="flex items-center gap-2">
+	                      <span className="text-xs text-book-text-muted whitespace-nowrap">{completedChapters.length} 章</span>
+	                      <BookButton variant="secondary" size="sm" onClick={openImportChapterModal}>
+	                        <Plus size={14} className="mr-1" />
+	                        导入
+	                      </BookButton>
+	                    </div>
+	                  </div>
+
+	                  <div className="mb-3">
+	                    <BookInput
+	                      label="搜索"
+	                      placeholder="章节号或标题"
+	                      value={chaptersSearch}
+	                      onChange={(e) => setChaptersSearch(e.target.value)}
+	                    />
+	                  </div>
+
+	                  <div className="space-y-1 max-h-[calc(100vh-260px)] overflow-y-auto custom-scrollbar pr-1">
+	                    {filteredCompletedChapters.map((c: any) => {
+	                      const no = Number(c?.chapter_number || 0);
+	                      const title = String(c?.title || '').trim();
+	                      const isSelected = Number(selectedCompletedChapterNumber || 0) === no;
+	                      return (
+	                        <button
+	                          key={`completed-${no}`}
+	                          onClick={() => setSelectedCompletedChapterNumber(no)}
+	                          className={`
+	                            w-full text-left px-3 py-2 rounded-lg border transition-all
+	                            ${isSelected ? 'bg-book-primary/10 border-book-primary/40' : 'bg-book-bg-paper border-book-border/40 hover:border-book-primary/30 hover:bg-book-bg'}
+	                          `}
+	                        >
+	                          <div className="flex items-start justify-between gap-2">
+	                            <div className="min-w-0">
+	                              <div className={`font-bold text-sm ${isSelected ? 'text-book-primary' : 'text-book-text-main'}`}>
+	                                第{no}章
+	                              </div>
+	                              <div className="text-xs text-book-text-muted truncate">
+	                                {title || '（无标题）'}
+	                              </div>
+	                            </div>
+	                            <div className="text-[11px] text-book-text-muted font-mono whitespace-nowrap pt-0.5">
+	                              {c?.word_count ? `${c.word_count}字` : ''}
+	                            </div>
+	                          </div>
+	                        </button>
+	                      );
+	                    })}
+	                  </div>
+	                </BookCard>
+
+	                <BookCard className="p-6">
+	                  {selectedCompletedChapterNumber ? (
+	                    <>
+	                      <div className="flex items-start justify-between gap-3 border-b border-book-border/40 pb-3 mb-4">
+	                        <div className="min-w-0">
+	                          <div className="font-serif font-bold text-lg text-book-text-main truncate">
+	                            第{selectedCompletedChapterNumber}章  {String(selectedCompletedChapter?.title || '').trim()}
+	                          </div>
+	                          <div className="mt-1 text-xs text-book-text-muted">
+	                            {selectedCompletedChapterLoading
+	                              ? '加载中…'
+	                              : (selectedCompletedChapter?.word_count ? `字数：${selectedCompletedChapter.word_count}` : '')}
+	                          </div>
+	                        </div>
+	                        <div className="flex items-center gap-2 shrink-0">
+	                          <BookButton
+	                            variant="ghost"
+	                            size="sm"
+	                            onClick={() => exportSelectedChapter('txt')}
+	                            disabled={selectedCompletedChapterLoading}
+	                          >
+	                            <Download size={14} className="mr-1" /> 导出TXT
+	                          </BookButton>
+	                          <BookButton
+	                            variant="ghost"
+	                            size="sm"
+	                            onClick={() => exportSelectedChapter('markdown')}
+	                            disabled={selectedCompletedChapterLoading}
+	                          >
+	                            <Download size={14} className="mr-1" /> 导出MD
+	                          </BookButton>
+	                        </div>
+	                      </div>
+
+	                      {selectedCompletedChapterLoading ? (
+	                        <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
+	                          加载章节正文...
+	                        </div>
+	                      ) : (
+	                        <BookTextarea
+	                          label="正文（只读）"
+	                          value={String(selectedCompletedChapter?.content || '')}
+	                          readOnly
+	                          rows={18}
+	                          className="min-h-[520px] font-serif leading-relaxed"
+	                        />
+	                      )}
+	                    </>
+	                  ) : (
+	                    <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
+	                      选择章节查看正文
+	                    </div>
+	                  )}
+	                </BookCard>
+	              </div>
+	            ) : (
+	              <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
+	                <FileText size={48} className="mx-auto mb-4 opacity-50" />
+	                <div className="font-serif font-bold text-lg text-book-text-main mb-2">暂无已完成章节</div>
+	                <div className="text-sm">在写作台生成章节并选择版本后，章节将显示在这里。</div>
+	                <div className="mt-6 flex justify-center">
+	                  <BookButton variant="primary" size="sm" onClick={() => safeNavigate(`/write/${id}`)}>
+	                    <Play size={16} className="mr-2 fill-current" />
+	                    前往写作台
+	                  </BookButton>
+	                </div>
+	              </div>
+	            )}
+	          </div>
+	        )}
+	      </div>
+
+	      {/* Import Chapter（项目详情 -> 章节 Tab） */}
+	      <input
+	        ref={importFileInputRef}
+	        type="file"
+	        accept=".txt,.md,text/plain,text/markdown"
+	        style={{ display: 'none' }}
+	        onChange={onImportFileChange}
+	      />
+
+	      <Modal
+	        isOpen={isImportChapterModalOpen}
+	        onClose={() => {
+	          if (importingChapter) return;
+	          setIsImportChapterModalOpen(false);
+	        }}
+	        title="导入章节"
+	        maxWidthClassName="max-w-2xl"
+	        footer={
+	          <div className="flex justify-end gap-2">
+	            <BookButton
+	              variant="ghost"
+	              onClick={() => setIsImportChapterModalOpen(false)}
+	              disabled={importingChapter}
+	            >
+	              取消
+	            </BookButton>
+	            <BookButton
+	              variant="primary"
+	              onClick={async () => {
+	                if (!id) return;
+	                const chapterNo = Math.max(1, Number(importChapterNumber) || 1);
+	                const title = (importChapterTitle || '').trim() || `第${chapterNo}章`;
+	                const text = String(importChapterContent || '');
+
+	                setImportingChapter(true);
+	                try {
+	                  await writerApi.importChapter(id, chapterNo, title, text, { timeout: 0 });
+	                  addToast('章节已导入', 'success');
+	                  setIsImportChapterModalOpen(false);
+	                  setImportFileName('');
+	                  setImportFileBuffer(null);
+	                  await fetchProject();
+	                  setActiveTab('chapters');
+	                  setSelectedCompletedChapterNumber(chapterNo);
+	                } catch (e) {
+	                  console.error(e);
+	                  addToast('导入失败', 'error');
+	                } finally {
+	                  setImportingChapter(false);
+	                }
+	              }}
+	              disabled={importingChapter}
+	            >
+	              {importingChapter ? '导入中…' : '导入'}
+	            </BookButton>
+	          </div>
+	        }
+	      >
+	        <div className="space-y-4">
+	          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
+	            说明：导入会创建（或更新）指定章节，并生成一个新的版本。支持直接粘贴正文，或选择 TXT/MD 文件自动填充内容。
+	          </div>
+
+	          <div className="flex items-end gap-3 flex-wrap">
+	            <BookButton variant="secondary" size="sm" onClick={pickImportFile} disabled={importingChapter}>
+	              选择文件
+	            </BookButton>
+	            <div className="text-xs text-book-text-muted">
+	              {importFileName ? `已选择：${importFileName}` : '未选择文件（可直接粘贴内容）'}
+	            </div>
+	            <div className="ml-auto flex items-center gap-2">
+	              <span className="text-xs text-book-text-muted">编码</span>
+	              <select
+	                value={importEncoding}
+	                onChange={(e) => setImportEncoding(e.target.value === 'gb18030' ? 'gb18030' : 'utf-8')}
+	                disabled={importingChapter}
+	                className="text-xs bg-book-bg-paper border border-book-border/50 rounded-md px-2 py-1 outline-none focus:border-book-primary/50"
+	                title="若文件乱码，请切换为 GB18030（部分浏览器可能不支持）"
+	              >
+	                <option value="utf-8">UTF-8</option>
+	                <option value="gb18030">GB18030（Win 常见）</option>
+	              </select>
+	            </div>
+	          </div>
+
+	          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+	            <BookInput
+	              label="章节号"
+	              type="number"
+	              min={1}
+	              value={importChapterNumber}
+	              onChange={(e) => setImportChapterNumber(parseInt(e.target.value, 10) || 1)}
+	              disabled={importingChapter}
+	            />
+	            <BookInput
+	              label="章节标题"
+	              value={importChapterTitle}
+	              onChange={(e) => setImportChapterTitle(e.target.value)}
+	              disabled={importingChapter}
+	            />
+	          </div>
+
+	          <BookTextarea
+	            label="章节内容"
+	            rows={12}
+	            value={importChapterContent}
+	            onChange={(e) => setImportChapterContent(e.target.value)}
+	            placeholder="可直接粘贴；或选择 TXT/MD 文件自动填充"
+	            disabled={importingChapter}
+	          />
+	        </div>
+	      </Modal>
+
+	      {/* Optional Prompt Modal（用于“重生成”类操作的可选优化提示词） */}
+	      <Modal
+	        isOpen={isPromptModalOpen}
+	        onClose={() => {
           pendingPromptActionRef.current = null;
           setIsPromptModalOpen(false);
         }}
@@ -1792,6 +2617,48 @@ export const NovelDetail: React.FC = () => {
         </div>
       </Modal>
 
+      {/* Edit Title Modal（对齐桌面端：编辑项目标题） */}
+      <Modal
+        isOpen={isEditTitleModalOpen}
+        onClose={() => {
+          if (editTitleSaving) return;
+          setIsEditTitleModalOpen(false);
+        }}
+        title="编辑项目标题"
+        maxWidthClassName="max-w-lg"
+        footer={
+          <>
+            <BookButton
+              variant="ghost"
+              onClick={() => setIsEditTitleModalOpen(false)}
+              disabled={editTitleSaving}
+            >
+              取消
+            </BookButton>
+            <BookButton
+              variant="primary"
+              onClick={saveProjectTitle}
+              disabled={editTitleSaving || !editTitleValue.trim()}
+            >
+              {editTitleSaving ? '保存中…' : '保存'}
+            </BookButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <BookInput
+            label="标题"
+            value={editTitleValue}
+            onChange={(e) => setEditTitleValue(e.target.value)}
+            placeholder="请输入新标题"
+            autoFocus
+          />
+          <div className="text-xs text-book-text-muted">
+            提示：标题为项目基本信息（与蓝图字段独立）。桌面端同款入口位于标题旁“编辑”按钮。
+          </div>
+        </div>
+      </Modal>
+
       {/* Relationship Edit Modal */}
       <Modal
         isOpen={isRelModalOpen}
@@ -1900,17 +2767,21 @@ export const NovelDetail: React.FC = () => {
               variant="primary"
               onClick={async () => {
                 if (!id) return;
-                if (maxDeletablePartCount <= 0) {
-                  addToast('至少需要保留 1 个部分大纲，当前无法删除', 'error');
-                  return;
-                }
-                const count = Math.max(1, Math.min(Number(deleteLatestPartsCount) || 1, maxDeletablePartCount));
-                const ok = confirm(
-                  `确定要删除最后 ${count} 个部分大纲吗？\n\n` +
-                  `这些部分对应的章节大纲也会被一起删除。\n` +
-                  `此操作不可恢复。`
-                );
-                if (!ok) return;
+	                if (maxDeletablePartCount <= 0) {
+	                  addToast('至少需要保留 1 个部分大纲，当前无法删除', 'error');
+	                  return;
+	                }
+	                const count = Math.max(1, Math.min(Number(deleteLatestPartsCount) || 1, maxDeletablePartCount));
+	                const ok = await confirmDialog({
+	                  title: '删除最新部分大纲',
+	                  message:
+	                    `确定要删除最后 ${count} 个部分大纲吗？\n\n` +
+	                    `这些部分对应的章节大纲也会被一起删除。\n` +
+	                    `此操作不可恢复。`,
+	                  confirmText: '删除',
+	                  dialogType: 'danger',
+	                });
+	                if (!ok) return;
                 setDeletingLatestParts(true);
                 try {
                   const result = await writerApi.deleteLatestPartOutlines(id, count);
@@ -1980,12 +2851,16 @@ export const NovelDetail: React.FC = () => {
                   return;
                 }
 
-                const ok = confirm(
-                  `将重生成最后 ${count} 个部分大纲（第${start}-${end}部分）。\n\n` +
-                    `串行生成原则：会级联删除第${start + 1}-${end}部分的大纲，以及对应章节大纲/内容/向量数据。\n\n` +
-                    `确定继续？`,
-                );
-                if (!ok) return;
+	                const ok = await confirmDialog({
+	                  title: '重生成最新部分大纲',
+	                  message:
+	                    `将重生成最后 ${count} 个部分大纲（第${start}-${end}部分）。\n\n` +
+	                    `串行生成原则：会级联删除第${start + 1}-${end}部分的大纲，以及对应章节大纲/内容/向量数据。\n\n` +
+	                    `确定继续？`,
+	                  confirmText: '继续',
+	                  dialogType: 'danger',
+	                });
+	                if (!ok) return;
 
                 setRegeneratingLatestParts(true);
                 try {
@@ -2071,12 +2946,16 @@ export const NovelDetail: React.FC = () => {
                   return;
                 }
 
-                const ok = confirm(
-                  `将重生成最后 ${count} 个章节大纲（第${start}-${end}章）。\n\n` +
-                  `串行生成原则：会级联删除第${start + 1}-${end}章的大纲（以及可能存在的章节内容/向量数据）。\n\n` +
-                  `确定继续？`
-                );
-                if (!ok) return;
+	                const ok = await confirmDialog({
+	                  title: '重生成最新章节大纲',
+	                  message:
+	                    `将重生成最后 ${count} 个章节大纲（第${start}-${end}章）。\n\n` +
+	                    `串行生成原则：会级联删除第${start + 1}-${end}章的大纲（以及可能存在的章节内容/向量数据）。\n\n` +
+	                    `确定继续？`,
+	                  confirmText: '继续',
+	                  dialogType: 'danger',
+	                });
+	                if (!ok) return;
 
                 setRegeneratingLatest(true);
                 try {
@@ -2142,19 +3021,23 @@ export const NovelDetail: React.FC = () => {
               取消
             </BookButton>
             <BookButton
-              variant="primary"
-              onClick={async () => {
-                if (!id) return;
-                const count = Math.max(1, Math.min(Number(deleteLatestCount) || 1, chapterOutlines.length || 1));
-                const ok = confirm(
-                  `确定要删除最新 ${count} 章章节大纲吗？\n\n` +
-                  `提示：如果这些章节已有生成内容，将级联删除章节内容与向量库数据。此操作不可恢复。`
-                );
-                if (!ok) return;
-                setDeletingLatest(true);
-                try {
-                  const result = await writerApi.deleteLatestChapterOutlines(id, count);
-                  addToast(result?.message || `已删除最新 ${count} 章大纲`, 'success');
+	              variant="primary"
+	              onClick={async () => {
+	                if (!id) return;
+	                const count = Math.max(1, Math.min(Number(deleteLatestCount) || 1, chapterOutlines.length || 1));
+	                const ok = await confirmDialog({
+	                  title: '删除最新章节大纲',
+	                  message:
+	                    `确定要删除最新 ${count} 章章节大纲吗？\n\n` +
+	                    `提示：如果这些章节已有生成内容，将级联删除章节内容与向量库数据。此操作不可恢复。`,
+	                  confirmText: '删除',
+	                  dialogType: 'danger',
+	                });
+	                if (!ok) return;
+	                setDeletingLatest(true);
+	                try {
+	                  const result = await writerApi.deleteLatestChapterOutlines(id, count);
+	                  addToast(result?.message || `已删除最新 ${count} 章大纲`, 'success');
                   if (result?.warning) addToast(String(result.warning), 'info');
                   setIsDeleteLatestModalOpen(false);
                   await fetchProject();

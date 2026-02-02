@@ -1,8 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { BookCard } from '../ui/BookCard';
 import { BookButton } from '../ui/BookButton';
-import { BadgeCheck, RefreshCw, Star } from 'lucide-react';
+import { BadgeCheck, RefreshCw, Star, Loader2 } from 'lucide-react';
 import { InsightCard } from './chapter/components/InsightCard';
+import { writerApi } from '../../api/writer';
+import { useToast } from '../feedback/Toast';
 
 type EvaluationJson = {
   best_choice?: number;
@@ -26,20 +28,75 @@ const Chip: React.FC<{ children: React.ReactNode; className?: string }> = ({ chi
 );
 
 interface ChapterReviewViewProps {
-  evaluation?: string | null;
-  versionCount: number;
-  onEvaluate: () => void;
-  onSelectVersion: (index: number) => void;
-  isEvaluating?: boolean;
+  projectId: string;
+  chapterNumber: number;
+  onEvaluate?: () => void | Promise<void>;
 }
 
 export const ChapterReviewView: React.FC<ChapterReviewViewProps> = ({
-  evaluation,
-  versionCount,
+  projectId,
+  chapterNumber,
   onEvaluate,
-  onSelectVersion,
-  isEvaluating,
 }) => {
+  const { addToast } = useToast();
+  const [evaluation, setEvaluation] = useState<string | null>(null);
+  const [versionCount, setVersionCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const chapter = await writerApi.getChapter(projectId, chapterNumber);
+      const vs = Array.isArray(chapter.versions) ? chapter.versions : [];
+      setVersionCount(vs.length);
+      setEvaluation(chapter.evaluation || null);
+    } catch (e) {
+      console.error(e);
+      addToast('获取评审数据失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast, chapterNumber, projectId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleEvaluate = async () => {
+    if (onEvaluate) {
+      setIsEvaluating(true);
+      try {
+        await onEvaluate();
+        await fetchData();
+      } finally {
+        setIsEvaluating(false);
+      }
+    } else {
+      setIsEvaluating(true);
+      try {
+        await writerApi.evaluateChapter(projectId, chapterNumber);
+        addToast('评审完成', 'success');
+        await fetchData();
+      } catch (e) {
+        console.error(e);
+        addToast('评审失败', 'error');
+      } finally {
+        setIsEvaluating(false);
+      }
+    }
+  };
+
+  const handleSelectVersion = async (index: number) => {
+    try {
+      await writerApi.selectVersion(projectId, chapterNumber, index);
+      addToast('版本已选择', 'success');
+    } catch (e) {
+      console.error(e);
+      addToast('选择版本失败', 'error');
+    }
+  };
+
   const parsed = useMemo<EvaluationJson | null>(() => {
     if (!evaluation) return null;
     try {
@@ -51,6 +108,14 @@ export const ChapterReviewView: React.FC<ChapterReviewViewProps> = ({
 
   const bestChoice = typeof parsed?.best_choice === 'number' ? parsed?.best_choice : null;
   const bestIndex = bestChoice ? bestChoice - 1 : null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 size={24} className="animate-spin text-book-primary" />
+      </div>
+    );
+  }
 
   if (!evaluation) {
     const canEvaluate = versionCount >= 2;
@@ -66,9 +131,9 @@ export const ChapterReviewView: React.FC<ChapterReviewViewProps> = ({
           }
           actions={
             canEvaluate ? (
-              <BookButton variant="primary" size="sm" onClick={onEvaluate} disabled={Boolean(isEvaluating)}>
+              <BookButton variant="primary" size="sm" onClick={handleEvaluate} disabled={Boolean(isEvaluating)}>
                 <RefreshCw size={14} className={`mr-1 ${isEvaluating ? 'animate-spin' : ''}`} />
-                {isEvaluating ? '评审中…' : '开始评审'}
+                {isEvaluating ? '评审中...' : '开始评审'}
               </BookButton>
             ) : null
           }
@@ -94,14 +159,14 @@ export const ChapterReviewView: React.FC<ChapterReviewViewProps> = ({
         actions={
           <>
             {bestIndex !== null && bestIndex >= 0 && (
-              <BookButton variant="secondary" size="sm" onClick={() => onSelectVersion(bestIndex)} title="选择推荐版本">
+              <BookButton variant="secondary" size="sm" onClick={() => handleSelectVersion(bestIndex)} title="选择推荐版本">
                 <Star size={14} className="mr-1" />
                 选择推荐
               </BookButton>
             )}
-            <BookButton variant="ghost" size="sm" onClick={onEvaluate} disabled={Boolean(isEvaluating)}>
+            <BookButton variant="ghost" size="sm" onClick={handleEvaluate} disabled={Boolean(isEvaluating)}>
               <RefreshCw size={14} className={`mr-1 ${isEvaluating ? 'animate-spin' : ''}`} />
-              {isEvaluating ? '评审中…' : '重新评审'}
+              {isEvaluating ? '评审中...' : '重新评审'}
             </BookButton>
           </>
         }

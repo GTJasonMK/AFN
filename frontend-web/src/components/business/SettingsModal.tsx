@@ -13,6 +13,7 @@ import { PromptsTab } from './settings/PromptsTab';
 import { MaxTokensTab } from './settings/MaxTokensTab';
 import { TemperatureTab } from './settings/TemperatureTab';
 import { ImportExportTab } from './settings/ImportExportTab';
+import { isAdminUser, useAuthStore } from '../../store/auth';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     'advanced' | 'llm' | 'embedding' | 'image' | 'theme' | 'queue' | 'prompts' | 'maxTokens' | 'temperature' | 'io'
   >('advanced');
   const [config, setConfig] = useState<AdvancedConfig>({
+    coding_project_enabled: false,
     writer_chapter_version_count: 1,
     writer_parallel_generation: false,
     part_outline_threshold: 50,
@@ -31,6 +33,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   });
   const [loading, setLoading] = useState(false);
   const { addToast } = useToast();
+  const { authEnabled, user, logout, changePassword } = useAuthStore();
+  const isAdmin = isAdminUser(authEnabled, user);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -48,6 +54,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }, [isOpen]);
 
   const handleSave = async () => {
+    if (authEnabled && !isAdmin) {
+      addToast('需要管理员权限（desktop_user）才能修改全局设置', 'error');
+      return;
+    }
     setLoading(true);
     try {
       await settingsApi.updateAdvancedConfig(config);
@@ -79,7 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       }
     >
       <div className="grid grid-cols-[220px_1fr] gap-4 h-[75vh]">
-        <div className="space-y-2">
+        <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1">
           <button
             onClick={() => setActiveTab('advanced')}
             className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
@@ -204,6 +214,100 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         <div className="min-w-0 overflow-auto custom-scrollbar pr-1">
           {activeTab === 'advanced' && (
             <div className="space-y-6">
+              <div className="space-y-4">
+                <h4 className="font-bold text-sm text-book-text-main border-b border-book-border pb-2">功能开关</h4>
+
+                <div className="flex items-center">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                      checked={config.coding_project_enabled}
+                      onChange={(e) => setConfig({...config, coding_project_enabled: e.target.checked})}
+                    />
+                    <span className="text-sm font-bold text-book-text-sub">启用编程项目(Prompt工程)功能</span>
+                  </label>
+                  <span className="ml-3 text-xs text-book-text-muted">关闭后首页将隐藏编程项目相关入口</span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-bold text-sm text-book-text-main border-b border-book-border pb-2">账号</h4>
+
+                <div className="space-y-3">
+                  {authEnabled ? (
+                    <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 space-y-2">
+                      <div>当前账号：<span className="font-mono">{user?.username || '未知'}</span></div>
+                      <div className="text-[11px] text-book-text-muted">
+                        管理员默认账户：<span className="font-mono">desktop_user</span> / <span className="font-mono">desktop</span>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <BookButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              await logout();
+                              addToast('已退出登录', 'success');
+                              onClose();
+                            } catch (e) {
+                              console.error(e);
+                            }
+                          }}
+                        >
+                          退出登录
+                        </BookButton>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
+                      当前处于单用户模式（无需登录）。登录是否启用由部署配置决定（不在此处修改）。
+                    </div>
+                  )}
+
+                  {authEnabled ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <BookInput
+                        label="旧密码"
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        autoComplete="current-password"
+                      />
+                      <BookInput
+                        label="新密码"
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                      />
+                      <div className="col-span-2 flex justify-end">
+                        <BookButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={async () => {
+                            if (!oldPassword || !newPassword) {
+                              addToast('请输入旧密码和新密码', 'error');
+                              return;
+                            }
+                            try {
+                              await changePassword(oldPassword, newPassword);
+                              setOldPassword('');
+                              setNewPassword('');
+                              addToast('密码已更新', 'success');
+                            } catch (e) {
+                              console.error(e);
+                            }
+                          }}
+                        >
+                          修改密码
+                        </BookButton>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
               <div className="space-y-4">
                 <h4 className="font-bold text-sm text-book-text-main border-b border-book-border pb-2">生成配置</h4>
                 

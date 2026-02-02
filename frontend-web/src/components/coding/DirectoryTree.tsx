@@ -1,27 +1,55 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Folder, FileCode, ChevronRight, ChevronDown } from 'lucide-react';
 
 interface TreeNode {
   id: string | number;
   name: string;
   type: 'dir' | 'file';
+  raw?: any;
   children?: TreeNode[];
 }
 
 interface DirectoryTreeProps {
   data: any; // Raw API response
   onSelectFile: (fileId: number) => void;
+  onSelectDirectory?: (dir: any) => void;
+  expandAllToken?: number;
+  collapseAllToken?: number;
 }
 
-const TreeItem: React.FC<{ node: TreeNode; level: number; onSelect: (id: number) => void }> = ({ node, level, onSelect }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const TreeItem: React.FC<{
+  node: TreeNode;
+  level: number;
+  onSelectFile: (id: number) => void;
+  onSelectDirectory?: (dir: any) => void;
+  expandAllToken?: number;
+  collapseAllToken?: number;
+}> = ({ node, level, onSelectFile, onSelectDirectory, expandAllToken, collapseAllToken }) => {
+  // 与桌面端一致：默认展开第一层目录
+  const [isOpen, setIsOpen] = useState(level === 0);
   const isDir = node.type === 'dir';
+
+  useEffect(() => {
+    if (!isDir) return;
+    if (typeof expandAllToken !== 'number') return;
+    setIsOpen(true);
+  }, [expandAllToken, isDir]);
+
+  useEffect(() => {
+    if (!isDir) return;
+    if (typeof collapseAllToken !== 'number') return;
+    setIsOpen(level === 0);
+  }, [collapseAllToken, isDir, level]);
   
   const handleClick = () => {
     if (isDir) {
+      onSelectDirectory?.(node.raw);
       setIsOpen(!isOpen);
     } else {
-      onSelect(node.id as number);
+      const rawId = node.id;
+      const fileId = typeof rawId === 'number' ? rawId : Number(rawId);
+      if (!Number.isFinite(fileId) || fileId <= 0) return;
+      onSelectFile(fileId);
     }
   };
 
@@ -55,7 +83,15 @@ const TreeItem: React.FC<{ node: TreeNode; level: number; onSelect: (id: number)
       {isDir && isOpen && node.children && (
         <div>
           {node.children.map(child => (
-            <TreeItem key={`${child.type}-${child.id}`} node={child} level={level + 1} onSelect={onSelect} />
+            <TreeItem
+              key={`${child.type}-${child.id}`}
+              node={child}
+              level={level + 1}
+              onSelectFile={onSelectFile}
+              onSelectDirectory={onSelectDirectory}
+              expandAllToken={expandAllToken}
+              collapseAllToken={collapseAllToken}
+            />
           ))}
         </div>
       )}
@@ -63,11 +99,17 @@ const TreeItem: React.FC<{ node: TreeNode; level: number; onSelect: (id: number)
   );
 };
 
-export const DirectoryTree: React.FC<DirectoryTreeProps> = ({ data, onSelectFile }) => {
-  // Transform backend data to TreeNode if needed
-  // Backend returns: { root: { ... } } or list
-  // Let's assume we receive the raw tree from `getDirectoryTree` API
-  
+export const DirectoryTree: React.FC<DirectoryTreeProps> = ({
+  data,
+  onSelectFile,
+  onSelectDirectory,
+  expandAllToken,
+  collapseAllToken,
+}) => {
+  // 后端返回 DirectoryTreeResponse：
+  // - root_nodes: DirectoryNodeResponse[]
+  // - total_directories/total_files
+
   const transform = (node: any): TreeNode => {
     const children: TreeNode[] = [];
     if (node.children) {
@@ -77,7 +119,8 @@ export const DirectoryTree: React.FC<DirectoryTreeProps> = ({ data, onSelectFile
       children.push(...node.files.map((f: any) => ({
         id: f.id,
         name: f.filename,
-        type: 'file'
+        type: 'file',
+        raw: f,
       })));
     }
     
@@ -85,23 +128,28 @@ export const DirectoryTree: React.FC<DirectoryTreeProps> = ({ data, onSelectFile
       id: node.id,
       name: node.name,
       type: 'dir',
+      raw: node,
       children
     };
   };
 
-  if (!data || !data.directories) return <div className="p-4 text-xs text-book-text-muted">无文件结构</div>;
+  const rootDirs = Array.isArray(data?.root_nodes)
+    ? data.root_nodes
+    : (Array.isArray(data?.directories) ? data.directories : []);
 
-  // The API returns { directories: [...], files: [...] } usually for flat list or nested
-  // Let's assume `data` is the `DirectoryTreeResponse` which has a list of root directories
+  if (!data || rootDirs.length === 0) return <div className="p-4 text-xs text-book-text-muted">无文件结构</div>;
   
   return (
     <div className="py-2">
-      {data.directories.map((dir: any) => (
+      {rootDirs.map((dir: any) => (
         <TreeItem 
           key={`dir-${dir.id}`} 
           node={transform(dir)} 
           level={0} 
-          onSelect={onSelectFile} 
+          onSelectFile={onSelectFile}
+          onSelectDirectory={onSelectDirectory}
+          expandAllToken={expandAllToken}
+          collapseAllToken={collapseAllToken}
         />
       ))}
     </div>

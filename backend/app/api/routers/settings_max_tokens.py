@@ -11,10 +11,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.config import settings
+from ...core.dependencies import require_admin_user
 from .settings_models import ConfigImportResult
 from .settings_utils import (
     build_hot_reload_response,
@@ -118,8 +119,10 @@ async def get_max_tokens_config() -> MaxTokensConfigResponse:
     )
 
 
-@router.put("/max-tokens-config")
-async def update_max_tokens_config(config: MaxTokensConfigUpdate) -> Dict[str, Any]:
+@router.put("/max-tokens-config", dependencies=[Depends(require_admin_user)])
+async def update_max_tokens_config(
+    config: MaxTokensConfigUpdate,
+) -> Dict[str, Any]:
     """
     更新Max Tokens配置
 
@@ -163,8 +166,10 @@ async def export_max_tokens_config() -> MaxTokensConfigExportData:
     )
 
 
-@router.post("/max-tokens-config/import", response_model=ConfigImportResult)
-async def import_max_tokens_config(import_data: dict) -> ConfigImportResult:
+@router.post("/max-tokens-config/import", response_model=ConfigImportResult, dependencies=[Depends(require_admin_user)])
+async def import_max_tokens_config(
+    import_data: dict,
+) -> ConfigImportResult:
     """
     导入Max Tokens配置
 

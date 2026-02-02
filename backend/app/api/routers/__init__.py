@@ -1,16 +1,19 @@
 """
-API路由汇总（PyQt桌面版）
+API路由汇总（桌面版 / WebUI）
 
-桌面版不包含认证路由，直接使用默认用户。
+说明：
+- 默认桌面版不要求登录，直接注入默认用户（desktop_user）。
+- 当启用 settings.auth_enabled=True 时，WebUI 将启用登录与多用户数据隔离（按 user_id）。
 """
 
 from fastapi import APIRouter
 
-from . import embedding_config, llm_config, novels, writer, settings, image_generation, queue, character_portrait, prompts, theme_config, coding
+from . import auth, embedding_config, llm_config, novels, writer, settings, image_generation, queue, character_portrait, prompts, theme_config, coding
 
 api_router = APIRouter()
 
 # 桌面版路由（无需认证）
+api_router.include_router(auth.router)
 api_router.include_router(novels.router, prefix="/api/novels")
 api_router.include_router(writer.router, prefix="/api/writer")
 api_router.include_router(coding.router, prefix="/api")  # 编程项目路由（路由内部已包含/coding/前缀）

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookCard } from '../ui/BookCard';
 import { BookButton } from '../ui/BookButton';
 import { useToast } from '../feedback/Toast';
+import { confirmDialog } from '../feedback/ConfirmDialog';
 import { useSSE } from '../../hooks/useSSE';
 import { apiClient } from '../../api/client';
 import { Wand2, PauseCircle, PlayCircle, XCircle, ListChecks, CheckCircle2, Copy, Undo2, Eye, Search } from 'lucide-react';
@@ -273,13 +274,18 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
     addToast(`已确认并应用：${inlinePreview.label}`, 'success');
   }, [addToast, inlinePreview]);
 
-  const revertInlinePreview = useCallback(() => {
+  const revertInlinePreview = useCallback(async () => {
     if (!inlinePreview) return;
     if (!onChangeContent) return;
-    const canRevert = content === inlinePreview.afterContent
-      ? true
-      : confirm('正文已被修改。\n撤销预览将覆盖当前编辑器内容，是否继续？');
-    if (!canRevert) return;
+    if (content !== inlinePreview.afterContent) {
+      const ok = await confirmDialog({
+        title: '撤销预览',
+        message: '正文已被修改。\n撤销预览将覆盖当前编辑器内容，是否继续？',
+        confirmText: '继续撤销',
+        dialogType: 'warning',
+      });
+      if (!ok) return;
+    }
     onChangeContent(inlinePreview.beforeContent);
     setInlinePreview(null);
     addToast(`已撤销预览：${inlinePreview.label}`, 'success');

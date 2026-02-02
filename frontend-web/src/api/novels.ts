@@ -344,6 +344,11 @@ export const novelsApi = {
     return response.data;
   },
 
+  startImportAnalysis: async (projectId: string) => {
+    const response = await apiClient.post(`/novels/${projectId}/analyze`);
+    return response.data;
+  },
+
   cancelImportAnalysis: async (projectId: string) => {
     const response = await apiClient.post(`/novels/${projectId}/analyze/cancel`);
     return response.data;

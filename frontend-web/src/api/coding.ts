@@ -65,6 +65,8 @@ export interface CodingFileVersion {
   metadata?: any;
 }
 
+export type CodingFilePriority = 'high' | 'medium' | 'low';
+
 export interface DirectoryAgentStateResponse {
   has_paused_state: boolean;
   current_phase?: string | null;
@@ -195,8 +197,22 @@ export const codingApi = {
     return response.data;
   },
 
+  updateDirectoryInfo: async (projectId: string, nodeId: number, payload: { name?: string; description?: string }) => {
+    const response = await apiClient.patch(`/coding/${projectId}/directories/${nodeId}`, payload);
+    return response.data;
+  },
+
   getFile: async (projectId: string, fileId: number) => {
     const response = await apiClient.get<CodingFileDetail>(`/coding/${projectId}/files/${fileId}`);
+    return response.data;
+  },
+
+  updateFileInfo: async (
+    projectId: string,
+    fileId: number,
+    payload: { description?: string; purpose?: string; priority?: CodingFilePriority }
+  ) => {
+    const response = await apiClient.patch(`/coding/${projectId}/files/${fileId}`, payload);
     return response.data;
   },
 

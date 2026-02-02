@@ -4,8 +4,36 @@ import { BookButton } from '../../ui/BookButton';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { promptsApi, PromptRead } from '../../../api/prompts';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { RefreshCw, Save, RotateCcw, Search, AlertTriangle } from 'lucide-react';
 import { SettingsTabHeader } from './components/SettingsTabHeader';
+
+const normalizeKey = (value: any): string => {
+  const s = String(value ?? '').trim();
+  return s ? s : 'all';
+};
+
+const PROJECT_TYPE_LABELS: Record<string, string> = {
+  all: '全部',
+  novel: '小说项目',
+  coding: 'Vibe Coding',
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  all: '全部',
+  inspiration: '构思',
+  blueprint: '蓝图',
+  outline: '大纲',
+  writing: '写作',
+  analysis: '分析',
+  manga: '漫画',
+  protagonist: '主角',
+  coding: '全部',
+};
+
+const formatLabel = (labels: Record<string, string>, key: string): string => {
+  return labels[key] || key;
+};
 
 export const PromptsTab: React.FC = () => {
   const { addToast } = useToast();
@@ -18,6 +46,10 @@ export const PromptsTab: React.FC = () => {
   const [contentDraft, setContentDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+
+  // 对齐桌面端：按 project_type / category 分层查看（Web 保留搜索能力）
+  const [projectTypeFilter, setProjectTypeFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -37,10 +69,61 @@ export const PromptsTab: React.FC = () => {
     fetchList();
   }, [fetchList]);
 
+  const projectTypes = useMemo(() => {
+    const set = new Set<string>();
+    prompts.forEach((p) => set.add(normalizeKey(p.project_type)));
+
+    const preferred = ['novel', 'coding'];
+    const ordered: string[] = ['all'];
+    preferred.forEach((k) => {
+      if (set.has(k)) ordered.push(k);
+    });
+
+    const rest = Array.from(set)
+      .filter((k) => k !== 'all' && !preferred.includes(k))
+      .sort((a, b) => a.localeCompare(b));
+    ordered.push(...rest);
+    return ordered;
+  }, [prompts]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    prompts.forEach((p) => {
+      const pt = normalizeKey(p.project_type);
+      if (projectTypeFilter !== 'all' && pt !== projectTypeFilter) return;
+      set.add(normalizeKey(p.category));
+    });
+
+    const preferredNovel = ['inspiration', 'blueprint', 'outline', 'writing', 'analysis', 'manga', 'protagonist'];
+    const preferredCoding = ['coding'];
+    const preferred = projectTypeFilter === 'coding' ? preferredCoding : preferredNovel;
+
+    const ordered: string[] = ['all'];
+    preferred.forEach((k) => {
+      if (set.has(k)) ordered.push(k);
+    });
+
+    const rest = Array.from(set)
+      .filter((k) => k !== 'all' && !preferred.includes(k))
+      .sort((a, b) => a.localeCompare(b));
+    ordered.push(...rest);
+    return ordered;
+  }, [projectTypeFilter, prompts]);
+
+  useEffect(() => {
+    if (categoryFilter === 'all') return;
+    if (categories.includes(categoryFilter)) return;
+    setCategoryFilter('all');
+  }, [categories, categoryFilter]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return prompts;
     return prompts.filter((p) => {
+      const pt = normalizeKey(p.project_type);
+      const cat = normalizeKey(p.category);
+      if (projectTypeFilter !== 'all' && pt !== projectTypeFilter) return false;
+      if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
+      if (!q) return true;
       const hay = [
         p.name,
         p.title || '',
@@ -51,7 +134,16 @@ export const PromptsTab: React.FC = () => {
       ].join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [prompts, query]);
+  }, [categoryFilter, projectTypeFilter, prompts, query]);
+
+  useEffect(() => {
+    if (!selectedName) {
+      setSelectedName(filtered.length > 0 ? filtered[0].name : null);
+      return;
+    }
+    if (filtered.some((p) => p.name === selectedName)) return;
+    setSelectedName(filtered.length > 0 ? filtered[0].name : null);
+  }, [filtered, selectedName]);
 
   useEffect(() => {
     if (!selectedName) return;
@@ -99,7 +191,13 @@ export const PromptsTab: React.FC = () => {
 
   const handleReset = async () => {
     if (!selected) return;
-    if (!confirm(`确定要将提示词「${selected.name}」恢复为默认值吗？`)) return;
+    const ok = await confirmDialog({
+      title: '恢复默认提示词',
+      message: `确定要将提示词「${selected.name}」恢复为默认值吗？`,
+      confirmText: '恢复默认',
+      dialogType: 'warning',
+    });
+    if (!ok) return;
     setResetting(true);
     try {
       const updated = await promptsApi.reset(selected.name);
@@ -115,7 +213,13 @@ export const PromptsTab: React.FC = () => {
   };
 
   const handleResetAll = async () => {
-    if (!confirm('确定要恢复所有提示词为默认值吗？此操作会覆盖所有已修改内容。')) return;
+    const ok = await confirmDialog({
+      title: '恢复全部提示词',
+      message: '确定要恢复所有提示词为默认值吗？\n此操作会覆盖所有已修改内容。',
+      confirmText: '恢复全部',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     setResetting(true);
     try {
       const res = await promptsApi.resetAll();
@@ -146,6 +250,49 @@ export const PromptsTab: React.FC = () => {
 
       <div className="grid grid-cols-[280px_1fr] gap-4 min-h-[60vh]">
         <BookCard className="p-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            {projectTypes.map((pt) => {
+              const isActive = projectTypeFilter === pt;
+              return (
+                <button
+                  key={`pt-${pt}`}
+                  type="button"
+                  onClick={() => {
+                    setProjectTypeFilter(pt);
+                    setCategoryFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded border text-[11px] font-bold transition-all ${
+                    isActive
+                      ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                      : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+                  }`}
+                >
+                  {formatLabel(PROJECT_TYPE_LABELS, pt)}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            {categories.map((cat) => {
+              const isActive = categoryFilter === cat;
+              return (
+                <button
+                  key={`cat-${cat}`}
+                  type="button"
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`px-2.5 py-1 rounded border text-[11px] font-bold transition-all ${
+                    isActive
+                      ? 'bg-book-primary/5 border-book-primary/30 text-book-primary'
+                      : 'bg-book-bg border-book-border/40 text-book-text-main hover:border-book-primary/20'
+                  }`}
+                >
+                  {formatLabel(CATEGORY_LABELS, cat)}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="relative mb-3">
             <BookInput
               value={query}

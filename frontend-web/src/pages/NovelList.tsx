@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { novelsApi, Novel } from '../api/novels';
 import { codingApi, CodingProjectSummary } from '../api/coding';
+import { settingsApi } from '../api/settings';
 import { CreateProjectModal } from '../components/business/CreateProjectModal';
 import { ProjectListItem, ProjectListItemModel } from '../components/business/ProjectListItem';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +10,7 @@ import { CREATIVE_QUOTES } from '../utils/constants';
 import { ParticleBackground } from '../components/ui/ParticleBackground';
 import { ImportModal } from '../components/business/ImportModal';
 import { useUIStore } from '../store/ui';
+import { confirmDialog } from '../components/feedback/ConfirmDialog';
 
 export const NovelList: React.FC = () => {
   const [novels, setNovels] = useState<Novel[]>([]);
@@ -19,6 +21,7 @@ export const NovelList: React.FC = () => {
   const [createDefaultType, setCreateDefaultType] = useState<'novel' | 'coding'>('novel');
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [projectKind, setProjectKind] = useState<'novel' | 'coding'>('novel');
+  const [codingEnabled, setCodingEnabled] = useState(false);
   const navigate = useNavigate();
   const { openSettings } = useUIStore();
 
@@ -27,12 +30,21 @@ export const NovelList: React.FC = () => {
     return CREATIVE_QUOTES[Math.floor(Math.random() * CREATIVE_QUOTES.length)];
   }, []);
 
-  const fetchNovels = async () => {
+  const fetchNovels = useCallback(async () => {
     setLoading(true);
     try {
+      // 获取高级配置，检查编程项目是否启用
+      const advancedConfig = await settingsApi.getAdvancedConfig();
+      const isCodingEnabled = advancedConfig.coding_project_enabled ?? false;
+      setCodingEnabled(isCodingEnabled);
+
+      // 如果编程项目功能关闭且当前选中的是编程项目，切换回小说
+      setProjectKind((prev) => (!isCodingEnabled && prev === 'coding' ? 'novel' : prev));
+
       const [novelList, codingList] = await Promise.all([
         novelsApi.list(),
-        codingApi.list(),
+        // 仅在编程项目功能启用时获取编程项目列表
+        isCodingEnabled ? codingApi.list() : Promise.resolve([]),
       ]);
       setNovels(novelList);
       setCodingProjects(codingList);
@@ -41,11 +53,11 @@ export const NovelList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchNovels();
-  }, []);
+  }, [fetchNovels]);
 
   const handleProjectClick = (project: ProjectListItemModel) => {
     if (project.kind === 'coding') {
@@ -58,28 +70,33 @@ export const NovelList: React.FC = () => {
       return;
     }
 
-    const status = project.status;
-    if (status === 'inspiration') {
+    // 桌面端（HOME）对齐：draft 表示“灵感对话中”，应继续进入对话；
+    // 其余状态（blueprint_ready/part_outlines_ready/chapter_outlines_ready/writing/completed）默认进入写作台。
+    const status = String(project.status || '').toLowerCase();
+    if (status === 'draft' || status === 'inspiration') {
       navigate(`/inspiration/${project.id}`);
-    } else if (status === 'blueprint_ready') {
-      navigate(`/novel/${project.id}`);
-    } else {
-      navigate(`/write/${project.id}`);
+      return;
     }
+    navigate(`/write/${project.id}`);
   };
 
   const handleDelete = async (project: ProjectListItemModel) => {
-    if (confirm(`确定要删除项目「${project.title}」吗？`)) {
-      try {
-        if (project.kind === 'coding') {
-          await codingApi.deleteProject(project.id);
-        } else {
-          await novelsApi.delete([project.id]);
-        }
-        fetchNovels();
-      } catch (e) {
-        console.error(e);
+    const ok = await confirmDialog({
+      title: '删除项目',
+      message: `确定要删除项目「${project.title}」吗？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
+    try {
+      if (project.kind === 'coding') {
+        await codingApi.deleteProject(project.id);
+      } else {
+        await novelsApi.delete([project.id]);
       }
+      fetchNovels();
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -89,7 +106,7 @@ export const NovelList: React.FC = () => {
         kind: 'coding',
         id: p.id,
         title: p.title,
-        description: p.project_type_desc || 'Prompt 工程',
+        description: p.project_type_desc || 'Prompt工程',
         status: (p.status || '').toLowerCase(),
         updated_at: p.last_edited,
       }));
@@ -126,6 +143,16 @@ export const NovelList: React.FC = () => {
       {/* LEFT COLUMN: Actions & Branding */}
       <div className="w-[380px] flex flex-col justify-between px-12 py-20 z-10">
         
+        {/* 右上角设置按钮 - 照抄桌面端位置 */}
+        <div className="absolute top-8 right-8">
+	            <button
+	                onClick={openSettings}
+	                className="text-book-text-muted hover:text-book-accent flex items-center gap-2 text-sm transition-colors"
+	            >
+	                <Settings size={16} /> 设置
+	            </button>
+	        </div>
+
         <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-700 my-auto">
           {/* Branding */}
           <div className="space-y-4">
@@ -151,7 +178,7 @@ export const NovelList: React.FC = () => {
 
           {/* Action Buttons */}
           <div className="space-y-4 w-full max-w-xs">
-            <button 
+            <button
               onClick={() => { setCreateDefaultType('novel'); setIsCreateModalOpen(true); }}
               className="w-full py-3.5 px-6 rounded-xl bg-book-accent text-white font-medium shadow-lg shadow-book-accent/20 hover:bg-book-text-main hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center gap-2 group"
             >
@@ -159,13 +186,15 @@ export const NovelList: React.FC = () => {
               创建小说
             </button>
 
-            <button 
-              onClick={() => { setCreateDefaultType('coding'); setIsCreateModalOpen(true); }}
-              className="w-full py-3.5 px-6 rounded-xl bg-book-bg-paper border-2 border-book-accent text-book-accent font-medium hover:bg-book-accent hover:text-white transition-all duration-300 flex items-center justify-center gap-2"
-            >
-              <Code size={20} />
-              创建 Prompt 工程
-            </button>
+            {codingEnabled && (
+              <button
+                onClick={() => { setCreateDefaultType('coding'); setIsCreateModalOpen(true); }}
+                className="w-full py-3.5 px-6 rounded-xl bg-book-bg-paper border-2 border-book-accent text-book-accent font-medium hover:bg-book-accent hover:text-white transition-all duration-300 flex items-center justify-center gap-2"
+              >
+                <Code size={20} />
+                创建Prompt工程
+              </button>
+            )}
 
             <button 
               onClick={() => setActiveTab('all')}
@@ -185,42 +214,35 @@ export const NovelList: React.FC = () => {
             </button>
           </div>
         </div>
-        
-        <div className="absolute bottom-8 left-16">
-	            <button 
-	                onClick={openSettings}
-	                className="text-book-text-muted hover:text-book-text-main flex items-center gap-2 text-sm transition-colors"
-	            >
-	                <Settings size={16} /> 设置
-	            </button>
-	        </div>
       </div>
 
 	      {/* RIGHT COLUMN: Project List */}
-	      <div className="flex-1 bg-book-bg-glass backdrop-blur-sm border-l border-book-border/30 p-12 flex flex-col z-10">
+	      <div className="flex-1 bg-book-bg-paper border-l border-book-border/40 p-12 flex flex-col z-10">
           {/* Project Kind Toggle */}
-          <div className="flex gap-2 mb-6">
-            <button
-              onClick={() => setProjectKind('novel')}
-              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
-                projectKind === 'novel'
-                  ? 'bg-book-bg-paper border-book-border text-book-text-main'
-                  : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
-              }`}
-            >
-              小说
-            </button>
-            <button
-              onClick={() => setProjectKind('coding')}
-              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
-                projectKind === 'coding'
-                  ? 'bg-book-bg-paper border-book-border text-book-text-main'
-                  : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
-              }`}
-            >
-              Prompt 工程
-            </button>
-          </div>
+          {codingEnabled && (
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setProjectKind('novel')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
+                  projectKind === 'novel'
+                    ? 'bg-book-bg-paper border-book-border text-book-text-main'
+                    : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
+                }`}
+              >
+                小说
+              </button>
+              <button
+                onClick={() => setProjectKind('coding')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
+                  projectKind === 'coding'
+                    ? 'bg-book-bg-paper border-book-border text-book-text-main'
+                    : 'bg-transparent border-book-border/40 text-book-text-muted hover:text-book-text-main hover:border-book-border'
+                }`}
+              >
+                Prompt工程
+              </button>
+            </div>
+          )}
 	        
 	        {/* Tabs */}
 	        <div className="flex gap-6 border-b border-book-border/30 pb-4 mb-6">
@@ -260,17 +282,22 @@ export const NovelList: React.FC = () => {
 	          ) : (
             <div className="h-full flex flex-col items-center justify-center text-book-text-muted opacity-60">
               <FolderOpen size={48} className="mb-4 stroke-1" />
-              <p>暂无项目，开始创作吧</p>
+              <p className="text-center whitespace-pre-line">
+                {activeTab === 'recent'
+                  ? '暂无最近项目\n点击"创建小说"开始您的创作之旅'
+                  : '暂无项目\n点击"创建小说"开始您的创作之旅'}
+              </p>
             </div>
           )}
         </div>
       </div>
 
-	      <CreateProjectModal 
-	        isOpen={isCreateModalOpen} 
+	      <CreateProjectModal
+	        isOpen={isCreateModalOpen}
 	        onClose={() => setIsCreateModalOpen(false)}
 	        onSuccess={fetchNovels}
           defaultType={createDefaultType}
+          codingEnabled={codingEnabled}
 	      />
       
 	        <ImportModal

@@ -4,6 +4,7 @@ import { BookButton } from '../ui/BookButton';
 import { BookCard } from '../ui/BookCard';
 import { BookInput } from '../ui/BookInput';
 import { useToast } from '../feedback/Toast';
+import { confirmDialog } from '../feedback/ConfirmDialog';
 import {
   protagonistApi,
   ProtagonistProfileResponse,
@@ -325,7 +326,13 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     const name = selectedName.trim();
     if (!name) return;
     const target = Math.max(1, Number(rollbackTarget) || 1);
-    if (!confirm(`确认回滚主角档案到第 ${target} 章？\n注意：会删除该章节之后的所有快照。`)) return;
+    const ok = await confirmDialog({
+      title: '回滚确认',
+      message: `确认回滚主角档案到第 ${target} 章？\n注意：会删除该章节之后的所有快照。`,
+      confirmText: '回滚',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     setRollbackLoading(true);
     try {
       const res = await protagonistApi.rollbackToChapter(projectId, name, target);
@@ -421,7 +428,13 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
   const handleDelete = async () => {
     const name = selectedName.trim();
     if (!name) return;
-    if (!confirm(`确定要删除主角档案「${name}」吗？`)) return;
+    const ok = await confirmDialog({
+      title: '删除主角档案',
+      message: `确定要删除主角档案「${name}」吗？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     try {
       await protagonistApi.deleteProfile(projectId, name);
       addToast('已删除', 'success');

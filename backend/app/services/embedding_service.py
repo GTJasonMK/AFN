@@ -63,6 +63,33 @@ def _check_sentence_transformers():
     return _sentence_transformers_available
 
 
+def _get_package_version(package_name: str) -> Optional[str]:
+    """获取已安装包的版本号（用于问题诊断）"""
+    try:
+        from importlib.metadata import version
+
+        return version(package_name)
+    except Exception:
+        return None
+
+
+def _is_meta_tensor_error(exc: Exception) -> bool:
+    """
+    判断是否为“meta tensor”相关的兼容性错误。
+
+    典型表现：
+    - Cannot copy out of meta tensor; no data!
+    - Please use torch.nn.Module.to_empty() instead of torch.nn.Module.to()
+    """
+    message = str(exc) or ""
+    message_lower = message.lower()
+    return (
+        "meta tensor" in message_lower
+        or "cannot copy out of meta tensor" in message_lower
+        or "to_empty" in message_lower
+    )
+
+
 def _get_torch_device() -> str:
     """获取最佳可用设备（GPU优先）"""
     try:
@@ -238,17 +265,105 @@ def _load_sentence_transformer(model_name: str, device: str) -> Any:
     # 使用本地路径直接加载（不会触发网络请求）
     logger.info("从本地路径加载模型: %s", local_path)
     old_offline = os.environ.get("HF_HUB_OFFLINE")
+    old_transformers_offline = os.environ.get("TRANSFORMERS_OFFLINE")
     os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
     try:
-        # 直接传入本地路径，而不是模型名称
-        model = _SentenceTransformer(local_path, device=device)
-        logger.info("本地模型加载成功: %s", local_path)
-        return model
+        import inspect
+
+        def _try_load(*, load_device: str, safer_model_kwargs: bool) -> Any:
+            """
+            尝试加载 SentenceTransformer。
+
+            - load_device: 传给 SentenceTransformer 的 device 参数（若支持）。
+            - safer_model_kwargs: 若 SentenceTransformer 支持 model_kwargs，则显式关闭
+              transformers 的 low_cpu_mem_usage / device_map，规避 meta tensor 兼容性问题。
+            """
+            kwargs: Dict[str, Any] = {}
+
+            # 兼容不同版本 sentence-transformers：按 __init__ 参数动态传参
+            try:
+                init_params = inspect.signature(_SentenceTransformer.__init__).parameters
+            except Exception:
+                init_params = {}
+
+            if "device" in init_params:
+                kwargs["device"] = load_device
+
+            # 双保险：即使设置 HF_HUB_OFFLINE，也尽量显式 local_files_only
+            if "local_files_only" in init_params:
+                kwargs["local_files_only"] = True
+
+            if safer_model_kwargs and "model_kwargs" in init_params:
+                kwargs["model_kwargs"] = {
+                    # 避免 init_empty_weights(meta) + .to(device) 的组合触发报错
+                    "low_cpu_mem_usage": False,
+                    # 禁用 accelerate 分片/dispatch，避免 device_map 触发 meta 行为
+                    "device_map": None,
+                }
+
+            # 直接传入本地路径，而不是模型名称
+            return _SentenceTransformer(local_path, **kwargs)
+
+        # 1) 优先按目标 device 直接加载（保持既有行为）
+        try:
+            model = _try_load(load_device=device, safer_model_kwargs=False)
+            logger.info("本地模型加载成功: %s", local_path)
+            return model
+        except Exception as exc:
+            if not _is_meta_tensor_error(exc):
+                raise
+
+            # 2) 兼容性回退：CPU 加载 + 再迁移到目标设备
+            torch_version = _get_package_version("torch")
+            st_version = _get_package_version("sentence-transformers")
+            transformers_version = _get_package_version("transformers")
+            accelerate_version = _get_package_version("accelerate")
+            logger.warning(
+                "加载本地嵌入模型触发 meta tensor 兼容性问题，将尝试回退策略: "
+                "model=%s device=%s torch=%s sentence-transformers=%s transformers=%s accelerate=%s error=%s",
+                model_name,
+                device,
+                torch_version,
+                st_version,
+                transformers_version,
+                accelerate_version,
+                exc,
+            )
+
+            # 2.1) 先尝试最保守的“CPU + safer model_kwargs”
+            model = _try_load(load_device="cpu", safer_model_kwargs=True)
+
+            # 2.2) 再迁移到目标设备（失败则保持 CPU，保证功能可用）
+            if device != "cpu":
+                try:
+                    model.to(device)
+                    # 部分版本 sentence-transformers 会缓存 target_device，尽量同步
+                    if hasattr(model, "_target_device"):
+                        try:
+                            import torch
+
+                            model._target_device = torch.device(device)
+                        except Exception:
+                            model._target_device = device
+                except Exception as move_exc:
+                    logger.warning(
+                        "本地模型已在 CPU 加载成功，但迁移到 %s 失败，将保持 CPU: error=%s",
+                        device,
+                        move_exc,
+                    )
+
+            logger.info("本地模型加载成功（回退策略）: %s", local_path)
+            return model
     finally:
         if old_offline is None:
             os.environ.pop("HF_HUB_OFFLINE", None)
         else:
             os.environ["HF_HUB_OFFLINE"] = old_offline
+        if old_transformers_offline is None:
+            os.environ.pop("TRANSFORMERS_OFFLINE", None)
+        else:
+            os.environ["TRANSFORMERS_OFFLINE"] = old_transformers_offline
 
 
 class PreloadState(Enum):
@@ -463,8 +578,16 @@ class EmbeddingService:
             )
 
         # 使用数据库配置
-        provider = embedding_config.get("provider", "openai")
-        target_model = model or embedding_config.get("model")
+        provider = (embedding_config.get("provider") or "openai").lower()
+        target_model = (model or embedding_config.get("model") or "").strip()
+        if not target_model:
+            # 与配置测试逻辑保持一致：模型名缺省时使用默认值
+            if provider == "ollama":
+                target_model = "nomic-embed-text:latest"
+            elif provider == "local":
+                target_model = "BAAI/bge-base-zh-v1.5"
+            else:
+                target_model = "text-embedding-3-small"
         api_key = embedding_config.get("api_key")
         base_url = embedding_config.get("base_url")
 

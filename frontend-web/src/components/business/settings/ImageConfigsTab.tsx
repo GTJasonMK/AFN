@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import {
   imageConfigsApi,
   ImageConfigCreate,
@@ -199,7 +200,13 @@ export const ImageConfigsTab: React.FC = () => {
   };
 
   const handleDelete = async (cfg: ImageConfigResponse) => {
-    if (!confirm(`确定要删除图片配置「${cfg.config_name}」吗？`)) return;
+    const ok = await confirmDialog({
+      title: '删除图片配置',
+      message: `确定要删除图片配置「${cfg.config_name}」吗？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     try {
       await imageConfigsApi.delete(cfg.id);
       addToast('已删除图片配置', 'success');

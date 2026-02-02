@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { BookCard } from '../../ui/BookCard';
 import { BookButton } from '../../ui/BookButton';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { settingsApi, type AllConfigExportData, type ConfigImportResult } from '../../../api/settings';
 import { Download, Upload, FileJson, RefreshCw, AlertTriangle } from 'lucide-react';
 
@@ -116,12 +117,17 @@ export const ImportExportTab: React.FC = () => {
   const handleImportAll = async () => {
     if (!importPreview) return;
     const type = String(importPreview.data?.export_type || '');
-    if (type !== 'all') {
-      addToast(`导入数据类型不匹配（export_type=${type || 'unknown'}），请使用“导出全部配置”生成的文件`, 'error');
-      return;
-    }
-    const ok = confirm('导入会覆盖当前配置（LLM/嵌入/图片/提示词/主题等）。\n建议先导出备份。\n\n确定继续导入？');
-    if (!ok) return;
+	    if (type !== 'all') {
+	      addToast(`导入数据类型不匹配（export_type=${type || 'unknown'}），请使用“导出全部配置”生成的文件`, 'error');
+	      return;
+	    }
+	    const ok = await confirmDialog({
+	      title: '导入确认',
+	      message: '导入会覆盖当前配置（LLM/嵌入/图片/提示词/主题等）。\n建议先导出备份。\n\n确定继续导入？',
+	      confirmText: '继续导入',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
 
     setImporting(true);
     try {
@@ -246,4 +252,3 @@ export const ImportExportTab: React.FC = () => {
     </div>
   );
 };
-

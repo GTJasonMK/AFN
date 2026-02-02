@@ -49,7 +49,7 @@ class AllConfigExportData(BaseModel):
 @router.get("/export/all")
 async def export_all_configs(
     session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
+    current_user: UserInDB = Depends(get_default_user),
 ) -> AllConfigExportData:
     """
     导出所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
@@ -64,10 +64,12 @@ async def export_all_configs(
     from ...services.queue import ImageRequestQueue, LLMRequestQueue
     from ...services.theme_config_service import ThemeConfigService
 
+    is_admin = (current_user.username or "").strip() == "desktop_user"
+
     # 获取LLM配置（使用service的export方法获取完整数据）
     llm_service = LLMConfigService(session)
     try:
-        llm_export = await llm_service.export_all_configs(desktop_user.id)
+        llm_export = await llm_service.export_all_configs(current_user.id)
         llm_configs_data = llm_export.get("configs", [])
     except Exception:
         # 用户没有LLM配置时，返回空列表
@@ -76,7 +78,7 @@ async def export_all_configs(
     # 获取嵌入配置（使用service的export方法获取完整数据）
     embedding_service = EmbeddingConfigService(session)
     try:
-        embedding_export = await embedding_service.export_all_configs(desktop_user.id)
+        embedding_export = await embedding_service.export_all_configs(current_user.id)
         embedding_configs_data = embedding_export.get("configs", [])
     except Exception:
         # 用户没有嵌入配置时，返回空列表
@@ -85,47 +87,59 @@ async def export_all_configs(
     # 获取图片配置（使用service的export方法获取完整数据）
     image_service = ImageConfigService(session)
     try:
-        image_export = await image_service.export_all_configs(desktop_user.id)
+        image_export = await image_service.export_all_configs(current_user.id)
         image_configs_data = image_export.get("configs", [])
     except Exception:
         # 用户没有图片配置时，返回空列表
         image_configs_data = []
 
-    # 获取高级配置
-    current_config = load_config()
-    advanced_config = {
-        "writer_chapter_version_count": current_config.get("writer_chapter_version_count", settings.writer_chapter_versions),
-        "writer_parallel_generation": current_config.get("writer_parallel_generation", settings.writer_parallel_generation),
-        "part_outline_threshold": current_config.get("part_outline_threshold", settings.part_outline_threshold),
-        "agent_context_max_chars": current_config.get("agent_context_max_chars", settings.agent_context_max_chars),
-    }
+    # 全局配置（仅管理员可导出）
+    advanced_config = None
+    queue_config = None
+    max_tokens_config = None
+    temperature_config = None
+    prompt_configs_data = None
 
-    # 获取队列配置
-    llm_queue = LLMRequestQueue.get_instance()
-    image_queue = ImageRequestQueue.get_instance()
-    queue_config = {
-        "llm_max_concurrent": llm_queue.max_concurrent,
-        "image_max_concurrent": image_queue.max_concurrent,
-    }
+    if is_admin:
+        current_config = load_config()
+        advanced_config = {
+            "coding_project_enabled": current_config.get("coding_project_enabled", settings.coding_project_enabled),
+            "writer_chapter_version_count": current_config.get(
+                "writer_chapter_version_count", settings.writer_chapter_versions
+            ),
+            "writer_parallel_generation": current_config.get(
+                "writer_parallel_generation", settings.writer_parallel_generation
+            ),
+            "part_outline_threshold": current_config.get("part_outline_threshold", settings.part_outline_threshold),
+            "agent_context_max_chars": current_config.get("agent_context_max_chars", settings.agent_context_max_chars),
+        }
 
-    # 获取Max Tokens配置
-    max_tokens_config = {key: current_config.get(key, getattr(settings, key)) for key in MAX_TOKENS_FIELDS}
+        # 获取队列配置
+        llm_queue = LLMRequestQueue.get_instance()
+        image_queue = ImageRequestQueue.get_instance()
+        queue_config = {
+            "llm_max_concurrent": llm_queue.max_concurrent,
+            "image_max_concurrent": image_queue.max_concurrent,
+        }
 
-    # 获取Temperature配置
-    temperature_config = {key: current_config.get(key, getattr(settings, key)) for key in TEMPERATURE_FIELDS}
+        # 获取Max Tokens配置
+        max_tokens_config = {key: current_config.get(key, getattr(settings, key)) for key in MAX_TOKENS_FIELDS}
 
-    # 获取提示词配置（只导出用户已修改的）
-    prompt_service = PromptService(session)
-    try:
-        prompt_export = await prompt_service.export_prompts()
-        prompt_configs_data = prompt_export
-    except Exception:
-        prompt_configs_data = {"count": 0, "prompts": []}
+        # 获取Temperature配置
+        temperature_config = {key: current_config.get(key, getattr(settings, key)) for key in TEMPERATURE_FIELDS}
+
+        # 获取提示词配置（只导出用户已修改的）
+        prompt_service = PromptService(session)
+        try:
+            prompt_export = await prompt_service.export_prompts()
+            prompt_configs_data = prompt_export
+        except Exception:
+            prompt_configs_data = {"count": 0, "prompts": []}
 
     # 获取主题配置
     theme_service = ThemeConfigService(session)
     try:
-        theme_export = await theme_service.export_all_configs(desktop_user.id)
+        theme_export = await theme_service.export_all_configs(current_user.id)
         # 转换为字典
         theme_configs_data = theme_export.model_dump()
     except Exception:
@@ -149,7 +163,7 @@ async def export_all_configs(
 async def import_all_configs(
     import_data: dict,
     session: AsyncSession = Depends(get_session),
-    desktop_user: UserInDB = Depends(get_default_user),
+    current_user: UserInDB = Depends(get_default_user),
 ) -> ConfigImportResult:
     """
     导入所有配置（LLM、嵌入、图片、高级、队列、提示词、主题）
@@ -172,6 +186,8 @@ async def import_all_configs(
     has_error = False
 
     try:
+        is_admin = (current_user.username or "").strip() == "desktop_user"
+
         # 验证导入数据格式
         if import_data.get("export_type") != "all":
             return ConfigImportResult(success=False, message="导入数据类型不匹配，期望 'all'", details=[])
@@ -189,7 +205,7 @@ async def import_all_configs(
                     "export_type": "batch",
                     "configs": import_data["llm_configs"],
                 }
-                result = await llm_service.import_configs(desktop_user.id, llm_import_data)
+                result = await llm_service.import_configs(current_user.id, llm_import_data)
                 details.append(f"LLM配置: {result.get('message', '导入完成')}")
             except Exception as e:
                 details.append(f"LLM配置导入失败: {str(e)}")
@@ -205,7 +221,7 @@ async def import_all_configs(
                     "export_type": "batch",
                     "configs": import_data["embedding_configs"],
                 }
-                result = await embedding_service.import_configs(desktop_user.id, embedding_import_data)
+                result = await embedding_service.import_configs(current_user.id, embedding_import_data)
                 details.append(f"嵌入配置: {result.get('message', '导入完成')}")
             except Exception as e:
                 details.append(f"嵌入配置导入失败: {str(e)}")
@@ -221,7 +237,7 @@ async def import_all_configs(
                     "export_type": "batch",
                     "configs": import_data["image_configs"],
                 }
-                result = await image_service.import_configs(desktop_user.id, image_import_data)
+                result = await image_service.import_configs(current_user.id, image_import_data)
                 details.append(f"图片配置: {result.get('message', '导入完成')}")
             except Exception as e:
                 details.append(f"图片配置导入失败: {str(e)}")
@@ -229,81 +245,101 @@ async def import_all_configs(
 
         # 导入高级配置
         if import_data.get("advanced_config"):
-            try:
-                advanced_import_data = {"export_type": "advanced", "config": import_data["advanced_config"]}
-                result = await import_advanced_config(advanced_import_data)
-                details.append(f"高级配置: {result.message}")
-                if not result.success:
-                    has_error = True
-            except Exception as e:
-                details.append(f"高级配置导入失败: {str(e)}")
+            if not is_admin:
+                details.append("高级配置: 需要管理员权限（desktop_user），已跳过")
                 has_error = True
+            else:
+                try:
+                    advanced_import_data = {"export_type": "advanced", "config": import_data["advanced_config"]}
+                    result = await import_advanced_config(advanced_import_data)
+                    details.append(f"高级配置: {result.message}")
+                    if not result.success:
+                        has_error = True
+                except Exception as e:
+                    details.append(f"高级配置导入失败: {str(e)}")
+                    has_error = True
 
         # 导入队列配置
         if import_data.get("queue_config"):
-            try:
-                queue_import_data = {"export_type": "queue", "config": import_data["queue_config"]}
-                result = await import_queue_config(queue_import_data)
-                details.append(f"队列配置: {result.message}")
-                if not result.success:
-                    has_error = True
-            except Exception as e:
-                details.append(f"队列配置导入失败: {str(e)}")
+            if not is_admin:
+                details.append("队列配置: 需要管理员权限（desktop_user），已跳过")
                 has_error = True
+            else:
+                try:
+                    queue_import_data = {"export_type": "queue", "config": import_data["queue_config"]}
+                    result = await import_queue_config(queue_import_data)
+                    details.append(f"队列配置: {result.message}")
+                    if not result.success:
+                        has_error = True
+                except Exception as e:
+                    details.append(f"队列配置导入失败: {str(e)}")
+                    has_error = True
 
         # 导入Max Tokens配置
         if import_data.get("max_tokens_config"):
-            try:
-                max_tokens_data = import_data["max_tokens_config"]
-                current_config = load_config()
-                updated_fields = []
-
-                for field, (min_val, max_val) in MAX_TOKENS_FIELDS.items():
-                    if field in max_tokens_data:
-                        value = max_tokens_data[field]
-                        if min_val <= value <= max_val:
-                            current_config[field] = value
-                            setattr(settings, field, value)
-                            updated_fields.append(field)
-
-                save_config(current_config)
-                details.append(f"Max Tokens配置: 已更新 {len(updated_fields)} 项")
-            except Exception as e:
-                details.append(f"Max Tokens配置导入失败: {str(e)}")
+            if not is_admin:
+                details.append("Max Tokens配置: 需要管理员权限（desktop_user），已跳过")
                 has_error = True
+            else:
+                try:
+                    max_tokens_data = import_data["max_tokens_config"]
+                    current_config = load_config()
+                    updated_fields = []
+
+                    for field, (min_val, max_val) in MAX_TOKENS_FIELDS.items():
+                        if field in max_tokens_data:
+                            value = max_tokens_data[field]
+                            if min_val <= value <= max_val:
+                                current_config[field] = value
+                                setattr(settings, field, value)
+                                updated_fields.append(field)
+
+                    save_config(current_config)
+                    details.append(f"Max Tokens配置: 已更新 {len(updated_fields)} 项")
+                except Exception as e:
+                    details.append(f"Max Tokens配置导入失败: {str(e)}")
+                    has_error = True
 
         # 导入Temperature配置
         if import_data.get("temperature_config"):
-            try:
-                temperature_data = import_data["temperature_config"]
-                current_config = load_config()
-                updated_fields = []
-
-                for field in TEMPERATURE_FIELDS:
-                    if field in temperature_data:
-                        value = temperature_data[field]
-                        if 0.0 <= value <= 2.0:
-                            current_config[field] = value
-                            setattr(settings, field, value)
-                            updated_fields.append(field)
-
-                save_config(current_config)
-                details.append(f"Temperature配置: 已更新 {len(updated_fields)} 项")
-            except Exception as e:
-                details.append(f"Temperature配置导入失败: {str(e)}")
+            if not is_admin:
+                details.append("Temperature配置: 需要管理员权限（desktop_user），已跳过")
                 has_error = True
+            else:
+                try:
+                    temperature_data = import_data["temperature_config"]
+                    current_config = load_config()
+                    updated_fields = []
+
+                    for field in TEMPERATURE_FIELDS:
+                        if field in temperature_data:
+                            value = temperature_data[field]
+                            if 0.0 <= value <= 2.0:
+                                current_config[field] = value
+                                setattr(settings, field, value)
+                                updated_fields.append(field)
+
+                    save_config(current_config)
+                    details.append(f"Temperature配置: 已更新 {len(updated_fields)} 项")
+                except Exception as e:
+                    details.append(f"Temperature配置导入失败: {str(e)}")
+                    has_error = True
 
         # 导入提示词配置
         if import_data.get("prompt_configs"):
-            try:
-                prompt_service = PromptService(session)
-                result = await prompt_service.import_prompts(import_data["prompt_configs"])
-                details.append(f"提示词配置: {result.get('message', '导入完成')}")
-                if not result.get("success", True):
-                    has_error = True
-            except Exception as e:
-                details.append(f"提示词配置导入失败: {str(e)}")
+            if not is_admin:
+                details.append("提示词配置: 需要管理员权限（desktop_user），已跳过")
                 has_error = True
+            else:
+                try:
+                    prompt_service = PromptService(session)
+                    result = await prompt_service.import_prompts(import_data["prompt_configs"])
+                    details.append(f"提示词配置: {result.get('message', '导入完成')}")
+                    if not result.get("success", True):
+                        has_error = True
+                except Exception as e:
+                    details.append(f"提示词配置导入失败: {str(e)}")
+                    has_error = True
 
         # 导入主题配置
         if import_data.get("theme_configs"):
@@ -313,7 +349,7 @@ async def import_all_configs(
                 theme_service = ThemeConfigService(session)
                 # 将字典转换为 ThemeConfigExportData 对象
                 theme_import_data = ThemeExportData(**import_data["theme_configs"])
-                result = await theme_service.import_configs(desktop_user.id, theme_import_data)
+                result = await theme_service.import_configs(current_user.id, theme_import_data)
                 imported = result.imported_count
                 skipped = result.skipped_count
                 msg = f"导入 {imported} 个"

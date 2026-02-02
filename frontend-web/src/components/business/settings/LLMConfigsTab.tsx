@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookInput } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { llmConfigsApi, LLMConfigCreate, LLMConfigRead, LLMConfigUpdate } from '../../../api/llmConfigs';
 import { CheckCircle2, Circle } from 'lucide-react';
 import { ConfigsCardsList } from './components/ConfigsCardsList';
@@ -143,7 +144,13 @@ export const LLMConfigsTab: React.FC = () => {
   };
 
   const handleDelete = async (cfg: LLMConfigRead) => {
-    if (!confirm(`确定要删除 LLM 配置「${cfg.config_name}」吗？`)) return;
+    const ok = await confirmDialog({
+      title: '删除 LLM 配置',
+      message: `确定要删除 LLM 配置「${cfg.config_name}」吗？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     try {
       await llmConfigsApi.delete(cfg.id);
       addToast('已删除 LLM 配置', 'success');

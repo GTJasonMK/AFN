@@ -1,6 +1,7 @@
 import { apiClient } from './client';
 
 export interface AdvancedConfig {
+  coding_project_enabled: boolean;
   writer_chapter_version_count: number;
   writer_parallel_generation: boolean;
   part_outline_threshold: number;

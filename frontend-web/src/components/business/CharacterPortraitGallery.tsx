@@ -6,6 +6,7 @@ import { BookButton } from '../ui/BookButton';
 import { BookTextarea } from '../ui/BookInput';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../feedback/Toast';
+import { confirmDialog } from '../feedback/ConfirmDialog';
 import { CheckCircle2, Image as ImageIcon, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react';
 
 interface CharacterPortraitGalleryProps {
@@ -194,13 +195,18 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
     }
   }, [addToast, fetchPortraits, genCustomPrompt, genDescription, genMode, genName, genPortraitId, genStyle, projectId]);
 
-  const handleGenerateMissing = useCallback(async () => {
-    if (missingNames.length === 0) {
-      addToast('暂无需要生成的角色立绘', 'info');
-      return;
-    }
-    const ok = confirm(`将为 ${missingNames.length} 个角色生成立绘，可能耗时较长。是否继续？`);
-    if (!ok) return;
+	  const handleGenerateMissing = useCallback(async () => {
+	    if (missingNames.length === 0) {
+	      addToast('暂无需要生成的角色立绘', 'info');
+	      return;
+	    }
+	    const ok = await confirmDialog({
+	      title: '批量生成立绘',
+	      message: `将为 ${missingNames.length} 个角色生成立绘，可能耗时较长。\n是否继续？`,
+	      confirmText: '继续',
+	      dialogType: 'warning',
+	    });
+	    if (!ok) return;
 
     setBusyKey('bulk');
     try {
@@ -250,14 +256,19 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
     }
   }, [addToast, fetchPortraits, projectId]);
 
-  const handleDelete = useCallback(async (portraitId: string) => {
-    const id = normalizeName(portraitId);
-    if (!id) return;
-    const ok = confirm('确定要删除该立绘吗？此操作不可恢复。');
-    if (!ok) return;
-    setBusyKey(`del:${id}`);
-    try {
-      await novelsApi.deletePortrait(projectId, id);
+	  const handleDelete = useCallback(async (portraitId: string) => {
+	    const id = normalizeName(portraitId);
+	    if (!id) return;
+	    const ok = await confirmDialog({
+	      title: '删除立绘',
+	      message: '确定要删除该立绘吗？此操作不可恢复。',
+	      confirmText: '删除',
+	      dialogType: 'danger',
+	    });
+	    if (!ok) return;
+	    setBusyKey(`del:${id}`);
+	    try {
+	      await novelsApi.deletePortrait(projectId, id);
       addToast('立绘已删除', 'success');
       await fetchPortraits();
     } catch (e) {

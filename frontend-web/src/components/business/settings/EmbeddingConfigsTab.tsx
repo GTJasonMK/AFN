@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookInput } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
+import { confirmDialog } from '../../feedback/ConfirmDialog';
 import {
   embeddingConfigsApi,
   EmbeddingConfigCreate,
@@ -195,7 +196,13 @@ export const EmbeddingConfigsTab: React.FC = () => {
   };
 
   const handleDelete = async (cfg: EmbeddingConfigRead) => {
-    if (!confirm(`确定要删除嵌入配置「${cfg.config_name}」吗？`)) return;
+    const ok = await confirmDialog({
+      title: '删除嵌入配置',
+      message: `确定要删除嵌入配置「${cfg.config_name}」吗？`,
+      confirmText: '删除',
+      dialogType: 'danger',
+    });
+    if (!ok) return;
     try {
       await embeddingConfigsApi.delete(cfg.id);
       addToast('已删除嵌入配置', 'success');

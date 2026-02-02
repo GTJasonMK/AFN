@@ -11,10 +11,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.config import settings
+from ...core.dependencies import require_admin_user
 from .settings_models import ConfigImportResult
 from .settings_utils import (
     build_hot_reload_response,
@@ -86,8 +87,10 @@ async def get_temperature_config() -> TemperatureConfigResponse:
     )
 
 
-@router.put("/temperature-config")
-async def update_temperature_config(config: TemperatureConfigUpdate) -> Dict[str, Any]:
+@router.put("/temperature-config", dependencies=[Depends(require_admin_user)])
+async def update_temperature_config(
+    config: TemperatureConfigUpdate,
+) -> Dict[str, Any]:
     """
     更新Temperature配置
 
@@ -131,8 +134,10 @@ async def export_temperature_config() -> TemperatureConfigExportData:
     )
 
 
-@router.post("/temperature-config/import", response_model=ConfigImportResult)
-async def import_temperature_config(import_data: dict) -> ConfigImportResult:
+@router.post("/temperature-config/import", response_model=ConfigImportResult, dependencies=[Depends(require_admin_user)])
+async def import_temperature_config(
+    import_data: dict,
+) -> ConfigImportResult:
     """
     导入Temperature配置
 

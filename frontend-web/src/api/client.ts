@@ -3,10 +3,11 @@ import { useToast } from '../components/feedback/Toast';
 
 // 使用相对路径以利用 Vite 代理
 export const API_BASE_URL = '/api';
+export const AUTH_UNAUTHORIZED_EVENT = 'afn-auth-unauthorized';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 120000,  // 2分钟，LLM调用需要较长时间
   headers: {
     'Content-Type': 'application/json',
   },
@@ -33,6 +34,17 @@ apiClient.interceptors.response.use(
         console.error("Full API Error Response:", error.response.data);
     }
     const message = error.response?.data?.detail || error.message || 'Unknown error';
+
+    // 认证失败：交由 AuthGate 处理，不重复弹 toast
+    if (error.response?.status === 401) {
+      try {
+        window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT, { detail: { message } }));
+      } catch {
+        // ignore
+      }
+      return Promise.reject(error);
+    }
+
     console.error('API Error:', message);
     
     // Trigger global toast

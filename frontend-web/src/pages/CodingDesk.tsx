@@ -13,15 +13,10 @@ import { BookInput, BookTextarea } from '../components/ui/BookInput';
 import { useToast } from '../components/feedback/Toast';
 import { useSSE } from '../hooks/useSSE';
 import {
-  ArrowLeft,
-  Code,
   Database,
-  FileCode,
   LayoutPanelLeft,
-  PanelRight,
   PauseCircle,
   PlayCircle,
-  RefreshCw,
   Save,
   Search,
   XCircle,
@@ -76,6 +71,135 @@ const safeJson = (value: any): string => {
   }
 };
 
+const truncateText = (text: string, maxLen: number, suffix: string): string => {
+  const s = String(text ?? '');
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen)}\n${suffix}`;
+};
+
+const normalizePath = (raw: any): string => {
+  const s = String(raw ?? '').trim().replace(/\\/g, '/');
+  if (!s) return '';
+  const noDup = s.replace(/\/{2,}/g, '/');
+  const noDot = noDup.startsWith('./') ? noDup.slice(2) : noDup;
+  return noDot.endsWith('/') ? noDot.slice(0, -1) : noDot;
+};
+
+const dirname = (p: string): string => {
+  const s = normalizePath(p);
+  const idx = s.lastIndexOf('/');
+  if (idx <= 0) return '';
+  return s.slice(0, idx);
+};
+
+const basename = (p: string): string => {
+  const s = normalizePath(p);
+  const idx = s.lastIndexOf('/');
+  return idx >= 0 ? s.slice(idx + 1) : s;
+};
+
+const pathDepth = (p: string): number => {
+  const s = normalizePath(p);
+  if (!s) return 0;
+  return s.split('/').filter(Boolean).length;
+};
+
+const buildAgentDirectoryTreeData = (preview: { directories?: any[]; files?: any[]; stats?: any }) => {
+  const rawDirs = Array.isArray(preview?.directories) ? preview.directories : [];
+  const rawFiles = Array.isArray(preview?.files) ? preview.files : [];
+
+  const dirInfoByPath = new Map<string, any>();
+  const allDirPaths = new Set<string>();
+
+  const ensureDirPath = (rawPath: any) => {
+    let cur = normalizePath(rawPath);
+    if (!cur) return;
+    while (cur) {
+      if (!allDirPaths.has(cur)) allDirPaths.add(cur);
+      const parent = dirname(cur);
+      if (!parent || parent === cur) break;
+      cur = parent;
+    }
+  };
+
+  for (const d of rawDirs) {
+    const p = normalizePath(d?.path);
+    if (!p) continue;
+    dirInfoByPath.set(p, { ...d, path: p });
+    ensureDirPath(p);
+  }
+
+  for (const f of rawFiles) {
+    const filePath = normalizePath(f?.path);
+    if (!filePath) continue;
+    const parentDir = dirname(filePath);
+    if (parentDir) ensureDirPath(parentDir);
+  }
+
+  const sortedDirPaths = Array.from(allDirPaths).sort((a, b) => {
+    const da = pathDepth(a);
+    const db = pathDepth(b);
+    if (da !== db) return da - db;
+    return a.localeCompare(b);
+  });
+
+  const nodeByPath = new Map<string, any>();
+  for (const p of sortedDirPaths) {
+    const info = dirInfoByPath.get(p) || { path: p };
+    nodeByPath.set(p, {
+      id: `agent:dir:${p}`,
+      name: basename(p) || p,
+      ...info,
+      children: [],
+      files: [],
+    });
+  }
+
+  for (const p of sortedDirPaths) {
+    const parent = dirname(p);
+    if (!parent) continue;
+    const parentNode = nodeByPath.get(parent);
+    const node = nodeByPath.get(p);
+    if (!parentNode || !node) continue;
+    parentNode.children.push(node);
+  }
+
+  for (const f of rawFiles) {
+    const filePath = normalizePath(f?.path);
+    if (!filePath) continue;
+    const parent = dirname(filePath);
+    const dirNode = nodeByPath.get(parent);
+    if (!dirNode) continue;
+
+    const filename = String(f?.filename || basename(filePath) || filePath);
+    dirNode.files.push({
+      id: `agent:file:${filePath}`,
+      filename,
+      file_path: filePath,
+      ...f,
+    });
+  }
+
+  for (const node of nodeByPath.values()) {
+    node.children.sort((a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || '')));
+    node.files.sort((a: any, b: any) => String(a?.filename || '').localeCompare(String(b?.filename || '')));
+  }
+
+  const rootNodes = sortedDirPaths
+    .filter((p) => {
+      const parent = dirname(p);
+      return !parent || !nodeByPath.has(parent);
+    })
+    .map((p) => nodeByPath.get(p))
+    .filter(Boolean);
+
+  return {
+    root_nodes: rootNodes,
+    total_directories: Number(preview?.stats?.total_directories || allDirPaths.size) || 0,
+    total_files: Number(preview?.stats?.total_files || rawFiles.length) || 0,
+  };
+};
+
 export const CodingDesk: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -128,7 +252,20 @@ export const CodingDesk: React.FC = () => {
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentLogs, setAgentLogs] = useState<StreamLog[]>([]);
   const [agentPreview, setAgentPreview] = useState<{ directories?: any[]; files?: any[]; stats?: any } | null>(null);
+  const [showAgentTree, setShowAgentTree] = useState(false);
   const agentLogRef = useRef<HTMLDivElement | null>(null);
+  const agentClearExistingRef = useRef<boolean>(true);
+  const [agentDetailedMode, setAgentDetailedMode] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem(`afn:coding_agent_detailed:${id || ''}`);
+      if (!raw) return false;
+      const v = String(raw).trim().toLowerCase();
+      return v === '1' || v === 'true' || v === 'yes';
+    } catch {
+      return false;
+    }
+  });
+  const agentDetailedModeRef = useRef<boolean>(agentDetailedMode);
 
   const refreshBasic = useCallback(async () => {
     if (!id) return;
@@ -174,6 +311,21 @@ export const CodingDesk: React.FC = () => {
       // ignore
     }
   }, [id, ragTopK]);
+
+  useEffect(() => {
+    agentDetailedModeRef.current = agentDetailedMode;
+    if (!id) return;
+    try {
+      localStorage.setItem(`afn:coding_agent_detailed:${id}`, agentDetailedMode ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [agentDetailedMode, id]);
+
+  const agentTreeData = useMemo(() => {
+    if (!agentPreview) return null;
+    return buildAgentDirectoryTreeData(agentPreview);
+  }, [agentPreview]);
 
   const loadFile = useCallback(async (fileId: number) => {
     if (!id) return;
@@ -326,9 +478,8 @@ export const CodingDesk: React.FC = () => {
     if (!id || !currentFile) return;
     try {
       await codingApi.selectFileVersion(id, currentFile.id, v.id);
-      setSelectedVersionId(v.id);
-      setContent(v.content || '');
       addToast('已切换版本', 'success');
+      await loadFile(currentFile.id);
     } catch (e) {
       console.error(e);
       addToast('切换失败', 'error');
@@ -354,12 +505,73 @@ export const CodingDesk: React.FC = () => {
   }, [addToast, id, ragQuery, ragTopK]);
 
   // ========== 目录规划 Agent ==========
+  const formatAgentLogContent = useCallback((type: StreamLogType, body?: any): string => {
+    const detailed = agentDetailedModeRef.current;
+
+    if (body === null || body === undefined) return '';
+
+    // Error 对象 JSON.stringify 会丢信息，单独处理
+    if (body instanceof Error) {
+      const msg = body.message || String(body);
+      return detailed
+        ? msg
+        : truncateText(msg, 800, '…（已截断，开启“详细模式”查看完整内容）');
+    }
+
+    // 纯文本
+    if (typeof body === 'string') {
+      if (detailed) return body;
+      const limit = type === 'thinking' ? 300 : 1200;
+      return truncateText(body, limit, '…（已截断，开启“详细模式”查看完整内容）');
+    }
+
+    // 对象：按事件类型做尽量贴近桌面端的摘要/展开逻辑
+    if (detailed) return safeJson(body);
+
+    if (type === 'action') {
+      // 桌面端默认只展示动作名称，参数与理由在详细模式中查看
+      return '';
+    }
+
+    if (type === 'observation') {
+      const tool = typeof body?.tool === 'string' ? body.tool : '';
+      const result = body?.result;
+      if (result === null || result === undefined) return '';
+      if (typeof result === 'string') {
+        const text = truncateText(result, 800, '…（已截断，开启“详细模式”查看完整内容）');
+        return tool ? `工具: ${tool}\n${text}` : text;
+      }
+      if (Array.isArray(result)) return tool ? `工具: ${tool}\n结果: Array(${result.length})` : `结果: Array(${result.length})`;
+      if (typeof result === 'object') {
+        const keys = Object.keys(result);
+        if (keys.length === 0) return tool ? `工具: ${tool}\n结果: {}` : '结果: {}';
+        const previewKeys = keys.slice(0, 10).join(', ');
+        const more = keys.length > 10 ? `, ...(+${keys.length - 10})` : '';
+        return tool ? `工具: ${tool}\n结果字段: ${previewKeys}${more}` : `结果字段: ${previewKeys}${more}`;
+      }
+      const s = String(result ?? '');
+      return tool ? `工具: ${tool}\n${s}` : s;
+    }
+
+    if (type === 'warning' || type === 'error') {
+      const tool = typeof body?.tool === 'string' ? body.tool : '';
+      const msg =
+        (typeof body?.message === 'string' ? body.message : '') ||
+        (typeof body?.error === 'string' ? body.error : '') ||
+        '';
+      if (msg) {
+        const text = truncateText(msg, 1200, '…（已截断，开启“详细模式”查看完整内容）');
+        return tool ? `工具: ${tool}\n${text}` : text;
+      }
+      const fallback = truncateText(safeJson(body), 1200, '…（已截断，开启“详细模式”查看完整内容）');
+      return tool ? `工具: ${tool}\n${fallback}` : fallback;
+    }
+
+    return truncateText(safeJson(body), 1200, '…（已截断，开启“详细模式”查看完整内容）');
+  }, []);
+
   const appendAgentLog = useCallback((type: StreamLogType, title: string, body?: any) => {
-    const contentText = (() => {
-      if (body === null || body === undefined) return '';
-      if (typeof body === 'string') return body;
-      return safeJson(body);
-    })();
+    const contentText = formatAgentLogContent(type, body);
 
     setAgentLogs((prev) => {
       const next: StreamLog[] = [
@@ -375,7 +587,7 @@ export const CodingDesk: React.FC = () => {
       if (next.length > 600) next.splice(0, next.length - 600);
       return next;
     });
-  }, []);
+  }, [formatAgentLogContent]);
 
   const { connect: connectAgentStream, disconnect: disconnectAgentStream } = useSSE((event, data) => {
     // 统一记录日志，必要时做少量摘要
@@ -424,6 +636,7 @@ export const CodingDesk: React.FC = () => {
 
     if (et === 'saved') {
       appendAgentLog('saved', 'saved', data);
+      setShowAgentTree(false);
       refreshBasic();
       return;
     }
@@ -431,6 +644,7 @@ export const CodingDesk: React.FC = () => {
     if (et === 'planning_complete') {
       appendAgentLog('planning_complete', 'planning_complete', data);
       setAgentRunning(false);
+      if (!agentClearExistingRef.current) setShowAgentTree(false);
       refreshBasic();
       return;
     }
@@ -443,6 +657,7 @@ export const CodingDesk: React.FC = () => {
     if (et === 'error') {
       appendAgentLog('error', 'error', data);
       setAgentRunning(false);
+      setShowAgentTree(false);
       return;
     }
 
@@ -469,9 +684,11 @@ export const CodingDesk: React.FC = () => {
 
   const startAgentPlanning = useCallback(async (opts: { clearExisting: boolean }) => {
     if (!id) return;
+    agentClearExistingRef.current = Boolean(opts.clearExisting);
     setAgentRunning(true);
     setAgentLogs([]);
     setAgentPreview(null);
+    setShowAgentTree(true);
     await connectAgentStream(codingApi.planDirectoryAgentStream(id), {
       clear_existing: opts.clearExisting,
     });
@@ -496,6 +713,8 @@ export const CodingDesk: React.FC = () => {
     try {
       await codingApi.clearDirectoryAgentState(id);
       await refreshAgentState();
+      setAgentPreview(null);
+      setShowAgentTree(false);
       addToast('已清除暂停状态', 'success');
     } catch (e) {
       console.error(e);
@@ -506,9 +725,11 @@ export const CodingDesk: React.FC = () => {
   const continueAgentPlanning = useCallback(async () => {
     if (!id) return;
     // 后端的 plan-agent 是否支持 resume 取决于实现；这里复用同一路由并带上 resume 标记，保持与桌面端一致
+    agentClearExistingRef.current = false;
     setAgentRunning(true);
     setAgentLogs([]);
     setAgentPreview(null);
+    setShowAgentTree(true);
     await connectAgentStream(codingApi.planDirectoryAgentStream(id), { resume: true });
   }, [connectAgentStream, id]);
 
@@ -518,46 +739,56 @@ export const CodingDesk: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-book-bg overflow-hidden">
-      {/* Header */}
-      <div className="h-14 border-b border-book-border/40 bg-book-bg-paper flex items-center justify-between px-4 shrink-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center text-book-text-sub hover:text-book-primary transition-colors text-sm font-medium shrink-0"
-          >
-            <ArrowLeft size={16} className="mr-1" />
-            返回列表
-          </button>
+      {/* Header - 完全照抄桌面端 coding_desk/header.py */}
+      <div className="h-14 border-b border-book-border bg-book-bg-paper flex items-center px-4 gap-3 shrink-0 z-30">
+        {/* 返回按钮 */}
+        <button
+          onClick={() => navigate(`/coding/detail/${id}`)}
+          className="text-book-primary hover:bg-book-primary/10 px-3 py-1.5 rounded text-sm"
+        >
+          &lt; 返回
+        </button>
 
-          <div className="flex items-center gap-2 min-w-0">
-            <Code size={16} className="text-book-accent shrink-0" />
-            <div className="font-serif font-bold text-book-text-main text-base tracking-wide truncate">
-              {project?.title || 'Prompt 工程'}
-            </div>
-            {currentFile?.file_path ? (
-              <div className="text-xs text-book-text-muted truncate">
-                · {currentFile.file_path}
-              </div>
-            ) : null}
+        {/* 分隔线 */}
+        <div className="w-px h-6 bg-book-border" />
+
+        {/* 项目标题 */}
+        <div className="text-[15px] font-semibold text-book-text-main">
+          {project?.title || '加载中...'}
+        </div>
+
+        {/* 分隔线 */}
+        <div className="w-px h-6 bg-book-border" />
+
+        {/* 当前文件路径 */}
+        {currentFile?.file_path && (
+          <div className="text-xs text-book-text-sub font-mono">
+            {currentFile.file_path}
           </div>
-        </div>
+        )}
 
-        <div className="flex items-center gap-2 shrink-0">
-          <BookButton size="sm" variant="ghost" onClick={() => navigate(`/coding/detail/${id}`)} title="返回项目详情页">
-            <FileCode size={16} className="mr-1" />
-            详情
-          </BookButton>
+        {/* stretch */}
+        <div className="flex-1" />
 
-          <BookButton size="sm" variant="ghost" onClick={refreshBasic} title="刷新目录树/项目信息">
-            <RefreshCw size={16} className="mr-1" />
-            刷新
-          </BookButton>
+        {/* 项目详情按钮 */}
+        <button
+          onClick={() => navigate(`/coding/detail/${id}`)}
+          className="px-3 py-1.5 text-xs text-book-text-sub border border-book-border rounded hover:text-book-primary hover:border-book-primary hover:bg-book-primary/10 transition-colors"
+        >
+          项目详情
+        </button>
 
-          <BookButton size="sm" variant="ghost" onClick={() => setIsAssistantOpen((v) => !v)} title="切换右侧面板">
-            <PanelRight size={16} className="mr-1" />
-            {isAssistantOpen ? '隐藏助手' : '显示助手'}
-          </BookButton>
-        </div>
+        {/* RAG助手切换按钮 */}
+        <button
+          onClick={() => setIsAssistantOpen((v) => !v)}
+          className={`px-3 py-1.5 text-xs border rounded transition-colors ${
+            isAssistantOpen
+              ? 'bg-book-primary text-white border-book-primary'
+              : 'text-book-primary border-book-primary hover:bg-book-primary/10'
+          }`}
+        >
+          RAG助手
+        </button>
       </div>
 
       {/* Body */}
@@ -567,7 +798,12 @@ export const CodingDesk: React.FC = () => {
           <div className="p-3 border-b border-book-border/30">
             <div className="text-xs font-bold text-book-text-sub uppercase tracking-wider flex items-center gap-2">
               <LayoutPanelLeft size={14} />
-              Explorer
+              项目结构
+              {showAgentTree ? (
+                <span className="ml-1 text-[10px] font-bold text-book-primary bg-book-primary/10 border border-book-primary/20 px-1.5 py-0.5 rounded">
+                  规划预览
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="p-3 border-b border-book-border/30">
@@ -577,7 +813,7 @@ export const CodingDesk: React.FC = () => {
             </BookCard>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <DirectoryTree data={treeData} onSelectFile={loadFile} />
+            <DirectoryTree data={showAgentTree && agentTreeData ? agentTreeData : treeData} onSelectFile={loadFile} />
           </div>
         </div>
 
@@ -756,7 +992,7 @@ export const CodingDesk: React.FC = () => {
                 onClick={() => setActiveAssistantTab('rag')}
                 type="button"
               >
-                RAG 查询
+                RAG查询
               </button>
             </div>
 
@@ -766,7 +1002,7 @@ export const CodingDesk: React.FC = () => {
                   <BookCard className="p-4 space-y-3">
                     <div className="font-bold text-book-text-main flex items-center gap-2">
                       <Database size={16} className="text-book-primary" />
-                      RAG 查询
+                      RAG查询
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <BookInput
@@ -816,9 +1052,28 @@ export const CodingDesk: React.FC = () => {
                 <div className="space-y-3">
                   <BookCard className="p-4 space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-bold text-book-text-main">目录规划（Agent）</div>
-                      <div className="text-[11px] text-book-text-muted">
-                        {agentStateLoading ? '状态加载中…' : (agentState?.has_paused_state ? '可恢复' : '无暂停状态')}
+                      <div className="font-bold text-book-text-main">目录规划</div>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                            checked={agentDetailedMode}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              agentDetailedModeRef.current = checked;
+                              setAgentDetailedMode(checked);
+                              addToast(
+                                checked ? '详细模式已开启，将显示完整输出' : '详细模式已关闭，输出将截断显示',
+                                'info',
+                              );
+                            }}
+                          />
+                          <span className="text-[11px] font-bold text-book-text-sub">详细模式</span>
+                        </label>
+                        <div className="text-[11px] text-book-text-muted">
+                          {agentStateLoading ? '状态加载中…' : (agentState?.has_paused_state ? '可恢复' : '无暂停状态')}
+                        </div>
                       </div>
                     </div>
 

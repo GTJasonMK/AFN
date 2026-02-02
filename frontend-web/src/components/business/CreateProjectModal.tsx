@@ -12,6 +12,7 @@ interface CreateProjectModalProps {
   onClose: () => void;
   onSuccess?: () => void;
   defaultType?: 'novel' | 'coding';
+  codingEnabled?: boolean;
 }
 
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
@@ -19,6 +20,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   onClose,
   onSuccess,
   defaultType = 'novel',
+  codingEnabled = true,
 }) => {
   const [type, setType] = useState<'novel' | 'coding'>(defaultType);
   const [novelCreateMode, setNovelCreateMode] = useState<'ai' | 'free'>('ai');
@@ -28,18 +30,19 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // 每次打开时，根据入口重置类型，避免“上次选择”带来误操作
+  // 每次打开时，根据入口重置类型，避免"上次选择"带来误操作
   // 其它字段也清空，确保新建流程可预期
   React.useEffect(() => {
     if (isOpen) {
-      setType(defaultType);
+      // 如果编程项目功能关闭，强制使用 novel 类型
+      setType(codingEnabled ? defaultType : 'novel');
       setNovelCreateMode('ai');
       setCodingCreateMode('ai');
       setTitle('');
       setPrompt('');
       setLoading(false);
     }
-  }, [isOpen, defaultType]);
+  }, [isOpen, defaultType, codingEnabled]);
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
@@ -94,32 +97,34 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       }
     >
       <div className="space-y-6">
-        {/* Type Selection */}
-        <div className="grid grid-cols-2 gap-4">
-          <button
-            onClick={() => setType('novel')}
-            className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-all ${
-              type === 'novel' 
-                ? 'border-book-primary bg-book-primary/5 text-book-primary' 
-                : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/50'
-            }`}
-          >
-            <BookOpen size={24} />
-            <span className="font-bold text-sm">长篇小说</span>
-          </button>
-          
-          <button
-            onClick={() => setType('coding')}
-            className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-all ${
-              type === 'coding' 
-                ? 'border-book-primary bg-book-primary/5 text-book-primary' 
-                : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/50'
-            }`}
-          >
-            <Code size={24} />
-            <span className="font-bold text-sm">Prompt 工程</span>
-          </button>
-        </div>
+        {/* Type Selection - 仅在编程项目功能启用时显示 */}
+        {codingEnabled && (
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              onClick={() => setType('novel')}
+              className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-all ${
+                type === 'novel'
+                  ? 'border-book-primary bg-book-primary/5 text-book-primary'
+                  : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/50'
+              }`}
+            >
+              <BookOpen size={24} />
+              <span className="font-bold text-sm">长篇小说</span>
+            </button>
+
+            <button
+              onClick={() => setType('coding')}
+              className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-all ${
+                type === 'coding'
+                  ? 'border-book-primary bg-book-primary/5 text-book-primary'
+                  : 'border-book-border bg-book-bg-paper text-book-text-muted hover:border-book-primary/50'
+              }`}
+            >
+              <Code size={24} />
+              <span className="font-bold text-sm">Prompt工程</span>
+            </button>
+          </div>
+        )}
 
         <div className="space-y-4">
           <BookInput
