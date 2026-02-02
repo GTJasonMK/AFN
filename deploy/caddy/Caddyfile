@@ -1,0 +1,15 @@
+# 生成日期：2026-02-02（Codex）
+#
+# Caddy 自动 HTTPS（Let's Encrypt）
+# - 需要域名已解析到服务器公网 IP
+# - 需要放行 80/443（用于 ACME 验证与 HTTPS 访问）
+
+{
+  email {$AFN_EMAIL}
+}
+
+{$AFN_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy web:80
+}
+

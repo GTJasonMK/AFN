@@ -1,0 +1,23 @@
+# 生成日期：2026-02-02（Codex）
+
+services:
+  # 由 Caddy 对外提供 80/443，因此 web 不再直接映射宿主端口
+  web:
+    ports: []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      AFN_DOMAIN: ${AFN_DOMAIN}
+      AFN_EMAIL: ${AFN_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../storage/caddy/data:/data
+      - ../storage/caddy/config:/config
+

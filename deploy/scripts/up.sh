@@ -11,8 +11,12 @@ fi
 
 docker compose --env-file .env -f docker-compose.yml up -d --build
 
-echo ""
-echo "[+] WebUI:  http://<server-ip>:${AFN_HTTP_PORT:-80}"
-echo "[+] API:   http://<server-ip>:${AFN_HTTP_PORT:-80}/api/health"
-echo "[+] Docs:  http://<server-ip>:${AFN_HTTP_PORT:-80}/docs"
+http_port="$(grep -E '^AFN_HTTP_PORT=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" || true)"
+if [[ -z "${http_port}" ]]; then
+  http_port="80"
+fi
 
+echo ""
+echo "[+] WebUI:  http://<server-ip>:${http_port}"
+echo "[+] API:   http://<server-ip>:${http_port}/api/health"
+echo "[+] Docs:  http://<server-ip>:${http_port}/docs"
