@@ -38,8 +38,8 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
 
 
 async def get_default_user(
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    request: Request | None = None,
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> UserInDB:
     """
@@ -66,7 +66,7 @@ async def get_default_user(
 
     # 开启登录：必须提供 token
     token = _extract_bearer_token(authorization)
-    if not token and request is not None:
+    if not token:
         try:
             token = request.cookies.get(AUTH_COOKIE_NAME) or None
         except Exception:
@@ -105,11 +105,20 @@ async def get_default_user(
 async def require_admin_user(
     current_user: UserInDB = Depends(get_default_user),
 ) -> UserInDB:
-    """管理员权限校验：当前实现以 username == 'desktop_user' 作为管理员。"""
-    if (current_user.username or "").strip() != "desktop_user":
+    """管理员权限校验。"""
+    is_admin = bool(getattr(current_user, "is_admin", False))
+
+    # 兼容历史单用户数据：仅在未启用登录时，允许 desktop_user 兜底为管理员。
+    # 开启登录后严格依赖 is_admin 字段，避免用户名兜底带来的权限绕过。
+    if not is_admin and not getattr(settings, "auth_enabled", False):
+        username = (current_user.username or "").strip()
+        if username == "desktop_user":
+            is_admin = True
+
+    if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限（desktop_user）",
+            detail="需要管理员权限",
         )
     return current_user
 

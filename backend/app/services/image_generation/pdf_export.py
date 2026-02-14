@@ -200,7 +200,10 @@ class PDFExportService:
             # 获取图片记录
             result = await self.session.execute(
                 select(GeneratedImage)
-                .where(GeneratedImage.id.in_(request.image_ids))
+                .where(
+                    GeneratedImage.id.in_(request.image_ids),
+                    GeneratedImage.project_id == request.project_id,
+                )
                 .order_by(GeneratedImage.chapter_number, GeneratedImage.scene_id)
             )
             images = list(result.scalars().all())

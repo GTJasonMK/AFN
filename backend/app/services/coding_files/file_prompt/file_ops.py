@@ -140,6 +140,20 @@ class FileOpsMixin:
         file_id: int,
     ) -> List[FileVersionResponse]:
         """获取文件的所有版本"""
+        versions, _ = await self.get_versions_with_selected_version_id(
+            project_id=project_id,
+            user_id=user_id,
+            file_id=file_id,
+        )
+        return versions
+
+    async def get_versions_with_selected_version_id(
+        self,
+        project_id: str,
+        user_id: int,
+        file_id: int,
+    ) -> tuple[List[FileVersionResponse], Optional[int]]:
+        """获取文件版本列表，并同时返回当前选中版本ID（避免额外查询）。"""
         await self._project_service.ensure_project_owner(project_id, user_id)
 
         file = await self.file_repo.get_by_id(file_id)
@@ -147,6 +161,7 @@ class FileOpsMixin:
             raise ResourceNotFoundError("源文件", str(file_id))
 
         versions = await self.version_repo.get_by_file(file_id)
+        selected_version_id = file.selected_version_id
 
         return [
             FileVersionResponse(
@@ -159,7 +174,7 @@ class FileOpsMixin:
                 created_at=v.created_at,
             )
             for v in versions
-        ]
+        ], selected_version_id
 
     # ------------------------------------------------------------------
     # 文件 CRUD
@@ -282,4 +297,3 @@ class FileOpsMixin:
 
 
 __all__ = ["FileOpsMixin"]
-

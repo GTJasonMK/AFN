@@ -154,7 +154,7 @@ async def start_analysis(
                 try:
                     await bg_session.execute(
                         update(NovelProject)
-                        .where(NovelProject.id == project_id)
+                        .where(NovelProject.id == project_id, NovelProject.user_id == desktop_user.id)
                         .values(
                             import_analysis_status='failed',
                             import_analysis_progress={'error': str(e)}

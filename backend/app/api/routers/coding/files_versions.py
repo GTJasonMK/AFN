@@ -25,15 +25,11 @@ async def get_file_versions(
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> FileVersionListResponse:
     """获取文件的所有版本"""
-    versions = await file_service.get_versions(
+    versions, selected_version_id = await file_service.get_versions_with_selected_version_id(
         project_id=project_id,
         user_id=desktop_user.id,
         file_id=file_id,
     )
-
-    # 获取当前选中的版本ID
-    file = await file_service.file_repo.get_by_id(file_id)
-    selected_version_id = file.selected_version_id if file else None
 
     return FileVersionListResponse(
         versions=versions,
@@ -66,4 +62,3 @@ async def select_file_version(
 
 
 __all__ = ["router"]
-

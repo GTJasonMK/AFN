@@ -4,15 +4,10 @@
  * 标签页：正文、版本、评审、摘要、分析、漫画
  */
 
- import React, { useState, useRef, useImperativeHandle, useEffect } from 'react';
- import { BookButton } from '../ui/BookButton';
- import { ChapterVersion } from '../../api/writer';
- import { Save, RefreshCw, Maximize2, Minimize2, Database, Eye, FileText, Files, BadgeCheck, ScrollText, BarChart3, Layers } from 'lucide-react';
- import { ChapterVersionsView } from './ChapterVersionsView';
- import { ChapterReviewView } from './ChapterReviewView';
- import { ChapterSummaryView } from './ChapterSummaryView';
- import { ChapterAnalysisView } from './ChapterAnalysisView';
- import { MangaPromptViewer } from './MangaPromptViewer';
+import React, { lazy, Suspense, useState, useRef, useImperativeHandle, useEffect } from 'react';
+import { BookButton } from '../ui/BookButton';
+import { ChapterVersion } from '../../api/writer';
+import { Save, RefreshCw, Maximize2, Minimize2, Database, Eye, FileText, Files, BadgeCheck, ScrollText, BarChart3, Layers } from 'lucide-react';
 import type { Chapter } from '../../api/writer';
 
 export type WorkspaceTabId = 'content' | 'versions' | 'review' | 'summary' | 'analysis' | 'manga';
@@ -50,6 +45,23 @@ const tabs: { id: WorkspaceTabId; label: string; icon: React.ElementType }[] = [
   { id: 'analysis', label: '分析', icon: BarChart3 },
   { id: 'manga', label: '漫画', icon: Layers },
 ];
+
+const loadChapterVersionsView = () =>
+  import('./ChapterVersionsView').then((m) => ({ default: m.ChapterVersionsView }));
+const loadChapterReviewView = () =>
+  import('./ChapterReviewView').then((m) => ({ default: m.ChapterReviewView }));
+const loadChapterSummaryView = () =>
+  import('./ChapterSummaryView').then((m) => ({ default: m.ChapterSummaryView }));
+const loadChapterAnalysisView = () =>
+  import('./ChapterAnalysisView').then((m) => ({ default: m.ChapterAnalysisView }));
+const loadMangaPromptViewer = () =>
+  import('./MangaPromptViewer').then((m) => ({ default: m.MangaPromptViewer }));
+
+const ChapterVersionsViewLazy = lazy(loadChapterVersionsView);
+const ChapterReviewViewLazy = lazy(loadChapterReviewView);
+const ChapterSummaryViewLazy = lazy(loadChapterSummaryView);
+const ChapterAnalysisViewLazy = lazy(loadChapterAnalysisView);
+const MangaPromptViewerLazy = lazy(loadMangaPromptViewer);
 
 export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProps>(({
   projectId,
@@ -311,51 +323,61 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
         {/* 版本标签页 */}
         {activeTab === 'versions' && chapterNumber && (
           <div className="h-full overflow-y-auto custom-scrollbar p-4">
-            <ChapterVersionsView
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-              onSelectVersion={onSelectVersion}
-            />
+            <Suspense fallback={<div className="text-xs text-book-text-muted">加载中…</div>}>
+              <ChapterVersionsViewLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+                onSelectVersion={onSelectVersion}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* 评审标签页 */}
         {activeTab === 'review' && chapterNumber && (
           <div className="h-full overflow-y-auto custom-scrollbar p-4">
-            <ChapterReviewView
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-            />
+            <Suspense fallback={<div className="text-xs text-book-text-muted">加载中…</div>}>
+              <ChapterReviewViewLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* 摘要标签页 */}
         {activeTab === 'summary' && chapterNumber && (
           <div className="h-full overflow-y-auto custom-scrollbar p-4">
-            <ChapterSummaryView
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-            />
+            <Suspense fallback={<div className="text-xs text-book-text-muted">加载中…</div>}>
+              <ChapterSummaryViewLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* 分析标签页 */}
         {activeTab === 'analysis' && chapterNumber && (
           <div className="h-full overflow-y-auto custom-scrollbar p-4">
-            <ChapterAnalysisView
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-            />
+            <Suspense fallback={<div className="text-xs text-book-text-muted">加载中…</div>}>
+              <ChapterAnalysisViewLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* 漫画标签页 */}
         {activeTab === 'manga' && chapterNumber && (
           <div className="h-full overflow-y-auto custom-scrollbar p-4">
-            <MangaPromptViewer
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-            />
+            <Suspense fallback={<div className="text-xs text-book-text-muted">加载中…</div>}>
+              <MangaPromptViewerLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+              />
+            </Suspense>
           </div>
         )}
 

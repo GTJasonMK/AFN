@@ -123,7 +123,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   const fetchMangaPrompts = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await writerApi.getMangaPrompts(projectId, chapterNumber, { silent: true } as any);
+      const response = await writerApi.getMangaPrompts(projectId, chapterNumber, { silent: true });
       setManga(response);
     } catch (e) {
       console.error(e);
@@ -178,7 +178,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   const pollProgressOnce = useCallback(async () => {
     if (!projectId || !chapterNumber) return;
     try {
-      const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true } as any);
+      const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true });
       progressFailureCountRef.current = 0;
       setProgress(data);
 
@@ -241,7 +241,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
 
     void (async () => {
       try {
-        const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true } as any);
+        const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true });
         if (!isMountedRef.current) return;
         setProgress(data);
 
@@ -468,7 +468,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
           startFromStage: requestStartStage as any,
           forceRestart: requestForceRestart,
         },
-        { timeout: 0, signal: controller.signal, silent: true } as any
+        { timeout: 0, signal: controller.signal, silent: true }
       )
       .then((response) => {
         if (!isMountedRef.current) return;
@@ -497,7 +497,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
 
         // 立即拉一次进度：如果依然未启动，则结束“生成中”状态
         try {
-          const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true } as any);
+          const data = await writerApi.getMangaPromptProgress(projectId, chapterNumber, { silent: true });
           if (!isMountedRef.current) return;
           if (viewKeyRef.current !== requestKey) return;
           setProgress(data);
@@ -520,7 +520,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
     lastGenerationStartAtRef.current = null;
     try {
       generateAbortRef.current?.abort();
-      const resp = await writerApi.cancelMangaPromptGeneration(projectId, chapterNumber, { silent: true } as any);
+      const resp = await writerApi.cancelMangaPromptGeneration(projectId, chapterNumber, { silent: true });
       const ok = Boolean((resp as any)?.success);
       addToast((resp as any)?.message || (ok ? '已发送取消请求' : '取消失败'), ok ? 'success' : 'error');
       startProgressPolling();
@@ -678,7 +678,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
     });
     if (!ok) return;
     try {
-      await imageGenerationApi.deleteImage(img.id, { silent: true } as any);
+      await imageGenerationApi.deleteImage(img.id, { silent: true });
       setActiveImageByPanelId((prev) => {
         const key = String(img.panel_id || '').trim();
         if (!key) return prev;
@@ -790,7 +790,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
       lastGenerationStartAtRef.current = null;
       setGeneratingPrompts(false);
       setProgress(null);
-      await writerApi.deleteMangaPrompts(projectId, chapterNumber, { silent: true } as any);
+      await writerApi.deleteMangaPrompts(projectId, chapterNumber, { silent: true });
       setManga(null);
       addToast('已删除分镜数据', 'success');
       await refreshAll();
@@ -854,7 +854,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
             chapterNumber,
             panel.scene_id || panel.page_number,
             buildPanelImagePayload(panel),
-            { signal: controller.signal, silent: true } as any
+            { signal: controller.signal, silent: true }
           );
 
           if (!result.success) {
@@ -964,7 +964,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
               reference_image_paths: pagePrompt.reference_image_paths || null,
               dialogue_language: manga?.dialogue_language || 'chinese',
             },
-            { signal: controller.signal, silent: true } as any
+            { signal: controller.signal, silent: true }
           );
 
           if (!result.success) {
@@ -1753,6 +1753,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                       <img
                         src={resolveAssetUrl(pageImage.url)}
                         alt={`page-${page.page_number}`}
+                        loading="lazy"
+                        decoding="async"
                         className="w-full rounded-md border border-book-border/30"
                       />
                     </a>
@@ -1772,6 +1774,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                               <img
                                 src={resolveAssetUrl(im.url)}
                                 alt={`thumb-${im.id}`}
+                                loading="lazy"
+                                decoding="async"
                                 className="w-full h-full object-cover"
                               />
                             </button>
@@ -1826,6 +1830,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                                           <img
                                             src={resolveAssetUrl(img.url)}
                                             alt={panel.panel_id}
+                                            loading="lazy"
+                                            decoding="async"
                                             className="w-full h-full object-cover"
                                           />
                                         </a>
@@ -1890,6 +1896,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                             <img
                               src={resolveAssetUrl(img.url)}
                               alt={panel.panel_id}
+                              loading="lazy"
+                              decoding="async"
                               className="w-full rounded-md border border-book-border/30"
                             />
                           </a>
@@ -1910,6 +1918,8 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                                   <img
                                     src={resolveAssetUrl(im.url)}
                                     alt={`thumb-${im.id}`}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="w-full h-full object-cover"
                                   />
                                 </button>

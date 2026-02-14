@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { novelsApi } from '../api/novels';
 import { BookCard } from '../components/ui/BookCard';
 import { BookButton } from '../components/ui/BookButton';
 import { ArrowLeft, Map, Users, ScrollText, Play } from 'lucide-react';
 
-// 蓝图数据类型定义
 interface BlueprintData {
   title?: string;
   one_sentence_summary?: string;
@@ -14,33 +13,56 @@ interface BlueprintData {
   full_synopsis?: string;
 }
 
+const INITIAL_PREVIEW_CHARACTER_LIMIT = 20;
+const PREVIEW_CHARACTER_BATCH_SIZE = 20;
+
 export const BlueprintPreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<BlueprintData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [characterRenderLimit, setCharacterRenderLimit] = useState(INITIAL_PREVIEW_CHARACTER_LIMIT);
 
   useEffect(() => {
-    if (id) {
-      // 实际开发中，这里获取项目详情，其中包含 blueprint
-      novelsApi.get(id).then((project: any) => {
-        if (project.blueprint) {
-          setData(project.blueprint);
-        }
-        setLoading(false);
-      }).catch(() => setLoading(false));
+    if (!id) {
+      setLoading(false);
+      setData(null);
+      return;
     }
+
+    let cancelled = false;
+    setLoading(true);
+
+    novelsApi
+      .get(id)
+      .then((project: any) => {
+        if (cancelled) return;
+        if (project?.blueprint) {
+          setData(project.blueprint);
+        } else {
+          setData(null);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setData(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const handleStartWriting = () => {
     navigate(`/write/${id}`);
   };
 
-  if (loading) return <div className="p-20 text-center text-book-text-muted">加载蓝图设定中...</div>;
-  if (!data) return <div className="p-20 text-center text-book-text-muted">未找到蓝图数据</div>;
-
-  const worldText = (() => {
-    const raw = data.world_setting;
+  const worldText = useMemo(() => {
+    const raw = data?.world_setting;
     if (raw === null || raw === undefined) return '（空）';
     if (typeof raw === 'string') return raw;
     try {
@@ -48,22 +70,36 @@ export const BlueprintPreview: React.FC = () => {
     } catch {
       return String(raw);
     }
-  })();
+  }, [data]);
 
-  const synopsisText = (() => {
-    const raw = data.full_synopsis;
+  const synopsisText = useMemo(() => {
+    const raw = data?.full_synopsis;
     if (raw === null || raw === undefined) return '（空）';
     return String(raw);
-  })();
+  }, [data]);
 
-  const characters = Array.isArray(data.characters) ? data.characters : [];
+  const characters = useMemo(() => {
+    return Array.isArray(data?.characters) ? data.characters : [];
+  }, [data]);
+
+  useEffect(() => {
+    setCharacterRenderLimit(INITIAL_PREVIEW_CHARACTER_LIMIT);
+  }, [id]);
+
+  const visibleCharacters = useMemo(() => {
+    return characters.slice(0, characterRenderLimit);
+  }, [characterRenderLimit, characters]);
+
+  const remainingCharacters = Math.max(0, characters.length - visibleCharacters.length);
+
+  if (loading) return <div className="p-20 text-center text-book-text-muted">加载蓝图设定中...</div>;
+  if (!data) return <div className="p-20 text-center text-book-text-muted">未找到蓝图数据</div>;
 
   return (
     <div className="max-w-5xl mx-auto p-8 space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* 头部标题区 */}
       <div className="flex justify-between items-end border-b border-book-border pb-6">
         <div className="space-y-2">
-          <button 
+          <button
             onClick={() => navigate(-1)}
             className="text-sm text-book-text-muted hover:text-book-primary flex items-center gap-1 transition-colors"
           >
@@ -78,7 +114,6 @@ export const BlueprintPreview: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* 左侧：世界观与故事大纲 */}
         <div className="md:col-span-2 space-y-10">
           <section className="space-y-4">
             <h2 className="font-serif text-2xl font-bold text-book-text-main flex items-center gap-2">
@@ -99,13 +134,12 @@ export const BlueprintPreview: React.FC = () => {
           </section>
         </div>
 
-        {/* 右侧：角色卡片列表 */}
         <div className="space-y-4">
           <h2 className="font-serif text-2xl font-bold text-book-text-main flex items-center gap-2">
             <Users className="text-book-primary" /> 登场角色
           </h2>
           <div className="space-y-4">
-            {characters.map((char, index) => (
+            {visibleCharacters.map((char, index) => (
               <BookCard key={String(char?.name || `char-${index}`)} className="hover:border-book-primary/30 transition-colors">
                 <div className="font-bold text-book-text-main border-b border-book-border/30 pb-1 mb-2">
                   {String(char?.name || `角色 ${index + 1}`)}
@@ -128,6 +162,19 @@ export const BlueprintPreview: React.FC = () => {
                 </div>
               </BookCard>
             ))}
+
+            {remainingCharacters > 0 ? (
+              <div className="flex justify-center pt-1">
+                <BookButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setCharacterRenderLimit((prev) => prev + PREVIEW_CHARACTER_BATCH_SIZE)}
+                >
+                  加载更多角色（剩余 {remainingCharacters}）
+                </BookButton>
+              </div>
+            ) : null}
+
             {characters.length === 0 && (
               <BookCard className="p-4 text-xs text-book-text-muted">
                 暂无角色信息。

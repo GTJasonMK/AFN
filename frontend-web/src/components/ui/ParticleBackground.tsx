@@ -11,6 +11,13 @@ type Palette = {
   line: RGB;
 };
 
+type NavigatorConnectionInfo = Navigator & {
+  connection?: {
+    saveData?: boolean;
+    effectiveType?: string;
+  };
+};
+
 const clamp255 = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -40,10 +47,27 @@ export const ParticleBackground: React.FC = () => {
     if (!ctx) return;
     const context = ctx;
 
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    if (prefersReducedMotion) return;
+
+    const connection = (navigator as NavigatorConnectionInfo).connection;
+    const effectiveType = String(connection?.effectiveType || '').toLowerCase();
+    const cpuCores = Number((navigator as Navigator & { hardwareConcurrency?: number }).hardwareConcurrency || 0);
+    const lowPowerMode = Boolean(
+      connection?.saveData ||
+      effectiveType.includes('2g') ||
+      effectiveType.includes('3g') ||
+      (Number.isFinite(cpuCores) && cpuCores > 0 && cpuCores <= 4)
+    );
+
+    const maxFps = lowPowerMode ? 24 : 40;
+    const frameIntervalMs = 1000 / maxFps;
+
     let animationFrameId: number | null = null;
     let width = 0;
     let height = 0;
     let dpr = 1;
+    let lastDrawTime = 0;
 
     const rand = (min: number, max: number) => Math.random() * (max - min) + min;
 
@@ -261,14 +285,18 @@ export const ParticleBackground: React.FC = () => {
       particles.length = 0;
       sparkleParticles.length = 0;
 
-      for (let i = 0; i < 15; i++) {
+      const inkCount = lowPowerMode ? 8 : 15;
+      const paperCount = lowPowerMode ? 4 : 8;
+      const sparkleCount = lowPowerMode ? 10 : 20;
+
+      for (let i = 0; i < inkCount; i++) {
         const p = new Particle('ink');
         particles.push(p);
       }
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < paperCount; i++) {
         particles.push(new Particle('paper'));
       }
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < sparkleCount; i++) {
         const p = new Particle('sparkle');
         particles.push(p);
         sparkleParticles.push(p);
@@ -280,7 +308,8 @@ export const ParticleBackground: React.FC = () => {
       if (!pal) return;
 
       // 星座连线：只连接 sparkle 粒子，降低计算量与“脏感”
-      const maxDistance = 150;
+      const maxDistance = lowPowerMode ? 120 : 150;
+      const maxDistanceSq = maxDistance * maxDistance;
       const isDark = document.documentElement.classList.contains('dark');
       const alphaBase = (isDark ? 20 : 10) / 255;
       for (let i = 0; i < sparkleParticles.length; i++) {
@@ -289,9 +318,10 @@ export const ParticleBackground: React.FC = () => {
           const b = sparkleParticles[j];
           const dx = a.x - b.x;
           const dy = a.y - b.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > maxDistance) continue;
+          const distSq = dx * dx + dy * dy;
+          if (distSq > maxDistanceSq) continue;
 
+          const dist = Math.sqrt(distSq);
           const alpha = alphaBase * (1 - dist / maxDistance);
           context.strokeStyle = rgba(pal.line, alpha);
           context.lineWidth = 0.5;
@@ -303,14 +333,17 @@ export const ParticleBackground: React.FC = () => {
       }
     };
 
-    const animate = () => {
+    const animate = (timestamp: number) => {
       // 如果标签页不在前台，降低无谓绘制（浏览器仍会降帧，但我们主动减少负载）
-      if (!document.hidden) {
+      if (!document.hidden && timestamp - lastDrawTime >= frameIntervalMs) {
+        lastDrawTime = timestamp;
         context.clearRect(0, 0, width, height);
         for (const p of particles) {
           p.update();
         }
-        drawConstellations();
+        if (!lowPowerMode) {
+          drawConstellations();
+        }
         for (const p of particles) {
           p.draw();
         }
@@ -325,7 +358,7 @@ export const ParticleBackground: React.FC = () => {
     resize();
     refreshPalette();
     init();
-    animate();
+    animationFrameId = requestAnimationFrame(animate);
 
     return () => {
       window.removeEventListener('resize', resize);

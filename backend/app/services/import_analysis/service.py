@@ -25,6 +25,7 @@ from ...repositories.novel_repository import NovelRepository
 from ...repositories.chapter_outline_repository import ChapterOutlineRepository
 from ...utils.content_normalizer import count_chinese_characters
 from ...utils.json_utils import parse_llm_json_safe
+from ...exceptions import PermissionDeniedError
 
 from .txt_parser import TxtParser
 from .progress_tracker import ProgressTracker
@@ -106,6 +107,8 @@ class ImportAnalysisService:
         project = await self.novel_repo.get_by_id(project_id)
         if not project:
             raise ValueError(f"项目不存在: {project_id}")
+        if int(getattr(project, "user_id", 0) or 0) != int(user_id):
+            raise PermissionDeniedError("无权访问该项目")
 
         # 3. 创建章节数据
         chapters_info = []
@@ -192,6 +195,8 @@ class ImportAnalysisService:
             project = await self.novel_repo.get_by_id(project_id)
             if not project:
                 raise ValueError(f"项目不存在: {project_id}")
+            if int(getattr(project, "user_id", 0) or 0) != int(user_id):
+                raise PermissionDeniedError("无权访问该项目")
 
             chapters = sorted(project.chapters, key=lambda c: c.chapter_number)
             total_chapters = len(chapters)

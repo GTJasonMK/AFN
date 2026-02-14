@@ -7,6 +7,7 @@ import { useToast } from '../../feedback/Toast';
 import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { RefreshCw, Save, RotateCcw, Search, AlertTriangle } from 'lucide-react';
 import { SettingsTabHeader } from './components/SettingsTabHeader';
+import { isAdminUser, useAuthStore } from '../../../store/auth';
 
 const normalizeKey = (value: any): string => {
   const s = String(value ?? '').trim();
@@ -37,6 +38,8 @@ const formatLabel = (labels: Record<string, string>, key: string): string => {
 
 export const PromptsTab: React.FC = () => {
   const { addToast } = useToast();
+  const { authEnabled, user } = useAuthStore();
+  const isAdmin = isAdminUser(authEnabled, user);
   const [prompts, setPrompts] = useState<PromptRead[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -175,6 +178,10 @@ export const PromptsTab: React.FC = () => {
   }, [selected, contentDraft]);
 
   const handleSave = async () => {
+    if (!isAdmin) {
+      addToast('需要管理员权限才能编辑提示词', 'error');
+      return;
+    }
     if (!selected) return;
     setSaving(true);
     try {
@@ -190,6 +197,10 @@ export const PromptsTab: React.FC = () => {
   };
 
   const handleReset = async () => {
+    if (!isAdmin) {
+      addToast('需要管理员权限才能恢复提示词', 'error');
+      return;
+    }
     if (!selected) return;
     const ok = await confirmDialog({
       title: '恢复默认提示词',
@@ -213,6 +224,10 @@ export const PromptsTab: React.FC = () => {
   };
 
   const handleResetAll = async () => {
+    if (!isAdmin) {
+      addToast('需要管理员权限才能恢复全部提示词', 'error');
+      return;
+    }
     const ok = await confirmDialog({
       title: '恢复全部提示词',
       message: '确定要恢复所有提示词为默认值吗？\n此操作会覆盖所有已修改内容。',
@@ -241,7 +256,7 @@ export const PromptsTab: React.FC = () => {
         onRefresh={fetchList}
         showRefreshIcon
         extraActions={
-          <BookButton variant="ghost" size="sm" onClick={handleResetAll} disabled={resetting}>
+          <BookButton variant="ghost" size="sm" onClick={handleResetAll} disabled={resetting || !isAdmin}>
             <RotateCcw size={14} className="mr-1" />
             恢复全部
           </BookButton>
@@ -355,11 +370,11 @@ export const PromptsTab: React.FC = () => {
                     <RefreshCw size={14} className="mr-1" />
                     重新加载
                   </BookButton>
-                  <BookButton variant="ghost" size="sm" onClick={handleReset} disabled={resetting}>
+                  <BookButton variant="ghost" size="sm" onClick={handleReset} disabled={resetting || !isAdmin}>
                     <RotateCcw size={14} className="mr-1" />
                     恢复默认
                   </BookButton>
-                  <BookButton variant="primary" size="sm" onClick={handleSave} disabled={!isDirty || saving}>
+                  <BookButton variant="primary" size="sm" onClick={handleSave} disabled={!isDirty || saving || !isAdmin}>
                     <Save size={14} className="mr-1" />
                     {saving ? '保存中…' : '保存'}
                   </BookButton>
@@ -373,9 +388,16 @@ export const PromptsTab: React.FC = () => {
                 </div>
               )}
 
+              {!isAdmin && (
+                <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
+                  当前账号仅可查看提示词内容，编辑与恢复默认需要管理员权限。
+                </div>
+              )}
+
               <BookTextarea
                 value={contentDraft}
                 onChange={(e) => setContentDraft(e.target.value)}
+                readOnly={!isAdmin}
                 className="min-h-[45vh] font-mono text-xs leading-relaxed"
                 placeholder="在此编辑提示词内容…"
               />

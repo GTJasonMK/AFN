@@ -4,7 +4,8 @@ import { BookInput } from '../components/ui/BookInput';
 import { BookButton } from '../components/ui/BookButton';
 import { useAuthStore } from '../store/auth';
 import { useToast } from '../components/feedback/Toast';
-import { Lock, UserPlus, LogIn } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { extractApiErrorMessage } from '../api/client';
 
 export const AuthPage: React.FC = () => {
   const { authEnabled, allowRegistration, loading, login, register } = useAuthStore();
@@ -43,7 +44,7 @@ export const AuthPage: React.FC = () => {
       }
     } catch (e: any) {
       console.error(e);
-      const msg = e?.response?.data?.detail || (effectiveMode === 'register' ? '注册失败' : '登录失败');
+      const msg = extractApiErrorMessage(e, effectiveMode === 'register' ? '注册失败' : '登录失败');
       addToast(msg, 'error');
     }
   };
@@ -57,7 +58,8 @@ export const AuthPage: React.FC = () => {
         </div>
 
         <div className="mt-2 text-xs text-book-text-muted leading-relaxed">
-          管理员默认账户：<span className="font-mono">desktop_user</span> / <span className="font-mono">desktop</span>
+          内置管理员账号：<span className="font-mono">desktop_user</span>
+          <span className="ml-2">（初始密码由部署配置/首次启动生成，建议登录后立即修改）</span>
         </div>
 
         {canRegister ? (
@@ -122,7 +124,6 @@ export const AuthPage: React.FC = () => {
             disabled={loading}
             className="min-w-[120px]"
           >
-            {effectiveMode === 'register' ? <UserPlus size={16} className="mr-2" /> : <LogIn size={16} className="mr-2" />}
             {loading ? '处理中…' : effectiveMode === 'register' ? '注册并登录' : '登录'}
           </BookButton>
         </div>
@@ -130,4 +131,3 @@ export const AuthPage: React.FC = () => {
     </div>
   );
 };
-

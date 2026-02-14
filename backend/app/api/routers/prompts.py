@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from ...core.dependencies import get_prompt_service
+from ...core.dependencies import get_default_user, get_prompt_service, require_admin_user
 from ...exceptions import ResourceNotFoundError
 from ...schemas.prompt import PromptRead, PromptUpdate
 from ...services.prompt_service import PromptService
@@ -18,7 +18,7 @@ from ...services.prompt_service import PromptService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
+router = APIRouter(prefix="/api/prompts", tags=["Prompts"], dependencies=[Depends(get_default_user)])
 
 
 class ResetAllResponse(BaseModel):
@@ -93,7 +93,7 @@ async def get_prompt(
     return result
 
 
-@router.put("/{name}", response_model=PromptRead)
+@router.put("/{name}", response_model=PromptRead, dependencies=[Depends(require_admin_user)])
 async def update_prompt(
     name: str,
     payload: PromptUpdate,
@@ -116,7 +116,7 @@ async def update_prompt(
     return result
 
 
-@router.post("/{name}/reset", response_model=PromptRead)
+@router.post("/{name}/reset", response_model=PromptRead, dependencies=[Depends(require_admin_user)])
 async def reset_prompt(
     name: str,
     service: PromptService = Depends(get_prompt_service),
@@ -137,7 +137,7 @@ async def reset_prompt(
     return result
 
 
-@router.post("/reset-all", response_model=ResetAllResponse)
+@router.post("/reset-all", response_model=ResetAllResponse, dependencies=[Depends(require_admin_user)])
 async def reset_all_prompts(
     service: PromptService = Depends(get_prompt_service),
 ) -> ResetAllResponse:

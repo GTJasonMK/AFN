@@ -10,8 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.dependencies import get_default_user
 from ...db.session import get_session
-from ...models.novel import NovelProject, Chapter
-from ...repositories.novel_repository import NovelRepository
+from ...models.novel import NovelProject
 from ...repositories.chapter_repository import ChapterRepository
 from ...schemas.protagonist import (
     ProtagonistProfileCreate,
@@ -45,6 +44,7 @@ from ...schemas.protagonist import (
     ProfileConflictCheck,
 )
 from ...schemas.user import UserInDB
+from ...services.novel_service import NovelService
 from ...services.protagonist_profile import (
     ProtagonistProfileService,
     ProtagonistAnalysisService,
@@ -116,13 +116,10 @@ async def get_sync_service(
 async def verify_project_exists(
     project_id: str,
     session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_default_user),
 ) -> NovelProject:
-    """验证项目存在"""
-    repo = NovelRepository(session)
-    project = await repo.get(id=project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail=f"项目 {project_id} 不存在")
-    return project
+    """验证项目存在且归属于当前用户（多用户数据隔离）。"""
+    return await NovelService(session).ensure_project_owner(project_id, current_user.id)
 
 
 # ============== 档案CRUD ==============

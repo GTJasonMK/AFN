@@ -1,11 +1,153 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Optional
+import os
+import re
 import sys
 
 from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
+
+
+def _resolve_env_files() -> tuple[str, ...]:
+    """解析 `.env` 文件候选路径（优先保证在任意 cwd 下都能读到项目的 backend/.env）。
+
+    说明：
+    - pydantic-settings 支持多个 env_file，会按顺序加载，后者覆盖前者；
+    - uvicorn 的 reload 子进程/IDE 启动时 cwd 可能变化，导致相对路径找不到 `.env`；
+      因此这里同时提供「相对路径」与「基于项目根目录的绝对路径」两套候选，避免误判为“配置不生效”。
+    """
+    # 相对路径（兼容从项目根目录或 backend/ 目录启动）
+    relative_candidates = (
+        "new-backend/.env",
+        ".env",
+        "backend/.env",
+    )
+
+    # 绝对路径（兜底：不依赖当前工作目录）
+    try:
+        if getattr(sys, "frozen", False):
+            base_dir = Path(sys.executable).parent
+        else:
+            base_dir = Path(__file__).resolve().parents[3]
+    except Exception:
+        base_dir = Path.cwd()
+
+    absolute_candidates = (
+        str(base_dir / "new-backend" / ".env"),
+        str(base_dir / ".env"),
+        str(base_dir / "backend" / ".env"),
+    )
+
+    # 去重（保持顺序）
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for path in (*relative_candidates, *absolute_candidates):
+        if path in seen:
+            continue
+        seen.add(path)
+        ordered.append(path)
+    return tuple(ordered)
+
+
+_YAML_ENV_LINE_RE = re.compile(r"^-\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+def _preload_yaml_list_env_lines(env_files: tuple[str, ...]) -> None:
+    """预解析 `.env` 内容并写入 os.environ（兼容多种写法）。
+
+    说明：
+    - 用户经常把 compose 的 `environment:` 片段（`- KEY=value`）直接粘贴到 `.env`，导致 pydantic-settings 无法识别；
+    - Windows 记事本保存的 `.env` 可能带 UTF-8 BOM（首行 key 会变成 `\ufeffKEY`），同样会导致读取失败；
+    - 这里在初始化 Settings 前做一次“最小化预解析”，将能识别的 KEY=value 写入 os.environ；
+    - 不覆盖“进程已存在”的环境变量（例如系统环境变量或启动脚本注入的 DATABASE_URL 等）；
+    - 多个 env_file 之间遵循与 pydantic-settings 一致的覆盖顺序：后者覆盖前者。
+    """
+    dotenv_key_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=.*$")
+    dotenv_line_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+    # 记录预解析开始时已存在的环境变量：这些变量被视为“外部注入”，不允许被 .env 覆盖。
+    # 这样既能保持 os.environ 的优先级，又能让多个 env_file 之间按顺序覆盖。
+    baseline_env_keys = set(os.environ.keys())
+
+    for env_file in env_files:
+        try:
+            path = Path(str(env_file))
+            if not path.is_file():
+                continue
+
+            # 使用 utf-8-sig 兼容 Windows 记事本保存的 UTF-8 BOM，避免首行 key 解析失败导致“配置不生效”。
+            raw_lines = path.read_text(encoding="utf-8-sig").splitlines()
+
+            # 如果文件同时包含正常 dotenv 写法（KEY=value），优先信任 dotenv 写法，
+            # 避免 YAML 列表行（- KEY=value）意外覆盖同名键。
+            dotenv_keys: set[str] = set()
+            for raw_line in raw_lines:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.lower().startswith("export "):
+                    line = line[7:].lstrip()
+                if line.startswith("-"):
+                    continue
+                match = dotenv_key_re.match(line)
+                if match:
+                    dotenv_keys.add(match.group(1))
+
+            # 先处理标准 dotenv 行：KEY=value
+            for raw_line in raw_lines:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                if line.lower().startswith("export "):
+                    line = line[7:].lstrip()
+
+                match = dotenv_line_re.match(line)
+                if not match:
+                    continue
+
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                if not key or key in baseline_env_keys:
+                    continue
+
+                if value and not value.startswith(("'", '"')) and "#" in value:
+                    value = value.split("#", 1)[0].rstrip()
+
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+
+                os.environ[key] = value
+
+            for raw_line in raw_lines:
+                line = raw_line.strip()
+                if not line.startswith("-"):
+                    continue
+
+                match = _YAML_ENV_LINE_RE.match(line)
+                if not match:
+                    continue
+
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                if key in dotenv_keys:
+                    continue
+                if not key or key in baseline_env_keys:
+                    continue
+
+                # 去掉未引用值中的行尾注释：- KEY=value # comment
+                if value and not value.startswith(("'", '"')) and "#" in value:
+                    value = value.split("#", 1)[0].rstrip()
+
+                # 去掉包裹引号
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+
+                os.environ[key] = value
+        except Exception:
+            # 任何解析问题都不应阻断启动；交由 /api/auth/status?debug=1 排障即可。
+            continue
 
 
 class Settings(BaseSettings):
@@ -42,11 +184,13 @@ class Settings(BaseSettings):
     auth_enabled: bool = Field(
         default=False,
         env="AFN_AUTH_ENABLED",
+        validation_alias=AliasChoices("AFN_AUTH_ENABLED", "AUTH_ENABLED"),
         description="是否启用 WebUI 登录认证（开启后将要求登录并启用多用户数据隔离）",
     )
     auth_allow_registration: bool = Field(
         default=True,
         env="AFN_AUTH_ALLOW_REGISTRATION",
+        validation_alias=AliasChoices("AFN_AUTH_ALLOW_REGISTRATION", "AUTH_ALLOW_REGISTRATION"),
         description="是否允许 WebUI 自助注册（仅在启用登录时生效）",
     )
 
@@ -365,8 +509,9 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=("new-backend/.env", ".env", "backend/.env"),
-        env_file_encoding="utf-8",
+        env_file=_resolve_env_files(),
+        # 使用 utf-8-sig 兼容 Windows 记事本保存的 UTF-8 BOM（否则首行变量名会带 \ufeff，导致无法识别）。
+        env_file_encoding="utf-8-sig",
         extra="ignore"
     )
 
@@ -504,12 +649,30 @@ def _load_json_config() -> dict:
     return {}
 
 
+def _coerce_bool(value: object) -> bool:
+    """将 config.json 中可能出现的各种真假值统一解析为 bool。"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", ""}:
+        return False
+    return bool(text)
+
+
 @lru_cache
 def get_settings() -> Settings:
     """使用 LRU 缓存确保配置只初始化一次，减少 IO 与解析开销。
 
     启动时会从 config.json 加载用户保存的高级配置并覆盖默认值。
     """
+    _preload_yaml_list_env_lines(_resolve_env_files())
     instance = Settings()
 
     # 从 config.json 加载用户保存的高级配置
@@ -563,10 +726,24 @@ def get_settings() -> Settings:
         # 功能开关
         if 'coding_project_enabled' in json_config:
             instance.coding_project_enabled = json_config['coding_project_enabled']
-        if 'auth_enabled' in json_config:
-            instance.auth_enabled = bool(json_config['auth_enabled'])
-        if 'auth_allow_registration' in json_config:
-            instance.auth_allow_registration = bool(json_config['auth_allow_registration'])
+        # auth_* 属于“部署/运行时开关”，优先遵循环境变量（含 .env 文件）。
+        # 仅当环境中未显式配置时，才允许被 storage/config.json 覆盖。
+        fields_set = getattr(instance, "model_fields_set", set()) or set()
+        auth_enabled_explicit = (
+            "auth_enabled" in fields_set
+            or os.environ.get("AFN_AUTH_ENABLED") is not None
+            or os.environ.get("AUTH_ENABLED") is not None
+        )
+        allow_registration_explicit = (
+            "auth_allow_registration" in fields_set
+            or os.environ.get("AFN_AUTH_ALLOW_REGISTRATION") is not None
+            or os.environ.get("AUTH_ALLOW_REGISTRATION") is not None
+        )
+
+        if 'auth_enabled' in json_config and not auth_enabled_explicit:
+            instance.auth_enabled = _coerce_bool(json_config['auth_enabled'])
+        if 'auth_allow_registration' in json_config and not allow_registration_explicit:
+            instance.auth_allow_registration = _coerce_bool(json_config['auth_allow_registration'])
 
     return instance
 

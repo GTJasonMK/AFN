@@ -9,6 +9,7 @@ export interface UserPublic {
   id: number;
   username: string;
   is_active: boolean;
+  is_admin: boolean;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -20,12 +21,12 @@ export interface AuthOkResponse {
 
 export const authApi = {
   status: async () => {
-    const res = await apiClient.get<AuthStatusResponse>('/auth/status', { silent: true } as any);
+    const res = await apiClient.get<AuthStatusResponse>('/auth/status', { silent: true });
     return res.data;
   },
 
   me: async () => {
-    const res = await apiClient.get<UserPublic>('/auth/me', { silent: true } as any);
+    const res = await apiClient.get<UserPublic>('/auth/me', { silent: true });
     return res.data;
   },
 
@@ -35,12 +36,12 @@ export const authApi = {
   },
 
   login: async (payload: { username: string; password: string }) => {
-    const res = await apiClient.post<AuthOkResponse>('/auth/login', payload, { silent: true } as any);
+    const res = await apiClient.post<AuthOkResponse>('/auth/login', payload, { silent: true });
     return res.data;
   },
 
   logout: async () => {
-    const res = await apiClient.post<{ success: boolean }>('/auth/logout', undefined, { silent: true } as any);
+    const res = await apiClient.post<{ success: boolean }>('/auth/logout', undefined, { silent: true });
     return res.data;
   },
 
@@ -49,4 +50,3 @@ export const authApi = {
     return res.data;
   },
 };
-

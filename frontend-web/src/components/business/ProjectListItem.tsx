@@ -15,16 +15,20 @@ interface ProjectListItemProps {
   project: ProjectListItemModel;
   onClick: (project: ProjectListItemModel) => void;
   onDelete?: (project: ProjectListItemModel) => void;
+  onHover?: (project: ProjectListItemModel) => void;
 }
 
-export const ProjectListItem: React.FC<ProjectListItemProps> = ({ 
+const ProjectListItemInner: React.FC<ProjectListItemProps> = ({ 
   project, 
   onClick, 
-  onDelete 
+  onDelete,
+  onHover 
 }) => {
   return (
     <div 
       onClick={() => onClick(project)}
+      onMouseEnter={() => onHover?.(project)}
+      onFocus={() => onHover?.(project)}
       className="group relative flex items-center justify-between p-5 rounded-xl border border-book-border/40 bg-book-bg-paper/40 hover:bg-book-bg-paper hover:shadow-lg hover:shadow-book-card/5 hover:border-book-primary/20 transition-all duration-300 cursor-pointer overflow-hidden"
     >
       {/* Decorative accent on hover */}
@@ -81,3 +85,5 @@ export const ProjectListItem: React.FC<ProjectListItemProps> = ({
     </div>
   );
 };
+
+export const ProjectListItem = React.memo(ProjectListItemInner);

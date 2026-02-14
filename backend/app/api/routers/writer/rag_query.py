@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....core.dependencies import get_default_user, get_vector_store
 from ....db.session import get_session
 from ....schemas.user import UserInDB
+from ....services.novel_service import NovelService
 from ....services.vector_store_service import VectorStoreService, RetrievedChunk, RetrievedSummary
 from ....services.embedding_service import EmbeddingService
 from ....exceptions import LLMConfigurationError
@@ -88,6 +89,9 @@ async def query_rag(
         request.query[:50] + "..." if len(request.query) > 50 else request.query,
         request.top_k,
     )
+
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
 
     # 检查向量库是否可用
     if vector_store is None:

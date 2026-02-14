@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { authApi, UserPublic } from '../api/auth';
 import { AUTH_UNAUTHORIZED_EVENT } from '../api/client';
+import { clearBootstrapCache, readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 interface AuthStore {
   initialized: boolean;
@@ -18,6 +19,25 @@ interface AuthStore {
   onUnauthorized: (message?: string) => void;
 }
 
+type AuthBootstrapSnapshot = {
+  authEnabled: boolean;
+  allowRegistration: boolean;
+  user: UserPublic | null;
+};
+
+const AUTH_BOOTSTRAP_CACHE_KEY = 'afn:auth:bootstrap:v1';
+const AUTH_BOOTSTRAP_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const saveAuthSnapshot = (state: Pick<AuthStore, 'authEnabled' | 'allowRegistration' | 'user'>) => {
+  writeBootstrapCache<AuthBootstrapSnapshot>(AUTH_BOOTSTRAP_CACHE_KEY, {
+    authEnabled: Boolean(state.authEnabled),
+    allowRegistration: Boolean(state.allowRegistration),
+    user: state.user ?? null,
+  });
+};
+
+let authInitPromise: Promise<void> | null = null;
+
 export const useAuthStore = create<AuthStore>((set, get) => ({
   initialized: false,
   loading: false,
@@ -26,51 +46,86 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
 
   init: async () => {
-    if (get().initialized || get().loading) return;
-    set({ loading: true });
-    try {
-      const status = await authApi.status();
-      const authEnabled = Boolean(status.auth_enabled);
-      const allowRegistration = Boolean(status.auth_allow_registration);
-      set({ authEnabled, allowRegistration });
+    if (authInitPromise) return authInitPromise;
 
-      if (authEnabled) {
-        try {
-          const me = await authApi.me();
-          set({ user: me });
-        } catch {
-          set({ user: null });
-        }
-      } else {
-        // 未启用登录时保持历史单用户行为：前端不需要 user 信息即可使用
-        set({ user: null });
+    authInitPromise = (async () => {
+      const cached = readBootstrapCache<AuthBootstrapSnapshot>(AUTH_BOOTSTRAP_CACHE_KEY, AUTH_BOOTSTRAP_CACHE_TTL_MS);
+      if (cached) {
+        set({
+          authEnabled: Boolean(cached.authEnabled),
+          allowRegistration: Boolean(cached.allowRegistration),
+          user: cached.user ?? null,
+          initialized: true,
+        });
       }
 
-      set({ initialized: true });
-    } finally {
-      set({ loading: false });
-    }
+      const shouldBlock = !get().initialized;
+      if (shouldBlock) {
+        set({ loading: true });
+      }
+
+      try {
+        const status = await authApi.status();
+        const authEnabled = Boolean(status.auth_enabled);
+        const allowRegistration = Boolean(status.auth_allow_registration);
+
+        if (!authEnabled) {
+          set({
+            authEnabled: false,
+            allowRegistration,
+            user: null,
+            initialized: true,
+          });
+          saveAuthSnapshot({ authEnabled: false, allowRegistration, user: null });
+          return;
+        }
+
+        try {
+          const me = await authApi.me();
+          set({ authEnabled: true, allowRegistration, user: me, initialized: true });
+          saveAuthSnapshot({ authEnabled: true, allowRegistration, user: me });
+        } catch {
+          set({ authEnabled: true, allowRegistration, user: null, initialized: true });
+          saveAuthSnapshot({ authEnabled: true, allowRegistration, user: null });
+        }
+      } catch (error) {
+        console.error('Auth init failed:', error);
+        set({ authEnabled: false, allowRegistration: true, user: null, initialized: true });
+        clearBootstrapCache(AUTH_BOOTSTRAP_CACHE_KEY);
+      } finally {
+        set({ loading: false });
+      }
+    })().finally(() => {
+      authInitPromise = null;
+    });
+
+    return authInitPromise;
   },
 
   reloadStatus: async () => {
-    set({ loading: true });
+    set({ loading: !get().initialized });
     try {
       const status = await authApi.status();
       const authEnabled = Boolean(status.auth_enabled);
       const allowRegistration = Boolean(status.auth_allow_registration);
-      set({ authEnabled, allowRegistration });
+      set({ authEnabled, allowRegistration, initialized: true });
 
       if (!authEnabled) {
         set({ user: null });
+        saveAuthSnapshot({ authEnabled: false, allowRegistration, user: null });
         return;
       }
 
       try {
         const me = await authApi.me();
         set({ user: me });
+        saveAuthSnapshot({ authEnabled: true, allowRegistration, user: me });
       } catch {
         set({ user: null });
+        saveAuthSnapshot({ authEnabled: true, allowRegistration, user: null });
       }
+    } catch (error) {
+      console.error('Auth reload failed:', error);
     } finally {
       set({ loading: false, initialized: true });
     }
@@ -78,11 +133,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   refreshMe: async () => {
     if (!get().authEnabled) return;
+
     try {
       const me = await authApi.me();
       set({ user: me });
+      saveAuthSnapshot({
+        authEnabled: get().authEnabled,
+        allowRegistration: get().allowRegistration,
+        user: me,
+      });
     } catch {
       set({ user: null });
+      saveAuthSnapshot({
+        authEnabled: get().authEnabled,
+        allowRegistration: get().allowRegistration,
+        user: null,
+      });
     }
   },
 
@@ -90,7 +156,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ loading: true });
     try {
       const res = await authApi.login({ username, password });
-      set({ user: res.user });
+      set({ user: res.user, initialized: true });
+      saveAuthSnapshot({
+        authEnabled: get().authEnabled,
+        allowRegistration: get().allowRegistration,
+        user: res.user,
+      });
     } finally {
       set({ loading: false });
     }
@@ -100,7 +171,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ loading: true });
     try {
       const res = await authApi.register({ username, password });
-      set({ user: res.user });
+      set({ user: res.user, initialized: true });
+      saveAuthSnapshot({
+        authEnabled: get().authEnabled,
+        allowRegistration: get().allowRegistration,
+        user: res.user,
+      });
     } finally {
       set({ loading: false });
     }
@@ -111,7 +187,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       await authApi.logout();
     } finally {
-      set({ user: null, loading: false });
+      set({ user: null, loading: false, initialized: true });
+      saveAuthSnapshot({
+        authEnabled: get().authEnabled,
+        allowRegistration: get().allowRegistration,
+        user: null,
+      });
     }
   },
 
@@ -127,6 +208,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   onUnauthorized: () => {
     // 401 时清空登录态，交由 AuthGate 展示登录页
     set({ user: null });
+    saveAuthSnapshot({
+      authEnabled: get().authEnabled,
+      allowRegistration: get().allowRegistration,
+      user: null,
+    });
   },
 }));
 
@@ -141,7 +227,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
+
 export const isAdminUser = (authEnabled: boolean, user: UserPublic | null) => {
   if (!authEnabled) return true;
-  return (user?.username || '').trim() === 'desktop_user';
+  if (!user) return false;
+
+  // 兼容旧后端（尚未返回 is_admin）时的只读兜底，避免误判。
+  if (typeof (user as any).is_admin !== 'boolean') {
+    return (user.username || '').trim() === 'desktop_user';
+  }
+
+  return Boolean(user.is_admin);
 };

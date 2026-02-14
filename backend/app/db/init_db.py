@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import secrets
 from typing import Dict, Optional, Tuple
 
 from pathlib import Path
@@ -11,7 +12,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ..core.config import settings
-from ..core.security import hash_password
+from ..core.security import hash_password, verify_password
 from ..models import (
     Prompt,
     User,
@@ -117,26 +118,160 @@ async def init_db() -> None:
     # ---- 第一步半：执行数据库迁移（添加缺失的列） ----
     await _run_migrations()
 
-    # ---- 第二步：确保默认桌面用户存在（PyQt版无需管理员） ----
+    # ---- 第二步：确保默认桌面用户存在并具备管理员权限 ----
     async with AsyncSessionLocal() as session:
+        auth_enabled = bool(getattr(settings, "auth_enabled", False))
+        normalized_env = (getattr(settings, "environment", "") or "").strip().lower()
+        is_production = normalized_env in {"production", "prod"}
+        bootstrap_password_env = (os.environ.get("AFN_INITIAL_ADMIN_PASSWORD") or "").strip()
+        bootstrap_notice: str | None = None
+
         # 检查是否存在默认桌面用户
-        desktop_user_exists = await session.execute(
+        desktop_user_result = await session.execute(
             select(User).where(User.username == "desktop_user")
         )
-        if not desktop_user_exists.scalars().first():
+        desktop_user = desktop_user_result.scalars().first()
+        if not desktop_user:
             logger.info("正在创建默认桌面用户 ...")
+            if auth_enabled:
+                if bootstrap_password_env:
+                    initial_password = bootstrap_password_env
+                elif is_production:
+                    raise RuntimeError(
+                        "已启用登录认证（AFN_AUTH_ENABLED=true），但未设置初始管理员密码。"
+                        "请在 backend/.env 中配置 AFN_INITIAL_ADMIN_PASSWORD 后重启。"
+                    )
+                else:
+                    initial_password = secrets.token_urlsafe(18)
+                    bootstrap_notice = (
+                        "[AuthBootstrap] 已生成初始管理员密码（仅显示一次）：\n"
+                        f"  username=desktop_user\n"
+                        f"  password={initial_password}\n"
+                        "请立即登录后在「设置-账号」修改密码。"
+                    )
+            else:
+                # 桌面版默认不走登录流程，密码主要用于占位；开启登录后会在启动阶段强制重置默认密码。
+                initial_password = "desktop"
+
             desktop_user = User(
                 username="desktop_user",
-                hashed_password=hash_password("desktop"),  # 密码无关紧要，不会用到
+                hashed_password=hash_password(initial_password),
+                is_admin=True,
             )
 
             session.add(desktop_user)
             try:
                 await session.commit()
                 logger.info("默认桌面用户创建完成：desktop_user")
+                if bootstrap_notice:
+                    # 首次创建管理员时立刻输出密码，避免后续初始化失败导致“密码丢失”。
+                    print(bootstrap_notice, flush=True)
+                    bootstrap_notice = None
             except IntegrityError:
                 await session.rollback()
                 logger.exception("默认桌面用户创建失败，可能是并发启动导致")
+                desktop_user = None
+        elif not bool(getattr(desktop_user, "is_admin", False)):
+            desktop_user.is_admin = True
+            logger.info("已将默认桌面用户提升为管理员：desktop_user")
+
+        # ---- 登录模式安全收敛：禁止默认弱口令（desktop_user / desktop） ----
+        if auth_enabled and desktop_user is not None:
+            has_default_password = False
+            try:
+                has_default_password = verify_password("desktop", desktop_user.hashed_password)
+            except Exception:
+                has_default_password = False
+
+            if has_default_password:
+                # 若存在其他启用的管理员，则直接禁用默认用户，避免弱口令遗留。
+                other_admin_result = await session.execute(
+                    select(User.id)
+                    .where(
+                        User.is_admin.is_(True),
+                        User.is_active.is_(True),
+                        User.username != "desktop_user",
+                    )
+                    .limit(1)
+                )
+                other_admin_exists = other_admin_result.scalars().first() is not None
+
+                if other_admin_exists:
+                    desktop_user.is_active = False
+                    logger.warning(
+                        "检测到启用登录模式下仍存在默认弱口令账户 desktop_user / desktop；"
+                        "由于已有其他管理员，已自动禁用 desktop_user。"
+                        "如需保留该账号，请在管理后台重置其密码后再启用。"
+                    )
+                else:
+                    # 无其他管理员时必须保证能登录：优先使用环境变量，否则生产环境拒绝启动，开发环境生成随机密码并提示。
+                    desktop_user.is_active = True
+                    if bootstrap_password_env:
+                        desktop_user.hashed_password = hash_password(bootstrap_password_env)
+                        logger.warning(
+                            "检测到 desktop_user 仍使用默认弱口令，已按 AFN_INITIAL_ADMIN_PASSWORD 自动重置密码。"
+                        )
+                    elif is_production:
+                        raise RuntimeError(
+                            "已启用登录认证（AFN_AUTH_ENABLED=true），但检测到默认管理员 desktop_user 仍为默认弱口令。"
+                            "请在 backend/.env 中配置 AFN_INITIAL_ADMIN_PASSWORD 后重启（用于重置默认密码）。"
+                        )
+                    else:
+                        new_password = secrets.token_urlsafe(18)
+                        desktop_user.hashed_password = hash_password(new_password)
+                        bootstrap_notice = (
+                            "[AuthBootstrap] 检测到默认弱口令，已自动重置初始管理员密码（仅显示一次）：\n"
+                            f"  username=desktop_user\n"
+                            f"  password={new_password}\n"
+                            "请立即登录后在「设置-账号」修改密码。"
+                        )
+                        await session.commit()
+                        print(bootstrap_notice, flush=True)
+                        bootstrap_notice = None
+
+            # 兜底：避免出现“启用登录但无启用管理员”的死锁状态
+            active_admin_result = await session.execute(
+                select(User.id)
+                .where(User.is_admin.is_(True), User.is_active.is_(True))
+                .limit(1)
+            )
+            has_active_admin = active_admin_result.scalars().first() is not None
+            if not has_active_admin:
+                desktop_user.is_admin = True
+                desktop_user.is_active = True
+
+                if bootstrap_password_env:
+                    desktop_user.hashed_password = hash_password(bootstrap_password_env)
+                    logger.warning(
+                        "检测到当前无启用管理员账户，已将 desktop_user 恢复为管理员并按 AFN_INITIAL_ADMIN_PASSWORD 重置密码。"
+                    )
+                elif is_production:
+                    raise RuntimeError(
+                        "已启用登录认证（AFN_AUTH_ENABLED=true），但当前不存在启用的管理员账户。"
+                        "请在 backend/.env 中配置 AFN_INITIAL_ADMIN_PASSWORD 后重启。"
+                    )
+                else:
+                    new_password = secrets.token_urlsafe(18)
+                    desktop_user.hashed_password = hash_password(new_password)
+                    bootstrap_notice = (
+                        "[AuthBootstrap] 检测到当前无启用管理员账户，已恢复 desktop_user 并生成新密码（仅显示一次）：\n"
+                        f"  username=desktop_user\n"
+                        f"  password={new_password}\n"
+                        "请立即登录后在「设置-账号」修改密码。"
+                    )
+                    await session.commit()
+                    print(bootstrap_notice, flush=True)
+                    bootstrap_notice = None
+
+        # 确保拿到 desktop_user 的 id（避免并发启动导致 commit 失败后对象无 id）
+        if desktop_user is None or getattr(desktop_user, "id", None) is None:
+            desktop_user_result = await session.execute(select(User).where(User.username == "desktop_user"))
+            desktop_user = desktop_user_result.scalars().first()
+        if not desktop_user or getattr(desktop_user, "id", None) is None:
+            raise RuntimeError("默认桌面用户初始化失败，无法继续数据库迁移")
+
+        # ---- 第二步半：多用户系统迁移（补齐 user_id 并回填历史数据） ----
+        await _ensure_user_scoped_user_id_columns(session, int(desktop_user.id))
 
         # ---- 第三步：加载默认 Prompts ----
         await _ensure_default_prompts(session)
@@ -381,6 +516,11 @@ async def _run_migrations() -> None:
             "is_modified",
             "ALTER TABLE prompts ADD COLUMN is_modified BOOLEAN DEFAULT 0"
         ),
+        (
+            "users",
+            "is_admin",
+            "ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0"
+        ),
         # 角色立绘：次要角色和自动生成标记
         (
             "character_portraits",
@@ -428,3 +568,108 @@ async def _run_migrations() -> None:
             except OperationalError as e:
                 # 表可能不存在（首次运行），或其他问题
                 logger.debug(f"数据库迁移跳过 {table_name}.{column_name}: {e}")
+
+
+async def _ensure_user_scoped_user_id_columns(session: AsyncSession, desktop_user_id: int) -> None:
+    """补齐多用户系统所需的 user_id 列，并为历史数据回填默认用户。
+
+    背景：
+    - 旧版本的 SQLite DB 中通常没有 user_id 字段；
+    - SQLAlchemy 的 create_all 不会修改已有表结构，导致上线后插入/查询报错；
+    - 这里采用“最小可用迁移”：添加列（如缺失）+ 回填已有行 user_id + 创建索引。
+    """
+    try:
+        backend_name = make_url(settings.sqlalchemy_database_uri).get_backend_name()
+    except Exception:
+        backend_name = "sqlite"
+
+    targets: list[tuple[str, str]] = [
+        ("novel_projects", "user_id"),
+        ("coding_projects", "user_id"),
+        ("llm_configs", "user_id"),
+        ("embedding_configs", "user_id"),
+        ("image_generation_configs", "user_id"),
+        ("theme_configs", "user_id"),
+    ]
+
+    async def sqlite_table_columns(table_name: str) -> list[str]:
+        result = await session.execute(text(f"PRAGMA table_info({table_name})"))
+        rows = result.fetchall()
+        if not rows:
+            return []
+        return [row[1] for row in rows]
+
+    async def mysql_table_exists(table_name: str) -> bool:
+        result = await session.execute(
+            text(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name"
+            ),
+            {"table_name": table_name},
+        )
+        return int(result.scalar() or 0) > 0
+
+    async def mysql_column_exists(table_name: str, column_name: str) -> bool:
+        result = await session.execute(
+            text(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name AND COLUMN_NAME = :column_name"
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        )
+        return int(result.scalar() or 0) > 0
+
+    async def mysql_index_exists(table_name: str, index_name: str) -> bool:
+        result = await session.execute(
+            text(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name AND INDEX_NAME = :index_name"
+            ),
+            {"table_name": table_name, "index_name": index_name},
+        )
+        return int(result.scalar() or 0) > 0
+
+    for table_name, column_name in targets:
+        try:
+            if backend_name == "sqlite":
+                columns = await sqlite_table_columns(table_name)
+                if not columns:
+                    continue
+
+                if column_name not in columns:
+                    await session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} INTEGER"))
+                    logger.info("数据库迁移: 已添加列 %s.%s（多用户隔离）", table_name, column_name)
+
+                await session.execute(
+                    text(
+                        f"UPDATE {table_name} "
+                        f"SET {column_name} = :user_id "
+                        f"WHERE {column_name} IS NULL OR {column_name} = 0"
+                    ),
+                    {"user_id": desktop_user_id},
+                )
+
+                index_name = f"ix_{table_name}_{column_name}"
+                await session.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})"))
+            else:
+                if not await mysql_table_exists(table_name):
+                    continue
+
+                if not await mysql_column_exists(table_name, column_name):
+                    await session.execute(text(f"ALTER TABLE `{table_name}` ADD COLUMN `{column_name}` INT NULL"))
+                    logger.info("数据库迁移: 已添加列 %s.%s（多用户隔离）", table_name, column_name)
+
+                await session.execute(
+                    text(
+                        f"UPDATE `{table_name}` "
+                        f"SET `{column_name}` = :user_id "
+                        f"WHERE `{column_name}` IS NULL OR `{column_name}` = 0"
+                    ),
+                    {"user_id": desktop_user_id},
+                )
+
+                index_name = f"ix_{table_name}_{column_name}"
+                if not await mysql_index_exists(table_name, index_name):
+                    await session.execute(text(f"CREATE INDEX `{index_name}` ON `{table_name}` (`{column_name}`)"))
+        except Exception as exc:
+            logger.warning("多用户隔离迁移跳过 %s.%s: %s", table_name, column_name, exc)

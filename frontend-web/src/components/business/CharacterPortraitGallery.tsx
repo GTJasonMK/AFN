@@ -353,6 +353,8 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
                   <img 
                     src={resolveAssetUrl(String(portrait.image_url))} 
                     alt={name}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 ) : (
@@ -466,6 +468,8 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
                         <img
                           src={resolveAssetUrl(String(p.image_url))}
                           alt={manageName || ''}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                       ) : (

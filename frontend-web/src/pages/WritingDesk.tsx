@@ -1,12 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 	import { ChapterList } from '../components/business/ChapterList';
 	import { WorkspaceTabs, type WorkspaceHandle } from '../components/business/WorkspaceTabs';
-	import { ChapterPromptPreviewView } from '../components/business/ChapterPromptPreviewView';
-	import { AssistantPanel } from '../components/business/AssistantPanel';
-	import { OutlineEditModal } from '../components/business/OutlineEditModal';
-	import { BatchGenerateModal } from '../components/business/BatchGenerateModal';
-	import { ProtagonistProfilesModal } from '../components/business/ProtagonistProfilesModal';
 import { writerApi, Chapter } from '../api/writer';
 import { novelsApi } from '../api/novels';
 import { useSSE } from '../hooks/useSSE';
@@ -18,16 +13,44 @@ import { BookCard } from '../components/ui/BookCard';
 import { Dropdown } from '../components/ui/Dropdown';
 import { Modal } from '../components/ui/Modal';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
+import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+
+const ChapterPromptPreviewViewLazy = lazy(() =>
+  import('../components/business/ChapterPromptPreviewView').then((m) => ({ default: m.ChapterPromptPreviewView }))
+);
+const AssistantPanelLazy = lazy(() =>
+  import('../components/business/AssistantPanel').then((m) => ({ default: m.AssistantPanel }))
+);
+const OutlineEditModalLazy = lazy(() =>
+  import('../components/business/OutlineEditModal').then((m) => ({ default: m.OutlineEditModal }))
+);
+const BatchGenerateModalLazy = lazy(() =>
+  import('../components/business/BatchGenerateModal').then((m) => ({ default: m.BatchGenerateModal }))
+);
+const ProtagonistProfilesModalLazy = lazy(() =>
+  import('../components/business/ProtagonistProfilesModal').then((m) => ({ default: m.ProtagonistProfilesModal }))
+);
 
 type LocalDraft = {
   content: string;
   updatedAt: string;
 };
 
+const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
+const WRITING_DESK_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
+
+type WritingDeskBootstrapSnapshot = {
+  chapters: Chapter[];
+  projectInfo: any;
+  selectedChapterNumber: number | null;
+};
+
 const getDraftKey = (projectId: string, chapterNumber: number) => `afn:writing_draft:${projectId}:${chapterNumber}`;
 const getAssistantWidthKey = (projectId: string) => `afn:writing_assistant_width:${projectId}`;
 const getSidebarWidthKey = (projectId: string) => `afn:writing_sidebar_width:${projectId}`;
 const getSidebarOpenKey = (projectId: string) => `afn:writing_sidebar_open:${projectId}`;
+const getWritingDeskBootstrapKey = (projectId: string) => `afn:web:writing-desk:${projectId}:bootstrap:v1`;
 
 const safeReadDraft = (key: string): LocalDraft | null => {
   try {
@@ -124,6 +147,7 @@ export const WritingDesk: React.FC = () => {
 		      return true;
 		    }
 		  });
+				  const [assistantMountReady, setAssistantMountReady] = useState(false);
 				  const [isSaving, setIsSaving] = useState(false);
 				  const [isGenerating, setIsGenerating] = useState(false);
 				  const [isRagIngesting, setIsRagIngesting] = useState(false);
@@ -152,6 +176,21 @@ export const WritingDesk: React.FC = () => {
 		  const [genProgress, setGenProgress] = useState<{ stage?: string; message?: string; current?: number; total?: number } | null>(null);
 			  const isDirty = useMemo(() => content !== loadedContent, [content, loadedContent]);
 			  const contentChars = useMemo(() => (content || '').replace(/\s/g, '').length, [content]);
+	        const workspaceVersions = useMemo(() => {
+	          if (!id || !currentChapter) return [];
+	          const raw = Array.isArray(currentChapter?.versions) ? currentChapter.versions : [];
+	          const chapterNo = Number(currentChapter.chapter_number || 0);
+	          const chapterId = `${id}-${chapterNo}`;
+	          const createdAt = DEFAULT_VERSION_CREATED_AT;
+	          return raw.map((text, idx) => ({
+	            id: `v-${idx}`,
+	            chapter_id: chapterId,
+	            version_label: `版本 ${idx + 1}`,
+            content: text,
+            created_at: createdAt,
+            provider: 'llm',
+          }));
+        }, [currentChapter, id]);
 		  const editorRef = useRef<WorkspaceHandle | null>(null);
 		  const currentChapterRef = useRef<Chapter | null>(null);
 		  const contentRef = useRef('');
@@ -172,8 +211,58 @@ export const WritingDesk: React.FC = () => {
       const pendingPromptActionRef = useRef<((prompt?: string) => void | Promise<void>) | null>(null);
       const [isOptionalPromptModalOpen, setIsOptionalPromptModalOpen] = useState(false);
       const [optionalPromptTitle, setOptionalPromptTitle] = useState('输入优化提示词（可选）');
-	      const [optionalPromptHint, setOptionalPromptHint] = useState<string | null>(null);
+      const [optionalPromptHint, setOptionalPromptHint] = useState<string | null>(null);
 	      const [optionalPromptValue, setOptionalPromptValue] = useState('');
+
+  useEffect(() => {
+    if (!id) return;
+    const cached = readBootstrapCache<WritingDeskBootstrapSnapshot>(
+      getWritingDeskBootstrapKey(id),
+      WRITING_DESK_BOOTSTRAP_TTL_MS,
+    );
+    if (!cached) {
+      setChapters([]);
+      setCurrentChapter(null);
+      currentChapterRef.current = null;
+      setProjectInfo(null);
+      setContent('');
+      setLoadedContent('');
+      contentRef.current = '';
+      return;
+    }
+
+    if (Array.isArray(cached.chapters)) {
+      setChapters(cached.chapters);
+      const selectedNo = Number(cached.selectedChapterNumber || 0);
+      if (Number.isFinite(selectedNo) && selectedNo > 0) {
+        const selected = cached.chapters.find((item) => Number(item.chapter_number) === selectedNo) || null;
+        if (selected) {
+          setCurrentChapter(selected);
+          currentChapterRef.current = selected;
+          const selectedContent = String(selected.content || '');
+          setContent(selectedContent);
+          setLoadedContent(selectedContent);
+          contentRef.current = selectedContent;
+        } else {
+          setCurrentChapter(null);
+          currentChapterRef.current = null;
+          setContent('');
+          setLoadedContent('');
+          contentRef.current = '';
+        }
+      } else {
+        setCurrentChapter(null);
+        currentChapterRef.current = null;
+        setContent('');
+        setLoadedContent('');
+        contentRef.current = '';
+      }
+    }
+
+    if (cached.projectInfo && typeof cached.projectInfo === 'object') {
+      setProjectInfo(cached.projectInfo);
+    }
+  }, [id]);
 
 			  // 左侧章节栏显示状态：按项目持久化（避免每次进入都要手动开关）
 			  useEffect(() => {
@@ -194,6 +283,20 @@ export const WritingDesk: React.FC = () => {
 		      // ignore
 		    }
 		  }, [id, isAssistantOpen]);
+		  useEffect(() => {
+		    if (!isAssistantOpen) {
+		      setAssistantMountReady(false);
+		      return;
+		    }
+
+		    const cancel = scheduleIdleTask(() => {
+		      setAssistantMountReady(true);
+		    }, { delay: 420, timeout: 2400 });
+
+		    return cancel;
+		  }, [id, isAssistantOpen]);
+
+
 
 		  // 右侧助手面板宽度：按项目持久化
 		  useEffect(() => {
@@ -712,10 +815,32 @@ export const WritingDesk: React.FC = () => {
 	        summary: project.blueprint?.one_sentence_summary || "暂无概要",
 		        style: project.blueprint?.style || "自由创作"
 	      });
+
+        writeBootstrapCache<WritingDeskBootstrapSnapshot>(getWritingDeskBootstrapKey(id), {
+          chapters: merged,
+          projectInfo: {
+            title: project.title,
+            summary: project.blueprint?.one_sentence_summary || '暂无概要',
+            style: project.blueprint?.style || '自由创作',
+          },
+          selectedChapterNumber: Number(currentChapterRef.current?.chapter_number || 0) || null,
+        });
 	    } catch (e) {
 	      console.error(e);
 	    }
 	  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (!Array.isArray(chapters) || chapters.length === 0) return;
+    if (!projectInfo || typeof projectInfo !== 'object') return;
+
+    writeBootstrapCache<WritingDeskBootstrapSnapshot>(getWritingDeskBootstrapKey(id), {
+      chapters,
+      projectInfo,
+      selectedChapterNumber: Number(currentChapter?.chapter_number || 0) || null,
+    });
+  }, [chapters, currentChapter?.chapter_number, id, projectInfo]);
 
 	  useEffect(() => {
 	    if (!id) return;
@@ -1263,14 +1388,7 @@ export const WritingDesk: React.FC = () => {
 				            selectedVersionIndex={
 				              isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null)
 				            }
-			            versions={(Array.isArray(currentChapter?.versions) ? currentChapter?.versions : []).map((v, idx) => ({
-			              id: `v-${idx}`,
-			              chapter_id: `${id}-${currentChapter?.chapter_number || 0}`,
-			              version_label: `版本 ${idx + 1}`,
-			              content: v,
-			              created_at: new Date().toISOString(),
-			              provider: 'llm',
-			            }))}
+			            versions={workspaceVersions}
 		            isSaving={isSaving}
 		            isGenerating={isGenerating}
 		            onChange={setContent}
@@ -1309,27 +1427,33 @@ export const WritingDesk: React.FC = () => {
 		        </div>
 
 			        {isAssistantOpen && (
-			          <>
-			            <div
-			              className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-book-primary/20 transition-colors"
-			              onMouseDown={startAssistantResizing}
-			              title="拖拽调整助手面板宽度"
-			            />
-			            <div className="shrink-0 h-full" style={{ width: assistantWidth }}>
-				              <AssistantPanel
-				                  projectId={id}
-				                  chapterNumber={currentChapter?.chapter_number}
-				                  content={content}
-				                  onChangeContent={setContent}
-			                  onLocateText={locateInEditor}
-			                  onSelectRange={selectRangeInEditor}
-			                  onJumpToChapter={async (chapterNo) => {
-			                    await handleSelectChapter(chapterNo);
-			                  }}
-			              />
-			            </div>
-			          </>
-			        )}
+		          <>
+		            <div
+		              className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-book-primary/20 transition-colors"
+		              onMouseDown={startAssistantResizing}
+		              title="拖拽调整助手面板宽度"
+		            />
+		            <div className="shrink-0 h-full" style={{ width: assistantWidth }}>
+		              {assistantMountReady ? (
+		                <Suspense fallback={<div className="h-full p-4 text-xs text-book-text-muted">助手面板加载中…</div>}>
+		                  <AssistantPanelLazy
+		                    projectId={id}
+		                    chapterNumber={currentChapter?.chapter_number}
+		                    content={content}
+		                    onChangeContent={setContent}
+		                    onLocateText={locateInEditor}
+		                    onSelectRange={selectRangeInEditor}
+		                    onJumpToChapter={async (chapterNo) => {
+		                      await handleSelectChapter(chapterNo);
+		                    }}
+		                  />
+		                </Suspense>
+		              ) : (
+		                <div className="h-full p-4 text-xs text-book-text-muted">助手面板准备中…</div>
+		              )}
+		            </div>
+		          </>
+		        )}
 		      </div>
 
 	      {/* Modals */}
@@ -1357,39 +1481,53 @@ export const WritingDesk: React.FC = () => {
 		      >
 		        <div className="max-h-[75vh] overflow-auto custom-scrollbar pr-1">
 		          {currentChapter ? (
-		            <ChapterPromptPreviewView
-		              projectId={id}
-		              chapterNumber={currentChapter.chapter_number}
-		              writingNotes={promptPreviewNotes}
-		              onChangeWritingNotes={setPromptPreviewNotes}
-		            />
+		            <Suspense fallback={<div className="text-sm text-book-text-muted">提示词预览加载中…</div>}>
+              <ChapterPromptPreviewViewLazy
+                projectId={id}
+                chapterNumber={currentChapter.chapter_number}
+                writingNotes={promptPreviewNotes}
+                onChangeWritingNotes={setPromptPreviewNotes}
+              />
+            </Suspense>
 		          ) : (
 		            <div className="text-sm text-book-text-muted">请先选择章节</div>
 		          )}
 		        </div>
 		      </Modal>
 
-		      <OutlineEditModal 
-		        isOpen={isOutlineModalOpen}
-		        onClose={() => setIsOutlineModalOpen(false)}
-		        chapter={editingChapter}
-	        projectId={id}
-        onSuccess={loadProjectData}
-      />
+		      {isOutlineModalOpen ? (
+		        <Suspense fallback={null}>
+		          <OutlineEditModalLazy 
+		            isOpen={isOutlineModalOpen}
+		            onClose={() => setIsOutlineModalOpen(false)}
+		            chapter={editingChapter}
+	            projectId={id}
+            onSuccess={loadProjectData}
+          />
+        </Suspense>
+      ) : null}
 
-	      <BatchGenerateModal
-	        isOpen={isBatchModalOpen}
-	        onClose={() => setIsBatchModalOpen(false)}
-	        projectId={id}
-	        onSuccess={loadProjectData}
-	      />
+	      {isBatchModalOpen ? (
+	        <Suspense fallback={null}>
+	          <BatchGenerateModalLazy
+	            isOpen={isBatchModalOpen}
+	            onClose={() => setIsBatchModalOpen(false)}
+	            projectId={id}
+	            onSuccess={loadProjectData}
+	          />
+	        </Suspense>
+	      ) : null}
 
-		        <ProtagonistProfilesModal
-		          isOpen={isProtagonistModalOpen}
-		          onClose={() => setIsProtagonistModalOpen(false)}
-		          projectId={id}
-		          currentChapterNumber={currentChapter?.chapter_number}
-		        />
+		        {isProtagonistModalOpen ? (
+		          <Suspense fallback={null}>
+		            <ProtagonistProfilesModalLazy
+		              isOpen={isProtagonistModalOpen}
+		              onClose={() => setIsProtagonistModalOpen(false)}
+		              projectId={id}
+		              currentChapterNumber={currentChapter?.chapter_number}
+		            />
+		          </Suspense>
+		        ) : null}
 
 	        <Modal
 	          isOpen={isImportChapterModalOpen}

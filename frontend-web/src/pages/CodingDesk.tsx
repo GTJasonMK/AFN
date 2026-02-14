@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   codingApi,
@@ -6,12 +6,13 @@ import {
   CodingFileVersion,
   DirectoryAgentStateResponse,
 } from '../api/coding';
-import { DirectoryTree } from '../components/coding/DirectoryTree';
 import { BookButton } from '../components/ui/BookButton';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
 import { useToast } from '../components/feedback/Toast';
 import { useSSE } from '../hooks/useSSE';
+import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import {
   Database,
   LayoutPanelLeft,
@@ -46,7 +47,20 @@ type StreamLog = {
   title: string;
   content: string;
   ts: number;
+  timeText: string;
 };
+
+type CodingDeskBootstrapSnapshot = {
+  project: any | null;
+  treeData: any | null;
+};
+
+const CODING_DESK_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
+const getCodingDeskBootstrapKey = (projectId: string) => `afn:web:coding-desk:${projectId}:bootstrap:v1`;
+
+const DirectoryTreeLazy = lazy(() =>
+  import('../components/coding/DirectoryTree').then((m) => ({ default: m.DirectoryTree }))
+);
 
 const LOG_LABELS: Record<StreamLogType, { label: string; cls: string }> = {
   progress: { label: 'Progress', cls: 'text-book-text-muted' },
@@ -209,10 +223,61 @@ export const CodingDesk: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<any>(null);
   const [treeData, setTreeData] = useState<any>(null);
+  const [treeLoading, setTreeLoading] = useState(false);
 
   const [currentFile, setCurrentFile] = useState<CodingFileDetail | null>(null);
   const [content, setContent] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState('');
+  const promptTokensRef = useRef<string[]>([]);
+  const promptTokenFlushTimerRef = useRef<number | null>(null);
+  const reviewTokensRef = useRef<string[]>([]);
+  const reviewTokenFlushTimerRef = useRef<number | null>(null);
+
+  const resetPromptTokenBuffer = useCallback(() => {
+    promptTokensRef.current = [];
+    if (promptTokenFlushTimerRef.current !== null) {
+      window.clearTimeout(promptTokenFlushTimerRef.current);
+      promptTokenFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushPromptTokens = useCallback(() => {
+    if (promptTokensRef.current.length === 0) return;
+    const text = promptTokensRef.current.join('');
+    promptTokensRef.current = [];
+    setContent((prev) => prev + text);
+  }, []);
+
+  const schedulePromptTokenFlush = useCallback(() => {
+    if (promptTokenFlushTimerRef.current !== null) return;
+    promptTokenFlushTimerRef.current = window.setTimeout(() => {
+      promptTokenFlushTimerRef.current = null;
+      flushPromptTokens();
+    }, 48);
+  }, [flushPromptTokens]);
+
+  const resetReviewTokenBuffer = useCallback(() => {
+    reviewTokensRef.current = [];
+    if (reviewTokenFlushTimerRef.current !== null) {
+      window.clearTimeout(reviewTokenFlushTimerRef.current);
+      reviewTokenFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushReviewTokens = useCallback(() => {
+    if (reviewTokensRef.current.length === 0) return;
+    const text = reviewTokensRef.current.join('');
+    reviewTokensRef.current = [];
+    setReviewPrompt((prev) => prev + text);
+  }, []);
+
+  const scheduleReviewTokenFlush = useCallback(() => {
+    if (reviewTokenFlushTimerRef.current !== null) return;
+    reviewTokenFlushTimerRef.current = window.setTimeout(() => {
+      reviewTokenFlushTimerRef.current = null;
+      flushReviewTokens();
+    }, 48);
+  }, [flushReviewTokens]);
 
   const [versions, setVersions] = useState<CodingFileVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
@@ -251,6 +316,9 @@ export const CodingDesk: React.FC = () => {
   const [agentStateLoading, setAgentStateLoading] = useState(false);
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentLogs, setAgentLogs] = useState<StreamLog[]>([]);
+  const pendingAgentLogsRef = useRef<StreamLog[]>([]);
+  const agentLogFlushTimerRef = useRef<number | null>(null);
+  const [agentLogRenderLimit, setAgentLogRenderLimit] = useState(200);
   const [agentPreview, setAgentPreview] = useState<{ directories?: any[]; files?: any[]; stats?: any } | null>(null);
   const [showAgentTree, setShowAgentTree] = useState(false);
   const agentLogRef = useRef<HTMLDivElement | null>(null);
@@ -266,17 +334,90 @@ export const CodingDesk: React.FC = () => {
     }
   });
   const agentDetailedModeRef = useRef<boolean>(agentDetailedMode);
+  const hasBootstrapProjectRef = useRef(false);
+
+  useEffect(() => {
+    if (!id) return;
+    const cached = readBootstrapCache<CodingDeskBootstrapSnapshot>(
+      getCodingDeskBootstrapKey(id),
+      CODING_DESK_BOOTSTRAP_TTL_MS,
+    );
+    if (!cached) {
+      hasBootstrapProjectRef.current = false;
+      setProject(null);
+      setTreeData(null);
+      setLoading(true);
+      return;
+    }
+    if (cached.project) {
+      setProject(cached.project);
+      setLoading(false);
+      hasBootstrapProjectRef.current = true;
+    } else {
+      hasBootstrapProjectRef.current = false;
+      setProject(null);
+      setLoading(true);
+    }
+    if (cached.treeData) {
+      setTreeData(cached.treeData);
+    } else {
+      setTreeData(null);
+    }
+  }, [id]);
+
+  const resetAgentLogBuffer = useCallback(() => {
+    pendingAgentLogsRef.current = [];
+    if (agentLogFlushTimerRef.current !== null) {
+      window.clearTimeout(agentLogFlushTimerRef.current);
+      agentLogFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushAgentLogs = useCallback(() => {
+    const pending = pendingAgentLogsRef.current;
+    if (pending.length === 0) return;
+    pendingAgentLogsRef.current = [];
+    startTransition(() => {
+      setAgentLogs((prev) => {
+        const next = [...prev, ...pending];
+        if (next.length > 600) next.splice(0, next.length - 600);
+        return next;
+      });
+    });
+  }, []);
+
+  const scheduleAgentLogFlush = useCallback(() => {
+    if (agentLogFlushTimerRef.current !== null) return;
+    agentLogFlushTimerRef.current = window.setTimeout(() => {
+      agentLogFlushTimerRef.current = null;
+      flushAgentLogs();
+    }, 80);
+  }, [flushAgentLogs]);
+
+  const refreshTreeData = useCallback(async () => {
+    if (!id) return;
+    setTreeLoading(true);
+    try {
+      const tree = await codingApi.getDirectoryTree(id);
+      setTreeData(tree);
+    } catch (e) {
+      console.error(e);
+      addToast('加载目录结构失败', 'error');
+      setTreeData(null);
+    } finally {
+      setTreeLoading(false);
+    }
+  }, [addToast, id]);
 
   const refreshBasic = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
+    if (!hasBootstrapProjectRef.current) {
+      setLoading(true);
+    }
     try {
-      const [proj, tree] = await Promise.all([
-        codingApi.get(id),
-        codingApi.getDirectoryTree(id),
-      ]);
+      const proj = await codingApi.get(id);
       setProject(proj);
-      setTreeData(tree);
+      hasBootstrapProjectRef.current = true;
     } catch (e) {
       console.error(e);
       addToast('加载项目失败', 'error');
@@ -305,6 +446,26 @@ export const CodingDesk: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
+    if (!project && !treeData) return;
+    writeBootstrapCache<CodingDeskBootstrapSnapshot>(getCodingDeskBootstrapKey(id), {
+      project,
+      treeData,
+    });
+  }, [id, project, treeData]);
+
+  useEffect(() => {
+    if (!id || loading) return;
+    if (treeData !== null) return;
+
+    const cancel = scheduleIdleTask(() => {
+      void refreshTreeData();
+    }, { delay: 160, timeout: 2200 });
+
+    return cancel;
+  }, [id, loading, refreshTreeData, treeData]);
+
+  useEffect(() => {
+    if (!id) return;
     try {
       localStorage.setItem(`afn:coding_rag_topk:${id}`, String(ragTopK));
     } catch {
@@ -326,6 +487,18 @@ export const CodingDesk: React.FC = () => {
     if (!agentPreview) return null;
     return buildAgentDirectoryTreeData(agentPreview);
   }, [agentPreview]);
+
+  const agentPreviewText = useMemo(() => (agentPreview ? safeJson(agentPreview) : ''), [agentPreview]);
+
+  const visibleAgentLogs = useMemo(() => {
+    const limit = Math.max(0, Math.floor(agentLogRenderLimit));
+    if (limit <= 0) return [];
+    if (agentLogs.length <= limit) return agentLogs;
+    return agentLogs.slice(agentLogs.length - limit);
+  }, [agentLogRenderLimit, agentLogs]);
+
+  const hasMoreAgentLogs = visibleAgentLogs.length < agentLogs.length;
+  const remainingAgentLogs = Math.max(0, agentLogs.length - visibleAgentLogs.length);
 
   const loadFile = useCallback(async (fileId: number) => {
     if (!id) return;
@@ -371,10 +544,13 @@ export const CodingDesk: React.FC = () => {
       return;
     }
     if (event === 'token' && data?.token) {
-      setContent((prev) => prev + String(data.token));
+      promptTokensRef.current.push(String(data.token));
+      schedulePromptTokenFlush();
       return;
     }
     if (event === 'complete') {
+      flushPromptTokens();
+      resetPromptTokenBuffer();
       setIsGenerating(false);
       setGenStage(null);
       setGenMessage(null);
@@ -383,6 +559,8 @@ export const CodingDesk: React.FC = () => {
       return;
     }
     if (event === 'error') {
+      flushPromptTokens();
+      resetPromptTokenBuffer();
       setIsGenerating(false);
       setGenStage(null);
       setGenMessage(null);
@@ -398,10 +576,13 @@ export const CodingDesk: React.FC = () => {
       return;
     }
     if (event === 'token' && data?.token) {
-      setReviewPrompt((prev) => prev + String(data.token));
+      reviewTokensRef.current.push(String(data.token));
+      scheduleReviewTokenFlush();
       return;
     }
     if (event === 'complete') {
+      flushReviewTokens();
+      resetReviewTokenBuffer();
       setIsGeneratingReview(false);
       setGenStage(null);
       setGenMessage(null);
@@ -410,6 +591,8 @@ export const CodingDesk: React.FC = () => {
       return;
     }
     if (event === 'error') {
+      flushReviewTokens();
+      resetReviewTokenBuffer();
       setIsGeneratingReview(false);
       setGenStage(null);
       setGenMessage(null);
@@ -421,11 +604,14 @@ export const CodingDesk: React.FC = () => {
     return () => {
       disconnectPromptStream();
       disconnectReviewStream();
+      resetPromptTokenBuffer();
+      resetReviewTokenBuffer();
     };
-  }, [disconnectPromptStream, disconnectReviewStream]);
+  }, [disconnectPromptStream, disconnectReviewStream, resetPromptTokenBuffer, resetReviewTokenBuffer]);
 
   const handleGeneratePrompt = async () => {
     if (!id || !currentFile) return;
+    resetPromptTokenBuffer();
     setIsGenerating(true);
     setGenStage(null);
     setGenMessage(null);
@@ -450,6 +636,7 @@ export const CodingDesk: React.FC = () => {
 
   const handleGenerateReview = async () => {
     if (!id || !currentFile) return;
+    resetReviewTokenBuffer();
     setIsGeneratingReview(true);
     setGenStage(null);
     setGenMessage(null);
@@ -572,22 +759,24 @@ export const CodingDesk: React.FC = () => {
 
   const appendAgentLog = useCallback((type: StreamLogType, title: string, body?: any) => {
     const contentText = formatAgentLogContent(type, body);
-
-    setAgentLogs((prev) => {
-      const next: StreamLog[] = [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          type,
-          title: title || type,
-          content: contentText,
-          ts: Date.now(),
-        },
-      ];
-      if (next.length > 600) next.splice(0, next.length - 600);
-      return next;
+    const ts = Date.now();
+    const timeText = (() => {
+      try {
+        return new Date(ts).toLocaleTimeString();
+      } catch {
+        return '';
+      }
+    })();
+    pendingAgentLogsRef.current.push({
+      id: `${ts}-${Math.random().toString(16).slice(2)}`,
+      type,
+      title: title || type,
+      content: contentText,
+      ts,
+      timeText,
     });
-  }, [formatAgentLogContent]);
+    scheduleAgentLogFlush();
+  }, [formatAgentLogContent, scheduleAgentLogFlush]);
 
   const { connect: connectAgentStream, disconnect: disconnectAgentStream } = useSSE((event, data) => {
     // 统一记录日志，必要时做少量摘要
@@ -636,16 +825,20 @@ export const CodingDesk: React.FC = () => {
 
     if (et === 'saved') {
       appendAgentLog('saved', 'saved', data);
+      flushAgentLogs();
       setShowAgentTree(false);
-      refreshBasic();
+      void refreshBasic();
+      void refreshTreeData();
       return;
     }
 
     if (et === 'planning_complete') {
       appendAgentLog('planning_complete', 'planning_complete', data);
+      flushAgentLogs();
       setAgentRunning(false);
       if (!agentClearExistingRef.current) setShowAgentTree(false);
-      refreshBasic();
+      void refreshBasic();
+      void refreshTreeData();
       return;
     }
 
@@ -656,6 +849,7 @@ export const CodingDesk: React.FC = () => {
 
     if (et === 'error') {
       appendAgentLog('error', 'error', data);
+      flushAgentLogs();
       setAgentRunning(false);
       setShowAgentTree(false);
       return;
@@ -679,11 +873,16 @@ export const CodingDesk: React.FC = () => {
   }, [activeAssistantTab, id, refreshAgentState]);
 
   useEffect(() => {
-    return () => disconnectAgentStream();
-  }, [disconnectAgentStream]);
+    return () => {
+      disconnectAgentStream();
+      resetAgentLogBuffer();
+    };
+  }, [disconnectAgentStream, resetAgentLogBuffer]);
 
   const startAgentPlanning = useCallback(async (opts: { clearExisting: boolean }) => {
     if (!id) return;
+    resetAgentLogBuffer();
+    setAgentLogRenderLimit(200);
     agentClearExistingRef.current = Boolean(opts.clearExisting);
     setAgentRunning(true);
     setAgentLogs([]);
@@ -692,7 +891,7 @@ export const CodingDesk: React.FC = () => {
     await connectAgentStream(codingApi.planDirectoryAgentStream(id), {
       clear_existing: opts.clearExisting,
     });
-  }, [connectAgentStream, id]);
+  }, [connectAgentStream, id, resetAgentLogBuffer]);
 
   const stopAgentPlanning = useCallback(async () => {
     if (!id) return;
@@ -725,13 +924,15 @@ export const CodingDesk: React.FC = () => {
   const continueAgentPlanning = useCallback(async () => {
     if (!id) return;
     // 后端的 plan-agent 是否支持 resume 取决于实现；这里复用同一路由并带上 resume 标记，保持与桌面端一致
+    resetAgentLogBuffer();
+    setAgentLogRenderLimit(200);
     agentClearExistingRef.current = false;
     setAgentRunning(true);
     setAgentLogs([]);
     setAgentPreview(null);
     setShowAgentTree(true);
     await connectAgentStream(codingApi.planDirectoryAgentStream(id), { resume: true });
-  }, [connectAgentStream, id]);
+  }, [connectAgentStream, id, resetAgentLogBuffer]);
 
   if (loading) {
     return <div className="flex h-screen items-center justify-center text-book-text-muted">加载中...</div>;
@@ -813,7 +1014,13 @@ export const CodingDesk: React.FC = () => {
             </BookCard>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <DirectoryTree data={showAgentTree && agentTreeData ? agentTreeData : treeData} onSelectFile={loadFile} />
+            {treeLoading && !(showAgentTree && agentTreeData) && !treeData ? (
+              <div className="p-4 text-xs text-book-text-muted">目录加载中…</div>
+            ) : (
+              <Suspense fallback={<div className="p-4 text-xs text-book-text-muted">目录组件加载中…</div>}>
+                <DirectoryTreeLazy data={showAgentTree && agentTreeData ? agentTreeData : treeData} onSelectFile={loadFile} />
+              </Suspense>
+            )}
           </div>
         </div>
 
@@ -1146,7 +1353,7 @@ export const CodingDesk: React.FC = () => {
                         目录 {agentPreview.directories?.length || 0} · 文件 {agentPreview.files?.length || 0}
                       </div>
                       <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed max-h-56 overflow-auto custom-scrollbar">
-                        {safeJson(agentPreview)}
+                        {agentPreviewText}
                       </pre>
                     </BookCard>
                   ) : null}
@@ -1158,10 +1365,37 @@ export const CodingDesk: React.FC = () => {
                         <button
                           className="text-xs text-book-primary font-bold hover:underline"
                           type="button"
-                          onClick={() => setAgentLogs([])}
+                          onClick={() => {
+                            resetAgentLogBuffer();
+                            setAgentLogs([]);
+                            setAgentLogRenderLimit(200);
+                          }}
                         >
                           清空
                         </button>
+                        {hasMoreAgentLogs ? (
+                          <button
+                            className="text-xs text-book-text-muted hover:underline"
+                            type="button"
+                            onClick={() =>
+                              setAgentLogRenderLimit((prev) =>
+                                Math.min(agentLogs.length, Math.max(prev, 0) + 200)
+                              )
+                            }
+                            title="为提升流式渲染性能，默认只渲染最近一部分日志"
+                          >
+                            显示更多（剩余 {remainingAgentLogs}）
+                          </button>
+                        ) : null}
+                        {agentLogRenderLimit > 200 ? (
+                          <button
+                            className="text-xs text-book-text-muted hover:underline"
+                            type="button"
+                            onClick={() => setAgentLogRenderLimit(200)}
+                          >
+                            收起
+                          </button>
+                        ) : null}
                         <button
                           className="text-xs text-book-text-muted hover:underline"
                           type="button"
@@ -1178,7 +1412,7 @@ export const CodingDesk: React.FC = () => {
                       </div>
                     ) : (
                       <div ref={agentLogRef} className="max-h-[420px] overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                        {agentLogs.map((log) => {
+                        {visibleAgentLogs.map((log) => {
                           const meta = LOG_LABELS[log.type] || { label: log.type, cls: 'text-book-text-muted' };
                           return (
                             <div key={log.id} className="p-2 rounded border border-book-border/40 bg-book-bg">
@@ -1188,13 +1422,7 @@ export const CodingDesk: React.FC = () => {
                                   {log.title ? <span className="text-book-text-muted font-normal ml-2">{log.title}</span> : null}
                                 </div>
                                 <div className="text-[10px] text-book-text-muted">
-                                  {(() => {
-                                    try {
-                                      return new Date(log.ts).toLocaleTimeString();
-                                    } catch {
-                                      return '';
-                                    }
-                                  })()}
+                                  {log.timeText}
                                 </div>
                               </div>
                               {log.content ? (

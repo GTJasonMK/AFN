@@ -4,11 +4,9 @@
 提供队列状态查询和配置管理功能。
 """
 
-import json
 import logging
-from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ...schemas.queue import (
     QueueStatus,
@@ -17,11 +15,12 @@ from ...schemas.queue import (
     QueueConfigUpdate,
 )
 from ...services.queue import LLMRequestQueue, ImageRequestQueue
-from ...core.config import _get_config_file_path
+from ...core.dependencies import get_default_user, require_admin_user
+from .settings_utils import persist_config_updates
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/queue", tags=["队列管理"])
+router = APIRouter(prefix="/api/queue", tags=["队列管理"], dependencies=[Depends(get_default_user)])
 
 
 @router.get("/status", response_model=QueueStatusResponse)
@@ -60,7 +59,7 @@ async def get_queue_config() -> QueueConfigResponse:
     )
 
 
-@router.put("/config", response_model=QueueConfigResponse)
+@router.put("/config", response_model=QueueConfigResponse, dependencies=[Depends(require_admin_user)])
 async def update_queue_config(config: QueueConfigUpdate) -> QueueConfigResponse:
     """
     更新队列配置（运行时生效并持久化到config.json）
@@ -81,45 +80,14 @@ async def update_queue_config(config: QueueConfigUpdate) -> QueueConfigResponse:
         logger.info("图片队列并发数已更新为: %d", config.image_max_concurrent)
 
     # 持久化到config.json
-    _save_queue_config_to_file(
-        llm_max_concurrent=llm_queue.max_concurrent,
-        image_max_concurrent=image_queue.max_concurrent,
+    persist_config_updates(
+        {
+            "llm_max_concurrent": llm_queue.max_concurrent,
+            "image_max_concurrent": image_queue.max_concurrent,
+        }
     )
 
     return QueueConfigResponse(
         llm_max_concurrent=llm_queue.max_concurrent,
         image_max_concurrent=image_queue.max_concurrent,
     )
-
-
-def _save_queue_config_to_file(llm_max_concurrent: int, image_max_concurrent: int) -> None:
-    """
-    将队列配置保存到config.json文件
-
-    与现有的高级配置保存机制保持一致。
-    """
-    config_file = _get_config_file_path()
-
-    # 读取现有配置
-    existing_config = {}
-    if config_file.exists():
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                existing_config = json.load(f)
-        except Exception as e:
-            logger.warning("读取config.json失败: %s", e)
-
-    # 更新队列配置
-    existing_config['llm_max_concurrent'] = llm_max_concurrent
-    existing_config['image_max_concurrent'] = image_max_concurrent
-
-    # 确保目录存在
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # 保存配置
-    try:
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(existing_config, f, indent=2, ensure_ascii=False)
-        logger.info("队列配置已保存到: %s", config_file)
-    except Exception as e:
-        logger.error("保存config.json失败: %s", e)

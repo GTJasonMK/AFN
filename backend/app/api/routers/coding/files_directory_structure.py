@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import (
+    get_coding_project_service,
     get_default_user,
     get_llm_service,
     get_prompt_service,
@@ -22,6 +23,7 @@ from ....schemas.coding_files import (
     GenerateDirectoryStructureResponse,
 )
 from ....schemas.user import UserInDB
+from ....services.coding import CodingProjectService
 from ....services.coding_files import DirectoryStructureService
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
@@ -50,6 +52,7 @@ async def generate_directory_structure(
     project_id: str,
     request: GenerateDirectoryStructureRequest,
     directory_service: DirectoryStructureService = Depends(get_directory_service),
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     llm_service: LLMService = Depends(get_llm_service),
     prompt_service: PromptService = Depends(get_prompt_service),
     session: AsyncSession = Depends(get_session),
@@ -65,6 +68,9 @@ async def generate_directory_structure(
         project_id,
         request.module_number,
     )
+
+    # 多用户数据隔离：先校验项目归属，再查询模块等子资源
+    await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
 
     # 获取模块名称
     from ....repositories.coding_repository import CodingModuleRepository
@@ -105,4 +111,3 @@ async def generate_directory_structure(
 
 
 __all__ = ["router"]
-

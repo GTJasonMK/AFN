@@ -68,6 +68,7 @@ class ContentOptimizationService:
         opt_session = self.session_manager.create_session(
             project_id=project_id,
             chapter_number=chapter_number,
+            user_id=user_id,
         )
 
         try:

@@ -64,7 +64,7 @@ async def export_all_configs(
     from ...services.queue import ImageRequestQueue, LLMRequestQueue
     from ...services.theme_config_service import ThemeConfigService
 
-    is_admin = (current_user.username or "").strip() == "desktop_user"
+    is_admin = bool(getattr(current_user, "is_admin", False))
 
     # 获取LLM配置（使用service的export方法获取完整数据）
     llm_service = LLMConfigService(session)
@@ -186,7 +186,7 @@ async def import_all_configs(
     has_error = False
 
     try:
-        is_admin = (current_user.username or "").strip() == "desktop_user"
+        is_admin = bool(getattr(current_user, "is_admin", False))
 
         # 验证导入数据格式
         if import_data.get("export_type") != "all":
@@ -246,7 +246,7 @@ async def import_all_configs(
         # 导入高级配置
         if import_data.get("advanced_config"):
             if not is_admin:
-                details.append("高级配置: 需要管理员权限（desktop_user），已跳过")
+                details.append("高级配置: 需要管理员权限，已跳过")
                 has_error = True
             else:
                 try:
@@ -262,7 +262,7 @@ async def import_all_configs(
         # 导入队列配置
         if import_data.get("queue_config"):
             if not is_admin:
-                details.append("队列配置: 需要管理员权限（desktop_user），已跳过")
+                details.append("队列配置: 需要管理员权限，已跳过")
                 has_error = True
             else:
                 try:
@@ -278,7 +278,7 @@ async def import_all_configs(
         # 导入Max Tokens配置
         if import_data.get("max_tokens_config"):
             if not is_admin:
-                details.append("Max Tokens配置: 需要管理员权限（desktop_user），已跳过")
+                details.append("Max Tokens配置: 需要管理员权限，已跳过")
                 has_error = True
             else:
                 try:
@@ -303,7 +303,7 @@ async def import_all_configs(
         # 导入Temperature配置
         if import_data.get("temperature_config"):
             if not is_admin:
-                details.append("Temperature配置: 需要管理员权限（desktop_user），已跳过")
+                details.append("Temperature配置: 需要管理员权限，已跳过")
                 has_error = True
             else:
                 try:
@@ -328,7 +328,7 @@ async def import_all_configs(
         # 导入提示词配置
         if import_data.get("prompt_configs"):
             if not is_admin:
-                details.append("提示词配置: 需要管理员权限（desktop_user），已跳过")
+                details.append("提示词配置: 需要管理员权限，已跳过")
                 has_error = True
             else:
                 try:

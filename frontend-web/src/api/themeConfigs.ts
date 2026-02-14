@@ -127,7 +127,10 @@ export const themeConfigsApi = {
   },
 
   getActive: async (mode: ThemeMode) => {
-    const response = await apiClient.get<ThemeConfigUnifiedRead | null>(`/theme-configs/unified/active/${mode}`);
+    const response = await apiClient.get<ThemeConfigUnifiedRead | null>(
+      `/theme-configs/unified/active/${mode}`,
+      { silent: true }
+    );
     return response.data;
   },
 

@@ -5,9 +5,12 @@ import { BookInput } from '../../ui/BookInput';
 import { queueApi, QueueConfigResponse, QueueStatusResponse } from '../../../api/queue';
 import { useToast } from '../../feedback/Toast';
 import { SettingsTabHeader } from './components/SettingsTabHeader';
+import { isAdminUser, useAuthStore } from '../../../store/auth';
 
 export const QueueTab: React.FC = () => {
   const { addToast } = useToast();
+  const { authEnabled, user } = useAuthStore();
+  const isAdmin = isAdminUser(authEnabled, user);
   const [status, setStatus] = useState<QueueStatusResponse | null>(null);
   const [config, setConfig] = useState<QueueConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -67,6 +70,10 @@ export const QueueTab: React.FC = () => {
   }, []);
 
   const handleSave = async () => {
+    if (!isAdmin) {
+      addToast('需要管理员权限才能修改队列配置', 'error');
+      return;
+    }
     const llm = Math.max(1, Math.floor(Number(llmMax || 1)));
     const image = Math.max(1, Math.floor(Number(imageMax || 1)));
     setSaving(true);
@@ -121,6 +128,7 @@ export const QueueTab: React.FC = () => {
             min={1}
             value={llmMax}
             onChange={(e) => setLlmMax(e.target.value)}
+            disabled={!isAdmin}
           />
           <BookInput
             label="图片最大并发"
@@ -128,15 +136,19 @@ export const QueueTab: React.FC = () => {
             min={1}
             value={imageMax}
             onChange={(e) => setImageMax(e.target.value)}
+            disabled={!isAdmin}
           />
         </div>
         <div className="mt-4 flex justify-end">
-          <BookButton variant="primary" onClick={handleSave} disabled={saving}>
+          <BookButton variant="primary" onClick={handleSave} disabled={saving || !isAdmin}>
             {saving ? '保存中…' : '保存'}
           </BookButton>
         </div>
         {!config && !loading && (
           <div className="mt-3 text-xs text-book-text-muted">无法读取当前配置，请检查后端是否已启动。</div>
+        )}
+        {!isAdmin && (
+          <div className="mt-3 text-xs text-book-text-muted">当前账号仅可查看队列状态，修改并发配置需要管理员权限。</div>
         )}
         <div className="mt-3 text-xs text-book-text-muted">
           提示：队列状态每 2 秒自动刷新（仅在当前浏览器标签页前台时刷新）。

@@ -14,7 +14,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{3,32}$")
+_AUTH_STATUS_DEBUG_LOGGED = False
 
 
 class AuthStatusResponse(BaseModel):
@@ -43,6 +46,7 @@ class UserPublic(BaseModel):
     id: int
     username: str
     is_active: bool
+    is_admin: bool
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -104,17 +108,87 @@ def _to_public(user: UserInDB) -> UserPublic:
         id=user.id,
         username=user.username,
         is_active=user.is_active,
+        is_admin=bool(getattr(user, "is_admin", False)),
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
 
 
 @router.get("/status", response_model=AuthStatusResponse)
-async def auth_status() -> AuthStatusResponse:
+async def auth_status(debug: bool = False) -> AuthStatusResponse:
     """获取当前认证开关状态（公开接口，用于 WebUI 决定是否展示登录页）。"""
+    global _AUTH_STATUS_DEBUG_LOGGED
+    if debug or not _AUTH_STATUS_DEBUG_LOGGED:
+        try:
+            env_files = tuple(getattr(settings.__class__, "model_config", {}).get("env_file") or ())
+            env_file_exists = []
+            for env_file in env_files:
+                try:
+                    env_file_exists.append({"path": str(env_file), "exists": Path(str(env_file)).is_file()})
+                except Exception:
+                    env_file_exists.append({"path": str(env_file), "exists": "unknown"})
+
+            config_path = settings.storage_dir / "config.json"
+            config_auth = {}
+            if config_path.exists():
+                try:
+                    import json
+
+                    raw = json.loads(config_path.read_text(encoding="utf-8"))
+                    for key in ("auth_enabled", "auth_allow_registration"):
+                        if key in raw:
+                            config_auth[key] = raw[key]
+                except Exception as exc:
+                    config_auth = {"error": str(exc)}
+
+            # 默认配置里 app 域日志级别可能是 WARNING（见 storage/logging_config.yaml），
+            # 这里用 WARNING 确保排障信息一定能落到 backend_console.log / app.log。
+            #
+            # 注意：用户常用“搜索以 [AuthDebug] 开头的日志行”来快速定位，
+            # logging 输出通常会带时间戳/域名导致前缀不在行首，因此这里额外 print 一行以便检索。
+            debug_line = (
+                f"[AuthDebug] status requested | cwd={os.getcwd()} | "
+                f"settings.auth_enabled={bool(getattr(settings, 'auth_enabled', False))} "
+                f"allow_registration={bool(getattr(settings, 'auth_allow_registration', True))} | "
+                f"fields_set(auth_enabled={'auth_enabled' in getattr(settings, 'model_fields_set', set())} "
+                f"allow_registration={'auth_allow_registration' in getattr(settings, 'model_fields_set', set())}) | "
+                f"env(AFN_AUTH_ENABLED={os.environ.get('AFN_AUTH_ENABLED')!r} AUTH_ENABLED={os.environ.get('AUTH_ENABLED')!r} "
+                f"AFN_AUTH_ALLOW_REGISTRATION={os.environ.get('AFN_AUTH_ALLOW_REGISTRATION')!r} "
+                f"AUTH_ALLOW_REGISTRATION={os.environ.get('AUTH_ALLOW_REGISTRATION')!r}) | "
+                f"env_files={env_file_exists} | config_auth={config_auth}"
+            )
+            print(debug_line, flush=True)
+            logger.warning(
+                "[AuthDebug] status requested | cwd=%s | settings.auth_enabled=%s allow_registration=%s "
+                "| fields_set(auth_enabled=%s allow_registration=%s) | env(AFN_AUTH_ENABLED=%r AUTH_ENABLED=%r "
+                "AFN_AUTH_ALLOW_REGISTRATION=%r AUTH_ALLOW_REGISTRATION=%r) | env_files=%s | config_auth=%s",
+                os.getcwd(),
+                bool(getattr(settings, "auth_enabled", False)),
+                bool(getattr(settings, "auth_allow_registration", True)),
+                "auth_enabled" in getattr(settings, "model_fields_set", set()),
+                "auth_allow_registration" in getattr(settings, "model_fields_set", set()),
+                os.environ.get("AFN_AUTH_ENABLED"),
+                os.environ.get("AUTH_ENABLED"),
+                os.environ.get("AFN_AUTH_ALLOW_REGISTRATION"),
+                os.environ.get("AUTH_ALLOW_REGISTRATION"),
+                env_file_exists,
+                config_auth,
+            )
+        except Exception as exc:
+            logger.warning("[AuthDebug] dump failed: %s", exc, exc_info=True)
+        if not debug:
+            _AUTH_STATUS_DEBUG_LOGGED = True
+
+    auth_enabled = bool(getattr(settings, "auth_enabled", False))
+    allow_registration = (
+        bool(getattr(settings, "auth_allow_registration", True))
+        if auth_enabled
+        else False
+    )
+
     return AuthStatusResponse(
-        auth_enabled=bool(getattr(settings, "auth_enabled", False)),
-        auth_allow_registration=bool(getattr(settings, "auth_allow_registration", True)),
+        auth_enabled=auth_enabled,
+        auth_allow_registration=allow_registration,
     )
 
 
@@ -159,7 +233,7 @@ async def register(
 
     token = _issue_token(user.id, user.username)
     _set_auth_cookie(response, token, secure=request.url.scheme == "https")
-    return AuthOkResponse(user=UserPublic(id=user.id, username=user.username, is_active=user.is_active))
+    return AuthOkResponse(user=_to_public(UserInDB.model_validate(user)))
 
 
 @router.post("/login", response_model=AuthOkResponse)
@@ -184,7 +258,7 @@ async def login(
 
     token = _issue_token(user.id, user.username)
     _set_auth_cookie(response, token, secure=request.url.scheme == "https")
-    return AuthOkResponse(user=UserPublic(id=user.id, username=user.username, is_active=user.is_active))
+    return AuthOkResponse(user=_to_public(UserInDB.model_validate(user)))
 
 
 @router.post("/logout")
@@ -212,4 +286,3 @@ async def change_password(
     user.hashed_password = hash_password(payload.new_password)
     await session.commit()
     return {"success": True}
-

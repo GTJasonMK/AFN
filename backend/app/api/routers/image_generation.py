@@ -5,11 +5,13 @@
 配置管理使用 ImageConfigService，图片生成使用 ImageGenerationService。
 """
 
+import re
 from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
@@ -17,7 +19,9 @@ import logging
 from ...core.config import settings
 from ...core.dependencies import get_default_user, get_image_config_service
 from ...db.session import get_session
-from ...exceptions import ResourceNotFoundError, InvalidParameterError
+from ...exceptions import PermissionDeniedError, ResourceNotFoundError, InvalidParameterError
+from ...models.image_config import GeneratedImage
+from ...models.novel import NovelProject
 
 logger = logging.getLogger(__name__)
 from ...schemas.user import UserInDB
@@ -43,6 +47,20 @@ from ...services.image_generation.pdf_export import PDFExportService
 from ...services.image_generation.fs_utils import get_images_root
 
 router = APIRouter(prefix="/image-generation", tags=["image-generation"])
+
+_EXPORT_PDF_PROJECT_RE = re.compile(
+    r"^(manga|manga_pro)_(?P<project_id>[0-9a-fA-F-]{36})_ch\d+_\d{8}_\d{6}\.pdf$"
+)
+
+
+async def _ensure_novel_project_owner(session: AsyncSession, project_id: str, user_id: int) -> None:
+    """确保小说项目归属于当前用户（用于图片/导出等跨表资源）。"""
+    result = await session.execute(select(NovelProject.user_id).where(NovelProject.id == project_id))
+    owner_id = result.scalar_one_or_none()
+    if owner_id is None:
+        raise ResourceNotFoundError("项目", project_id)
+    if int(owner_id) != int(user_id):
+        raise PermissionDeniedError("无权访问该项目")
 
 
 # ==================== 配置管理 ====================
@@ -207,6 +225,7 @@ async def generate_scene_image(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """为场景生成图片"""
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     service = ImageGenerationService(session)
     merged_request = await service.prepare_scene_request(project_id, request)
     result = await service.generate_image(
@@ -239,6 +258,7 @@ async def generate_page_image(
 
     请求体需要包含由 PromptBuilder.build_page_prompt() 生成的页面级提示词。
     """
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     service = ImageGenerationService(session)
     merged_request = await service.prepare_page_request(project_id, request)
     result = await service.generate_page_image(
@@ -266,6 +286,7 @@ async def get_scene_images(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取场景的所有图片"""
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     service = ImageGenerationService(session)
     images = await service.get_scene_images(project_id, chapter_number, scene_id)
 
@@ -308,6 +329,7 @@ async def get_chapter_images(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取章节的所有图片"""
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     service = ImageGenerationService(session)
     # Bug 40 修复: 传递版本过滤参数
     images = await service.get_chapter_images(
@@ -342,6 +364,11 @@ async def delete_image(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """删除图片"""
+    image = await session.get(GeneratedImage, image_id)
+    if not image:
+        raise ResourceNotFoundError("图片", f"ID={image_id}")
+    await _ensure_novel_project_owner(session, str(image.project_id), desktop_user.id)
+
     service = ImageGenerationService(session)
     success = await service.delete_image(image_id)
     if not success:
@@ -358,6 +385,11 @@ async def toggle_image_selection(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """切换图片选中状态"""
+    image = await session.get(GeneratedImage, image_id)
+    if not image:
+        raise ResourceNotFoundError("图片", f"ID={image_id}")
+    await _ensure_novel_project_owner(session, str(image.project_id), desktop_user.id)
+
     service = ImageGenerationService(session)
     success = await service.toggle_image_selection(image_id, selected)
     if not success:
@@ -375,6 +407,7 @@ async def export_images_to_pdf(
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """导出图片为PDF"""
+    await _ensure_novel_project_owner(session, request.project_id, desktop_user.id)
     service = PDFExportService(session)
     result = await service.export_images_to_pdf(request)
     return result
@@ -400,6 +433,7 @@ async def generate_chapter_manga_pdf(
     """
     if request is None:
         request = ChapterMangaPDFRequest()
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     service = PDFExportService(session)
 
     # Bug 21 修复: 根据layout参数选择导出模式
@@ -419,9 +453,11 @@ async def generate_chapter_manga_pdf(
 async def get_latest_chapter_manga_pdf(
     project_id: str,
     chapter_number: int,
+    session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取章节最新的漫画PDF（如果存在）"""
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     export_dir = settings.exports_dir
 
     if not export_dir.exists():
@@ -461,9 +497,17 @@ async def get_latest_chapter_manga_pdf(
 @router.get("/export/download/{file_name}")
 async def download_export_file(
     file_name: str,
+    session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ):
     """下载导出的PDF文件"""
+    match = _EXPORT_PDF_PROJECT_RE.match(file_name)
+    if not match:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    project_id = match.group("project_id")
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
+
     export_dir = settings.exports_dir
     file_path = export_dir / file_name
 
@@ -573,8 +617,11 @@ async def get_image_file(
     chapter_number: int,
     scene_id: int,
     file_name: str,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
 ):
     """获取图片文件"""
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
     file_path = get_images_root() / project_id / f"chapter_{chapter_number}" / f"scene_{scene_id}" / file_name
 
     if not file_path.exists():
@@ -589,6 +636,8 @@ async def get_image_file(
 @router.get("/files/{image_path:path}")
 async def get_image_by_path(
     image_path: str,
+    session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
 ):
     """
     通过相对路径获取图片文件
@@ -599,7 +648,13 @@ async def get_image_by_path(
     if ".." in image_path:
         raise HTTPException(status_code=400, detail="非法路径")
 
-    file_path = get_images_root() / image_path
+    normalized = image_path.replace("\\", "/").lstrip("/")
+    project_id = normalized.split("/", 1)[0].strip()
+    if not project_id:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    await _ensure_novel_project_owner(session, project_id, desktop_user.id)
+
+    file_path = get_images_root() / normalized
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="图片不存在")

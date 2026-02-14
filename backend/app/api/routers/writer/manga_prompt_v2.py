@@ -27,6 +27,7 @@ from ....services.manga_prompt import (
 )
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
+from ....services.novel_service import NovelService
 from ....repositories.chapter_repository import ChapterRepository
 from ....repositories.character_portrait_repository import CharacterPortraitRepository
 
@@ -190,6 +191,9 @@ async def generate_manga_prompts(
         f"pages={request.min_pages}-{request.max_pages}, force_restart={request.force_restart}"
     )
 
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
+
     # 创建服务
     service = MangaPromptServiceV2(
         session=session,
@@ -314,6 +318,9 @@ async def get_manga_prompts(
     Returns:
         已保存的漫画分镜结果
     """
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
+
     # 直接使用 repository 获取原始数据（包含 analysis_data）
     chapter_repo = ChapterRepository(session)
     chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
@@ -361,6 +368,9 @@ async def delete_manga_prompts(
     """
     logger.info(f"删除漫画分镜: project={project_id}, chapter={chapter_number}")
 
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
+
     service = MangaPromptServiceV2(
         session=session,
         llm_service=llm_service,
@@ -383,6 +393,7 @@ async def cancel_manga_prompt_generation(
     project_id: str,
     chapter_number: int,
     session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """
     取消漫画分镜生成
@@ -397,6 +408,9 @@ async def cancel_manga_prompt_generation(
         取消结果
     """
     from ....repositories.manga_prompt_repository import MangaPromptRepository
+
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
 
     chapter_repo = ChapterRepository(session)
     chapter = await chapter_repo.get_by_project_and_number(project_id, chapter_number)
@@ -431,6 +445,7 @@ async def get_manga_prompt_progress(
     project_id: str,
     chapter_number: int,
     session: AsyncSession = Depends(get_session),
+    desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
     """
     获取漫画分镜生成进度
@@ -443,6 +458,9 @@ async def get_manga_prompt_progress(
         进度信息
     """
     from ....repositories.manga_prompt_repository import MangaPromptRepository
+
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
 
     # 直接查询数据库获取状态
     chapter_repo = ChapterRepository(session)

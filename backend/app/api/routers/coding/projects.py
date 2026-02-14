@@ -66,7 +66,7 @@ async def create_coding_project(
     )
     await session.commit()
 
-    return await service.get_project_schema(project.id)
+    return await service.get_project_schema(project.id, user.id)
 
 
 @router.get("/coding/{project_id}", response_model=CodingProjectResponse)

@@ -125,7 +125,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 # CORS 配置：桌面版仅允许本地访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:*", "http://127.0.0.1:*"],
+    # CORSMiddleware 的 allow_origins 仅做“字符串全匹配”，不支持 `http://localhost:*` 这种写法；
+    # 这里用 allow_origin_regex 允许任意本地端口，兼容 start_web.py 动态端口与开发环境的代理/预览。
+    allow_origins=[],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -22,6 +22,7 @@ from ....schemas.user import UserInDB
 from ....services.content_optimization.schemas import OptimizeContentRequest
 from ....services.content_optimization.service import ContentOptimizationService
 from ....services.content_optimization.session_manager import get_session_manager
+from ....services.novel_service import NovelService
 from ....services.llm_service import LLMService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
@@ -83,6 +84,9 @@ async def optimize_chapter_content(
         chapter_number,
     )
 
+    # 多用户数据隔离：确保项目归属当前用户
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
+
     service = ContentOptimizationService(
         session=session,
         llm_service=llm_service,
@@ -123,6 +127,9 @@ async def preview_paragraphs(
         - total_paragraphs: 总段落数
         - paragraphs: 段落列表，每项包含 index, preview, length
     """
+    # 多用户数据隔离：确保项目归属当前用户（即使本接口不读取DB内容，也保持一致的权限边界）
+    await NovelService(session).ensure_project_owner(project_id, desktop_user.id)
+
     service = ContentOptimizationService(
         session=session,
         llm_service=llm_service,
@@ -172,6 +179,12 @@ async def continue_optimization_session(
         logger.info("收到新内容，长度: %d", len(content))
 
     session_manager = get_session_manager()
+    session_obj = session_manager.get_session(session_id)
+    if not session_obj:
+        raise HTTPException(status_code=404, detail=f"会话不存在或已结束: {session_id}")
+    if int(getattr(session_obj, "user_id", 0) or 0) != int(desktop_user.id):
+        raise HTTPException(status_code=403, detail="无权访问该会话")
+
     success = session_manager.resume_session(session_id, content=content)
 
     if success:
@@ -202,6 +215,12 @@ async def cancel_optimization_session(
     logger.info("用户 %s 请求取消会话 %s", desktop_user.id, session_id)
 
     session_manager = get_session_manager()
+    session_obj = session_manager.get_session(session_id)
+    if not session_obj:
+        raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+    if int(getattr(session_obj, "user_id", 0) or 0) != int(desktop_user.id):
+        raise HTTPException(status_code=403, detail="无权访问该会话")
+
     success = session_manager.cancel_session(session_id)
 
     if success:
@@ -235,6 +254,9 @@ async def get_optimization_session(
             status_code=404,
             detail=f"会话不存在: {session_id}"
         )
+
+    if int(getattr(session, "user_id", 0) or 0) != int(desktop_user.id):
+        raise HTTPException(status_code=403, detail="无权访问该会话")
 
     return {
         "session_id": session.session_id,

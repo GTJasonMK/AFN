@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ...core.dependencies import require_admin_user
 from .settings_models import ConfigImportResult
-from .settings_utils import load_config, save_config
+from .settings_utils import persist_config_updates
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -81,27 +81,39 @@ async def import_queue_config(import_data: dict) -> ConfigImportResult:
 
         # 更新LLM队列并发数
         if "llm_max_concurrent" in config_data:
-            value = config_data["llm_max_concurrent"]
-            if 1 <= value <= 10:
+            raw_value = config_data["llm_max_concurrent"]
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                value = None
+
+            if value is not None and 1 <= value <= 10:
                 llm_queue.set_max_concurrent(value)
                 details.append(f"LLM队列并发数已更新为 {value}")
             else:
-                details.append(f"LLM队列并发数 {value} 超出范围(1-10)，已跳过")
+                details.append(f"LLM队列并发数 {raw_value} 超出范围(1-10)，已跳过")
 
         # 更新图片队列并发数
         if "image_max_concurrent" in config_data:
-            value = config_data["image_max_concurrent"]
-            if 1 <= value <= 10:
+            raw_value = config_data["image_max_concurrent"]
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                value = None
+
+            if value is not None and 1 <= value <= 10:
                 image_queue.set_max_concurrent(value)
                 details.append(f"图片队列并发数已更新为 {value}")
             else:
-                details.append(f"图片队列并发数 {value} 超出范围(1-10)，已跳过")
+                details.append(f"图片队列并发数 {raw_value} 超出范围(1-10)，已跳过")
 
         # 持久化到config.json
-        current_config = load_config()
-        current_config["llm_max_concurrent"] = llm_queue.max_concurrent
-        current_config["image_max_concurrent"] = image_queue.max_concurrent
-        save_config(current_config)
+        persist_config_updates(
+            {
+                "llm_max_concurrent": llm_queue.max_concurrent,
+                "image_max_concurrent": image_queue.max_concurrent,
+            }
+        )
 
         return ConfigImportResult(success=True, message="队列配置导入成功", details=details)
 

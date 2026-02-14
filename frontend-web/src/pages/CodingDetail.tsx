@@ -1,8 +1,6 @@
-import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { codingApi, CodingDependency, CodingFilePriority, CodingModule, CodingSystem } from '../api/coding';
-import { DirectoryTree } from '../components/coding/DirectoryTree';
-import { Editor } from '../components/business/Editor'; // Reuse Editor for now
 import { FileCode, GitBranch, RefreshCw, Wand2, Sparkles, Database, Search, Layout } from 'lucide-react';
 import { BookButton } from '../components/ui/BookButton';
 import { useSSE } from '../hooks/useSSE';
@@ -12,8 +10,17 @@ import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
 
+const DirectoryTreeLazy = lazy(() =>
+  import('../components/coding/DirectoryTree').then((m) => ({ default: m.DirectoryTree }))
+);
+const EditorLazy = lazy(() =>
+  import('../components/business/Editor').then((m) => ({ default: m.Editor }))
+);
+
 // 照抄桌面端 coding_detail/mixins/tab_manager.py 的Tab配置
 type CodingTab = 'overview' | 'architecture' | 'directory' | 'generation';
+
+const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
 
 export const CodingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -69,6 +76,30 @@ export const CodingDetail: React.FC = () => {
   const [selectedDirectory, setSelectedDirectory] = useState<any>(null);
   const [currentFile, setCurrentFile] = useState<any>(null);
   const [content, setContent] = useState('');
+  const fileTokensRef = useRef<string[]>([]);
+  const fileTokenFlushTimerRef = useRef<number | null>(null);
+  const resetFileTokenBuffer = useCallback(() => {
+    fileTokensRef.current = [];
+    if (fileTokenFlushTimerRef.current !== null) {
+      window.clearTimeout(fileTokenFlushTimerRef.current);
+      fileTokenFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushFileTokens = useCallback(() => {
+    if (fileTokensRef.current.length === 0) return;
+    const text = fileTokensRef.current.join('');
+    fileTokensRef.current = [];
+    setContent((prev) => prev + text);
+  }, []);
+
+  const scheduleFileTokenFlush = useCallback(() => {
+    if (fileTokenFlushTimerRef.current !== null) return;
+    fileTokenFlushTimerRef.current = window.setTimeout(() => {
+      fileTokenFlushTimerRef.current = null;
+      flushFileTokens();
+    }, 48);
+  }, [flushFileTokens]);
   const [versions, setVersions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -163,12 +194,8 @@ export const CodingDetail: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!id) return;
     try {
-      const [proj, tree] = await Promise.all([
-        codingApi.get(id),
-        codingApi.getDirectoryTree(id)
-      ]);
+      const proj = await codingApi.get(id);
       setProject(proj);
-      setTreeData(tree);
     } catch (e) {
       console.error(e);
     } finally {
@@ -319,12 +346,15 @@ export const CodingDetail: React.FC = () => {
     if (activeTab === 'architecture') {
       Promise.allSettled([refreshSystems(), refreshModules()]);
     }
-    // 目录结构Tab只需要目录树（已在loadData中加载）
+    // 目录结构Tab只在进入时加载目录树（减少详情页首屏阻塞）
+    if (activeTab === 'directory' && treeData === null) {
+      refreshTreeData();
+    }
     // 生成管理Tab需要RAG和依赖数据
     if (activeTab === 'generation') {
       Promise.allSettled([refreshModules(), refreshDependencies(), refreshRagCompleteness()]);
     }
-  }, [activeTab, id, refreshDependencies, refreshModules, refreshRagCompleteness, refreshSystems]);
+  }, [activeTab, id, refreshDependencies, refreshModules, refreshRagCompleteness, refreshSystems, refreshTreeData, treeData]);
 
   const sortedSystemNumbers = useMemo(() => {
     return [...new Set(systems.map((s) => Number(s.system_number || 0)).filter((n) => n > 0))].sort((a, b) => a - b);
@@ -334,6 +364,18 @@ export const CodingDetail: React.FC = () => {
     if (!currentFile) return '';
     return String((currentFile as any).content ?? (currentFile as any).description ?? '// 暂无内容');
   }, [currentFile]);
+
+  const editorVersions = useMemo(() => {
+    const fileId = typeof (currentFile as any)?.id === 'number' ? Number((currentFile as any).id) : null;
+    return versions.map((v, idx) => ({
+      id: String(v.id),
+      chapter_id: String(v.file_id ?? fileId ?? ''),
+      version_label: v.version_label || ('v' + (idx + 1)),
+      content: v.content,
+      created_at: v.created_at || DEFAULT_VERSION_CREATED_AT,
+      provider: v.provider || 'local',
+    }));
+  }, [currentFile, versions]);
 
   const isCurrentFileDirty = useMemo(() => {
     if (!currentFile) return false;
@@ -746,6 +788,7 @@ export const CodingDetail: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!id || !currentFile) return;
+    resetFileTokenBuffer();
     setIsGenerating(true);
     setContent('');
     await connectFileStream(codingApi.generateFilePromptStream(id, currentFile.id), {});
@@ -808,10 +851,13 @@ export const CodingDetail: React.FC = () => {
 
   const { connect: connectFileStream, disconnect: disconnectFileStream } = useSSE((event, data) => {
     if (event === 'token' && data?.token) {
-      setContent((prev) => prev + data.token);
+      fileTokensRef.current.push(String(data.token));
+      scheduleFileTokenFlush();
       return;
     }
     if (event === 'complete') {
+      flushFileTokens();
+      resetFileTokenBuffer();
       setIsGenerating(false);
       addToast('生成完成', 'success');
       if (id && currentFile?.id) {
@@ -820,14 +866,19 @@ export const CodingDetail: React.FC = () => {
       return;
     }
     if (event === 'error') {
+      flushFileTokens();
+      resetFileTokenBuffer();
       setIsGenerating(false);
       addToast(data?.message || '生成失败', 'error');
     }
   });
 
   useEffect(() => {
-    return () => disconnectFileStream();
-  }, [disconnectFileStream]);
+    return () => {
+      disconnectFileStream();
+      resetFileTokenBuffer();
+    };
+  }, [disconnectFileStream, resetFileTokenBuffer]);
 
   if (loading) return <div className="flex h-screen items-center justify-center">加载中...</div>;
 
@@ -1206,7 +1257,7 @@ export const CodingDetail: React.FC = () => {
                 >
                   折叠全部
                 </BookButton>
-                <BookButton size="sm" variant="ghost" onClick={loadData} disabled={loading}>
+                <BookButton size="sm" variant="ghost" onClick={refreshTreeData} disabled={loading}>
                   <RefreshCw size={16} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
                   刷新
                 </BookButton>
@@ -1220,13 +1271,15 @@ export const CodingDetail: React.FC = () => {
                 </div>
               ) : (
                 <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-                  <DirectoryTree
-                    data={treeData}
-                    onSelectFile={handleSelectFile}
-                    onSelectDirectory={setSelectedDirectory}
-                    expandAllToken={treeExpandAllToken}
-                    collapseAllToken={treeCollapseAllToken}
-                  />
+                  <Suspense fallback={<div className="py-6 text-xs text-book-text-muted">目录树加载中…</div>}>
+                    <DirectoryTreeLazy
+                      data={treeData}
+                      onSelectFile={handleSelectFile}
+                      onSelectDirectory={setSelectedDirectory}
+                      expandAllToken={treeExpandAllToken}
+                      collapseAllToken={treeCollapseAllToken}
+                    />
+                  </Suspense>
                 </div>
               )}
             </BookCard>
@@ -1278,24 +1331,19 @@ export const CodingDetail: React.FC = () => {
                     </BookButton>
                   </div>
                 </div>
-                <Editor
-                  content={content}
-                  versions={versions.map((v, idx) => ({
-                    id: String(v.id),
-                    chapter_id: String(v.file_id ?? currentFile.id),
-                    version_label: v.version_label || `v${idx + 1}`,
-                    content: v.content,
-                    created_at: v.created_at || new Date().toISOString(),
-                    provider: v.provider || 'local',
-                  }))}
-                  isDirty={isCurrentFileDirty}
-                  isSaving={isSaving}
-                  isGenerating={isGenerating}
-                  onChange={setContent}
-                  onSave={handleSave}
-                  onGenerate={handleGenerate}
-                  onSelectVersion={handleSelectVersion}
-                />
+                <Suspense fallback={<div className="py-6 text-xs text-book-text-muted">编辑器加载中…</div>}>
+                  <EditorLazy
+                    content={content}
+                    versions={editorVersions}
+                    isDirty={isCurrentFileDirty}
+                    isSaving={isSaving}
+                    isGenerating={isGenerating}
+                    onChange={setContent}
+                    onSave={handleSave}
+                    onGenerate={handleGenerate}
+                    onSelectVersion={handleSelectVersion}
+                  />
+                </Suspense>
               </BookCard>
             )}
           </div>

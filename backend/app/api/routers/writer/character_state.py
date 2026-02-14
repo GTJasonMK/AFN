@@ -13,8 +13,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.dependencies import get_default_user
 from ....db.session import get_session
+from ....schemas.user import UserInDB
 from ....services.incremental_indexer import IncrementalIndexer
+from ....services.novel_service import NovelService
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +70,11 @@ async def get_chapter_character_states(
     chapter_number: int,
     character_name: Optional[str] = Query(default=None, description="可选：指定角色名筛选"),
     session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_default_user),
 ):
     """获取指定章节的角色状态"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+
     indexer = IncrementalIndexer(session)
     states = await indexer.get_character_state_at_chapter(
         project_id=project_id,
@@ -95,8 +101,11 @@ async def get_character_timeline(
     from_chapter: int = Query(default=1, ge=1, description="起始章节"),
     to_chapter: Optional[int] = Query(default=None, ge=1, description="结束章节（不指定则到最新）"),
     session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_default_user),
 ):
     """获取角色的状态时间线"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+
     indexer = IncrementalIndexer(session)
     timeline = await indexer.get_character_timeline(
         project_id=project_id,
@@ -120,10 +129,13 @@ async def get_character_timeline(
 async def list_tracked_characters(
     project_id: str,
     session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_default_user),
 ):
     """获取所有有状态记录的角色列表"""
     from sqlalchemy import select, distinct
     from ....models.novel import CharacterStateIndex
+
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
 
     stmt = select(distinct(CharacterStateIndex.character_name)).where(
         CharacterStateIndex.project_id == project_id

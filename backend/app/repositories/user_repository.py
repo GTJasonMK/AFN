@@ -67,7 +67,8 @@ class UserRepository(BaseRepository[User]):
         self,
         username: str,
         hashed_password: str,
-        is_active: bool = True
+        is_active: bool = True,
+        is_admin: bool = False
     ) -> User:
         """
         创建新用户
@@ -76,6 +77,7 @@ class UserRepository(BaseRepository[User]):
             username: 用户名
             hashed_password: 哈希后的密码
             is_active: 是否激活
+            is_admin: 是否管理员
 
         Returns:
             创建的用户实例
@@ -83,6 +85,7 @@ class UserRepository(BaseRepository[User]):
         user = User(
             username=username,
             hashed_password=hashed_password,
-            is_active=is_active
+            is_active=is_active,
+            is_admin=is_admin
         )
         return await self.add(user)

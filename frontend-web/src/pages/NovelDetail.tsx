@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { novelsApi } from '../api/novels';
 import { writerApi } from '../api/writer';
@@ -9,14 +9,73 @@ import { Play, Sparkles, RefreshCw, Map as MapIcon, Users, FileText, Share, Plus
 import { useToast } from '../components/feedback/Toast';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { Modal } from '../components/ui/Modal';
-import { OutlineEditModal } from '../components/business/OutlineEditModal';
-import { BatchGenerateModal } from '../components/business/BatchGenerateModal';
-import { CharacterPortraitGallery } from '../components/business/CharacterPortraitGallery';
-import { ProtagonistProfilesModal } from '../components/business/ProtagonistProfilesModal';
-import { PartOutlineGenerateModal } from '../components/business/PartOutlineGenerateModal';
-import { PartOutlineDetailModal } from '../components/business/PartOutlineDetailModal';
+import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+
+const OutlineEditModalLazy = lazy(() =>
+  import('../components/business/OutlineEditModal').then((m) => ({ default: m.OutlineEditModal }))
+);
+const BatchGenerateModalLazy = lazy(() =>
+  import('../components/business/BatchGenerateModal').then((m) => ({ default: m.BatchGenerateModal }))
+);
+const CharacterPortraitGalleryLazy = lazy(() =>
+  import('../components/business/CharacterPortraitGallery').then((m) => ({ default: m.CharacterPortraitGallery }))
+);
+const ProtagonistProfilesModalLazy = lazy(() =>
+  import('../components/business/ProtagonistProfilesModal').then((m) => ({ default: m.ProtagonistProfilesModal }))
+);
+const PartOutlineGenerateModalLazy = lazy(() =>
+  import('../components/business/PartOutlineGenerateModal').then((m) => ({ default: m.PartOutlineGenerateModal }))
+);
+const PartOutlineDetailModalLazy = lazy(() =>
+  import('../components/business/PartOutlineDetailModal').then((m) => ({ default: m.PartOutlineDetailModal }))
+);
 
 type Tab = 'overview' | 'world' | 'characters' | 'relationships' | 'outlines' | 'chapters';
+
+type NovelDetailBootstrapSnapshot = {
+  project: any;
+};
+
+const INITIAL_CHARACTERS_RENDER_LIMIT = 24;
+const CHARACTERS_RENDER_BATCH_SIZE = 24;
+const INITIAL_RELATIONSHIPS_RENDER_LIMIT = 24;
+const RELATIONSHIPS_RENDER_BATCH_SIZE = 24;
+const INITIAL_CHAPTER_OUTLINES_RENDER_LIMIT = 40;
+const CHAPTER_OUTLINES_RENDER_BATCH_SIZE = 40;
+const INITIAL_PART_OUTLINES_RENDER_LIMIT = 20;
+const PART_OUTLINES_RENDER_BATCH_SIZE = 20;
+const INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT = 120;
+const COMPLETED_CHAPTERS_RENDER_BATCH_SIZE = 120;
+const NOVEL_DETAIL_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
+
+const getNovelDetailBootstrapKey = (projectId: string) => `afn:web:novel-detail:${projectId}:bootstrap:v1`;
+
+const lowerBound = (list: number[], target: number): number => {
+  let left = 0;
+  let right = list.length;
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    if (list[mid] < target) left = mid + 1;
+    else right = mid;
+  }
+
+  return left;
+};
+
+const upperBound = (list: number[], target: number): number => {
+  let left = 0;
+  let right = list.length;
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    if (list[mid] <= target) left = mid + 1;
+    else right = mid;
+  }
+
+  return left;
+};
 
 const sanitizeFilenamePart = (raw: string) => {
   // Windows 不允许的文件名字符：<>:"/\\|?* + 控制字符
@@ -159,6 +218,12 @@ export const NovelDetail: React.FC = () => {
   const [selectedCompletedChapter, setSelectedCompletedChapter] = useState<any | null>(null);
   const [selectedCompletedChapterLoading, setSelectedCompletedChapterLoading] = useState(false);
 
+  const [charactersRenderLimit, setCharactersRenderLimit] = useState(INITIAL_CHARACTERS_RENDER_LIMIT);
+  const [relationshipsRenderLimit, setRelationshipsRenderLimit] = useState(INITIAL_RELATIONSHIPS_RENDER_LIMIT);
+  const [chapterOutlinesRenderLimit, setChapterOutlinesRenderLimit] = useState(INITIAL_CHAPTER_OUTLINES_RENDER_LIMIT);
+  const [partOutlinesRenderLimit, setPartOutlinesRenderLimit] = useState(INITIAL_PART_OUTLINES_RENDER_LIMIT);
+  const [completedChaptersRenderLimit, setCompletedChaptersRenderLimit] = useState(INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT);
+
   // 章节导入（TXT/MD，支持 utf-8/gb18030）
   const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
   const [importChapterNumber, setImportChapterNumber] = useState<number>(1);
@@ -277,28 +342,38 @@ export const NovelDetail: React.FC = () => {
     return [...completed].sort((a, b) => Number(a?.chapter_number || 0) - Number(b?.chapter_number || 0));
   }, [project]);
 
+  const deferredChaptersSearch = useDeferredValue(chaptersSearch);
+
   const filteredCompletedChapters = useMemo(() => {
-    const q = String(chaptersSearch || '').trim();
+    const q = String(deferredChaptersSearch || '').trim().toLowerCase();
     if (!q) return completedChapters;
+
     return completedChapters.filter((c: any) => {
-      const n = String(c?.chapter_number || '');
-      const title = String(c?.title || '');
+      const n = String(c?.chapter_number || '').toLowerCase();
+      const title = String(c?.title || '').toLowerCase();
       return n.includes(q) || title.includes(q) || `第${n}章`.includes(q);
     });
-  }, [chaptersSearch, completedChapters]);
+  }, [completedChapters, deferredChaptersSearch]);
+
+  const charactersList = useMemo(() => {
+    return Array.isArray(blueprintData?.characters) ? blueprintData.characters : [];
+  }, [blueprintData]);
+
+  const relationshipsList = useMemo(() => {
+    return Array.isArray(blueprintData?.relationships) ? blueprintData.relationships : [];
+  }, [blueprintData]);
 
   const characterNames = useMemo(() => {
-    const list = Array.isArray(blueprintData?.characters) ? blueprintData.characters : [];
     const set = new Set<string>();
-    list.forEach((c: any) => {
+    charactersList.forEach((c: any) => {
       const name = String(c?.name || '').trim();
       if (name) set.add(name);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-  }, [blueprintData]);
+  }, [charactersList]);
 
   const characterProfiles = useMemo(() => {
-    const list = Array.isArray(blueprintData?.characters) ? blueprintData.characters : [];
+    const list = charactersList;
     const map: Record<string, string> = {};
     for (const c of list) {
       const name = String((c as any)?.name || '').trim();
@@ -344,7 +419,48 @@ export const NovelDetail: React.FC = () => {
       if (desc) map[name] = desc.length > 600 ? desc.slice(0, 600) : desc;
     }
     return map;
-  }, [blueprintData]);
+  }, [charactersList]);
+
+  const chapterOutlineNumbers = useMemo(() => {
+    return chapterOutlines
+      .map((outline: any) => Number(outline?.chapter_number || 0))
+      .filter((num: number) => Number.isFinite(num) && num > 0);
+  }, [chapterOutlines]);
+
+  const countOutlinesInRange = useCallback((startChapter: number, endChapter: number) => {
+    if (!Number.isFinite(startChapter) || !Number.isFinite(endChapter)) return 0;
+    if (endChapter < startChapter) return 0;
+
+    const startIndex = lowerBound(chapterOutlineNumbers, Math.max(1, Math.floor(startChapter)));
+    const endIndex = upperBound(chapterOutlineNumbers, Math.floor(endChapter));
+    return Math.max(0, endIndex - startIndex);
+  }, [chapterOutlineNumbers]);
+
+  const visibleCharacters = useMemo(() => {
+    return charactersList.slice(0, charactersRenderLimit);
+  }, [charactersList, charactersRenderLimit]);
+
+  const visibleRelationships = useMemo(() => {
+    return relationshipsList.slice(0, relationshipsRenderLimit);
+  }, [relationshipsList, relationshipsRenderLimit]);
+
+  const visibleChapterOutlines = useMemo(() => {
+    return chapterOutlines.slice(0, chapterOutlinesRenderLimit);
+  }, [chapterOutlines, chapterOutlinesRenderLimit]);
+
+  const visiblePartOutlines = useMemo(() => {
+    return partOutlines.slice(0, partOutlinesRenderLimit);
+  }, [partOutlines, partOutlinesRenderLimit]);
+
+  const visibleCompletedChapters = useMemo(() => {
+    return filteredCompletedChapters.slice(0, completedChaptersRenderLimit);
+  }, [filteredCompletedChapters, completedChaptersRenderLimit]);
+
+  const remainingCharacters = Math.max(0, charactersList.length - visibleCharacters.length);
+  const remainingRelationships = Math.max(0, relationshipsList.length - visibleRelationships.length);
+  const remainingChapterOutlines = Math.max(0, chapterOutlines.length - visibleChapterOutlines.length);
+  const remainingPartOutlines = Math.max(0, partOutlines.length - visiblePartOutlines.length);
+  const remainingCompletedChapters = Math.max(0, filteredCompletedChapters.length - visibleCompletedChapters.length);
 
   const latestChapterNumber = useMemo(() => {
     const fromDb = Array.isArray(project?.chapters)
@@ -557,46 +673,66 @@ export const NovelDetail: React.FC = () => {
     setWorldSettingDraft(JSON.stringify(next, null, 2));
   }, [worldSettingObj]);
 
+  const applyProjectPayload = useCallback((data: any) => {
+    setProject(data);
+    if (data?.blueprint) {
+      setBlueprintData(data.blueprint);
+      const raw = data.blueprint.world_setting;
+      let ws: any = raw;
+      if (typeof raw === 'string') {
+        try {
+          ws = JSON.parse(raw);
+        } catch {
+          ws = { text: raw };
+        }
+      }
+      if (!ws || typeof ws !== 'object' || Array.isArray(ws)) ws = {};
+      const pretty = JSON.stringify(ws, null, 2);
+      setWorldSettingDraft(pretty);
+      setSavedWorldSettingDraft(pretty);
+      setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot(data.blueprint));
+    } else {
+      setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot({}));
+      setSavedWorldSettingDraft('{}');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    const cached = readBootstrapCache<NovelDetailBootstrapSnapshot>(
+      getNovelDetailBootstrapKey(id),
+      NOVEL_DETAIL_BOOTSTRAP_TTL_MS,
+    );
+    if (!cached?.project) {
+      setProject(null);
+      setLoading(true);
+      return;
+    }
+    applyProjectPayload(cached.project);
+    setLoading(false);
+  }, [applyProjectPayload, id]);
+
   const fetchProject = useCallback(async () => {
     try {
       const data = await novelsApi.get(id!);
-      setProject(data);
-      if (data.blueprint) {
-        setBlueprintData(data.blueprint);
+      applyProjectPayload(data);
+      writeBootstrapCache<NovelDetailBootstrapSnapshot>(getNovelDetailBootstrapKey(id!), { project: data });
 
-        // 世界观字段在后端是 Dict（JSON），这里统一用 JSON 文本编辑，保存时再解析回对象
-        const raw = data.blueprint.world_setting;
-        let ws: any = raw;
-        if (typeof raw === 'string') {
-          try {
-            ws = JSON.parse(raw);
-          } catch {
-            ws = { text: raw };
-          }
-        }
-        if (!ws || typeof ws !== 'object' || Array.isArray(ws)) ws = {};
-        const pretty = JSON.stringify(ws, null, 2);
-        setWorldSettingDraft(pretty);
-        setSavedWorldSettingDraft(pretty);
-        setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot(data.blueprint));
-      } else {
-        // 无蓝图时也初始化基线，避免误判“未保存”
-        setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot({}));
-        setSavedWorldSettingDraft('{}');
-      }
-
-      // 导入小说：同步拉取分析进度
+      // 导入小说：进度查询延后到空闲阶段，避免阻塞详情首屏
       if (data.is_imported) {
         setImportStatusLoading(true);
-        try {
-          const status = await novelsApi.getImportAnalysisStatus(id!);
-          setImportStatus(status);
-        } catch (e) {
-          console.error(e);
-          setImportStatus(null);
-        } finally {
-          setImportStatusLoading(false);
-        }
+        scheduleIdleTask(() => {
+          void novelsApi
+            .getImportAnalysisStatus(id!)
+            .then((status) => setImportStatus(status))
+            .catch((e) => {
+              console.error(e);
+              setImportStatus(null);
+            })
+            .finally(() => {
+              setImportStatusLoading(false);
+            });
+        }, { delay: 120, timeout: 2200 });
       } else {
         setImportStatus(null);
       }
@@ -605,7 +741,7 @@ export const NovelDetail: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [applyProjectPayload, id]);
 
   const fetchProjectButton = useCallback(async () => {
     if (isBlueprintDirty) {
@@ -1142,6 +1278,38 @@ export const NovelDetail: React.FC = () => {
       fetchPartProgress();
     }
   }, [id, activeTab, fetchPartProgress]);
+
+  useEffect(() => {
+    setCharactersRenderLimit(INITIAL_CHARACTERS_RENDER_LIMIT);
+    setRelationshipsRenderLimit(INITIAL_RELATIONSHIPS_RENDER_LIMIT);
+    setChapterOutlinesRenderLimit(INITIAL_CHAPTER_OUTLINES_RENDER_LIMIT);
+    setPartOutlinesRenderLimit(INITIAL_PART_OUTLINES_RENDER_LIMIT);
+    setCompletedChaptersRenderLimit(INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT);
+  }, [id]);
+
+  useEffect(() => {
+    if (activeTab === 'characters') {
+      setCharactersRenderLimit(INITIAL_CHARACTERS_RENDER_LIMIT);
+      return;
+    }
+    if (activeTab === 'relationships') {
+      setRelationshipsRenderLimit(INITIAL_RELATIONSHIPS_RENDER_LIMIT);
+      return;
+    }
+    if (activeTab === 'outlines') {
+      setChapterOutlinesRenderLimit(INITIAL_CHAPTER_OUTLINES_RENDER_LIMIT);
+      setPartOutlinesRenderLimit(INITIAL_PART_OUTLINES_RENDER_LIMIT);
+      return;
+    }
+    if (activeTab === 'chapters') {
+      setCompletedChaptersRenderLimit(INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'chapters') return;
+    setCompletedChaptersRenderLimit(INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT);
+  }, [activeTab, deferredChaptersSearch]);
 
   // 章节导入：按编码解码文件内容（避免 Windows TXT 因编码不同出现乱码）
   useEffect(() => {
@@ -1780,7 +1948,7 @@ export const NovelDetail: React.FC = () => {
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif font-bold text-lg text-book-text-main">
-                  主要角色 ({Array.isArray(blueprintData.characters) ? blueprintData.characters.length : 0})
+                  主要角色 ({charactersList.length})
                 </h3>
                 <div className="flex items-center gap-1 bg-book-bg-paper rounded-lg border border-book-border/40 p-1">
                   <button
@@ -1810,42 +1978,62 @@ export const NovelDetail: React.FC = () => {
             </div>
 
             {charactersView === 'portraits' ? (
-              <CharacterPortraitGallery projectId={id!} characterNames={characterNames} characterProfiles={characterProfiles} />
+              <Suspense fallback={<div className="text-sm text-book-text-muted">角色立绘加载中…</div>}>
+                <CharacterPortraitGalleryLazy
+                  projectId={id!}
+                  characterNames={characterNames}
+                  characterProfiles={characterProfiles}
+                />
+              </Suspense>
             ) : (
               <>
-                {Array.isArray(blueprintData.characters) && blueprintData.characters.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {blueprintData.characters.map((char: any, idx: number) => (
-                      <BookCard key={idx} className="p-5 hover:shadow-md transition-shadow group relative">
-                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                          <button onClick={() => handleEditChar(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-book-primary">
-                            <FileText size={14} />
-                          </button>
-                          <button onClick={() => handleDeleteChar(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-red-500">
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                        
-                        <div className="flex justify-between items-start mb-3 border-b border-book-border/30 pb-2">
-                          <h4 className="font-serif font-bold text-lg text-book-text-main truncate">{char.name || '（未命名）'}</h4>
-                          {char.identity ? (
-                            <span className="text-xs bg-book-bg px-2 py-1 rounded text-book-text-sub">{char.identity}</span>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2 text-sm text-book-text-secondary">
-                          {char.personality ? (
-                            <p className="line-clamp-2"><span className="font-bold text-book-text-muted">性格：</span>{char.personality}</p>
-                          ) : null}
-                          {char.goal ? (
-                            <p className="line-clamp-2"><span className="font-bold text-book-text-muted">目标：</span>{char.goal}</p>
-                          ) : null}
-                          {char.ability ? (
-                            <p className="line-clamp-2"><span className="font-bold text-book-text-muted">能力：</span>{char.ability}</p>
-                          ) : null}
-                        </div>
-                      </BookCard>
-                    ))}
-                  </div>
+                {charactersList.length > 0 ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {visibleCharacters.map((char: any, idx: number) => (
+                        <BookCard key={idx} className="p-5 hover:shadow-md transition-shadow group relative">
+                          <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <button onClick={() => handleEditChar(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-book-primary">
+                              <FileText size={14} />
+                            </button>
+                            <button onClick={() => handleDeleteChar(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-red-500">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+
+                          <div className="flex justify-between items-start mb-3 border-b border-book-border/30 pb-2">
+                            <h4 className="font-serif font-bold text-lg text-book-text-main truncate">{char.name || '（未命名）'}</h4>
+                            {char.identity ? (
+                              <span className="text-xs bg-book-bg px-2 py-1 rounded text-book-text-sub">{char.identity}</span>
+                            ) : null}
+                          </div>
+                          <div className="space-y-2 text-sm text-book-text-secondary">
+                            {char.personality ? (
+                              <p className="line-clamp-2"><span className="font-bold text-book-text-muted">性格：</span>{char.personality}</p>
+                            ) : null}
+                            {char.goal ? (
+                              <p className="line-clamp-2"><span className="font-bold text-book-text-muted">目标：</span>{char.goal}</p>
+                            ) : null}
+                            {char.ability ? (
+                              <p className="line-clamp-2"><span className="font-bold text-book-text-muted">能力：</span>{char.ability}</p>
+                            ) : null}
+                          </div>
+                        </BookCard>
+                      ))}
+                    </div>
+
+                    {remainingCharacters > 0 ? (
+                      <div className="flex justify-center">
+                        <BookButton
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCharactersRenderLimit((prev) => prev + CHARACTERS_RENDER_BATCH_SIZE)}
+                        >
+                          加载更多角色（剩余 {remainingCharacters}）
+                        </BookButton>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
                     <Users size={48} className="mx-auto mb-4 opacity-50" />
@@ -1861,37 +2049,51 @@ export const NovelDetail: React.FC = () => {
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-serif font-bold text-lg text-book-text-main">
-                关系网 ({Array.isArray(blueprintData.relationships) ? blueprintData.relationships.length : 0})
+                关系网 ({relationshipsList.length})
               </h3>
               <BookButton size="sm" onClick={handleAddRel}>
                 <Plus size={16} className="mr-1" /> 添加关系
               </BookButton>
             </div>
 
-            {Array.isArray(blueprintData.relationships) && blueprintData.relationships.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {blueprintData.relationships.map((rel: any, idx: number) => (
-                  <BookCard key={idx} className="p-5 hover:shadow-md transition-shadow group relative">
-                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                      <button onClick={() => handleEditRel(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-book-primary">
-                        <FileText size={14} />
-                      </button>
-                      <button onClick={() => handleDeleteRel(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-red-500">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+            {relationshipsList.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {visibleRelationships.map((rel: any, idx: number) => (
+                    <BookCard key={idx} className="p-5 hover:shadow-md transition-shadow group relative">
+                      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                        <button onClick={() => handleEditRel(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-book-primary">
+                          <FileText size={14} />
+                        </button>
+                        <button onClick={() => handleDeleteRel(idx)} className="p-1.5 rounded-full bg-book-bg hover:text-red-500">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
 
-                    <div className="flex items-center gap-2 font-bold text-book-text-main">
-                      <span className="truncate">{rel.character_from}</span>
-                      <span className="text-book-text-muted">→</span>
-                      <span className="truncate">{rel.character_to}</span>
-                    </div>
-                    <div className="mt-2 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-                      {rel.description || '（无描述）'}
-                    </div>
-                  </BookCard>
-                ))}
-              </div>
+                      <div className="flex items-center gap-2 font-bold text-book-text-main">
+                        <span className="truncate">{rel.character_from}</span>
+                        <span className="text-book-text-muted">→</span>
+                        <span className="truncate">{rel.character_to}</span>
+                      </div>
+                      <div className="mt-2 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
+                        {rel.description || '（无描述）'}
+                      </div>
+                    </BookCard>
+                  ))}
+                </div>
+
+                {remainingRelationships > 0 ? (
+                  <div className="flex justify-center">
+                    <BookButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setRelationshipsRenderLimit((prev) => prev + RELATIONSHIPS_RENDER_BATCH_SIZE)}
+                    >
+                      加载更多关系（剩余 {remainingRelationships}）
+                    </BookButton>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
                 <Link2 size={48} className="mx-auto mb-4 opacity-50" />
@@ -1957,81 +2159,95 @@ export const NovelDetail: React.FC = () => {
               </div>
 
               {chapterOutlines.length ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {chapterOutlines.map((o: any) => {
-                    const chapterNumber = Number(o.chapter_number);
-                    const ch = chaptersByNumber.get(chapterNumber);
-                    const status = String(ch?.generation_status || 'not_generated');
-                    const isCompleted = status === 'successful' || status === 'completed';
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {visibleChapterOutlines.map((o: any) => {
+                      const chapterNumber = Number(o.chapter_number);
+                      const ch = chaptersByNumber.get(chapterNumber);
+                      const status = String(ch?.generation_status || 'not_generated');
+                      const isCompleted = status === 'successful' || status === 'completed';
 
-                    return (
-                      <BookCard
-                        key={chapterNumber}
-                        className="p-5 hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => safeNavigate(`/write/${id}?chapter=${chapterNumber}`)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="font-serif font-bold text-book-text-main truncate">
-                                第{chapterNumber}章：{o.title || '（未命名）'}
+                      return (
+                        <BookCard
+                          key={chapterNumber}
+                          className="p-5 hover:shadow-md transition-shadow cursor-pointer"
+                          onClick={() => safeNavigate(`/write/${id}?chapter=${chapterNumber}`)}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div className="font-serif font-bold text-book-text-main truncate">
+                                  第{chapterNumber}章：{o.title || '（未命名）'}
+                                </div>
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                    isCompleted
+                                      ? 'bg-green-500/10 text-green-700 border-green-500/20'
+                                      : 'bg-book-bg text-book-text-muted border-book-border/40'
+                                  }`}
+                                >
+                                  {isCompleted ? '已生成' : '仅大纲'}
+                                </span>
                               </div>
-                              <span
-                                className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                                  isCompleted
-                                    ? 'bg-green-500/10 text-green-700 border-green-500/20'
-                                    : 'bg-book-bg text-book-text-muted border-book-border/40'
-                                }`}
+                              <div className="text-xs text-book-text-muted mt-1">
+                                {ch?.word_count ? `字数 ${ch.word_count} · ` : ''}
+                                状态 {status}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openOutlineEditor(o);
+                                }}
+                                className="text-xs text-book-primary font-bold hover:underline"
+                                title="编辑章节标题/摘要"
                               >
-                                {isCompleted ? '已生成' : '仅大纲'}
-                              </span>
-                            </div>
-                            <div className="text-xs text-book-text-muted mt-1">
-                              {ch?.word_count ? `字数 ${ch.word_count} · ` : ''}
-                              状态 {status}
+                                编辑
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRegenerateOutline(chapterNumber);
+                                }}
+                                className="text-xs text-book-accent font-bold hover:underline"
+                                title="重生成该章大纲（遵循串行生成原则：非最后一章将级联删除后续大纲）"
+                              >
+                                重生成
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  safeNavigate(`/write/${id}?chapter=${chapterNumber}`);
+                                }}
+                                className="text-xs text-book-text-sub font-bold hover:underline"
+                                title="打开写作台并定位章节"
+                              >
+                                打开
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openOutlineEditor(o);
-                              }}
-                              className="text-xs text-book-primary font-bold hover:underline"
-                              title="编辑章节标题/摘要"
-                            >
-                              编辑
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRegenerateOutline(chapterNumber);
-                              }}
-                              className="text-xs text-book-accent font-bold hover:underline"
-                              title="重生成该章大纲（遵循串行生成原则：非最后一章将级联删除后续大纲）"
-                            >
-                              重生成
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                safeNavigate(`/write/${id}?chapter=${chapterNumber}`);
-                              }}
-                              className="text-xs text-book-text-sub font-bold hover:underline"
-                              title="打开写作台并定位章节"
-                            >
-                              打开
-                            </button>
-                          </div>
-                        </div>
 
-                        <div className="mt-3 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed line-clamp-5">
-                          {o.summary || '（暂无摘要）'}
-                        </div>
-                      </BookCard>
-                    );
-                  })}
-                </div>
+                          <div className="mt-3 text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed line-clamp-5">
+                            {o.summary || '（暂无摘要）'}
+                          </div>
+                        </BookCard>
+                      );
+                    })}
+                  </div>
+
+                  {remainingChapterOutlines > 0 ? (
+                    <div className="flex justify-center">
+                      <BookButton
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setChapterOutlinesRenderLimit((prev) => prev + CHAPTER_OUTLINES_RENDER_BATCH_SIZE)}
+                      >
+                        加载更多章节大纲（剩余 {remainingChapterOutlines}）
+                      </BookButton>
+                    </div>
+                  ) : null}
+                </>
               ) : (
                 <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
                   <Share size={48} className="mx-auto mb-4 opacity-50" />
@@ -2123,7 +2339,7 @@ export const NovelDetail: React.FC = () => {
               ) : partOutlines.length ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-sm text-book-text-muted">
-                    <span>进度：{partProgress.completed_parts}/{partProgress.total_parts}</span>
+                    <span>进度：{partProgress?.completed_parts ?? 0}/{partProgress?.total_parts ?? partOutlines.length}</span>
                     <button
                       onClick={() => safeNavigate(`/write/${id}`)}
                       className="text-book-primary hover:text-book-primary-light transition-colors font-bold"
@@ -2132,15 +2348,12 @@ export const NovelDetail: React.FC = () => {
                     </button>
                   </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {partOutlines.map((p: any) => {
+                    {visiblePartOutlines.map((p: any) => {
                       const start = Number(p.start_chapter || 0);
                       const end = Number(p.end_chapter || 0);
                       const totalChaptersInPart = start > 0 && end >= start ? end - start + 1 : 0;
                       const outlinesInPart = totalChaptersInPart > 0
-                        ? chapterOutlines.filter((o: any) => {
-                            const n = Number(o?.chapter_number || 0);
-                            return n >= start && n <= end;
-                          }).length
+                        ? countOutlinesInRange(start, end)
                         : 0;
 
                       return (
@@ -2212,6 +2425,18 @@ export const NovelDetail: React.FC = () => {
                       );
                     })}
                   </div>
+
+                  {remainingPartOutlines > 0 ? (
+                    <div className="flex justify-center">
+                      <BookButton
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setPartOutlinesRenderLimit((prev) => prev + PART_OUTLINES_RENDER_BATCH_SIZE)}
+                      >
+                        加载更多部分大纲（剩余 {remainingPartOutlines}）
+                      </BookButton>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="text-center py-20 text-book-text-muted bg-book-bg-paper rounded-lg border border-book-border/30">
@@ -2249,7 +2474,7 @@ export const NovelDetail: React.FC = () => {
 	                  </div>
 
 	                  <div className="space-y-1 max-h-[calc(100vh-260px)] overflow-y-auto custom-scrollbar pr-1">
-	                    {filteredCompletedChapters.map((c: any) => {
+	                    {visibleCompletedChapters.map((c: any) => {
 	                      const no = Number(c?.chapter_number || 0);
 	                      const title = String(c?.title || '').trim();
 	                      const isSelected = Number(selectedCompletedChapterNumber || 0) === no;
@@ -2278,7 +2503,19 @@ export const NovelDetail: React.FC = () => {
 	                        </button>
 	                      );
 	                    })}
-	                  </div>
+
+		                  {remainingCompletedChapters > 0 ? (
+		                    <div className="pt-2 flex justify-center">
+		                      <BookButton
+		                        size="sm"
+		                        variant="ghost"
+		                        onClick={() => setCompletedChaptersRenderLimit((prev) => prev + COMPLETED_CHAPTERS_RENDER_BATCH_SIZE)}
+		                      >
+		                        加载更多章节（剩余 {remainingCompletedChapters}）
+		                      </BookButton>
+		                    </div>
+		                  ) : null}
+		                </div>
 	                </BookCard>
 
 	                <BookCard className="p-6">
@@ -2703,52 +2940,72 @@ export const NovelDetail: React.FC = () => {
       </Modal>
 
       {/* Chapter Outline Modals */}
-      <OutlineEditModal
-        isOpen={isOutlineModalOpen}
-        onClose={() => setIsOutlineModalOpen(false)}
-        chapter={editingChapter}
-        projectId={id!}
-        onSuccess={() => {
-          fetchProject();
-        }}
-      />
+      {isOutlineModalOpen ? (
+        <Suspense fallback={null}>
+          <OutlineEditModalLazy
+            isOpen={isOutlineModalOpen}
+            onClose={() => setIsOutlineModalOpen(false)}
+            chapter={editingChapter}
+            projectId={id!}
+            onSuccess={() => {
+              fetchProject();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
-      <BatchGenerateModal
-        isOpen={isBatchModalOpen}
-        onClose={() => setIsBatchModalOpen(false)}
-        projectId={id!}
-        onSuccess={() => {
-          fetchProject();
-        }}
-      />
+      {isBatchModalOpen ? (
+        <Suspense fallback={null}>
+          <BatchGenerateModalLazy
+            isOpen={isBatchModalOpen}
+            onClose={() => setIsBatchModalOpen(false)}
+            projectId={id!}
+            onSuccess={() => {
+              fetchProject();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
-      <ProtagonistProfilesModal
-        isOpen={isProtagonistModalOpen}
-        onClose={() => setIsProtagonistModalOpen(false)}
-        projectId={id!}
-        currentChapterNumber={latestChapterNumber}
-      />
+      {isProtagonistModalOpen ? (
+        <Suspense fallback={null}>
+          <ProtagonistProfilesModalLazy
+            isOpen={isProtagonistModalOpen}
+            onClose={() => setIsProtagonistModalOpen(false)}
+            projectId={id!}
+            currentChapterNumber={latestChapterNumber}
+          />
+        </Suspense>
+      ) : null}
 
-      <PartOutlineGenerateModal
-        isOpen={isPartGenerateModalOpen}
-        onClose={() => setIsPartGenerateModalOpen(false)}
-        projectId={id!}
-        mode={partGenerateMode}
-        totalChapters={Math.max(10, partTotalChapters || 10)}
-        defaultChaptersPerPart={Number(blueprintData?.chapters_per_part || 25) || 25}
-        currentCoveredChapters={partCoveredChapters || undefined}
-        currentPartsCount={partOutlines.length || undefined}
-        onSuccess={async () => {
-          await fetchProject();
-          await fetchPartProgress();
-        }}
-      />
+      {isPartGenerateModalOpen ? (
+        <Suspense fallback={null}>
+          <PartOutlineGenerateModalLazy
+            isOpen={isPartGenerateModalOpen}
+            onClose={() => setIsPartGenerateModalOpen(false)}
+            projectId={id!}
+            mode={partGenerateMode}
+            totalChapters={Math.max(10, partTotalChapters || 10)}
+            defaultChaptersPerPart={Number(blueprintData?.chapters_per_part || 25) || 25}
+            currentCoveredChapters={partCoveredChapters || undefined}
+            currentPartsCount={partOutlines.length || undefined}
+            onSuccess={async () => {
+              await fetchProject();
+              await fetchPartProgress();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
-      <PartOutlineDetailModal
-        isOpen={Boolean(detailPart)}
-        onClose={() => setDetailPart(null)}
-        part={detailPart}
-      />
+      {detailPart ? (
+        <Suspense fallback={null}>
+          <PartOutlineDetailModalLazy
+            isOpen={Boolean(detailPart)}
+            onClose={() => setDetailPart(null)}
+            part={detailPart}
+          />
+        </Suspense>
+      ) : null}
 
       <Modal
         isOpen={isDeleteLatestPartsModalOpen}

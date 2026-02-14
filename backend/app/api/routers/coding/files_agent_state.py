@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.dependencies import get_default_user
+from ....core.dependencies import get_coding_project_service, get_default_user
 from ....db.session import get_session
 from ....schemas.user import UserInDB
 from ....repositories.coding_files_repository import CodingAgentStateRepository
+from ....services.coding import CodingProjectService
 from .files_dependencies import DIRECTORY_AGENT_TYPE
 
 router = APIRouter()
@@ -40,6 +41,7 @@ class PauseAgentRequest(BaseModel):
 @router.get("/coding/{project_id}/directories/agent-state")
 async def get_directory_agent_state(
     project_id: str,
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> AgentStateResponse:
@@ -48,6 +50,8 @@ async def get_directory_agent_state(
 
     用于检查是否有可恢复的暂停状态。
     """
+    await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
+
     state_repo = CodingAgentStateRepository(session)
     state = await state_repo.get_paused(project_id, DIRECTORY_AGENT_TYPE)
 
@@ -70,6 +74,7 @@ async def get_directory_agent_state(
 async def pause_directory_agent(
     project_id: str,
     request: PauseAgentRequest,
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
@@ -78,6 +83,8 @@ async def pause_directory_agent(
 
     保存当前状态以便后续恢复。
     """
+    await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
+
     state_repo = CodingAgentStateRepository(session)
 
     # 获取当前运行中的状态
@@ -105,6 +112,7 @@ async def pause_directory_agent(
 @router.delete("/coding/{project_id}/directories/agent-state")
 async def clear_directory_agent_state(
     project_id: str,
+    coding_project_service: CodingProjectService = Depends(get_coding_project_service),
     session: AsyncSession = Depends(get_session),
     desktop_user: UserInDB = Depends(get_default_user),
 ) -> dict:
@@ -113,6 +121,8 @@ async def clear_directory_agent_state(
 
     用于放弃暂停的状态，重新开始。
     """
+    await coding_project_service.ensure_project_owner(project_id, desktop_user.id)
+
     state_repo = CodingAgentStateRepository(session)
     deleted = await state_repo.delete_state(project_id, DIRECTORY_AGENT_TYPE)
     await session.commit()
@@ -124,4 +134,3 @@ async def clear_directory_agent_state(
 
 
 __all__ = ["router"]
-

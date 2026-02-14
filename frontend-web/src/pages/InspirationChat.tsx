@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Send, ArrowLeft, Bot, User, Sparkles, Wand2 } from 'lucide-react';
 import { useSSE } from '../hooks/useSSE';
@@ -36,6 +36,51 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const [conversationState, setConversationState] = useState<any>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const completionHintShownRef = useRef(false);
+  const pendingChunkRef = useRef('');
+  const chunkFlushTimerRef = useRef<number | null>(null);
+  const isStreamingRef = useRef(false);
+  const messageIdSeqRef = useRef(0);
+
+  const nextMessageId = useCallback(() => {
+    messageIdSeqRef.current = (messageIdSeqRef.current + 1) % 1000;
+    return Date.now() * 1000 + messageIdSeqRef.current;
+  }, []);
+
+  const flushPendingChunks = useCallback(() => {
+    const chunk = pendingChunkRef.current;
+    if (!chunk) return;
+
+    pendingChunkRef.current = '';
+    setMessages((prev) => {
+      const lastIdx = prev.length - 1;
+      if (lastIdx < 0) return prev;
+      const last = prev[lastIdx];
+      if (!last?.isStreaming) return prev;
+
+      const next = [...prev];
+      next[lastIdx] = { ...last, content: String(last.content || "") + chunk };
+      return next;
+    });
+  }, []);
+
+  const scheduleChunkFlush = useCallback(() => {
+    if (chunkFlushTimerRef.current !== null) return;
+
+    chunkFlushTimerRef.current = window.setTimeout(() => {
+      chunkFlushTimerRef.current = null;
+      flushPendingChunks();
+    }, 48);
+  }, [flushPendingChunks]);
+
+  useEffect(() => {
+    return () => {
+      pendingChunkRef.current = "";
+      if (chunkFlushTimerRef.current !== null) {
+        window.clearTimeout(chunkFlushTimerRef.current);
+        chunkFlushTimerRef.current = null;
+      }
+    };
+  }, []);
   
   // Load chat history
   useEffect(() => {
@@ -59,7 +104,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
               : "你好！我是AFN需求分析助手。\n\n请告诉我你想要构建什么样的系统，我会帮你分析需求并设计项目架构。";
           setMessages([
             {
-              id: Date.now(),
+              id: nextMessageId(),
               role: 'assistant',
               content: welcome,
             },
@@ -73,67 +118,116 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       };
       loadHistory().catch((e) => console.error(e));
     }
-  }, [id, mode]);
+  }, [id, mode, nextMessageId]);
 
-  // Scroll to bottom
+  // Scroll to bottom（流式输出时使用 auto，降低滚动抖动）
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const node = messagesEndRef.current;
+    if (!node) return;
+
+    node.scrollIntoView({
+      behavior: isStreamingRef.current ? "auto" : "smooth",
+      block: "end",
+    });
   }, [messages]);
 
-  const handleEvent = (event: string, data: any) => {
+  const handleEvent = useCallback((event: string, data: any) => {
     if (event === 'streaming_start') {
+      isStreamingRef.current = true;
+      pendingChunkRef.current = '';
+      if (chunkFlushTimerRef.current !== null) {
+        window.clearTimeout(chunkFlushTimerRef.current);
+        chunkFlushTimerRef.current = null;
+      }
+
       setIsTyping(true);
       setOptions([]);
-      setMessages(prev => [...prev, {
-        id: Date.now(),
-        role: 'assistant',
-        content: '',
-        isStreaming: true
-      }]);
-    } else if (event === 'ai_message_chunk') {
-      setMessages(prev => {
-        const lastIdx = prev.length - 1;
-        if (lastIdx >= 0 && prev[lastIdx].isStreaming) {
-          return prev.map((msg, idx) =>
-            idx === lastIdx ? { ...msg, content: msg.content + data.text } : msg
-          );
-        }
-        return prev;
-      });
-    } else if (event === 'option') {
-      setOptions(prev => [...prev, data.option]);
-    } else if (event === 'complete') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextMessageId(),
+          role: 'assistant',
+          content: '',
+          isStreaming: true,
+        },
+      ]);
+      return;
+    }
+
+    if (event === 'ai_message_chunk') {
+      const chunk = String(data?.text || '');
+      if (!chunk) return;
+      pendingChunkRef.current += chunk;
+      scheduleChunkFlush();
+      return;
+    }
+
+    if (event === 'option') {
+      setOptions((prev) => [...prev, data.option]);
+      return;
+    }
+
+    if (event === 'complete') {
+      if (chunkFlushTimerRef.current !== null) {
+        window.clearTimeout(chunkFlushTimerRef.current);
+        chunkFlushTimerRef.current = null;
+      }
+      flushPendingChunks();
+
+      isStreamingRef.current = false;
       setIsTyping(false);
       if (data?.conversation_state) setConversationState(data.conversation_state);
+
       const readyForBlueprint = Boolean(data?.ready_for_blueprint);
       if (readyForBlueprint) setShowBlueprintBtn(true);
       const shouldAddHint = mode === 'coding' && readyForBlueprint && !completionHintShownRef.current;
       if (shouldAddHint) completionHintShownRef.current = true;
-      setMessages(prev => {
+
+      setMessages((prev) => {
         const lastIdx = prev.length - 1;
         let next = prev;
-        if (lastIdx >= 0 && next[lastIdx].isStreaming) {
-          next = next.map((msg, idx) =>
-            idx === lastIdx ? { ...msg, isStreaming: false } : msg
-          );
+
+        if (lastIdx >= 0 && prev[lastIdx]?.isStreaming) {
+          next = [...prev];
+          next[lastIdx] = { ...prev[lastIdx], isStreaming: false };
         }
+
         if (shouldAddHint) {
-          next = [
+          return [
             ...next,
             {
-              id: Date.now(),
+              id: nextMessageId(),
               role: 'assistant',
               content: '需求分析已完成！点击右上角「生成架构设计」按钮，开始生成项目架构。',
             },
           ];
         }
+
         return next;
       });
-    } else if (event === 'error') {
+      return;
+    }
+
+    if (event === 'error') {
+      if (chunkFlushTimerRef.current !== null) {
+        window.clearTimeout(chunkFlushTimerRef.current);
+        chunkFlushTimerRef.current = null;
+      }
+      flushPendingChunks();
+
+      isStreamingRef.current = false;
       setIsTyping(false);
+      setMessages((prev) => {
+        const lastIdx = prev.length - 1;
+        if (lastIdx < 0 || !prev[lastIdx]?.isStreaming) return prev;
+        const next = [...prev];
+        next[lastIdx] = { ...prev[lastIdx], isStreaming: false };
+        return next;
+      });
+
       console.error("SSE Error:", data);
     }
-  };
+  }, [flushPendingChunks, mode, nextMessageId, scheduleChunkFlush]);
 
   const { connect } = useSSE(handleEvent);
 
@@ -143,7 +237,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     if (!trimmed) return;
 
     const userMsg: Message = {
-      id: Date.now(),
+      id: nextMessageId(),
       role: 'user',
       content: trimmed
     };

@@ -1,19 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { BookInput } from '../ui/BookInput';
 import { BookButton } from '../ui/BookButton';
 import { settingsApi, AdvancedConfig } from '../../api/settings';
 import { useToast } from '../feedback/Toast';
-import { LLMConfigsTab } from './settings/LLMConfigsTab';
-import { EmbeddingConfigsTab } from './settings/EmbeddingConfigsTab';
-import { ImageConfigsTab } from './settings/ImageConfigsTab';
-import { ThemeTab } from './settings/ThemeTab';
-import { QueueTab } from './settings/QueueTab';
-import { PromptsTab } from './settings/PromptsTab';
-import { MaxTokensTab } from './settings/MaxTokensTab';
-import { TemperatureTab } from './settings/TemperatureTab';
-import { ImportExportTab } from './settings/ImportExportTab';
 import { isAdminUser, useAuthStore } from '../../store/auth';
+
+const LLMConfigsTab = lazy(() =>
+  import('./settings/LLMConfigsTab').then((module) => ({ default: module.LLMConfigsTab }))
+);
+const EmbeddingConfigsTab = lazy(() =>
+  import('./settings/EmbeddingConfigsTab').then((module) => ({ default: module.EmbeddingConfigsTab }))
+);
+const ImageConfigsTab = lazy(() =>
+  import('./settings/ImageConfigsTab').then((module) => ({ default: module.ImageConfigsTab }))
+);
+const ThemeTab = lazy(() =>
+  import('./settings/ThemeTab').then((module) => ({ default: module.ThemeTab }))
+);
+const QueueTab = lazy(() =>
+  import('./settings/QueueTab').then((module) => ({ default: module.QueueTab }))
+);
+const PromptsTab = lazy(() =>
+  import('./settings/PromptsTab').then((module) => ({ default: module.PromptsTab }))
+);
+const MaxTokensTab = lazy(() =>
+  import('./settings/MaxTokensTab').then((module) => ({ default: module.MaxTokensTab }))
+);
+const TemperatureTab = lazy(() =>
+  import('./settings/TemperatureTab').then((module) => ({ default: module.TemperatureTab }))
+);
+const ImportExportTab = lazy(() =>
+  import('./settings/ImportExportTab').then((module) => ({ default: module.ImportExportTab }))
+);
+
+const SettingsTabLoading: React.FC = () => (
+  <div className="flex items-center justify-center py-10 text-sm text-book-text-muted">面板加载中…</div>
+);
+
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -34,6 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [loading, setLoading] = useState(false);
   const { addToast } = useToast();
   const { authEnabled, user, logout, changePassword } = useAuthStore();
+  const navigate = useNavigate();
   const isAdmin = isAdminUser(authEnabled, user);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -55,7 +81,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleSave = async () => {
     if (authEnabled && !isAdmin) {
-      addToast('需要管理员权限（desktop_user）才能修改全局设置', 'error');
+      addToast('需要管理员权限才能修改全局设置', 'error');
       return;
     }
     setLoading(true);
@@ -239,9 +265,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 space-y-2">
                       <div>当前账号：<span className="font-mono">{user?.username || '未知'}</span></div>
                       <div className="text-[11px] text-book-text-muted">
-                        管理员默认账户：<span className="font-mono">desktop_user</span> / <span className="font-mono">desktop</span>
+                        内置管理员账号：<span className="font-mono">desktop_user</span>（密码可在管理后台重置/在此处修改）
                       </div>
                       <div className="flex gap-2 justify-end">
+                        {isAdmin ? (
+                          <BookButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              onClose();
+                              navigate('/admin/overview');
+                            }}
+                          >
+                            管理后台
+                          </BookButton>
+                        ) : null}
                         <BookButton
                           variant="ghost"
                           size="sm"
@@ -260,8 +298,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
-                      当前处于单用户模式（无需登录）。登录是否启用由部署配置决定（不在此处修改）。
+                    <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 space-y-2">
+                      <div>当前处于单用户模式（无需登录）。登录是否启用由部署配置决定（不在此处修改）。</div>
+                      {isAdmin ? (
+                        <div className="flex justify-end">
+                          <BookButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              onClose();
+                              navigate('/admin/overview');
+                            }}
+                          >
+                            管理后台
+                          </BookButton>
+                        </div>
+                      ) : null}
                     </div>
                   )}
 
@@ -357,15 +409,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           )}
 
-          {activeTab === 'llm' && <LLMConfigsTab />}
-          {activeTab === 'embedding' && <EmbeddingConfigsTab />}
-          {activeTab === 'queue' && <QueueTab />}
-          {activeTab === 'image' && <ImageConfigsTab />}
-          {activeTab === 'theme' && <ThemeTab />}
-          {activeTab === 'prompts' && <PromptsTab />}
-          {activeTab === 'maxTokens' && <MaxTokensTab />}
-          {activeTab === 'temperature' && <TemperatureTab />}
-          {activeTab === 'io' && <ImportExportTab />}
+          <Suspense fallback={<SettingsTabLoading />}>
+            {activeTab === 'llm' && <LLMConfigsTab />}
+            {activeTab === 'embedding' && <EmbeddingConfigsTab />}
+            {activeTab === 'queue' && <QueueTab />}
+            {activeTab === 'image' && <ImageConfigsTab />}
+            {activeTab === 'theme' && <ThemeTab />}
+            {activeTab === 'prompts' && <PromptsTab />}
+            {activeTab === 'maxTokens' && <MaxTokensTab />}
+            {activeTab === 'temperature' && <TemperatureTab />}
+            {activeTab === 'io' && <ImportExportTab />}
+          </Suspense>
         </div>
       </div>
     </Modal>

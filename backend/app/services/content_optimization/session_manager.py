@@ -22,6 +22,7 @@ class OptimizationSession:
     session_id: str
     project_id: str
     chapter_number: int
+    user_id: int
     created_at: datetime = field(default_factory=datetime.now)
 
     # 暂停控制
@@ -76,6 +77,7 @@ class OptimizationSessionManager:
         self,
         project_id: str,
         chapter_number: int,
+        user_id: int,
     ) -> OptimizationSession:
         """
         创建新的优化会话
@@ -92,6 +94,7 @@ class OptimizationSessionManager:
             session_id=session_id,
             project_id=project_id,
             chapter_number=chapter_number,
+            user_id=int(user_id),
         )
         self._sessions[session_id] = session
 
