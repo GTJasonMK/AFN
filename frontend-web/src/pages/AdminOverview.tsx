@@ -9,6 +9,7 @@ import { AdminBarListChart, AdminDonutChart, AdminStackedProgress, AdminTrendCha
 import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 const emptyData: AdminOverviewResponse = {
   summary: {
@@ -28,6 +29,14 @@ const emptyData: AdminOverviewResponse = {
   generated_at: '',
 };
 
+type AdminOverviewBootstrapSnapshot = {
+  data: AdminOverviewResponse;
+  trendData: AdminDashboardTrendsResponse | null;
+};
+
+const ADMIN_OVERVIEW_BOOTSTRAP_KEY = 'afn:web:admin:overview:bootstrap:v1';
+const ADMIN_OVERVIEW_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
+
 const formatDate = (value?: string | null): string => {
   if (!value) return '—';
   const date = new Date(value);
@@ -45,9 +54,17 @@ const ratePercent = (numerator: number, denominator: number): number => {
 export const AdminOverview: React.FC = () => {
   const { authEnabled, user } = useAuthStore();
   const isAdmin = isAdminUser(authEnabled, user);
+  const initialCacheRef = React.useRef<AdminOverviewBootstrapSnapshot | null>(
+    readBootstrapCache<AdminOverviewBootstrapSnapshot>(
+      ADMIN_OVERVIEW_BOOTSTRAP_KEY,
+      ADMIN_OVERVIEW_BOOTSTRAP_TTL_MS,
+    ),
+  );
 
-  const [data, setData] = useState<AdminOverviewResponse>(emptyData);
-  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(null);
+  const [data, setData] = useState<AdminOverviewResponse>(() => initialCacheRef.current?.data ?? emptyData);
+  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(
+    () => initialCacheRef.current?.trendData ?? null
+  );
   const [trendMode, setTrendMode] = useState<'line' | 'bar'>('line');
   const [loading, setLoading] = useState(false);
 
@@ -74,6 +91,14 @@ export const AdminOverview: React.FC = () => {
     if (!isAdmin) return;
     fetchData();
   }, [fetchData, isAdmin]);
+
+  useEffect(() => {
+    if (!data.generated_at && !trendData) return;
+    writeBootstrapCache<AdminOverviewBootstrapSnapshot>(ADMIN_OVERVIEW_BOOTSTRAP_KEY, {
+      data,
+      trendData,
+    });
+  }, [data, trendData]);
 
   const configTotal =
     data.summary.total_llm_configs +

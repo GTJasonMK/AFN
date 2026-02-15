@@ -11,6 +11,7 @@ import { AdminBarListChart, AdminDonutChart, AdminStackedProgress, AdminTrendCha
 import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 type ConfigTypeFilter = 'all' | 'llm' | 'embedding' | 'image' | 'theme';
 type TestStatusFilter = 'all' | 'success' | 'failed' | 'pending' | 'untested';
@@ -26,6 +27,14 @@ const emptyData: AdminConfigsResponse = {
   test_status_distribution: [],
   generated_at: '',
 };
+
+type AdminConfigsBootstrapSnapshot = {
+  data: AdminConfigsResponse;
+  trendData: AdminDashboardTrendsResponse | null;
+};
+
+const ADMIN_CONFIGS_BOOTSTRAP_KEY = 'afn:web:admin:configs:bootstrap:v1';
+const ADMIN_CONFIGS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
 
 const formatDate = (value?: string | null): string => {
   if (!value) return '—';
@@ -73,10 +82,18 @@ const formatPercent = (numerator: number, denominator: number): number => {
 export const AdminConfigs: React.FC = () => {
   const { addToast } = useToast();
   const { authEnabled, user } = useAuthStore();
+  const initialCacheRef = React.useRef<AdminConfigsBootstrapSnapshot | null>(
+    readBootstrapCache<AdminConfigsBootstrapSnapshot>(
+      ADMIN_CONFIGS_BOOTSTRAP_KEY,
+      ADMIN_CONFIGS_BOOTSTRAP_TTL_MS,
+    ),
+  );
   const isAdmin = isAdminUser(authEnabled, user);
 
-  const [data, setData] = useState<AdminConfigsResponse>(emptyData);
-  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(null);
+  const [data, setData] = useState<AdminConfigsResponse>(() => initialCacheRef.current?.data ?? emptyData);
+  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(
+    () => initialCacheRef.current?.trendData ?? null
+  );
   const [trendMode, setTrendMode] = useState<'line' | 'bar'>('line');
   const [loading, setLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState<ConfigTypeFilter>('all');
@@ -108,6 +125,14 @@ export const AdminConfigs: React.FC = () => {
     if (!isAdmin) return;
     fetchData();
   }, [fetchData, isAdmin]);
+
+  useEffect(() => {
+    if (!data.generated_at && !trendData) return;
+    writeBootstrapCache<AdminConfigsBootstrapSnapshot>(ADMIN_CONFIGS_BOOTSTRAP_KEY, {
+      data,
+      trendData,
+    });
+  }, [data, trendData]);
 
   const statusStats = useMemo(() => {
     const stats: Record<TestStatusFilter, number> = {

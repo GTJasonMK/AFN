@@ -14,6 +14,7 @@ import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { extractApiErrorMessage } from '../api/client';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type SortMode = 'lastActivity' | 'projects' | 'username';
@@ -48,14 +49,35 @@ const emptySummary: AdminUsersMonitorSummary = {
   total_theme_configs: 0,
 };
 
+type AdminUsersBootstrapSnapshot = {
+  users: AdminUserMonitorItem[];
+  summary: AdminUsersMonitorSummary;
+  trendData: AdminDashboardTrendsResponse | null;
+};
+
+const ADMIN_USERS_BOOTSTRAP_KEY = 'afn:web:admin:users:bootstrap:v1';
+const ADMIN_USERS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
+
 export const AdminUsers: React.FC = () => {
   const { addToast } = useToast();
   const { authEnabled, user } = useAuthStore();
+  const initialCacheRef = React.useRef<AdminUsersBootstrapSnapshot | null>(
+    readBootstrapCache<AdminUsersBootstrapSnapshot>(
+      ADMIN_USERS_BOOTSTRAP_KEY,
+      ADMIN_USERS_BOOTSTRAP_TTL_MS,
+    ),
+  );
 
   const isAdmin = isAdminUser(authEnabled, user);
-  const [users, setUsers] = useState<AdminUserMonitorItem[]>([]);
-  const [summary, setSummary] = useState<AdminUsersMonitorSummary>(emptySummary);
-  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(null);
+  const [users, setUsers] = useState<AdminUserMonitorItem[]>(
+    () => initialCacheRef.current?.users ?? []
+  );
+  const [summary, setSummary] = useState<AdminUsersMonitorSummary>(
+    () => initialCacheRef.current?.summary ?? emptySummary
+  );
+  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(
+    () => initialCacheRef.current?.trendData ?? null
+  );
   const [trendMode, setTrendMode] = useState<'line' | 'bar'>('line');
 
   const [loading, setLoading] = useState(false);
@@ -104,6 +126,16 @@ export const AdminUsers: React.FC = () => {
     if (!isAdmin) return;
     fetchUsers();
   }, [fetchUsers, isAdmin]);
+
+  useEffect(() => {
+    const hasSummary = Number(summary.total_users || 0) > 0 || Number(summary.total_projects || 0) > 0;
+    if (!trendData && users.length === 0 && !hasSummary) return;
+    writeBootstrapCache<AdminUsersBootstrapSnapshot>(ADMIN_USERS_BOOTSTRAP_KEY, {
+      users,
+      summary,
+      trendData,
+    });
+  }, [summary, trendData, users]);
 
   const filteredUsers = useMemo(() => {
     const keyword = deferredSearchKeyword.trim().toLowerCase();

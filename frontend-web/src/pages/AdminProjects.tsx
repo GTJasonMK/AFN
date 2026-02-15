@@ -11,6 +11,7 @@ import { AdminBarListChart, AdminDonutChart, AdminStackedProgress, AdminTrendCha
 import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 type KindFilter = 'all' | 'novel' | 'coding';
 type SortMode = 'updated_desc' | 'updated_asc' | 'title' | 'username';
@@ -27,6 +28,14 @@ const emptyData: AdminProjectsResponse = {
   coding_status_distribution: [],
   generated_at: '',
 };
+
+type AdminProjectsBootstrapSnapshot = {
+  data: AdminProjectsResponse;
+  trendData: AdminDashboardTrendsResponse | null;
+};
+
+const ADMIN_PROJECTS_BOOTSTRAP_KEY = 'afn:web:admin:projects:bootstrap:v1';
+const ADMIN_PROJECTS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
 
 const formatDate = (value?: string | null): string => {
   if (!value) return '—';
@@ -57,10 +66,18 @@ const formatPercent = (numerator: number, denominator: number): number => {
 export const AdminProjects: React.FC = () => {
   const { addToast } = useToast();
   const { authEnabled, user } = useAuthStore();
+  const initialCacheRef = React.useRef<AdminProjectsBootstrapSnapshot | null>(
+    readBootstrapCache<AdminProjectsBootstrapSnapshot>(
+      ADMIN_PROJECTS_BOOTSTRAP_KEY,
+      ADMIN_PROJECTS_BOOTSTRAP_TTL_MS,
+    ),
+  );
   const isAdmin = isAdminUser(authEnabled, user);
 
-  const [data, setData] = useState<AdminProjectsResponse>(emptyData);
-  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(null);
+  const [data, setData] = useState<AdminProjectsResponse>(() => initialCacheRef.current?.data ?? emptyData);
+  const [trendData, setTrendData] = useState<AdminDashboardTrendsResponse | null>(
+    () => initialCacheRef.current?.trendData ?? null
+  );
   const [trendMode, setTrendMode] = useState<'line' | 'bar'>('line');
   const [loading, setLoading] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
@@ -95,6 +112,14 @@ export const AdminProjects: React.FC = () => {
     if (!isAdmin) return;
     fetchData();
   }, [fetchData, isAdmin]);
+
+  useEffect(() => {
+    if (!data.generated_at && !trendData) return;
+    writeBootstrapCache<AdminProjectsBootstrapSnapshot>(ADMIN_PROJECTS_BOOTSTRAP_KEY, {
+      data,
+      trendData,
+    });
+  }, [data, trendData]);
 
   const statusOptions = useMemo(() => {
     const set = new Set<string>();

@@ -9,6 +9,7 @@ import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 const DirectoryTreeLazy = lazy(() =>
   import('../components/coding/DirectoryTree').then((m) => ({ default: m.DirectoryTree }))
@@ -21,11 +22,23 @@ const EditorLazy = lazy(() =>
 type CodingTab = 'overview' | 'architecture' | 'directory' | 'generation';
 
 const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
+const CODING_DETAIL_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
+const getCodingDetailBootstrapKey = (projectId: string) => `afn:web:coding-detail:${projectId}:bootstrap:v1`;
+
+type CodingDetailBootstrapSnapshot = {
+  project: any | null;
+  treeData: any | null;
+  systems: CodingSystem[];
+  modules: CodingModule[];
+  dependencies: CodingDependency[];
+  ragCompleteness: any | null;
+};
 
 export const CodingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const hasBootstrapRef = useRef(false);
 
   // 对齐桌面端：从 CodingDetail 可直达 CodingDesk，并可携带 fileId 定位到指定文件
   const openCodingDesk = useCallback(
@@ -165,6 +178,43 @@ export const CodingDetail: React.FC = () => {
   const [ragQueryLoading, setRagQueryLoading] = useState(false);
   const [ragResult, setRagResult] = useState<any | null>(null);
 
+  useEffect(() => {
+    if (!id) return;
+
+    setCurrentFile(null);
+    setSelectedDirectory(null);
+    setContent('');
+    setVersions([]);
+    setRagResult(null);
+
+    const cached = readBootstrapCache<CodingDetailBootstrapSnapshot>(
+      getCodingDetailBootstrapKey(id),
+      CODING_DETAIL_BOOTSTRAP_TTL_MS,
+    );
+
+    if (!cached) {
+      hasBootstrapRef.current = false;
+      setProject(null);
+      setTreeData(null);
+      setSystems([]);
+      setModules([]);
+      setDependencies([]);
+      setRagCompleteness(null);
+      setLoading(true);
+      return;
+    }
+
+    setProject(cached.project ?? null);
+    setTreeData(cached.treeData ?? null);
+    setSystems(Array.isArray(cached.systems) ? cached.systems : []);
+    setModules(Array.isArray(cached.modules) ? cached.modules : []);
+    setDependencies(Array.isArray(cached.dependencies) ? cached.dependencies : []);
+    setRagCompleteness(cached.ragCompleteness ?? null);
+
+    hasBootstrapRef.current = Boolean(cached.project);
+    setLoading(!cached.project);
+  }, [id]);
+
   const openPreferenceModal = useCallback((opts: {
     title?: string;
     hint?: string;
@@ -193,9 +243,13 @@ export const CodingDetail: React.FC = () => {
 
   const loadData = useCallback(async () => {
     if (!id) return;
+    if (!hasBootstrapRef.current) {
+      setLoading(true);
+    }
     try {
       const proj = await codingApi.get(id);
       setProject(proj);
+      hasBootstrapRef.current = true;
     } catch (e) {
       console.error(e);
     } finally {
@@ -218,6 +272,22 @@ export const CodingDetail: React.FC = () => {
       loadData();
     }
   }, [id, loadData]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (!project && !treeData && systems.length === 0 && modules.length === 0 && dependencies.length === 0 && !ragCompleteness) {
+      return;
+    }
+
+    writeBootstrapCache<CodingDetailBootstrapSnapshot>(getCodingDetailBootstrapKey(id), {
+      project,
+      treeData,
+      systems,
+      modules,
+      dependencies,
+      ragCompleteness,
+    });
+  }, [dependencies, id, modules, project, ragCompleteness, systems, treeData]);
 
   const handleGenerateBlueprint = async () => {
     if (!id) return;

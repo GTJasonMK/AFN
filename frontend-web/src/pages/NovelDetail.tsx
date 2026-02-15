@@ -37,6 +37,23 @@ type NovelDetailBootstrapSnapshot = {
   project: any;
 };
 
+type NovelDetailImportStatusSnapshot = {
+  importStatus: any | null;
+};
+
+type NovelDetailPartProgressSnapshot = {
+  partProgress: any | null;
+};
+
+type NovelDetailChapterDetailSnapshot = {
+  chapterDetail: any | null;
+};
+
+type NovelDetailChapterSelectionSnapshot = {
+  chapterNumber: number | null;
+  chapterDetail: any | null;
+};
+
 const INITIAL_CHARACTERS_RENDER_LIMIT = 24;
 const CHARACTERS_RENDER_BATCH_SIZE = 24;
 const INITIAL_RELATIONSHIPS_RENDER_LIMIT = 24;
@@ -48,8 +65,15 @@ const PART_OUTLINES_RENDER_BATCH_SIZE = 20;
 const INITIAL_COMPLETED_CHAPTERS_RENDER_LIMIT = 120;
 const COMPLETED_CHAPTERS_RENDER_BATCH_SIZE = 120;
 const NOVEL_DETAIL_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
+const NOVEL_DETAIL_SECTION_TTL_MS = 4 * 60 * 1000;
+const NOVEL_DETAIL_CHAPTER_DETAIL_TTL_MS = 10 * 60 * 1000;
 
 const getNovelDetailBootstrapKey = (projectId: string) => `afn:web:novel-detail:${projectId}:bootstrap:v1`;
+const getNovelDetailImportStatusKey = (projectId: string) => `afn:web:novel-detail:${projectId}:import-status:v1`;
+const getNovelDetailPartProgressKey = (projectId: string) => `afn:web:novel-detail:${projectId}:part-progress:v1`;
+const getNovelDetailChapterDetailKey = (projectId: string, chapterNo: number) =>
+  `afn:web:novel-detail:${projectId}:chapter-detail:${chapterNo}:v1`;
+const getNovelDetailChapterSelectionKey = (projectId: string) => `afn:web:novel-detail:${projectId}:chapter-selection:v1`;
 
 const lowerBound = (list: number[], target: number): number => {
   let left = 0;
@@ -290,6 +314,9 @@ export const NovelDetail: React.FC = () => {
       addToast('操作失败', 'error');
     }
   }, [addToast, promptModalValue]);
+
+  const hasImportStatusBootstrapRef = useRef(false);
+  const hasPartProgressBootstrapRef = useRef(false);
 
   const chapterOutlines = useMemo(() => {
     const list = Array.isArray(blueprintData?.chapter_outline) ? blueprintData.chapter_outline : [];
@@ -712,6 +739,47 @@ export const NovelDetail: React.FC = () => {
     setLoading(false);
   }, [applyProjectPayload, id]);
 
+  useEffect(() => {
+    if (!id) return;
+
+    const importCached = readBootstrapCache<NovelDetailImportStatusSnapshot>(
+      getNovelDetailImportStatusKey(id),
+      NOVEL_DETAIL_SECTION_TTL_MS,
+    );
+    if (importCached) {
+      setImportStatus(importCached.importStatus ?? null);
+      hasImportStatusBootstrapRef.current = importCached.importStatus !== null;
+    } else {
+      setImportStatus(null);
+      hasImportStatusBootstrapRef.current = false;
+    }
+
+    const partCached = readBootstrapCache<NovelDetailPartProgressSnapshot>(
+      getNovelDetailPartProgressKey(id),
+      NOVEL_DETAIL_SECTION_TTL_MS,
+    );
+    if (partCached) {
+      setPartProgress(partCached.partProgress ?? null);
+      hasPartProgressBootstrapRef.current = partCached.partProgress !== null;
+    } else {
+      setPartProgress(null);
+      hasPartProgressBootstrapRef.current = false;
+    }
+
+    const chapterSelectionCached = readBootstrapCache<NovelDetailChapterSelectionSnapshot>(
+      getNovelDetailChapterSelectionKey(id),
+      NOVEL_DETAIL_CHAPTER_DETAIL_TTL_MS,
+    );
+    const chapterNo = Number(chapterSelectionCached?.chapterNumber || 0);
+    if (Number.isFinite(chapterNo) && chapterNo > 0) {
+      setSelectedCompletedChapterNumber(chapterNo);
+      setSelectedCompletedChapter(chapterSelectionCached?.chapterDetail ?? null);
+    } else {
+      setSelectedCompletedChapterNumber(null);
+      setSelectedCompletedChapter(null);
+    }
+  }, [id]);
+
   const fetchProject = useCallback(async () => {
     try {
       const data = await novelsApi.get(id!);
@@ -720,14 +788,28 @@ export const NovelDetail: React.FC = () => {
 
       // 导入小说：进度查询延后到空闲阶段，避免阻塞详情首屏
       if (data.is_imported) {
-        setImportStatusLoading(true);
+        const hadImportSnapshot = hasImportStatusBootstrapRef.current;
+        if (!hadImportSnapshot) {
+          setImportStatusLoading(true);
+        } else {
+          setImportStatusLoading(false);
+        }
         scheduleIdleTask(() => {
           void novelsApi
             .getImportAnalysisStatus(id!)
-            .then((status) => setImportStatus(status))
+            .then((status) => {
+              setImportStatus(status);
+              hasImportStatusBootstrapRef.current = status !== null;
+              writeBootstrapCache<NovelDetailImportStatusSnapshot>(getNovelDetailImportStatusKey(id!), {
+                importStatus: status ?? null,
+              });
+            })
             .catch((e) => {
               console.error(e);
-              setImportStatus(null);
+              if (!hadImportSnapshot) {
+                setImportStatus(null);
+                hasImportStatusBootstrapRef.current = false;
+              }
             })
             .finally(() => {
               setImportStatusLoading(false);
@@ -735,6 +817,8 @@ export const NovelDetail: React.FC = () => {
         }, { delay: 120, timeout: 2200 });
       } else {
         setImportStatus(null);
+        hasImportStatusBootstrapRef.current = false;
+        setImportStatusLoading(false);
       }
     } catch (e) {
       console.error(e);
@@ -786,12 +870,20 @@ export const NovelDetail: React.FC = () => {
   const refreshImportStatus = useCallback(async () => {
     if (!id) return;
     setImportStatusLoading(true);
+    const hadImportSnapshot = hasImportStatusBootstrapRef.current;
     try {
       const status = await novelsApi.getImportAnalysisStatus(id);
       setImportStatus(status);
+      hasImportStatusBootstrapRef.current = status !== null;
+      writeBootstrapCache<NovelDetailImportStatusSnapshot>(getNovelDetailImportStatusKey(id), {
+        importStatus: status ?? null,
+      });
     } catch (e) {
       console.error(e);
-      setImportStatus(null);
+      if (!hadImportSnapshot) {
+        setImportStatus(null);
+        hasImportStatusBootstrapRef.current = false;
+      }
     } finally {
       setImportStatusLoading(false);
     }
@@ -851,6 +943,35 @@ export const NovelDetail: React.FC = () => {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [id, importStatus?.status, project?.import_analysis_status, refreshImportStatus]);
+
+  useEffect(() => {
+    if (!id) return;
+    writeBootstrapCache<NovelDetailImportStatusSnapshot>(getNovelDetailImportStatusKey(id), {
+      importStatus: importStatus ?? null,
+    });
+    hasImportStatusBootstrapRef.current = importStatus !== null;
+  }, [id, importStatus]);
+
+  useEffect(() => {
+    if (!id) return;
+    writeBootstrapCache<NovelDetailPartProgressSnapshot>(getNovelDetailPartProgressKey(id), {
+      partProgress: partProgress ?? null,
+    });
+    hasPartProgressBootstrapRef.current = partProgress !== null;
+  }, [id, partProgress]);
+
+  useEffect(() => {
+    if (!id) return;
+    const chapterNo = Number(selectedCompletedChapterNumber || 0);
+    const detailChapterNo = Number(selectedCompletedChapter?.chapter_number || 0);
+    const matchedDetail =
+      chapterNo > 0 && detailChapterNo === chapterNo ? selectedCompletedChapter : null;
+
+    writeBootstrapCache<NovelDetailChapterSelectionSnapshot>(getNovelDetailChapterSelectionKey(id), {
+      chapterNumber: chapterNo > 0 ? chapterNo : null,
+      chapterDetail: matchedDetail,
+    });
+  }, [id, selectedCompletedChapter, selectedCompletedChapterNumber]);
 
   const handleRegenerateOutline = useCallback(async (chapterNumber: number) => {
     if (!id) return;
@@ -1092,13 +1213,22 @@ export const NovelDetail: React.FC = () => {
 
   const fetchPartProgress = useCallback(async () => {
     if (!id) return;
-    setPartLoading(true);
+    const hadPartSnapshot = hasPartProgressBootstrapRef.current;
+    if (!hadPartSnapshot) {
+      setPartLoading(true);
+    }
     try {
       const data = await writerApi.getPartOutlines(id);
       setPartProgress(data);
+      hasPartProgressBootstrapRef.current = data !== null;
+      writeBootstrapCache<NovelDetailPartProgressSnapshot>(getNovelDetailPartProgressKey(id), {
+        partProgress: data ?? null,
+      });
     } catch (e) {
-      // 可能尚未生成部分大纲，忽略即可
-      setPartProgress(null);
+      if (!hadPartSnapshot) {
+        setPartProgress(null);
+        hasPartProgressBootstrapRef.current = false;
+      }
     } finally {
       setPartLoading(false);
     }
@@ -1351,21 +1481,50 @@ export const NovelDetail: React.FC = () => {
     const chapterNo = Number(selectedCompletedChapterNumber || 0);
     if (!chapterNo) {
       setSelectedCompletedChapter(null);
+      setSelectedCompletedChapterLoading(false);
+      writeBootstrapCache<NovelDetailChapterSelectionSnapshot>(getNovelDetailChapterSelectionKey(id), {
+        chapterNumber: null,
+        chapterDetail: null,
+      });
       return;
     }
 
+    const chapterDetailCache = readBootstrapCache<NovelDetailChapterDetailSnapshot>(
+      getNovelDetailChapterDetailKey(id, chapterNo),
+      NOVEL_DETAIL_CHAPTER_DETAIL_TTL_MS,
+    );
+    const hasCachedDetail = Boolean(chapterDetailCache?.chapterDetail);
+    if (hasCachedDetail) {
+      setSelectedCompletedChapter(chapterDetailCache?.chapterDetail ?? null);
+      setSelectedCompletedChapterLoading(false);
+      writeBootstrapCache<NovelDetailChapterSelectionSnapshot>(getNovelDetailChapterSelectionKey(id), {
+        chapterNumber: chapterNo,
+        chapterDetail: chapterDetailCache?.chapterDetail ?? null,
+      });
+    } else {
+      setSelectedCompletedChapterLoading(true);
+    }
+
     let cancelled = false;
-    setSelectedCompletedChapterLoading(true);
     writerApi
       .getChapter(id, chapterNo)
       .then((data) => {
         if (cancelled) return;
         setSelectedCompletedChapter(data);
+        writeBootstrapCache<NovelDetailChapterDetailSnapshot>(getNovelDetailChapterDetailKey(id, chapterNo), {
+          chapterDetail: data ?? null,
+        });
+        writeBootstrapCache<NovelDetailChapterSelectionSnapshot>(getNovelDetailChapterSelectionKey(id), {
+          chapterNumber: chapterNo,
+          chapterDetail: data ?? null,
+        });
       })
       .catch((e) => {
         console.error(e);
         if (cancelled) return;
-        setSelectedCompletedChapter(null);
+        if (!hasCachedDetail) {
+          setSelectedCompletedChapter(null);
+        }
       })
       .finally(() => {
         if (cancelled) return;

@@ -4,6 +4,7 @@ import { novelsApi } from '../api/novels';
 import { BookCard } from '../components/ui/BookCard';
 import { BookButton } from '../components/ui/BookButton';
 import { ArrowLeft, Map, Users, ScrollText, Play } from 'lucide-react';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 interface BlueprintData {
   title?: string;
@@ -15,6 +16,12 @@ interface BlueprintData {
 
 const INITIAL_PREVIEW_CHARACTER_LIMIT = 20;
 const PREVIEW_CHARACTER_BATCH_SIZE = 20;
+const BLUEPRINT_PREVIEW_BOOTSTRAP_TTL_MS = 10 * 60 * 1000;
+const getBlueprintPreviewBootstrapKey = (projectId: string) => `afn:web:blueprint-preview:${projectId}:bootstrap:v1`;
+
+type BlueprintPreviewBootstrapSnapshot = {
+  data: BlueprintData | null;
+};
 
 export const BlueprintPreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +29,30 @@ export const BlueprintPreview: React.FC = () => {
   const [data, setData] = useState<BlueprintData | null>(null);
   const [loading, setLoading] = useState(true);
   const [characterRenderLimit, setCharacterRenderLimit] = useState(INITIAL_PREVIEW_CHARACTER_LIMIT);
+  const hasBootstrapRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!id) {
+      hasBootstrapRef.current = false;
+      setLoading(false);
+      setData(null);
+      return;
+    }
+
+    const cached = readBootstrapCache<BlueprintPreviewBootstrapSnapshot>(
+      getBlueprintPreviewBootstrapKey(id),
+      BLUEPRINT_PREVIEW_BOOTSTRAP_TTL_MS,
+    );
+    hasBootstrapRef.current = Boolean(cached);
+    if (!cached) {
+      setData(null);
+      setLoading(true);
+      return;
+    }
+
+    setData(cached.data ?? null);
+    setLoading(false);
+  }, [id]);
 
   useEffect(() => {
     if (!id) {
@@ -31,21 +62,26 @@ export const BlueprintPreview: React.FC = () => {
     }
 
     let cancelled = false;
-    setLoading(true);
+    if (!hasBootstrapRef.current) {
+      setLoading(true);
+    }
 
     novelsApi
       .get(id)
       .then((project: any) => {
         if (cancelled) return;
-        if (project?.blueprint) {
-          setData(project.blueprint);
-        } else {
-          setData(null);
-        }
+        const nextData = project?.blueprint ? project.blueprint : null;
+        setData(nextData);
+        hasBootstrapRef.current = true;
+        writeBootstrapCache<BlueprintPreviewBootstrapSnapshot>(getBlueprintPreviewBootstrapKey(id), {
+          data: nextData,
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setData(null);
+        if (!hasBootstrapRef.current) {
+          setData(null);
+        }
       })
       .finally(() => {
         if (cancelled) return;

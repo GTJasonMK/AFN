@@ -9,6 +9,7 @@ import { BookTextarea } from '../components/ui/BookInput';
 import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 
 interface Message {
   id: number;
@@ -20,6 +21,16 @@ interface Message {
 interface InspirationChatProps {
   mode?: 'novel' | 'coding';
 }
+
+type InspirationChatBootstrapSnapshot = {
+  messages: Array<Pick<Message, 'id' | 'role' | 'content'>>;
+  showBlueprintBtn: boolean;
+  conversationState: any;
+};
+
+const INSPIRATION_CHAT_BOOTSTRAP_TTL_MS = 10 * 60 * 1000;
+const getInspirationChatBootstrapKey = (mode: 'novel' | 'coding', projectId: string) =>
+  `afn:web:inspiration-chat:${mode}:${projectId}:bootstrap:v1`;
 
 export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel' }) => {
   const { id } = useParams<{ id: string }>();
@@ -40,6 +51,55 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const chunkFlushTimerRef = useRef<number | null>(null);
   const isStreamingRef = useRef(false);
   const messageIdSeqRef = useRef(0);
+
+  useEffect(() => {
+    completionHintShownRef.current = false;
+    pendingChunkRef.current = '';
+    if (chunkFlushTimerRef.current !== null) {
+      window.clearTimeout(chunkFlushTimerRef.current);
+      chunkFlushTimerRef.current = null;
+    }
+    isStreamingRef.current = false;
+    setIsTyping(false);
+    setOptions([]);
+    setInputValue('');
+    setBlueprintTip(null);
+    setBlueprintPreview(null);
+    setIsBlueprintConfirmOpen(false);
+
+    if (!id) {
+      setMessages([]);
+      setShowBlueprintBtn(false);
+      setConversationState({});
+      return;
+    }
+
+    const cached = readBootstrapCache<InspirationChatBootstrapSnapshot>(
+      getInspirationChatBootstrapKey(mode, id),
+      INSPIRATION_CHAT_BOOTSTRAP_TTL_MS,
+    );
+
+    if (!cached) {
+      setMessages([]);
+      setShowBlueprintBtn(false);
+      setConversationState({});
+      return;
+    }
+
+    const safeMessages = Array.isArray(cached.messages)
+      ? cached.messages
+          .filter((item) => item && (item.role === 'user' || item.role === 'assistant' || item.role === 'system'))
+          .map((item, idx) => ({
+            id: Number(item.id) || (Date.now() + idx),
+            role: item.role,
+            content: String(item.content || ''),
+          }))
+      : [];
+
+    setMessages(safeMessages);
+    setShowBlueprintBtn(Boolean(cached.showBlueprintBtn));
+    setConversationState(cached.conversationState && typeof cached.conversationState === 'object' ? cached.conversationState : {});
+  }, [id, mode]);
 
   const nextMessageId = useCallback(() => {
     messageIdSeqRef.current = (messageIdSeqRef.current + 1) % 1000;
@@ -81,6 +141,26 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    if (isTyping) return;
+    if (messages.some((item) => Boolean(item.isStreaming))) return;
+
+    const compactMessages = messages
+      .map((item, idx) => ({
+        id: Number(item.id) || (Date.now() + idx),
+        role: item.role,
+        content: String(item.content || ''),
+      }))
+      .slice(-200);
+
+    writeBootstrapCache<InspirationChatBootstrapSnapshot>(getInspirationChatBootstrapKey(mode, id), {
+      messages: compactMessages,
+      showBlueprintBtn: Boolean(showBlueprintBtn),
+      conversationState: conversationState && typeof conversationState === 'object' ? conversationState : {},
+    });
+  }, [conversationState, id, isTyping, messages, mode, showBlueprintBtn]);
   
   // Load chat history
   useEffect(() => {
