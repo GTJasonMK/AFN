@@ -1,27 +1,27 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-	import { ChapterList } from '../components/business/ChapterList';
-	import { WorkspaceTabs, type WorkspaceHandle } from '../components/business/WorkspaceTabs';
+import { ImportChapterModal } from '../components/business/ImportChapterModal';
+import { WorkspaceTabs, type WorkspaceHandle } from '../components/business/WorkspaceTabs';
 import { writerApi, Chapter } from '../api/writer';
 import { novelsApi } from '../api/novels';
 import { useSSE } from '../hooks/useSSE';
+import { useConfirmTextModal } from '../hooks/useConfirmTextModal';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { useToast } from '../components/feedback/Toast';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
-import { ArrowLeft } from 'lucide-react';
 import { BookButton } from '../components/ui/BookButton';
 import { BookCard } from '../components/ui/BookCard';
-import { Dropdown } from '../components/ui/Dropdown';
-import { Modal } from '../components/ui/Modal';
-import { BookInput, BookTextarea } from '../components/ui/BookInput';
-import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { downloadBlob } from '../utils/downloadFile';
+import { sanitizeFilenamePart } from '../utils/sanitizeFilename';
+import { getWritingDraftKey, readWritingDraft, removeWritingDraft, writeWritingDraft } from '../utils/writingDraft';
+import { PromptPreviewModal } from './writing-desk/PromptPreviewModal';
+import { WritingDeskAssistant } from './writing-desk/WritingDeskAssistant';
+import { WritingDeskHeader } from './writing-desk/WritingDeskHeader';
+import { WritingDeskSidebar } from './writing-desk/WritingDeskSidebar';
+import { WritingNotesModal } from './writing-desk/WritingNotesModal';
+import { useWritingDeskPanels } from './writing-desk/useWritingDeskPanels';
 
-const ChapterPromptPreviewViewLazy = lazy(() =>
-  import('../components/business/ChapterPromptPreviewView').then((m) => ({ default: m.ChapterPromptPreviewView }))
-);
-const AssistantPanelLazy = lazy(() =>
-  import('../components/business/AssistantPanel').then((m) => ({ default: m.AssistantPanel }))
-);
 const OutlineEditModalLazy = lazy(() =>
   import('../components/business/OutlineEditModal').then((m) => ({ default: m.OutlineEditModal }))
 );
@@ -32,11 +32,6 @@ const ProtagonistProfilesModalLazy = lazy(() =>
   import('../components/business/ProtagonistProfilesModal').then((m) => ({ default: m.ProtagonistProfilesModal }))
 );
 
-type LocalDraft = {
-  content: string;
-  updatedAt: string;
-};
-
 const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
 const WRITING_DESK_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
 
@@ -46,53 +41,7 @@ type WritingDeskBootstrapSnapshot = {
   selectedChapterNumber: number | null;
 };
 
-const getDraftKey = (projectId: string, chapterNumber: number) => `afn:writing_draft:${projectId}:${chapterNumber}`;
-const getAssistantWidthKey = (projectId: string) => `afn:writing_assistant_width:${projectId}`;
-const getSidebarWidthKey = (projectId: string) => `afn:writing_sidebar_width:${projectId}`;
-const getSidebarOpenKey = (projectId: string) => `afn:writing_sidebar_open:${projectId}`;
 const getWritingDeskBootstrapKey = (projectId: string) => `afn:web:writing-desk:${projectId}:bootstrap:v1`;
-
-const safeReadDraft = (key: string): LocalDraft | null => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<LocalDraft>;
-    if (!parsed || typeof parsed.content !== 'string') return null;
-    return {
-      content: parsed.content,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const safeWriteDraft = (key: string, content: string): boolean => {
-  try {
-    const payload: LocalDraft = { content, updatedAt: new Date().toISOString() };
-    localStorage.setItem(key, JSON.stringify(payload));
-    return true;
-  } catch {
-    // localStorage 可能被禁用或容量不足；忽略即可（仍可用“保存”走后端）
-    return false;
-  }
-};
-
-const safeRemoveDraft = (key: string) => {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
-};
-
-const sanitizeFilenamePart = (raw: string) => {
-  // Windows 不允许的文件名字符：<>:"/\|?* + 控制字符
-  return String(raw || '')
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
 
 export const WritingDesk: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -100,119 +49,77 @@ export const WritingDesk: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { addToast } = useToast();
   
-		  const [chapters, setChapters] = useState<Chapter[]>([]);
-		  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
-		  const [content, setContent] = useState('');
-		  const [loadedContent, setLoadedContent] = useState('');
-		  const [draftRevision, setDraftRevision] = useState(0);
-			  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-			    if (!id) return 256;
-			    try {
-			      const raw = localStorage.getItem(getSidebarWidthKey(id));
-			      const n = raw ? Number(raw) : 256;
-			      if (!Number.isFinite(n)) return 256;
-			      return Math.max(220, Math.min(420, Math.round(n)));
-			    } catch {
-			      return 256;
-			    }
-			  });
-			  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-			    if (!id) return true;
-			    try {
-			      const raw = localStorage.getItem(getSidebarOpenKey(id));
-			      if (raw === null) return true;
-			      return raw !== '0';
-			    } catch {
-			      return true;
-			    }
-			  });
-			  const [assistantWidth, setAssistantWidth] = useState<number>(() => {
-			    if (!id) return 384;
-			    try {
-			      const raw = localStorage.getItem(getAssistantWidthKey(id));
-			      const n = raw ? Number(raw) : 384;
-		      if (!Number.isFinite(n)) return 384;
-		      return Math.max(280, Math.min(720, Math.round(n)));
-		    } catch {
-		      return 384;
-		    }
-		  });
-			  const [isAssistantOpen, setIsAssistantOpen] = useState(() => {
-		    if (!id) return true;
-		    try {
-		      const raw = localStorage.getItem(`afn:writing_assistant_open:${id}`);
-		      if (raw === null) return true;
-		      return raw !== '0';
-		    } catch {
-		      return true;
-		    }
-		  });
-				  const [assistantMountReady, setAssistantMountReady] = useState(false);
-				  const [isSaving, setIsSaving] = useState(false);
-				  const [isGenerating, setIsGenerating] = useState(false);
-				  const [isRagIngesting, setIsRagIngesting] = useState(false);
-				  const [projectInfo, setProjectInfo] = useState<any>(null);
-				  const [writingNotes, setWritingNotes] = useState(() => {
-				    if (!id) return '';
-				    try {
-				      return localStorage.getItem(`afn:writing_notes:${id}`) || '';
-				    } catch {
-			      return '';
-			    }
-			  });
-			  const [isWritingNotesModalOpen, setIsWritingNotesModalOpen] = useState(false);
-			  const [writingNotesDraft, setWritingNotesDraft] = useState('');
-			  const [isPromptPreviewModalOpen, setIsPromptPreviewModalOpen] = useState(false);
-			  const [promptPreviewNotes, setPromptPreviewNotes] = useState('');
-			  const [isProtagonistModalOpen, setIsProtagonistModalOpen] = useState(false);
-			  const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
-		  const [importChapterNumber, setImportChapterNumber] = useState<number>(1);
-		  const [importChapterTitle, setImportChapterTitle] = useState('');
-		  const [importChapterContent, setImportChapterContent] = useState('');
-		  const [importEncoding, setImportEncoding] = useState<'utf-8' | 'gb18030'>('utf-8');
-		  const [importFileName, setImportFileName] = useState<string>('');
-		  const [importFileBuffer, setImportFileBuffer] = useState<ArrayBuffer | null>(null);
-		  const [importingChapter, setImportingChapter] = useState(false);
-		  const [genProgress, setGenProgress] = useState<{ stage?: string; message?: string; current?: number; total?: number } | null>(null);
-			  const isDirty = useMemo(() => content !== loadedContent, [content, loadedContent]);
-			  const contentChars = useMemo(() => (content || '').replace(/\s/g, '').length, [content]);
-	        const workspaceVersions = useMemo(() => {
-	          if (!id || !currentChapter) return [];
-	          const raw = Array.isArray(currentChapter?.versions) ? currentChapter.versions : [];
-	          const chapterNo = Number(currentChapter.chapter_number || 0);
-	          const chapterId = `${id}-${chapterNo}`;
-	          const createdAt = DEFAULT_VERSION_CREATED_AT;
-	          return raw.map((text, idx) => ({
-	            id: `v-${idx}`,
-	            chapter_id: chapterId,
-	            version_label: `版本 ${idx + 1}`,
-            content: text,
-            created_at: createdAt,
-            provider: 'llm',
-          }));
-        }, [currentChapter, id]);
-		  const editorRef = useRef<WorkspaceHandle | null>(null);
-		  const currentChapterRef = useRef<Chapter | null>(null);
-		  const contentRef = useRef('');
-		  const isDirtyRef = useRef(false);
-		  const isGeneratingRef = useRef(false);
-		  const selectingChapterRef = useRef<number | null>(null);
-		  const draftPromptedRef = useRef<Set<string>>(new Set());
-			  const draftSaveWarnedRef = useRef(false);
-		  const sidebarResizingRef = useRef(false);
-		  const sidebarResizeRafRef = useRef<number | null>(null);
-		  const sidebarResizeStartRef = useRef<{ x: number; w: number } | null>(null);
-		  const assistantResizingRef = useRef(false);
-		  const assistantResizeRafRef = useRef<number | null>(null);
-		  const assistantResizeStartRef = useRef<{ x: number; w: number } | null>(null);
-		  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [content, setContent] = useState('');
+  const [loadedContent, setLoadedContent] = useState('');
+  const [draftRevision, setDraftRevision] = useState(0);
+  const {
+    sidebarWidth,
+    isSidebarOpen,
+    setIsSidebarOpen,
+    startSidebarResizing,
+    assistantWidth,
+    isAssistantOpen,
+    setIsAssistantOpen,
+    assistantMountReady,
+    startAssistantResizing,
+  } = useWritingDeskPanels(id);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRagIngesting, setIsRagIngesting] = useState(false);
+  const [projectInfo, setProjectInfo] = useState<any>(null);
+  const [writingNotes, setWritingNotes] = usePersistedState<string>(
+    id ? `afn:writing_notes:${id}` : null,
+    '',
+    { serialize: (value) => value },
+  );
+  const [isWritingNotesModalOpen, setIsWritingNotesModalOpen] = useState(false);
+  const [writingNotesDraft, setWritingNotesDraft] = useState('');
+  const [isPromptPreviewModalOpen, setIsPromptPreviewModalOpen] = useState(false);
+  const [promptPreviewNotes, setPromptPreviewNotes] = useState('');
+  const [isProtagonistModalOpen, setIsProtagonistModalOpen] = useState(false);
+  const [isImportChapterModalOpen, setIsImportChapterModalOpen] = useState(false);
+  const suggestedImportChapterNumber = useMemo(() => {
+    if (!Array.isArray(chapters) || chapters.length === 0) return 1;
+    const maxNo = chapters.reduce((acc, c) => Math.max(acc, Number(c.chapter_number) || 0), 0);
+    return Math.max(1, maxNo + 1);
+  }, [chapters]);
+  const [genProgress, setGenProgress] = useState<{ stage?: string; message?: string; current?: number; total?: number } | null>(null);
+  const isDirty = useMemo(() => content !== loadedContent, [content, loadedContent]);
+  const contentChars = useMemo(() => (content || '').replace(/\s/g, '').length, [content]);
+  const workspaceVersions = useMemo(() => {
+    if (!id || !currentChapter) return [];
+    const raw = Array.isArray(currentChapter?.versions) ? currentChapter.versions : [];
+    const chapterNo = Number(currentChapter.chapter_number || 0);
+    const chapterId = `${id}-${chapterNo}`;
+    const createdAt = DEFAULT_VERSION_CREATED_AT;
+    return raw.map((text, idx) => ({
+      id: `v-${idx}`,
+      chapter_id: chapterId,
+      version_label: `版本 ${idx + 1}`,
+      content: text,
+      created_at: createdAt,
+      provider: 'llm',
+    }));
+  }, [currentChapter, id]);
+  const editorRef = useRef<WorkspaceHandle | null>(null);
+  const currentChapterRef = useRef<Chapter | null>(null);
+  const contentRef = useRef('');
+  const isDirtyRef = useRef(false);
+  const isGeneratingRef = useRef(false);
+  const selectingChapterRef = useRef<number | null>(null);
+  const draftPromptedRef = useRef<Set<string>>(new Set());
+  const draftSaveWarnedRef = useRef(false);
 
-      // 可选提示词弹窗（用于“重生成大纲”等可选优化方向输入）
-      const pendingPromptActionRef = useRef<((prompt?: string) => void | Promise<void>) | null>(null);
-      const [isOptionalPromptModalOpen, setIsOptionalPromptModalOpen] = useState(false);
-      const [optionalPromptTitle, setOptionalPromptTitle] = useState('输入优化提示词（可选）');
-      const [optionalPromptHint, setOptionalPromptHint] = useState<string | null>(null);
-	      const [optionalPromptValue, setOptionalPromptValue] = useState('');
+	      // 可选提示词弹窗（用于“重生成大纲”等可选优化方向输入）
+	      const { open: openOptionalPromptModal, modal: optionalPromptModal } = useConfirmTextModal({
+	        addToast,
+        defaultTitle: '输入优化提示词（可选）',
+        defaultLabel: '优化提示词（可选）',
+        defaultRows: 8,
+        defaultPlaceholder: '例如：强化冲突、补足动机、压缩节奏、增加悬疑…',
+      });
 
   useEffect(() => {
     if (!id) return;
@@ -259,225 +166,19 @@ export const WritingDesk: React.FC = () => {
       }
     }
 
-    if (cached.projectInfo && typeof cached.projectInfo === 'object') {
-      setProjectInfo(cached.projectInfo);
-    }
+	    if (cached.projectInfo && typeof cached.projectInfo === 'object') {
+	      setProjectInfo(cached.projectInfo);
+	    }
+	  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    setPromptPreviewNotes('');
   }, [id]);
 
-			  // 左侧章节栏显示状态：按项目持久化（避免每次进入都要手动开关）
 			  useEffect(() => {
-			    if (!id) return;
-			    try {
-			      localStorage.setItem(getSidebarOpenKey(id), isSidebarOpen ? '1' : '0');
-			    } catch {
-			      // ignore
-			    }
-			  }, [id, isSidebarOpen]);
-
-			  // 右侧助手面板显示状态：按项目持久化（避免每次进入都要手动开关）
-			  useEffect(() => {
-			    if (!id) return;
-			    try {
-		      localStorage.setItem(`afn:writing_assistant_open:${id}`, isAssistantOpen ? '1' : '0');
-		    } catch {
-		      // ignore
-		    }
-		  }, [id, isAssistantOpen]);
-		  useEffect(() => {
-		    if (!isAssistantOpen) {
-		      setAssistantMountReady(false);
-		      return;
-		    }
-
-		    const cancel = scheduleIdleTask(() => {
-		      setAssistantMountReady(true);
-		    }, { delay: 420, timeout: 2400 });
-
-		    return cancel;
-		  }, [id, isAssistantOpen]);
-
-
-
-		  // 右侧助手面板宽度：按项目持久化
-		  useEffect(() => {
-		    if (!id) return;
-		    try {
-		      localStorage.setItem(getAssistantWidthKey(id), String(Math.max(280, Math.min(720, Math.round(assistantWidth)))));
-		    } catch {
-		      // ignore
-		    }
-		  }, [assistantWidth, id]);
-
-		  // 左侧章节栏宽度：按项目持久化
-		  useEffect(() => {
-		    if (!id) return;
-		    try {
-		      localStorage.setItem(getSidebarWidthKey(id), String(Math.max(220, Math.min(420, Math.round(sidebarWidth)))));
-		    } catch {
-		      // ignore
-		    }
-		  }, [id, sidebarWidth]);
-
-		  // 写作指导：按项目持久化（避免刷新后丢失）
-			  useEffect(() => {
-			    if (!id) return;
-			    try {
-			      localStorage.setItem(`afn:writing_notes:${id}`, writingNotes || '');
-			    } catch {
-			      // ignore
-			    }
-			  }, [id, writingNotes]);
-
-        // 导入章节：按编码解码文件内容（避免 Windows TXT 因编码不同出现乱码）
-        useEffect(() => {
-          if (!importFileBuffer) return;
-          try {
-            const decoder = new TextDecoder(importEncoding);
-            const text = decoder.decode(new Uint8Array(importFileBuffer));
-            setImportChapterContent(text);
-          } catch (e) {
-            console.error(e);
-            if (importEncoding !== 'utf-8') {
-              addToast('当前浏览器不支持该编码，已回退为 UTF-8', 'info');
-              setImportEncoding('utf-8');
-            } else {
-              addToast('文件解码失败，请尝试重新选择文件或更换编码', 'error');
-            }
-          }
-        }, [addToast, importEncoding, importFileBuffer]);
-
-			  const clampAssistantWidth = useCallback((w: number) => {
-			    const minEditor = 420;
-			    const min = 280;
-			    const sidebar = isSidebarOpen ? sidebarWidth : 0;
-			    const maxByLayout = window.innerWidth - sidebar - minEditor - 20;
-			    const max = Math.max(min, Math.min(720, Math.floor(maxByLayout)));
-			    return Math.max(min, Math.min(max, Math.round(w)));
-			  }, [isSidebarOpen, sidebarWidth]);
-
-			  const clampSidebarWidth = useCallback((w: number) => {
-			    const minEditor = 420;
-			    const min = 220;
-			    const hardMax = 420;
-			    const assistant = isAssistantOpen ? assistantWidth : 0;
-			    const maxByLayout = window.innerWidth - assistant - minEditor - 20;
-			    const max = Math.max(min, Math.min(hardMax, Math.floor(maxByLayout)));
-			    return Math.max(min, Math.min(max, Math.round(w)));
-			  }, [assistantWidth, isAssistantOpen]);
-
-			  // 窗口尺寸 / 面板开关变化时：自动夹紧宽度，保证中间编辑区最小宽度
-			  useEffect(() => {
-			    const onResize = () => {
-			      if (isAssistantOpen) setAssistantWidth((w) => clampAssistantWidth(w));
-			      if (isSidebarOpen) setSidebarWidth((w) => clampSidebarWidth(w));
-			    };
-			    onResize();
-			    window.addEventListener('resize', onResize);
-			    return () => window.removeEventListener('resize', onResize);
-			  }, [clampAssistantWidth, clampSidebarWidth, isAssistantOpen, isSidebarOpen]);
-
-			  const stopSidebarResizing = useCallback(() => {
-			    sidebarResizingRef.current = false;
-			    sidebarResizeStartRef.current = null;
-		    if (sidebarResizeRafRef.current !== null) {
-		      window.cancelAnimationFrame(sidebarResizeRafRef.current);
-		      sidebarResizeRafRef.current = null;
-		    }
-		    try {
-		      document.body.style.cursor = '';
-		      document.body.style.userSelect = '';
-		    } catch {
-		      // ignore
-		    }
-		  }, []);
-
-		  const onSidebarResizeMove = useCallback((ev: MouseEvent) => {
-		    if (!sidebarResizingRef.current || !sidebarResizeStartRef.current) return;
-		    const { x, w } = sidebarResizeStartRef.current;
-		    const next = clampSidebarWidth(w + (ev.clientX - x));
-		    if (sidebarResizeRafRef.current !== null) window.cancelAnimationFrame(sidebarResizeRafRef.current);
-		    sidebarResizeRafRef.current = window.requestAnimationFrame(() => setSidebarWidth(next));
-		  }, [clampSidebarWidth]);
-
-		  const onSidebarResizeUp = useCallback(() => {
-		    window.removeEventListener('mousemove', onSidebarResizeMove);
-		    window.removeEventListener('mouseup', onSidebarResizeUp);
-		    stopSidebarResizing();
-		  }, [onSidebarResizeMove, stopSidebarResizing]);
-
-		  const startSidebarResizing = useCallback((e: React.MouseEvent) => {
-		    e.preventDefault();
-		    e.stopPropagation();
-		    sidebarResizingRef.current = true;
-		    sidebarResizeStartRef.current = { x: e.clientX, w: sidebarWidth };
-		    try {
-		      document.body.style.cursor = 'col-resize';
-		      document.body.style.userSelect = 'none';
-		    } catch {
-		      // ignore
-		    }
-		    window.addEventListener('mousemove', onSidebarResizeMove);
-		    window.addEventListener('mouseup', onSidebarResizeUp);
-		  }, [onSidebarResizeMove, onSidebarResizeUp, sidebarWidth]);
-
-		  const stopAssistantResizing = useCallback(() => {
-		    assistantResizingRef.current = false;
-		    assistantResizeStartRef.current = null;
-		    if (assistantResizeRafRef.current !== null) {
-		      window.cancelAnimationFrame(assistantResizeRafRef.current);
-		      assistantResizeRafRef.current = null;
-		    }
-		    try {
-		      document.body.style.cursor = '';
-		      document.body.style.userSelect = '';
-		    } catch {
-		      // ignore
-		    }
-		  }, []);
-
-		  const onAssistantResizeMove = useCallback((ev: MouseEvent) => {
-		    if (!assistantResizingRef.current || !assistantResizeStartRef.current) return;
-		    const { x, w } = assistantResizeStartRef.current;
-		    const next = clampAssistantWidth(w + (x - ev.clientX));
-		    if (assistantResizeRafRef.current !== null) window.cancelAnimationFrame(assistantResizeRafRef.current);
-		    assistantResizeRafRef.current = window.requestAnimationFrame(() => setAssistantWidth(next));
-		  }, [clampAssistantWidth]);
-
-		  const onAssistantResizeUp = useCallback(() => {
-		    window.removeEventListener('mousemove', onAssistantResizeMove);
-		    window.removeEventListener('mouseup', onAssistantResizeUp);
-		    stopAssistantResizing();
-		  }, [onAssistantResizeMove, stopAssistantResizing]);
-
-		  const startAssistantResizing = useCallback((e: React.MouseEvent) => {
-		    e.preventDefault();
-		    e.stopPropagation();
-		    assistantResizingRef.current = true;
-		    assistantResizeStartRef.current = { x: e.clientX, w: assistantWidth };
-		    try {
-		      document.body.style.cursor = 'col-resize';
-		      document.body.style.userSelect = 'none';
-		    } catch {
-		      // ignore
-		    }
-		    window.addEventListener('mousemove', onAssistantResizeMove);
-		    window.addEventListener('mouseup', onAssistantResizeUp);
-		  }, [assistantWidth, onAssistantResizeMove, onAssistantResizeUp]);
-
-		  useEffect(() => {
-		    return () => {
-		      window.removeEventListener('mousemove', onSidebarResizeMove);
-		      window.removeEventListener('mouseup', onSidebarResizeUp);
-		      stopSidebarResizing();
-		      window.removeEventListener('mousemove', onAssistantResizeMove);
-		      window.removeEventListener('mouseup', onAssistantResizeUp);
-		      stopAssistantResizing();
-		    };
-		  }, [onAssistantResizeMove, onAssistantResizeUp, onSidebarResizeMove, onSidebarResizeUp, stopAssistantResizing, stopSidebarResizing]);
-
-		  useEffect(() => {
-		    currentChapterRef.current = currentChapter;
-		  }, [currentChapter]);
+			    currentChapterRef.current = currentChapter;
+			  }, [currentChapter]);
 
 		  useEffect(() => {
 		    contentRef.current = content;
@@ -513,7 +214,7 @@ export const WritingDesk: React.FC = () => {
 			      if (isDirtyRef.current) {
 			        // 先强制写入一次本地草稿，降低误操作丢稿概率
 			        const currentNo = currentChapterRef.current?.chapter_number;
-			        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+			        const draftOk = currentNo ? writeWritingDraft(getWritingDraftKey(id, currentNo), contentRef.current) : true;
 			        if (draftOk) setDraftRevision((v) => v + 1);
 			        if (!draftOk && !draftSaveWarnedRef.current) {
 			          draftSaveWarnedRef.current = true;
@@ -564,10 +265,10 @@ export const WritingDesk: React.FC = () => {
 		        setLoadedContent(nextContent);
 
 		        // 检测是否存在本地草稿（避免刷新/误操作丢稿）
-		        const draftKey = getDraftKey(id, chapterNumber);
+		        const draftKey = getWritingDraftKey(id, chapterNumber);
 		        if (!draftPromptedRef.current.has(draftKey)) {
 		          draftPromptedRef.current.add(draftKey);
-		          const draft = safeReadDraft(draftKey);
+		          const draft = readWritingDraft(draftKey);
 			          if (draft && draft.content && draft.content !== nextContent) {
 			            let ts = draft.updatedAt;
 			            try {
@@ -605,15 +306,15 @@ export const WritingDesk: React.FC = () => {
 		  useEffect(() => {
 		    if (!id || !currentChapter) return;
 		    const chapterNo = currentChapter.chapter_number;
-		    const key = getDraftKey(id, chapterNo);
+		    const key = getWritingDraftKey(id, chapterNo);
 
 		    if (!isDirty) {
-		      safeRemoveDraft(key);
+		      removeWritingDraft(key);
 		      return;
 		    }
 
 		    const t = window.setTimeout(() => {
-		      const ok = safeWriteDraft(key, content);
+		      const ok = writeWritingDraft(key, content);
 		      if (ok) setDraftRevision((v) => v + 1);
 		      if (!ok && !draftSaveWarnedRef.current) {
 		        draftSaveWarnedRef.current = true;
@@ -631,7 +332,7 @@ export const WritingDesk: React.FC = () => {
 			    }
 			    if (isDirtyRef.current) {
 			      const currentNo = currentChapterRef.current?.chapter_number;
-			      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+			      const draftOk = currentNo ? writeWritingDraft(getWritingDraftKey(id, currentNo), contentRef.current) : true;
 			      if (draftOk) setDraftRevision((v) => v + 1);
 			      if (!draftOk && !draftSaveWarnedRef.current) {
 			        draftSaveWarnedRef.current = true;
@@ -685,89 +386,25 @@ export const WritingDesk: React.FC = () => {
 		    editorRef.current?.focusAndSelect(start, end);
 		  }, []);
 
-        const openOptionalPromptModal = useCallback((opts: {
-          title?: string;
-          hint?: string;
-          initialValue?: string;
-          onConfirm: (prompt?: string) => void | Promise<void>;
-        }) => {
-          setOptionalPromptTitle(opts.title || '输入优化提示词（可选）');
-          setOptionalPromptHint(opts.hint || null);
-          setOptionalPromptValue(opts.initialValue || '');
-          pendingPromptActionRef.current = opts.onConfirm;
-          setIsOptionalPromptModalOpen(true);
-        }, []);
+			  const handleExport = async (format: 'txt' | 'markdown') => {
+			    if (!id) return;
+			    try {
+			      const response = await novelsApi.exportNovel(id, format);
+			      const blob = new Blob([response.data]);
+			      const titleRaw = String(projectInfo?.title || 'novel').trim() || 'novel';
+			      const title = sanitizeFilenamePart(titleRaw) || 'novel';
+			      const ext = format === 'markdown' ? 'md' : 'txt';
+            downloadBlob(blob, `${title}.${ext}`);
+			      addToast('导出成功', 'success');
+			    } catch (e) {
+			      console.error(e);
+			      addToast('导出失败', 'error');
+			    }
+			  };
 
-        const confirmOptionalPromptModal = useCallback(async () => {
-          const fn = pendingPromptActionRef.current;
-          pendingPromptActionRef.current = null;
-          setIsOptionalPromptModalOpen(false);
-
-          const text = (optionalPromptValue || '').trim();
-          try {
-            await fn?.(text ? text : undefined);
-          } catch (e) {
-            console.error(e);
-            addToast('操作失败', 'error');
-          }
-        }, [addToast, optionalPromptValue]);
-
-		  const handleExport = async (format: 'txt' | 'markdown') => {
-		    if (!id) return;
-		    try {
-		      const response = await novelsApi.exportNovel(id, format);
-		      const blob = new Blob([response.data]);
-		      const url = window.URL.createObjectURL(blob);
-		      const link = document.createElement('a');
-		      link.href = url;
-		      const title = (projectInfo?.title || 'novel').trim() || 'novel';
-		      const ext = format === 'markdown' ? 'md' : 'txt';
-		      link.setAttribute('download', `${title}.${ext}`);
-		      document.body.appendChild(link);
-		      link.click();
-		      link.remove();
-		      window.URL.revokeObjectURL(url);
-		      addToast('导出成功', 'success');
-		    } catch (e) {
-		      console.error(e);
-		      addToast('导出失败', 'error');
-		    }
-		  };
-
-      const openImportChapterModal = useCallback(() => {
-        const nextChapterNum = chapters.length > 0
-          ? Math.max(...chapters.map((c) => Number(c.chapter_number) || 0)) + 1
-          : 1;
-        setImportChapterNumber(Math.max(1, nextChapterNum));
-        setImportChapterTitle(`第${Math.max(1, nextChapterNum)}章`);
-        setImportChapterContent('');
-        setImportFileName('');
-        setImportFileBuffer(null);
-        setImportEncoding('utf-8');
-        setIsImportChapterModalOpen(true);
-      }, [chapters]);
-
-
-      const pickImportFile = useCallback(() => {
-        importFileInputRef.current?.click();
-      }, []);
-
-      const onImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] || null;
-        e.target.value = '';
-        if (!file) return;
-
-        try {
-          const buf = await file.arrayBuffer();
-          setImportFileName(file.name);
-          setImportFileBuffer(buf);
-          const defaultTitle = sanitizeFilenamePart(file.name.replace(/\.[^.]+$/, ''));
-          setImportChapterTitle((prev) => (String(prev || '').trim() ? prev : (defaultTitle || prev)));
-        } catch (err) {
-          console.error(err);
-          addToast('读取文件失败', 'error');
-        }
-      }, [addToast]);
+	      const openImportChapterModal = useCallback(() => {
+	        setIsImportChapterModalOpen(true);
+	      }, []);
 
 	  const loadProjectData = useCallback(async () => {
 	    if (!id) return;
@@ -883,7 +520,7 @@ export const WritingDesk: React.FC = () => {
 	    }
 		    if (isDirty) {
 		      const currentNo = currentChapterRef.current?.chapter_number;
-		      const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+		      const draftOk = currentNo ? writeWritingDraft(getWritingDraftKey(id, currentNo), contentRef.current) : true;
 		      if (draftOk) setDraftRevision((v) => v + 1);
 		      if (!draftOk && !draftSaveWarnedRef.current) {
 		        draftSaveWarnedRef.current = true;
@@ -939,7 +576,7 @@ export const WritingDesk: React.FC = () => {
 	    try {
 	      await writerApi.updateChapter(id, currentChapter.chapter_number, content);
 	      await handleSelectChapter(currentChapter.chapter_number, { skipConfirm: true });
-	      safeRemoveDraft(getDraftKey(id, currentChapter.chapter_number));
+	      removeWritingDraft(getWritingDraftKey(id, currentChapter.chapter_number));
 	      setDraftRevision((v) => v + 1);
 	      addToast('保存成功', 'success');
 	    } catch (e) {
@@ -1002,7 +639,7 @@ export const WritingDesk: React.FC = () => {
 	      return;
 	    }
 		    if (isDirty) {
-		      const draftOk = safeWriteDraft(getDraftKey(id, currentChapter.chapter_number), contentRef.current);
+		      const draftOk = writeWritingDraft(getWritingDraftKey(id, currentChapter.chapter_number), contentRef.current);
 		      if (draftOk) setDraftRevision((v) => v + 1);
 		      if (!draftOk && !draftSaveWarnedRef.current) {
 		        draftSaveWarnedRef.current = true;
@@ -1044,14 +681,24 @@ export const WritingDesk: React.FC = () => {
 
         // 对齐桌面端：章节页头提供“预览提示词”（用于测试 RAG 与上下文构建）
         const openPromptPreviewModal = useCallback(() => {
-          if (!id || !currentChapter) return;
+          if (!id) return;
+          if (!currentChapter) {
+            addToast('请先选择章节', 'info');
+            return;
+          }
           setPromptPreviewNotes((prev) => {
             const v = String(prev || '').trim();
             if (v) return prev;
             return writingNotes || '';
           });
           setIsPromptPreviewModalOpen(true);
-        }, [currentChapter, id, writingNotes]);
+        }, [addToast, currentChapter, id, writingNotes]);
+
+        const openWritingNotesModal = useCallback(() => {
+          if (!id) return;
+          setWritingNotesDraft(writingNotes || '');
+          setIsWritingNotesModalOpen(true);
+        }, [id, writingNotes]);
 
   useEffect(() => {
     return () => disconnect();
@@ -1117,7 +764,7 @@ export const WritingDesk: React.FC = () => {
       // 未保存修改：先写入本地草稿，降低误操作丢稿风险
 	      if (isDirtyRef.current) {
 	        const currentNo = currentChapterRef.current?.chapter_number;
-	        const draftOk = currentNo ? safeWriteDraft(getDraftKey(id, currentNo), contentRef.current) : true;
+	        const draftOk = currentNo ? writeWritingDraft(getWritingDraftKey(id, currentNo), contentRef.current) : true;
 	        if (draftOk) setDraftRevision((v) => v + 1);
 	        if (!draftOk && !draftSaveWarnedRef.current) {
 	          draftSaveWarnedRef.current = true;
@@ -1254,129 +901,54 @@ export const WritingDesk: React.FC = () => {
 		  if (!id) return null;
 
 
-		  return (
-		    <div className="flex flex-col h-screen bg-book-bg">
-		      {/* 简化的顶部导航栏 - 照抄桌面端 header.py */}
-		      <div className="h-14 border-b border-book-border bg-book-bg-paper flex items-center px-4 justify-between shrink-0 z-30 shadow-sm">
-		        {/* 左侧：返回按钮 */}
-		        <button
-		          onClick={() => safeNavigate('/')}
-	          className="flex items-center justify-center w-9 h-9 rounded-full bg-book-primary text-white hover:opacity-90 transition-opacity"
-	          title="返回项目列表"
-	        >
-	          <ArrowLeft size={18} />
-        </button>
+			  return (
+			    <div className="flex flex-col h-screen bg-book-bg">
+			      {/* 简化的顶部导航栏 - 照抄桌面端 header.py */}
+            <WritingDeskHeader
+              projectTitle={String(projectInfo?.title || '')}
+              projectStyle={String(projectInfo?.style || '')}
+              completedChaptersCount={(Array.isArray(chapters) ? chapters : []).filter((ch) => Boolean(ch?.content)).length}
+              totalChaptersCount={Array.isArray(chapters) ? chapters.length : 0}
+              contentChars={contentChars}
+              onBack={() => safeNavigate('/')}
+              onOpenImportChapter={openImportChapterModal}
+              onExportTxt={() => handleExport('txt')}
+              onExportMarkdown={() => handleExport('markdown')}
+              onOpenWritingNotes={openWritingNotesModal}
+              onOpenPromptPreview={openPromptPreviewModal}
+              onOpenProjectDetail={() => safeNavigate(`/novel/${id}`)}
+              isAssistantOpen={isAssistantOpen}
+              onToggleAssistant={() => setIsAssistantOpen((v) => !v)}
+              isGenerating={isGenerating}
+              genProgress={genProgress}
+              onStopGenerating={() => {
+                disconnect();
+                setIsGenerating(false);
+                setGenProgress(null);
+                addToast('已停止生成', 'info');
+              }}
+            />
 
-        {/* 中间：项目信息 */}
-		        <div className="flex-1 min-w-0 mx-4 px-4 py-2 bg-book-bg rounded-lg border border-book-border/50">
-		          <div className="font-serif font-bold text-book-text-main text-sm truncate">
-		            {projectInfo?.title || '写作台'}
-		          </div>
-		          <div className="text-[11px] text-book-text-muted truncate">
-		            {projectInfo?.style || '自由创作'}
-		            {' · '}
-		            {chapters.filter(ch => ch.content).length}/{chapters.length}章
-		            {contentChars > 0 && ` · ${contentChars}字`}
-		          </div>
-		        </div>
-
-	        {/* 右侧：操作按钮 */}
-	        <div className="flex items-center gap-2">
-	          {/* 导入/导出按钮（下拉菜单） */}
-	          <Dropdown
-	            label="导入/导出"
-	            items={[
-	              { label: '导入章节', onClick: openImportChapterModal },
-	              { label: '导出为 TXT', onClick: () => handleExport('txt') },
-	              { label: '导出为 Markdown', onClick: () => handleExport('markdown') },
-	            ]}
-	          />
-
-	          {/* 项目详情按钮 */}
-	          <BookButton
-	            variant="primary"
-	            size="sm"
-	            onClick={() => safeNavigate(`/novel/${id}`)}
-	            title="打开项目详情"
-	          >
-	            项目详情
-	          </BookButton>
-
-	          {/* RAG助手切换按钮 */}
-	          <BookButton
-	            variant={isAssistantOpen ? 'primary' : 'ghost'}
-	            size="sm"
-	            onClick={() => setIsAssistantOpen((v) => !v)}
-	            title={isAssistantOpen ? '隐藏助手面板' : '显示助手面板'}
-	          >
-	            {isAssistantOpen ? '隐藏助手' : '显示助手'}
-	          </BookButton>
-	        </div>
-
-          {/* 生成进度（仅在生成时显示） */}
-	          {isGenerating && (
-	            <div className="flex items-center gap-3 ml-4">
-	              <div className="min-w-0 text-right">
-	                <div className="text-[11px] text-book-text-muted truncate">
-	                  {genProgress?.message || genProgress?.stage || '生成中...'}
-                </div>
-                {typeof genProgress?.current === 'number' && typeof genProgress?.total === 'number' && genProgress.total > 0 ? (
-                  <div className="mt-1 h-1.5 w-32 bg-book-border/30 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-book-primary transition-all duration-300"
-                      style={{ width: `${Math.min(100, Math.max(0, (genProgress.current / genProgress.total) * 100))}%` }}
-                    />
-                  </div>
-                ) : (
-                  <div className="mt-1 h-1.5 w-32 bg-book-border/30 rounded-full overflow-hidden">
-                    <div className="h-full w-1/3 bg-book-primary animate-pulse" />
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  disconnect();
-                  setIsGenerating(false);
-                  setGenProgress(null);
-                  addToast('已停止生成', 'info');
-                }}
-                className="text-xs text-book-accent hover:text-book-accent/80 transition-colors font-bold"
-                title="停止生成"
-              >
-                停止
-              </button>
-            </div>
-          )}
-        </div>
-
-		      <div className="flex-1 flex overflow-hidden">
-		        {isSidebarOpen && (
-		          <>
-		            <div className="shrink-0 h-full" style={{ width: sidebarWidth }}>
-			            <ChapterList 
-			              chapters={chapters} 
-			              projectId={id}
-			              draftRevision={draftRevision}
-			              currentChapterNumber={currentChapter?.chapter_number}
-			              projectInfo={projectInfo}
-			              onSelectChapter={handleSelectChapter}
-			              onCreateChapter={handleCreateChapter}
-			              onEditOutline={handleEditOutline}
-		                onRegenerateOutline={handleRegenerateOutline}
-		              onResetChapter={handleResetChapter}
-		              onDeleteChapter={handleDeleteChapter}
-		              onBatchGenerate={() => setIsBatchModalOpen(true)}
-		              onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
-		            />
-		            </div>
-
-		            <div
-		              className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-book-primary/20 transition-colors"
-		              onMouseDown={startSidebarResizing}
-		              title="拖拽调整章节栏宽度"
-		            />
-		          </>
-		        )}
+				      <div className="flex-1 flex overflow-hidden">
+                {isSidebarOpen ? (
+                  <WritingDeskSidebar
+                    projectId={id}
+                    chapters={chapters}
+                    draftRevision={draftRevision}
+                    currentChapterNumber={currentChapter?.chapter_number}
+                    projectInfo={projectInfo}
+                    width={sidebarWidth}
+                    onResizeMouseDown={startSidebarResizing}
+                    onSelectChapter={handleSelectChapter}
+                    onCreateChapter={handleCreateChapter}
+                    onEditOutline={handleEditOutline}
+                    onRegenerateOutline={handleRegenerateOutline}
+                    onResetChapter={handleResetChapter}
+                    onDeleteChapter={handleDeleteChapter}
+                    onBatchGenerate={() => setIsBatchModalOpen(true)}
+                    onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
+                  />
+                ) : null}
 
 		        <div className="flex-1 min-w-0 bg-book-bg">
 		          {currentChapter ? (
@@ -1426,74 +998,32 @@ export const WritingDesk: React.FC = () => {
 		          )}
 		        </div>
 
-			        {isAssistantOpen && (
-		          <>
-		            <div
-		              className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-book-primary/20 transition-colors"
-		              onMouseDown={startAssistantResizing}
-		              title="拖拽调整助手面板宽度"
-		            />
-		            <div className="shrink-0 h-full" style={{ width: assistantWidth }}>
-		              {assistantMountReady ? (
-		                <Suspense fallback={<div className="h-full p-4 text-xs text-book-text-muted">助手面板加载中…</div>}>
-		                  <AssistantPanelLazy
-		                    projectId={id}
-		                    chapterNumber={currentChapter?.chapter_number}
-		                    content={content}
-		                    onChangeContent={setContent}
-		                    onLocateText={locateInEditor}
-		                    onSelectRange={selectRangeInEditor}
-		                    onJumpToChapter={async (chapterNo) => {
-		                      await handleSelectChapter(chapterNo);
-		                    }}
-		                  />
-		                </Suspense>
-		              ) : (
-		                <div className="h-full p-4 text-xs text-book-text-muted">助手面板准备中…</div>
-		              )}
-		            </div>
-		          </>
-		        )}
-		      </div>
+                <WritingDeskAssistant
+                  projectId={id}
+                  chapterNumber={currentChapter?.chapter_number}
+                  content={content}
+                  onChangeContent={setContent}
+                  onLocateText={locateInEditor}
+                  onSelectRange={selectRangeInEditor}
+                  onJumpToChapter={async (chapterNo) => {
+                    await handleSelectChapter(chapterNo);
+                  }}
+                  isOpen={isAssistantOpen}
+                  width={assistantWidth}
+                  mountReady={assistantMountReady}
+                  onResizeMouseDown={startAssistantResizing}
+                />
+				      </div>
 
-	      {/* Modals */}
-		      <input
-		        ref={importFileInputRef}
-		        type="file"
-		        accept=".txt,.md,text/plain,text/markdown"
-		        style={{ display: 'none' }}
-		        onChange={onImportFileChange}
-		      />
-
-		      <Modal
-		        isOpen={isPromptPreviewModalOpen}
-		        onClose={() => setIsPromptPreviewModalOpen(false)}
-		        title={`第 ${currentChapter?.chapter_number ?? ''} 章 - 提示词预览`}
-		        maxWidthClassName="max-w-6xl"
-		        className="max-h-[90vh]"
-		        footer={
-		          <div className="flex justify-end gap-2">
-		            <BookButton variant="ghost" onClick={() => setIsPromptPreviewModalOpen(false)}>
-		              关闭
-		            </BookButton>
-		          </div>
-		        }
-		      >
-		        <div className="max-h-[75vh] overflow-auto custom-scrollbar pr-1">
-		          {currentChapter ? (
-		            <Suspense fallback={<div className="text-sm text-book-text-muted">提示词预览加载中…</div>}>
-              <ChapterPromptPreviewViewLazy
-                projectId={id}
-                chapterNumber={currentChapter.chapter_number}
-                writingNotes={promptPreviewNotes}
-                onChangeWritingNotes={setPromptPreviewNotes}
-              />
-            </Suspense>
-		          ) : (
-		            <div className="text-sm text-book-text-muted">请先选择章节</div>
-		          )}
-		        </div>
-		      </Modal>
+			      {/* Modals */}
+            <PromptPreviewModal
+              projectId={id}
+              chapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
+              isOpen={isPromptPreviewModalOpen}
+              writingNotes={promptPreviewNotes}
+              onChangeWritingNotes={setPromptPreviewNotes}
+              onClose={() => setIsPromptPreviewModalOpen(false)}
+            />
 
 		      {isOutlineModalOpen ? (
 		        <Suspense fallback={null}>
@@ -1518,212 +1048,38 @@ export const WritingDesk: React.FC = () => {
 	        </Suspense>
 	      ) : null}
 
-		        {isProtagonistModalOpen ? (
-		          <Suspense fallback={null}>
-		            <ProtagonistProfilesModalLazy
-		              isOpen={isProtagonistModalOpen}
-		              onClose={() => setIsProtagonistModalOpen(false)}
-		              projectId={id}
-		              currentChapterNumber={currentChapter?.chapter_number}
-		            />
-		          </Suspense>
-		        ) : null}
+			        {isProtagonistModalOpen ? (
+			          <Suspense fallback={null}>
+			            <ProtagonistProfilesModalLazy
+			              isOpen={isProtagonistModalOpen}
+			              onClose={() => setIsProtagonistModalOpen(false)}
+			              projectId={id}
+			              currentChapterNumber={currentChapter?.chapter_number}
+			            />
+			          </Suspense>
+			        ) : null}
 
-	        <Modal
-	          isOpen={isImportChapterModalOpen}
-	          onClose={() => {
-	            if (importingChapter) return;
-	            setIsImportChapterModalOpen(false);
-	          }}
-	          title="导入章节"
-	          maxWidthClassName="max-w-2xl"
-	          footer={
-	            <div className="flex justify-end gap-2">
-	              <BookButton
-	                variant="ghost"
-	                onClick={() => setIsImportChapterModalOpen(false)}
-	                disabled={importingChapter}
-	              >
-	                取消
-	              </BookButton>
-	              <BookButton
-	                variant="primary"
-	                onClick={async () => {
-	                  if (!id) return;
-	                  const chapterNo = Math.max(1, Number(importChapterNumber) || 1);
-	                  const title = (importChapterTitle || '').trim() || `第${chapterNo}章`;
-	                  const text = String(importChapterContent || '');
-
-	                  setImportingChapter(true);
-	                  try {
-	                    await writerApi.importChapter(id, chapterNo, title, text, { timeout: 0 });
-	                    addToast('章节已导入', 'success');
-	                    setIsImportChapterModalOpen(false);
-	                    setImportFileName('');
-	                    setImportFileBuffer(null);
-	                    await loadProjectData();
-	                    await handleSelectChapter(chapterNo);
-	                  } catch (e) {
-	                    console.error(e);
-	                    addToast('导入失败', 'error');
-	                  } finally {
-	                    setImportingChapter(false);
-	                  }
-	                }}
-	                disabled={importingChapter}
-	              >
-	                {importingChapter ? '导入中…' : '导入'}
-	              </BookButton>
-	            </div>
-	          }
-	        >
-	          <div className="space-y-4">
-	            <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-	              说明：导入会创建（或更新）指定章节，并生成一个新的版本。支持直接粘贴正文，或选择 TXT/MD 文件自动填充内容。
-	            </div>
-
-	            <div className="flex items-end gap-3 flex-wrap">
-	              <BookButton variant="secondary" size="sm" onClick={pickImportFile} disabled={importingChapter}>
-	                选择文件
-	              </BookButton>
-	              <div className="text-xs text-book-text-muted">
-	                {importFileName ? `已选择：${importFileName}` : '未选择文件（可直接粘贴内容）'}
-	              </div>
-	              <div className="ml-auto flex items-center gap-2">
-	                <span className="text-xs text-book-text-muted">编码</span>
-	                <select
-	                  value={importEncoding}
-	                  onChange={(e) => setImportEncoding(e.target.value === 'gb18030' ? 'gb18030' : 'utf-8')}
-	                  disabled={importingChapter}
-	                  className="text-xs bg-book-bg-paper border border-book-border/50 rounded-md px-2 py-1 outline-none focus:border-book-primary/50"
-	                  title="若文件乱码，请切换为 GB18030"
-	                >
-	                  <option value="utf-8">UTF-8</option>
-	                  <option value="gb18030">GB18030（Win 常见）</option>
-	                </select>
-	              </div>
-	            </div>
-
-	            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-	              <BookInput
-	                label="章节号"
-	                type="number"
-	                min={1}
-	                value={importChapterNumber}
-	                onChange={(e) => setImportChapterNumber(parseInt(e.target.value, 10) || 1)}
-	                disabled={importingChapter}
-	              />
-	              <BookInput
-	                label="章节标题"
-	                value={importChapterTitle}
-	                onChange={(e) => setImportChapterTitle(e.target.value)}
-	                disabled={importingChapter}
-	              />
-	            </div>
-
-	            <BookTextarea
-	              label="章节内容"
-	              rows={12}
-	              value={importChapterContent}
-	              onChange={(e) => setImportChapterContent(e.target.value)}
-	              placeholder="可直接粘贴；或选择 TXT/MD 文件自动填充"
-	              disabled={importingChapter}
-	            />
-	          </div>
-	        </Modal>
-
-	        <Modal
-	          isOpen={isOptionalPromptModalOpen}
-	          onClose={() => {
-	            pendingPromptActionRef.current = null;
-	            setIsOptionalPromptModalOpen(false);
-          }}
-          title={optionalPromptTitle}
-          maxWidthClassName="max-w-2xl"
-          footer={
-            <div className="flex justify-end gap-2">
-              <BookButton
-                variant="ghost"
-                onClick={() => {
-                  pendingPromptActionRef.current = null;
-                  setIsOptionalPromptModalOpen(false);
-                }}
-              >
-                取消
-              </BookButton>
-              <BookButton variant="primary" onClick={confirmOptionalPromptModal}>
-                确定
-              </BookButton>
-            </div>
-          }
-        >
-          <div className="space-y-4">
-            {optionalPromptHint ? (
-              <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-                {optionalPromptHint}
-              </div>
-            ) : null}
-            <BookTextarea
-              label="优化提示词（可选）"
-              rows={8}
-              value={optionalPromptValue}
-              onChange={(e) => setOptionalPromptValue(e.target.value)}
-              placeholder="例如：强化冲突、补足动机、压缩节奏、增加悬疑…"
+            <ImportChapterModal
+              projectId={id}
+              isOpen={isImportChapterModalOpen}
+              onClose={() => setIsImportChapterModalOpen(false)}
+              suggestedChapterNumber={suggestedImportChapterNumber}
+              onImported={async (chapterNo) => {
+                await loadProjectData();
+                await handleSelectChapter(chapterNo);
+              }}
             />
-          </div>
-        </Modal>
 
-	        <Modal
-	          isOpen={isWritingNotesModalOpen}
-	          onClose={() => setIsWritingNotesModalOpen(false)}
-	          title="写作指导（可选）"
-          maxWidthClassName="max-w-2xl"
-          footer={
-            <div className="flex justify-end gap-2">
-              <BookButton variant="ghost" onClick={() => setIsWritingNotesModalOpen(false)}>
-                取消
-              </BookButton>
-	              <BookButton
-	                variant="secondary"
-	                onClick={async () => {
-	                  const ok = await confirmDialog({
-	                    title: '清空写作指导',
-	                    message: '确定清空写作指导？',
-	                    confirmText: '清空',
-	                    dialogType: 'warning',
-	                  });
-	                  if (!ok) return;
-	                  setWritingNotesDraft('');
-	                }}
-	              >
-	                清空
-	              </BookButton>
-              <BookButton
-                variant="primary"
-                onClick={() => {
-                  setWritingNotes(writingNotesDraft || '');
-                  setIsWritingNotesModalOpen(false);
-                  addToast((writingNotesDraft || '').trim() ? '已更新写作指导' : '已清空写作指导', 'success');
-                }}
-              >
-                保存
-              </BookButton>
-            </div>
-          }
-        >
-          <div className="space-y-4">
-            <BookTextarea
-              label="写作指导"
-              rows={10}
-              value={writingNotesDraft}
-              onChange={(e) => setWritingNotesDraft(e.target.value)}
-              placeholder="例如：本章重点描写主角内心变化，减少对话，多用动作推动剧情…"
+		        {/* Optional Prompt Modal（用于“重生成”类操作的可选优化提示词） */}
+		        {optionalPromptModal}
+
+            <WritingNotesModal
+              isOpen={isWritingNotesModalOpen}
+              draft={writingNotesDraft}
+              onChangeDraft={setWritingNotesDraft}
+              onClose={() => setIsWritingNotesModalOpen(false)}
+              onCommit={(next) => setWritingNotes(next || '')}
             />
-            <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-              提示：写作指导会参与“提示词预览 / AI 续写 / RAG 检索”，用于控制本章写作方向。留空则按大纲与上下文自动生成。
-            </div>
-          </div>
-        </Modal>
-		    </div>
-		  );
-	};
+			    </div>
+			  );
+		};

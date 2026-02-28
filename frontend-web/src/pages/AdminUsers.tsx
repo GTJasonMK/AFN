@@ -15,6 +15,7 @@ import { isAdminUser, useAuthStore } from '../store/auth';
 import { extractApiErrorMessage } from '../api/client';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { downloadCsv } from '../utils/csv';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type SortMode = 'lastActivity' | 'projects' | 'username';
@@ -372,23 +373,8 @@ export const AdminUsers: React.FC = () => {
       item.metrics.recently_active ? 'true' : 'false',
     ]);
 
-    const csvEscape = (value: unknown) => {
-      const text = String(value ?? '');
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-
-    const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n');
-    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `admin-users-${stamp}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    downloadCsv(header, rows, `admin-users-${stamp}.csv`);
 
     addToast(`已导出 ${filteredUsers.length} 条用户记录`, 'success');
   };

@@ -9,6 +9,7 @@ import { BookButton } from '../ui/BookButton';
 import { ChapterVersion } from '../../api/writer';
 import { Save, RefreshCw, Maximize2, Minimize2, Database, Eye, FileText, Files, BadgeCheck, ScrollText, BarChart3, Layers } from 'lucide-react';
 import type { Chapter } from '../../api/writer';
+import { usePersistedTab } from '../../hooks/usePersistedTab';
 
 export type WorkspaceTabId = 'content' | 'versions' | 'review' | 'summary' | 'analysis' | 'manga';
 
@@ -35,6 +36,7 @@ interface WorkspaceTabsProps {
 }
 
 const WORKSPACE_TAB_STORAGE_KEY = (projectId: string) => `afn:workspace_tab:${projectId}`;
+const WORKSPACE_ALLOWED_TABS: readonly WorkspaceTabId[] = ['content', 'versions', 'review', 'summary', 'analysis', 'manga'];
 
 // 照抄桌面端的标签页定义
 const tabs: { id: WorkspaceTabId; label: string; icon: React.ElementType }[] = [
@@ -83,24 +85,11 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
   const [isFocusMode, setIsFocusMode] = useState(false);
 
   // 当前标签页
-  const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => {
-    try {
-      const raw = localStorage.getItem(WORKSPACE_TAB_STORAGE_KEY(projectId));
-      if (raw && tabs.some(t => t.id === raw)) return raw as WorkspaceTabId;
-    } catch {
-      // ignore
-    }
-    return 'content';
-  });
-
-  // 持久化标签页选择
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKSPACE_TAB_STORAGE_KEY(projectId), activeTab);
-    } catch {
-      // ignore
-    }
-  }, [activeTab, projectId]);
+  const [activeTab, setActiveTab] = usePersistedTab(
+    WORKSPACE_TAB_STORAGE_KEY(projectId),
+    'content',
+    WORKSPACE_ALLOWED_TABS,
+  );
 
   useImperativeHandle(ref, () => ({
     focus: () => {

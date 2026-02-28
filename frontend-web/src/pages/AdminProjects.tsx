@@ -12,6 +12,7 @@ import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { downloadCsv } from '../utils/csv';
 
 type KindFilter = 'all' | 'novel' | 'coding';
 type SortMode = 'updated_desc' | 'updated_asc' | 'title' | 'username';
@@ -320,11 +321,6 @@ export const AdminProjects: React.FC = () => {
       return;
     }
 
-    const csvEscape = (value: unknown) => {
-      const text = String(value ?? '');
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-
     const header = ['kind', 'project_id', 'title', 'status', 'username', 'updated_at', 'is_stale'];
     const rows = filteredProjects.map((item) => {
       const kind = normalizeKind(item.kind);
@@ -341,18 +337,8 @@ export const AdminProjects: React.FC = () => {
       ];
     });
 
-    const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n');
-    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `admin-projects-${stamp}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    downloadCsv(header, rows, `admin-projects-${stamp}.csv`);
 
     addToast(`已导出 ${filteredProjects.length} 条项目记录`, 'success');
   }, [addToast, filteredProjects, staleThresholdMs]);

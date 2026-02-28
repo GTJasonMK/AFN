@@ -7,6 +7,7 @@ import { novelsApi } from '../../api/novels';
 import { protagonistApi } from '../../api/protagonist';
 import { API_BASE_URL } from '../../api/client';
 import { scheduleIdleTask } from '../../utils/scheduleIdleTask';
+import { getWritingDraftKey, hasWritingDraft } from '../../utils/writingDraft';
 
 interface ChapterListProps {
   chapters: Chapter[];
@@ -81,12 +82,8 @@ export const ChapterList: React.FC<ChapterListProps> = ({
     if (revision < 0 || !projectId) return set;
 
     for (const chapter of sortedChapters) {
-      const key = `afn:writing_draft:${projectId}:${chapter.chapter_number}`;
-      try {
-        if (localStorage.getItem(key)) set.add(chapter.chapter_number);
-      } catch {
-        break;
-      }
+      const key = getWritingDraftKey(projectId, chapter.chapter_number);
+      if (hasWritingDraft(key)) set.add(chapter.chapter_number);
     }
     return set;
   }, [draftRevision, projectId, sortedChapters]);

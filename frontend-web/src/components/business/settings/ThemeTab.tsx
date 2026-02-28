@@ -12,6 +12,7 @@ import { SettingsTabHeader } from './components/SettingsTabHeader';
 import { defaultWebAppearanceConfig, notifyWebAppearanceChanged, readWebAppearanceConfig, writeWebAppearanceConfig, type WebAppearanceConfig } from '../../../theme/webAppearance';
 import { Dropdown } from '../../ui/Dropdown';
 import { Modal } from '../../ui/Modal';
+import { downloadJson } from '../../../utils/downloadFile';
 
 function formatTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -83,24 +84,6 @@ export const ThemeTab: React.FC = () => {
     const raw = String(name || '').trim();
     if (!raw) return 'theme';
     return raw.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
-  };
-
-  const downloadJson = (filename: string, data: any) => {
-    try {
-      const text = JSON.stringify(data, null, 2);
-      const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error(e);
-      addToast('导出失败：无法生成 JSON 文件', 'error');
-    }
   };
 
   const buildEditPayloadText = (cfg: ThemeConfigUnifiedRead): string => {
@@ -254,13 +237,13 @@ export const ThemeTab: React.FC = () => {
   const handleExportAll = async () => {
     setExporting(true);
     try {
-      const data = await themeConfigsApi.exportAll();
-      const date = new Date().toISOString().slice(0, 10);
-      downloadJson(`afn-theme-configs-${date}.json`, data);
-      addToast('已导出主题配置', 'success');
-    } catch (e) {
-      console.error(e);
-      addToast('导出失败', 'error');
+	      const data = await themeConfigsApi.exportAll();
+	      const date = new Date().toISOString().slice(0, 10);
+	      downloadJson(data, `afn-theme-configs-${date}.json`);
+	      addToast('已导出主题配置', 'success');
+	    } catch (e) {
+	      console.error(e);
+	      addToast('导出失败', 'error');
     } finally {
       setExporting(false);
     }
@@ -269,13 +252,13 @@ export const ThemeTab: React.FC = () => {
   const handleExportOne = async (cfg: ThemeConfigListItem) => {
     setBusyId(cfg.id);
     try {
-      const data = await themeConfigsApi.exportOne(cfg.id);
-      const date = new Date().toISOString().slice(0, 10);
-      downloadJson(`afn-theme-${sanitizeFilename(cfg.config_name)}-${cfg.parent_mode}-${date}.json`, data);
-      addToast('已导出主题配置', 'success');
-    } catch (e) {
-      console.error(e);
-      addToast('导出失败', 'error');
+	      const data = await themeConfigsApi.exportOne(cfg.id);
+	      const date = new Date().toISOString().slice(0, 10);
+	      downloadJson(data, `afn-theme-${sanitizeFilename(cfg.config_name)}-${cfg.parent_mode}-${date}.json`);
+	      addToast('已导出主题配置', 'success');
+	    } catch (e) {
+	      console.error(e);
+	      addToast('导出失败', 'error');
     } finally {
       setBusyId(null);
     }

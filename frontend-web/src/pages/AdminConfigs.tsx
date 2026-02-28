@@ -12,6 +12,7 @@ import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { downloadCsv } from '../utils/csv';
 
 type ConfigTypeFilter = 'all' | 'llm' | 'embedding' | 'image' | 'theme';
 type TestStatusFilter = 'all' | 'success' | 'failed' | 'pending' | 'untested';
@@ -312,11 +313,6 @@ export const AdminConfigs: React.FC = () => {
       return;
     }
 
-    const csvEscape = (value: unknown) => {
-      const text = String(value ?? '');
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-
     const header = ['config_type', 'config_id', 'config_name', 'username', 'test_status', 'updated_at'];
     const rows = filteredActiveConfigs.map((item) => [
       item.config_type,
@@ -327,18 +323,8 @@ export const AdminConfigs: React.FC = () => {
       item.updated_at || '',
     ]);
 
-    const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n');
-    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `admin-configs-${stamp}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    downloadCsv(header, rows, `admin-configs-${stamp}.csv`);
 
     addToast(`已导出 ${filteredActiveConfigs.length} 条配置记录`, 'success');
   }, [addToast, filteredActiveConfigs]);

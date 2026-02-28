@@ -4,6 +4,7 @@ import { BookButton } from '../../ui/BookButton';
 import { useToast } from '../../feedback/Toast';
 import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { settingsApi, type AllConfigExportData, type ConfigImportResult } from '../../../api/settings';
+import { downloadJson } from '../../../utils/downloadFile';
 import { Download, Upload, FileJson, RefreshCw, AlertTriangle } from 'lucide-react';
 
 type ImportPreview = {
@@ -22,18 +23,6 @@ const safeDateStringForFilename = (iso?: string) => {
 };
 
 const sanitizeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '-');
-
-const downloadJson = (data: any, filename: string) => {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', sanitizeFilename(filename));
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
-};
 
 export const ImportExportTab: React.FC = () => {
   const { addToast } = useToast();
@@ -71,7 +60,7 @@ export const ImportExportTab: React.FC = () => {
       const data = await settingsApi.exportAllConfigs();
       setLastExport(data);
       const stamp = safeDateStringForFilename(data.export_time);
-      downloadJson(data, `afn-settings-all-${stamp}.json`);
+      downloadJson(data, sanitizeFilename(`afn-settings-all-${stamp}.json`));
       addToast('已导出配置文件', 'success');
     } catch (e) {
       console.error(e);

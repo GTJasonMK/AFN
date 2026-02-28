@@ -11,6 +11,8 @@ import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
 import { useToast } from '../components/feedback/Toast';
 import { useSSE } from '../hooks/useSSE';
+import { useTokenBuffer } from '../hooks/useTokenBuffer';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import {
@@ -228,56 +230,23 @@ export const CodingDesk: React.FC = () => {
   const [currentFile, setCurrentFile] = useState<CodingFileDetail | null>(null);
   const [content, setContent] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState('');
-  const promptTokensRef = useRef<string[]>([]);
-  const promptTokenFlushTimerRef = useRef<number | null>(null);
-  const reviewTokensRef = useRef<string[]>([]);
-  const reviewTokenFlushTimerRef = useRef<number | null>(null);
-
-  const resetPromptTokenBuffer = useCallback(() => {
-    promptTokensRef.current = [];
-    if (promptTokenFlushTimerRef.current !== null) {
-      window.clearTimeout(promptTokenFlushTimerRef.current);
-      promptTokenFlushTimerRef.current = null;
-    }
-  }, []);
-
-  const flushPromptTokens = useCallback(() => {
-    if (promptTokensRef.current.length === 0) return;
-    const text = promptTokensRef.current.join('');
-    promptTokensRef.current = [];
+  const appendPromptTokens = useCallback((text: string) => {
     setContent((prev) => prev + text);
   }, []);
+  const {
+    pushToken: pushPromptToken,
+    flush: flushPromptTokens,
+    reset: resetPromptTokenBuffer,
+  } = useTokenBuffer(appendPromptTokens, 48);
 
-  const schedulePromptTokenFlush = useCallback(() => {
-    if (promptTokenFlushTimerRef.current !== null) return;
-    promptTokenFlushTimerRef.current = window.setTimeout(() => {
-      promptTokenFlushTimerRef.current = null;
-      flushPromptTokens();
-    }, 48);
-  }, [flushPromptTokens]);
-
-  const resetReviewTokenBuffer = useCallback(() => {
-    reviewTokensRef.current = [];
-    if (reviewTokenFlushTimerRef.current !== null) {
-      window.clearTimeout(reviewTokenFlushTimerRef.current);
-      reviewTokenFlushTimerRef.current = null;
-    }
-  }, []);
-
-  const flushReviewTokens = useCallback(() => {
-    if (reviewTokensRef.current.length === 0) return;
-    const text = reviewTokensRef.current.join('');
-    reviewTokensRef.current = [];
+  const appendReviewTokens = useCallback((text: string) => {
     setReviewPrompt((prev) => prev + text);
   }, []);
-
-  const scheduleReviewTokenFlush = useCallback(() => {
-    if (reviewTokenFlushTimerRef.current !== null) return;
-    reviewTokenFlushTimerRef.current = window.setTimeout(() => {
-      reviewTokenFlushTimerRef.current = null;
-      flushReviewTokens();
-    }, 48);
-  }, [flushReviewTokens]);
+  const {
+    pushToken: pushReviewToken,
+    flush: flushReviewTokens,
+    reset: resetReviewTokenBuffer,
+  } = useTokenBuffer(appendReviewTokens, 48);
 
   const [versions, setVersions] = useState<CodingFileVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
@@ -298,16 +267,18 @@ export const CodingDesk: React.FC = () => {
 
   // RAG tab
   const [ragQuery, setRagQuery] = useState('');
-  const [ragTopK, setRagTopK] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem(`afn:coding_rag_topk:${id || ''}`);
-      const n = raw ? Number(raw) : 8;
-      if (!Number.isFinite(n)) return 8;
-      return Math.max(1, Math.min(30, Math.floor(n)));
-    } catch {
-      return 8;
-    }
-  });
+  const [ragTopK, setRagTopK] = usePersistedState<number>(
+    id ? `afn:coding_rag_topk:${id}` : null,
+    8,
+    {
+      parse: (raw) => {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return 8;
+        return Math.max(1, Math.min(30, Math.floor(n)));
+      },
+      serialize: (value) => String(value),
+    },
+  );
   const [ragLoading, setRagLoading] = useState(false);
   const [ragResult, setRagResult] = useState<any | null>(null);
 
@@ -323,16 +294,17 @@ export const CodingDesk: React.FC = () => {
   const [showAgentTree, setShowAgentTree] = useState(false);
   const agentLogRef = useRef<HTMLDivElement | null>(null);
   const agentClearExistingRef = useRef<boolean>(true);
-  const [agentDetailedMode, setAgentDetailedMode] = useState<boolean>(() => {
-    try {
-      const raw = localStorage.getItem(`afn:coding_agent_detailed:${id || ''}`);
-      if (!raw) return false;
-      const v = String(raw).trim().toLowerCase();
-      return v === '1' || v === 'true' || v === 'yes';
-    } catch {
-      return false;
-    }
-  });
+  const [agentDetailedMode, setAgentDetailedMode] = usePersistedState<boolean>(
+    id ? `afn:coding_agent_detailed:${id}` : null,
+    false,
+    {
+      parse: (raw) => {
+        const v = String(raw).trim().toLowerCase();
+        return v === '1' || v === 'true' || v === 'yes';
+      },
+      serialize: (value) => (value ? '1' : '0'),
+    },
+  );
   const agentDetailedModeRef = useRef<boolean>(agentDetailedMode);
   const hasBootstrapProjectRef = useRef(false);
 
@@ -465,23 +437,8 @@ export const CodingDesk: React.FC = () => {
   }, [id, loading, refreshTreeData, treeData]);
 
   useEffect(() => {
-    if (!id) return;
-    try {
-      localStorage.setItem(`afn:coding_rag_topk:${id}`, String(ragTopK));
-    } catch {
-      // ignore
-    }
-  }, [id, ragTopK]);
-
-  useEffect(() => {
     agentDetailedModeRef.current = agentDetailedMode;
-    if (!id) return;
-    try {
-      localStorage.setItem(`afn:coding_agent_detailed:${id}`, agentDetailedMode ? '1' : '0');
-    } catch {
-      // ignore
-    }
-  }, [agentDetailedMode, id]);
+  }, [agentDetailedMode]);
 
   const agentTreeData = useMemo(() => {
     if (!agentPreview) return null;
@@ -538,16 +495,15 @@ export const CodingDesk: React.FC = () => {
 
   // ========== Prompt 生成 SSE ==========
   const { connect: connectPromptStream, disconnect: disconnectPromptStream } = useSSE((event, data) => {
-    if (event === 'progress') {
-      setGenStage(String(data?.stage || ''));
-      setGenMessage(String(data?.message || ''));
-      return;
-    }
-    if (event === 'token' && data?.token) {
-      promptTokensRef.current.push(String(data.token));
-      schedulePromptTokenFlush();
-      return;
-    }
+	    if (event === 'progress') {
+	      setGenStage(String(data?.stage || ''));
+	      setGenMessage(String(data?.message || ''));
+	      return;
+	    }
+	    if (event === 'token' && data?.token) {
+	      pushPromptToken(String(data.token));
+	      return;
+	    }
     if (event === 'complete') {
       flushPromptTokens();
       resetPromptTokenBuffer();
@@ -570,16 +526,15 @@ export const CodingDesk: React.FC = () => {
 
   // ========== Review Prompt 生成 SSE ==========
   const { connect: connectReviewStream, disconnect: disconnectReviewStream } = useSSE((event, data) => {
-    if (event === 'progress') {
-      setGenStage(String(data?.stage || 'review'));
-      setGenMessage(String(data?.message || ''));
-      return;
-    }
-    if (event === 'token' && data?.token) {
-      reviewTokensRef.current.push(String(data.token));
-      scheduleReviewTokenFlush();
-      return;
-    }
+	    if (event === 'progress') {
+	      setGenStage(String(data?.stage || 'review'));
+	      setGenMessage(String(data?.message || ''));
+	      return;
+	    }
+	    if (event === 'token' && data?.token) {
+	      pushReviewToken(String(data.token));
+	      return;
+	    }
     if (event === 'complete') {
       flushReviewTokens();
       resetReviewTokenBuffer();

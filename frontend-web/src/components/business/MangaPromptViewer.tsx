@@ -6,6 +6,9 @@ import { BookButton } from '../ui/BookButton';
 import { Layers, RefreshCw, Image as ImageIcon, FileDown, Copy, Info, XCircle, Play, Trash2 } from 'lucide-react';
 import { useToast } from '../feedback/Toast';
 import { confirmDialog } from '../feedback/ConfirmDialog';
+import { usePersistedMangaGenOptions } from '../../hooks/usePersistedMangaGenOptions';
+import { usePdfPreviewUrl } from '../../hooks/usePdfPreviewUrl';
+import { MangaGenerationParams } from './manga-prompt-viewer/MangaGenerationParams';
 
 interface MangaPromptViewerProps {
   projectId: string;
@@ -51,19 +54,30 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   const lastGenerationStartAtRef = useRef<number | null>(null);
   const [activeTab, setActiveTab] = useState<'storyboard' | 'details'>('storyboard');
 
-  const [genStyle, setGenStyle] = useState<'manga' | 'anime' | 'comic' | 'webtoon' | 'custom'>('manga');
-  const [customStyle, setCustomStyle] = useState('漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度');
-  const [genLanguage, setGenLanguage] = useState<'chinese' | 'japanese' | 'english' | 'korean'>('chinese');
-  const [minPages, setMinPages] = useState(8);
-  const [maxPages, setMaxPages] = useState(15);
-  const [usePortraits, setUsePortraits] = useState(true);
-  const [autoGeneratePortraits, setAutoGeneratePortraits] = useState(true);
-  const [autoGeneratePageImages, setAutoGeneratePageImages] = useState(false);
-  const [pagePromptConcurrency, setPagePromptConcurrency] = useState(5);
-  const [startFromStage, setStartFromStage] = useState<
-    'auto' | 'extraction' | 'planning' | 'storyboard' | 'prompt_building' | 'page_prompt_building'
-  >('auto');
-  const [forceRestart, setForceRestart] = useState(false);
+  const {
+    genStyle,
+    setGenStyle,
+    customStyle,
+    setCustomStyle,
+    genLanguage,
+    setGenLanguage,
+    minPages,
+    setMinPages,
+    maxPages,
+    setMaxPages,
+    usePortraits,
+    setUsePortraits,
+    autoGeneratePortraits,
+    setAutoGeneratePortraits,
+    autoGeneratePageImages,
+    setAutoGeneratePageImages,
+    pagePromptConcurrency,
+    setPagePromptConcurrency,
+    startFromStage,
+    setStartFromStage,
+    forceRestart,
+    setForceRestart,
+  } = usePersistedMangaGenOptions(projectId);
 
   const [images, setImages] = useState<GeneratedImageInfo[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
@@ -74,8 +88,15 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   const [pdfInfo, setPdfInfo] = useState<ChapterMangaPDFResponse | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfGeneratingLayout, setPdfGeneratingLayout] = useState<'full' | 'manga' | null>(null);
-  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const { pdfPreviewOpen, setPdfPreviewOpen, pdfPreviewUrl } = usePdfPreviewUrl({
+    resetKey: `${projectId}:${chapterNumber}`,
+    downloadUrl: pdfInfo?.success ? (pdfInfo.download_url || null) : null,
+    resolveUrl: resolveAssetUrl,
+    onError: (e) => {
+      console.error(e);
+      addToast('PDF 预览加载失败，请稍后重试或直接点击“下载”', 'error');
+    },
+  });
   const [batchSkipExistingImages, setBatchSkipExistingImages] = useState(true);
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; message: string } | null>(null);
@@ -264,141 +285,6 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   useEffect(() => {
     setActiveTab('storyboard');
   }, [chapterNumber]);
-
-  // PDF 预览状态：章节/文件变化时关闭预览并释放 blob URL，避免自动触发下载
-  useEffect(() => {
-    setPdfPreviewOpen(false);
-  }, [chapterNumber, projectId]);
-
-  useEffect(() => {
-    if (!pdfPreviewUrl) return;
-    return () => {
-      try {
-        URL.revokeObjectURL(pdfPreviewUrl);
-      } catch {
-        // ignore
-      }
-    };
-  }, [pdfPreviewUrl]);
-
-  useEffect(() => {
-    // 当最新 PDF 发生变化时，关闭预览并释放旧 URL
-    setPdfPreviewOpen(false);
-    setPdfPreviewUrl((prev) => {
-      if (prev) {
-        try {
-          URL.revokeObjectURL(prev);
-        } catch {
-          // ignore
-        }
-      }
-      return null;
-    });
-  }, [pdfInfo?.download_url]);
-
-  useEffect(() => {
-    // 仅在用户展开“PDF 预览”后才拉取 PDF 内容，并用 blob URL 进行预览
-    if (!pdfPreviewOpen) return;
-    const url = pdfInfo?.success ? (pdfInfo.download_url || '') : '';
-    if (!url) return;
-    if (pdfPreviewUrl) return;
-
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const res = await fetch(resolveAssetUrl(url), { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        if (!isMountedRef.current) return;
-        setPdfPreviewUrl(objectUrl);
-      } catch (e: any) {
-        if (e?.name === 'AbortError') return;
-        console.error(e);
-        addToast('PDF 预览加载失败，请稍后重试或直接点击“下载”', 'error');
-        setPdfPreviewOpen(false);
-      }
-    })();
-
-    return () => {
-      try {
-        controller.abort();
-      } catch {
-        // ignore
-      }
-    };
-  }, [addToast, pdfInfo?.download_url, pdfInfo?.success, pdfPreviewOpen, pdfPreviewUrl]);
-
-  // 按项目持久化漫画分镜生成参数（避免每次重复设置）
-  useEffect(() => {
-    if (!projectId) return;
-    try {
-      const raw = localStorage.getItem(`afn:manga_gen_opts:${projectId}`);
-      if (!raw) return;
-      const d = JSON.parse(raw) as any;
-      const styleMode = typeof d?.styleMode === 'string' ? d.styleMode : '';
-      const style = typeof d?.style === 'string' ? d.style : '';
-      const custom = typeof d?.customStyle === 'string' ? d.customStyle : '';
-      const styleOptions = new Set(['manga', 'anime', 'comic', 'webtoon', 'custom']);
-
-      if (styleMode && styleOptions.has(styleMode)) {
-        setGenStyle(styleMode as any);
-      } else if (style && styleOptions.has(style)) {
-        setGenStyle(style as any);
-      } else if (style) {
-        // 兼容：旧数据可能直接把 style 写成了完整描述字符串
-        setGenStyle('custom');
-        setCustomStyle(style);
-      }
-
-      if (custom) setCustomStyle(custom);
-
-      if (d?.language) setGenLanguage(d.language);
-      if (typeof d?.minPages === 'number') setMinPages(d.minPages);
-      if (typeof d?.maxPages === 'number') setMaxPages(d.maxPages);
-      if (typeof d?.usePortraits === 'boolean') setUsePortraits(d.usePortraits);
-      if (typeof d?.autoGeneratePortraits === 'boolean') setAutoGeneratePortraits(d.autoGeneratePortraits);
-      if (typeof d?.autoGeneratePageImages === 'boolean') setAutoGeneratePageImages(d.autoGeneratePageImages);
-      if (typeof d?.pagePromptConcurrency === 'number') {
-        const v = Math.max(1, Math.min(20, Math.floor(d.pagePromptConcurrency)));
-        setPagePromptConcurrency(v);
-      }
-      if (typeof d?.startFromStage === 'string') {
-        const allowed = new Set(['auto', 'extraction', 'planning', 'storyboard', 'prompt_building', 'page_prompt_building']);
-        if (allowed.has(d.startFromStage)) setStartFromStage(d.startFromStage);
-      }
-      if (typeof d?.forceRestart === 'boolean') setForceRestart(d.forceRestart);
-    } catch {
-      // ignore
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    try {
-      const normalizedCustomStyle = (customStyle || '').trim();
-      const styleValue = genStyle === 'custom' ? (normalizedCustomStyle || 'manga') : genStyle;
-      localStorage.setItem(
-        `afn:manga_gen_opts:${projectId}`,
-        JSON.stringify({
-          styleMode: genStyle,
-          style: styleValue,
-          customStyle: normalizedCustomStyle || undefined,
-          language: genLanguage,
-          minPages,
-          maxPages,
-          usePortraits,
-          autoGeneratePortraits,
-          autoGeneratePageImages,
-          pagePromptConcurrency,
-          startFromStage,
-          forceRestart,
-        })
-      );
-    } catch {
-      // ignore
-    }
-  }, [autoGeneratePageImages, autoGeneratePortraits, customStyle, forceRestart, genLanguage, genStyle, maxPages, minPages, pagePromptConcurrency, projectId, startFromStage, usePortraits]);
 
   const copyText = async (text: string, label: string) => {
     const v = (text || '').trim();
@@ -1089,179 +975,31 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
         </BookCard>
       )}
 
-      <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-        <summary className="cursor-pointer select-none px-4 py-3 font-bold text-book-text-main">
-          生成参数
-          <span className="ml-2 text-[11px] font-normal text-book-text-muted">
-            {(genStyle === 'custom' ? 'custom' : genStyle)} · {genLanguage} · {minPages}-{maxPages}页{forceRestart ? ' · 强制重来' : ''}
-          </span>
-        </summary>
-        <div className="px-4 pb-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs font-bold text-book-text-sub">
-              风格
-              <select
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={genStyle}
-                onChange={(e) => setGenStyle(e.target.value as any)}
-                disabled={generatingPrompts}
-              >
-                <option value="manga">manga（日漫）</option>
-                <option value="anime">anime（动画）</option>
-                <option value="comic">comic（美漫）</option>
-                <option value="webtoon">webtoon（条漫）</option>
-                <option value="custom">custom（自定义）</option>
-              </select>
-            </label>
-
-            <label className="text-xs font-bold text-book-text-sub">
-              语言
-              <select
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={genLanguage}
-                onChange={(e) => setGenLanguage(e.target.value as any)}
-                disabled={generatingPrompts}
-              >
-                <option value="chinese">中文</option>
-                <option value="japanese">日文</option>
-                <option value="english">英文</option>
-                <option value="korean">韩文</option>
-              </select>
-            </label>
-          </div>
-
-          {genStyle === 'custom' && (
-            <label className="text-xs font-bold text-book-text-sub">
-              自定义风格描述
-              <input
-                type="text"
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={customStyle}
-                onChange={(e) => setCustomStyle(e.target.value)}
-                disabled={generatingPrompts}
-                placeholder="例如：漫画风格, 黑白漫画, 网点纸, 日式漫画, 精细线条, 高对比度"
-              />
-            </label>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs font-bold text-book-text-sub">
-              最少页数
-              <input
-                type="number"
-                min={3}
-                max={30}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={minPages}
-                onChange={(e) => {
-                  const v = Math.max(3, Math.min(30, Number(e.target.value) || 3));
-                  setMinPages(v);
-                  if (v > maxPages) setMaxPages(v);
-                }}
-                disabled={generatingPrompts}
-              />
-            </label>
-            <label className="text-xs font-bold text-book-text-sub">
-              最多页数
-              <input
-                type="number"
-                min={3}
-                max={30}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={maxPages}
-                onChange={(e) => {
-                  const v = Math.max(3, Math.min(30, Number(e.target.value) || 3));
-                  setMaxPages(v);
-                  if (v < minPages) setMinPages(v);
-                }}
-                disabled={generatingPrompts}
-              />
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs font-bold text-book-text-sub">
-              从阶段开始
-              <select
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={startFromStage}
-                onChange={(e) => setStartFromStage(e.target.value as any)}
-                disabled={generatingPrompts}
-              >
-                <option value="auto">自动（断点续传/从头）</option>
-                <option value="extraction">extraction（信息提取）</option>
-                <option value="planning">planning（页面规划）</option>
-                <option value="storyboard">storyboard（分镜设计）</option>
-                <option value="prompt_building">prompt_building（画格提示词）</option>
-                <option value="page_prompt_building">page_prompt_building（整页提示词）</option>
-              </select>
-            </label>
-
-            <label className="text-xs font-bold text-book-text-sub">
-              整页提示词并发数
-              <input
-                type="number"
-                min={1}
-                max={20}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
-                value={pagePromptConcurrency}
-                onChange={(e) => {
-                  const v = Math.max(1, Math.min(20, Math.floor(Number(e.target.value) || 1)));
-                  setPagePromptConcurrency(v);
-                }}
-                disabled={generatingPrompts}
-              />
-            </label>
-          </div>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm text-book-text-main">
-              <input
-                type="checkbox"
-                className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                checked={usePortraits}
-                onChange={(e) => setUsePortraits(e.target.checked)}
-                disabled={generatingPrompts}
-              />
-              <span className="font-bold">使用角色立绘作为参考图</span>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-book-text-main">
-              <input
-                type="checkbox"
-                className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                checked={autoGeneratePortraits}
-                onChange={(e) => setAutoGeneratePortraits(e.target.checked)}
-                disabled={generatingPrompts}
-              />
-              <span className="font-bold">缺失立绘自动生成</span>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-book-text-main">
-              <input
-                type="checkbox"
-                className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                checked={autoGeneratePageImages}
-                onChange={(e) => setAutoGeneratePageImages(e.target.checked)}
-                disabled={generatingPrompts}
-              />
-              <span className="font-bold">分镜完成后自动生成整页图片（耗时）</span>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-book-text-main">
-              <input
-                type="checkbox"
-                className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                checked={forceRestart}
-                onChange={(e) => setForceRestart(e.target.checked)}
-                disabled={generatingPrompts}
-              />
-              <span className="font-bold">强制从头开始（忽略断点）</span>
-            </label>
-          </div>
-
-          <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-            提示：页数越多生成越慢；“自动生成整页图片”会显著增加耗时；“强制从头开始”会忽略断点与已有结果（适合你想完全重做分镜的场景）。
-          </div>
-        </div>
-      </details>
+      <MangaGenerationParams
+        genStyle={genStyle}
+        setGenStyle={setGenStyle}
+        customStyle={customStyle}
+        setCustomStyle={setCustomStyle}
+        genLanguage={genLanguage}
+        setGenLanguage={setGenLanguage}
+        minPages={minPages}
+        setMinPages={setMinPages}
+        maxPages={maxPages}
+        setMaxPages={setMaxPages}
+        startFromStage={startFromStage}
+        setStartFromStage={setStartFromStage}
+        pagePromptConcurrency={pagePromptConcurrency}
+        setPagePromptConcurrency={setPagePromptConcurrency}
+        usePortraits={usePortraits}
+        setUsePortraits={setUsePortraits}
+        autoGeneratePortraits={autoGeneratePortraits}
+        setAutoGeneratePortraits={setAutoGeneratePortraits}
+        autoGeneratePageImages={autoGeneratePageImages}
+        setAutoGeneratePageImages={setAutoGeneratePageImages}
+        forceRestart={forceRestart}
+        setForceRestart={setForceRestart}
+        disabled={generatingPrompts}
+      />
 
       <div className="flex gap-2">
         <button
@@ -1355,22 +1093,11 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
                     </div>
 
                     <details
+                      open={pdfPreviewOpen}
                       className="group rounded-lg border border-book-border/40 bg-book-bg-paper"
                       onToggle={(e) => {
                         const open = (e.currentTarget as HTMLDetailsElement).open;
                         setPdfPreviewOpen(open);
-                        if (!open) {
-                          setPdfPreviewUrl((prev) => {
-                            if (prev) {
-                              try {
-                                URL.revokeObjectURL(prev);
-                              } catch {
-                                // ignore
-                              }
-                            }
-                            return null;
-                          });
-                        }
                       }}
                     >
                       <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">

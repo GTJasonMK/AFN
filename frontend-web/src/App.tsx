@@ -12,6 +12,7 @@ import { readWebAppearanceConfig, WEB_APPEARANCE_CHANGED_EVENT, WEB_APPEARANCE_S
 import { AuthGate } from './components/auth/AuthGate';
 import { isAdminUser, useAuthStore } from './store/auth';
 import { scheduleIdleTask } from './utils/scheduleIdleTask';
+import { usePersistedState } from './hooks/usePersistedState';
 
 // Route-level code splitting：降低首屏 JS 体积，避免把写作台/漫画等重组件打进同一个 chunk
 const loadNovelList = () => import('./pages/NovelList').then((m) => ({ default: m.NovelList }));
@@ -124,17 +125,14 @@ const RouteFallback: React.FC = () => (
 
 // Layout wrapper to handle theme and common UI
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = usePersistedState<boolean>('afn-theme-mode', false, {
+    parse: (raw) => String(raw).trim().toLowerCase() === 'dark',
+    serialize: (value) => (value ? 'dark' : 'light'),
+  });
   const { isSettingsOpen, openSettings, closeSettings } = useUIStore();
   const { initialized, authEnabled, user } = useAuthStore();
   const [appearance, setAppearance] = useState(() => readWebAppearanceConfig());
   const canOpenSettings = !authEnabled || Boolean(user);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('afn-theme-mode');
-    if (saved === 'dark') setIsDark(true);
-    if (saved === 'light') setIsDark(false);
-  }, []);
 
   useEffect(() => {
     const cancel = scheduleIdleTask(() => {
@@ -201,8 +199,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     if (!initialized) return;
     if (authEnabled && !user) return;
-
-    localStorage.setItem('afn-theme-mode', isDark ? 'dark' : 'light');
     clearThemeVariables();
 
     const mode = isDark ? 'dark' : 'light';

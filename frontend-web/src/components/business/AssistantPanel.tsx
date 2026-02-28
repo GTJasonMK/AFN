@@ -14,6 +14,7 @@ import { novelsApi, RagDiagnoseResponse, RagIngestAllResponse } from '../../api/
 import { useToast } from '../feedback/Toast';
 import { ErrorBoundary } from '../feedback/ErrorBoundary';
 import { ContentOptimizationView } from './ContentOptimizationView';
+import { usePersistedState } from '../../hooks/usePersistedState';
 
 // 只保留两种模式，照抄桌面端
 export type AssistantMode = 'rag' | 'optimize';
@@ -40,28 +41,32 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   onSelectRange,
 }) => {
   // 当前模式：rag 或 optimize，照抄桌面端默认 rag
-  const [currentMode, setCurrentMode] = useState<AssistantMode>(() => {
-    try {
-      const raw = localStorage.getItem(ASSISTANT_MODE_STORAGE_KEY(projectId));
-      if (raw === 'optimize' || raw === 'rag') return raw;
-    } catch {
-      // ignore
-    }
-    return 'rag';
-  });
+  const [currentMode, setCurrentMode] = usePersistedState<AssistantMode>(
+    ASSISTANT_MODE_STORAGE_KEY(projectId),
+    'rag',
+    {
+      parse: (raw) => {
+        if (raw === 'optimize' || raw === 'rag') return raw;
+        return 'rag';
+      },
+      serialize: (value) => value,
+    },
+  );
 
   // RAG 相关状态
   const [ragQuery, setRagQuery] = useState('');
-  const [ragTopK, setRagTopK] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem(`afn:rag_topk:${projectId}`);
-      const n = raw ? Number(raw) : 10;
-      if (!Number.isFinite(n)) return 10;
-      return Math.max(1, Math.min(50, n));
-    } catch {
-      return 10;
-    }
-  });
+  const [ragTopK, setRagTopK] = usePersistedState<number>(
+    `afn:rag_topk:${projectId}`,
+    10,
+    {
+      parse: (raw) => {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return 10;
+        return Math.max(1, Math.min(50, n));
+      },
+      serialize: (value) => String(value),
+    },
+  );
   const [ragResults, setRagResults] = useState<any>(null);
   const [isRagLoading, setIsRagLoading] = useState(false);
   const [ragDiagnose, setRagDiagnose] = useState<RagDiagnoseResponse | null>(null);
@@ -73,24 +78,6 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const [optimizeMounted, setOptimizeMounted] = useState(currentMode === 'optimize');
 
   const { addToast } = useToast();
-
-  // 持久化模式选择
-  useEffect(() => {
-    try {
-      localStorage.setItem(ASSISTANT_MODE_STORAGE_KEY(projectId), currentMode);
-    } catch {
-      // ignore
-    }
-  }, [currentMode, projectId]);
-
-  // 持久化 top_k
-  useEffect(() => {
-    try {
-      localStorage.setItem(`afn:rag_topk:${projectId}`, String(ragTopK));
-    } catch {
-      // ignore
-    }
-  }, [projectId, ragTopK]);
 
   // 切换到优化模式时挂载组件
   useEffect(() => {

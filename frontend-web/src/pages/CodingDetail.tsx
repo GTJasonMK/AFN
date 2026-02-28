@@ -6,6 +6,8 @@ import { BookButton } from '../components/ui/BookButton';
 import { useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/feedback/Toast';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
+import { usePersistedTab } from '../hooks/usePersistedTab';
+import { useTokenBuffer } from '../hooks/useTokenBuffer';
 import { Modal } from '../components/ui/Modal';
 import { BookCard } from '../components/ui/BookCard';
 import { BookInput, BookTextarea } from '../components/ui/BookInput';
@@ -20,6 +22,7 @@ const EditorLazy = lazy(() =>
 
 // 照抄桌面端 coding_detail/mixins/tab_manager.py 的Tab配置
 type CodingTab = 'overview' | 'architecture' | 'directory' | 'generation';
+const CODING_DETAIL_TABS: readonly CodingTab[] = ['overview', 'architecture', 'directory', 'generation'];
 
 const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
 const CODING_DETAIL_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
@@ -57,30 +60,8 @@ export const CodingDetail: React.FC = () => {
   const [preferenceModalHint, setPreferenceModalHint] = useState<string | null>(null);
   const [preferenceModalValue, setPreferenceModalValue] = useState('');
 
-  const [activeTab, setActiveTab] = useState<CodingTab>('overview');
-  const activeTabStorageKey = useMemo(() => (id ? `afn:coding_detail:active_tab:${id}` : ''), [id]);
-
-  // 对齐桌面端“页缓存”体验：Web 侧记忆上次停留的 Tab（避免路由重建后总回到 overview）
-  useEffect(() => {
-    if (!activeTabStorageKey) return;
-    try {
-      const saved = localStorage.getItem(activeTabStorageKey) || '';
-      if (saved === 'overview' || saved === 'architecture' || saved === 'directory' || saved === 'generation') {
-        setActiveTab(saved);
-      }
-    } catch {
-      // ignore
-    }
-  }, [activeTabStorageKey]);
-
-  useEffect(() => {
-    if (!activeTabStorageKey) return;
-    try {
-      localStorage.setItem(activeTabStorageKey, activeTab);
-    } catch {
-      // ignore
-    }
-  }, [activeTab, activeTabStorageKey]);
+  const activeTabStorageKey = id ? `afn:coding_detail:active_tab:${id}` : null;
+  const [activeTab, setActiveTab] = usePersistedTab(activeTabStorageKey, 'overview', CODING_DETAIL_TABS);
 
   const [project, setProject] = useState<any>(null);
   const [treeData, setTreeData] = useState<any>(null);
@@ -89,30 +70,14 @@ export const CodingDetail: React.FC = () => {
   const [selectedDirectory, setSelectedDirectory] = useState<any>(null);
   const [currentFile, setCurrentFile] = useState<any>(null);
   const [content, setContent] = useState('');
-  const fileTokensRef = useRef<string[]>([]);
-  const fileTokenFlushTimerRef = useRef<number | null>(null);
-  const resetFileTokenBuffer = useCallback(() => {
-    fileTokensRef.current = [];
-    if (fileTokenFlushTimerRef.current !== null) {
-      window.clearTimeout(fileTokenFlushTimerRef.current);
-      fileTokenFlushTimerRef.current = null;
-    }
-  }, []);
-
-  const flushFileTokens = useCallback(() => {
-    if (fileTokensRef.current.length === 0) return;
-    const text = fileTokensRef.current.join('');
-    fileTokensRef.current = [];
+  const appendFileTokens = useCallback((text: string) => {
     setContent((prev) => prev + text);
   }, []);
-
-  const scheduleFileTokenFlush = useCallback(() => {
-    if (fileTokenFlushTimerRef.current !== null) return;
-    fileTokenFlushTimerRef.current = window.setTimeout(() => {
-      fileTokenFlushTimerRef.current = null;
-      flushFileTokens();
-    }, 48);
-  }, [flushFileTokens]);
+  const {
+    pushToken: pushFileToken,
+    flush: flushFileTokens,
+    reset: resetFileTokenBuffer,
+  } = useTokenBuffer(appendFileTokens, 48);
   const [versions, setVersions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -921,8 +886,7 @@ export const CodingDetail: React.FC = () => {
 
   const { connect: connectFileStream, disconnect: disconnectFileStream } = useSSE((event, data) => {
     if (event === 'token' && data?.token) {
-      fileTokensRef.current.push(String(data.token));
-      scheduleFileTokenFlush();
+      pushFileToken(String(data.token));
       return;
     }
     if (event === 'complete') {
