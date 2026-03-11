@@ -92,7 +92,7 @@ export const useWritingDeskPanels = (projectId: string | undefined) => {
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [clampAssistantWidth, clampSidebarWidth, isAssistantOpen, isSidebarOpen]);
+  }, [clampAssistantWidth, clampSidebarWidth, isAssistantOpen, isSidebarOpen, setAssistantWidth, setSidebarWidth]);
 
   const sidebarResizingRef = useRef(false);
   const sidebarResizeRafRef = useRef<number | null>(null);
@@ -138,7 +138,7 @@ export const useWritingDeskPanels = (projectId: string | undefined) => {
     const next = clampSidebarWidth(w + (ev.clientX - x));
     if (sidebarResizeRafRef.current !== null) window.cancelAnimationFrame(sidebarResizeRafRef.current);
     sidebarResizeRafRef.current = window.requestAnimationFrame(() => setSidebarWidth(next));
-  }, [clampSidebarWidth]);
+  }, [clampSidebarWidth, setSidebarWidth]);
 
   const onAssistantResizeMove = useCallback((ev: MouseEvent) => {
     if (!assistantResizingRef.current || !assistantResizeStartRef.current) return;
@@ -146,7 +146,7 @@ export const useWritingDeskPanels = (projectId: string | undefined) => {
     const next = clampAssistantWidth(w + (x - ev.clientX));
     if (assistantResizeRafRef.current !== null) window.cancelAnimationFrame(assistantResizeRafRef.current);
     assistantResizeRafRef.current = window.requestAnimationFrame(() => setAssistantWidth(next));
-  }, [clampAssistantWidth]);
+  }, [clampAssistantWidth, setAssistantWidth]);
 
   const onSidebarResizeUp = useCallback(() => {
     window.removeEventListener('mousemove', onSidebarResizeMove);

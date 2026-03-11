@@ -7,7 +7,7 @@
 import React, { lazy, Suspense, useState, useRef, useImperativeHandle, useEffect } from 'react';
 import { BookButton } from '../ui/BookButton';
 import { ChapterVersion } from '../../api/writer';
-import { Save, RefreshCw, Maximize2, Minimize2, Database, Eye, FileText, Files, BadgeCheck, ScrollText, BarChart3, Layers } from 'lucide-react';
+import { Maximize2, Minimize2, FileText, Files, BadgeCheck, ScrollText, BarChart3, Layers } from 'lucide-react';
 import type { Chapter } from '../../api/writer';
 import { usePersistedTab } from '../../hooks/usePersistedTab';
 
@@ -26,12 +26,9 @@ interface WorkspaceTabsProps {
   selectedVersionIndex?: number | null;
   isSaving?: boolean;
   isGenerating?: boolean;
-  isIngestingRag?: boolean;
   onChange: (value: string) => void;
   onSave: () => void;
   onGenerate: () => void;
-  onPreviewPrompt?: () => void;
-  onIngestRag?: () => void;
   onSelectVersion: (index: number) => void;
 }
 
@@ -73,12 +70,9 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
   selectedVersionIndex,
   isSaving,
   isGenerating,
-  isIngestingRag,
   onChange,
   onSave,
   onGenerate,
-  onPreviewPrompt,
-  onIngestRag,
   onSelectVersion,
 }, ref) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -109,7 +103,7 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
         // ignore
       }
     },
-  }), []);
+  }), [setActiveTab]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -187,9 +181,12 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
 
         <div className="flex-1" />
 
-        {/* 右侧：操作按钮（对齐桌面端：预览提示词/生成章节在任何 Tab 都可见） */}
+        {/* 右侧：只保留工作区上下文动作；保存/生成统一上收至页面 Header */}
         <div className="flex items-center gap-3 pl-4 border-l border-book-border/30">
-          {/* 专注模式：仅正文 Tab 可用 */}
+          <div className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-book-text-muted lg:block">
+            {activeTab === 'content' ? '正文工作区' : '辅助视图'}
+          </div>
+
           {activeTab === 'content' ? (
             <BookButton
               variant="ghost"
@@ -200,58 +197,6 @@ export const WorkspaceTabs = React.forwardRef<WorkspaceHandle, WorkspaceTabsProp
               {isFocusMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </BookButton>
           ) : null}
-
-          {/* RAG 入库：仅正文 Tab（并依赖调用方提供） */}
-          {activeTab === 'content' && onIngestRag ? (
-            <BookButton
-              variant="ghost"
-              size="sm"
-              onClick={onIngestRag}
-              disabled={isSaving || isGenerating || isIngestingRag}
-              title="保存并处理RAG（摘要、分析、向量入库）"
-            >
-              <Database size={16} className={isIngestingRag ? 'animate-pulse' : ''} />
-            </BookButton>
-          ) : null}
-
-          {/* 预览提示词：桌面端在顶部 header 常驻 */}
-          {onPreviewPrompt ? (
-            <BookButton
-              variant="ghost"
-              size="sm"
-              onClick={onPreviewPrompt}
-              disabled={isSaving || isGenerating}
-              title="预览提示词（用于测试RAG检索效果）"
-            >
-              <Eye size={16} />
-              <span className="ml-1.5">预览提示词</span>
-            </BookButton>
-          ) : null}
-
-          {/* 保存：仅正文 Tab */}
-          {activeTab === 'content' ? (
-            <BookButton
-              variant="ghost"
-              size="sm"
-              onClick={onSave}
-              disabled={isSaving || isGenerating}
-              title="保存 (Ctrl+S)"
-            >
-              <Save size={16} className={isSaving ? 'animate-spin' : ''} />
-            </BookButton>
-          ) : null}
-
-          {/* 生成章节：桌面端在顶部 header 常驻 */}
-          <BookButton
-            variant="primary"
-            size="sm"
-            onClick={onGenerate}
-            disabled={isGenerating || isSaving}
-            title="生成章节 (Ctrl+Enter)"
-          >
-            <RefreshCw size={16} className={isGenerating ? 'animate-spin' : ''} />
-            <span className="ml-1.5">{isGenerating ? '生成中...' : '生成章节'}</span>
-          </BookButton>
         </div>
       </div>
 

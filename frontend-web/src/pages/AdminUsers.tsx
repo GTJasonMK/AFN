@@ -1,5 +1,5 @@
 import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Activity, Download, TrendingUp, UserPlus, Users } from 'lucide-react';
+import { Activity, Database, Download, TrendingUp, UserPlus, Users } from 'lucide-react';
 import { adminUsersApi, AdminUserMonitorItem, AdminUsersMonitorSummary } from '../api/adminUsers';
 import { adminDashboardApi, AdminDashboardTrendsResponse } from '../api/adminDashboard';
 import { BookButton } from '../components/ui/BookButton';
@@ -58,6 +58,8 @@ type AdminUsersBootstrapSnapshot = {
 
 const ADMIN_USERS_BOOTSTRAP_KEY = 'afn:web:admin:users:bootstrap:v1';
 const ADMIN_USERS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
+const adminFilterSelectClassName =
+  'w-full rounded-[18px] border border-book-border/45 bg-book-bg-paper/82 px-4 py-3 text-book-text-main shadow-inner focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
 
 export const AdminUsers: React.FC = () => {
   const { addToast } = useToast();
@@ -495,8 +497,11 @@ export const AdminUsers: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="page-shell min-h-screen overflow-hidden">
+      <div className="ambient-orb -left-16 top-0 h-64 w-64 bg-book-primary/10" />
+      <div className="ambient-orb right-[-4rem] top-28 h-72 w-72 bg-book-primary-light/10" />
+
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5">
         <AdminPanelHeader
           current="users"
           title="管理员用户管理"
@@ -511,35 +516,49 @@ export const AdminUsers: React.FC = () => {
           )}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Users size={14} /> 用户总数</div>
-            <div className="text-2xl font-bold text-book-text-main">{summary.total_users}</div>
-            <div className="text-xs text-book-text-muted">启用 {summary.active_users} / 禁用 {summary.inactive_users}</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Activity size={14} /> 最近7天活跃</div>
-            <div className="text-2xl font-bold text-book-text-main">{summary.recently_active_users}</div>
-            <div className="text-xs text-book-text-muted">管理员账号 {summary.admin_users}</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><TrendingUp size={14} /> 项目总量</div>
-            <div className="text-2xl font-bold text-book-text-main">{summary.total_projects}</div>
-            <div className="text-xs text-book-text-muted">小说 {summary.total_novel_projects} / Prompt {summary.total_coding_projects}</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted">配置总量</div>
-            <div className="text-2xl font-bold text-book-text-main">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <Users size={14} />
+              用户总数
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{summary.total_users}</div>
+            <div className="mt-2 text-sm text-book-text-sub">启用 {summary.active_users} / 禁用 {summary.inactive_users}</div>
+          </div>
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <Activity size={14} />
+              近 7 天活跃
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{summary.recently_active_users}</div>
+            <div className="mt-2 text-sm text-book-text-sub">管理员账号 {summary.admin_users}</div>
+          </div>
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <TrendingUp size={14} />
+              项目总量
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{summary.total_projects}</div>
+            <div className="mt-2 text-sm text-book-text-sub">
+              小说 {summary.total_novel_projects} / Prompt {summary.total_coding_projects}
+            </div>
+          </div>
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <Database size={14} />
+              配置总量
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">
               {summary.total_llm_configs + summary.total_embedding_configs + summary.total_image_configs + summary.total_theme_configs}
             </div>
-            <div className="text-xs text-book-text-muted">
+            <div className="mt-2 text-sm text-book-text-sub">
               LLM {summary.total_llm_configs} · 嵌入 {summary.total_embedding_configs} · 图片 {summary.total_image_configs} · 主题 {summary.total_theme_configs}
             </div>
-          </BookCard>
-        </div>
+          </div>
+        </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <BookCard>
+        <section className="grid gap-4 xl:grid-cols-3">
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={220} rootMargin="360px 0px">
               <AdminDonutChart
                 title="账号状态占比"
@@ -550,50 +569,77 @@ export const AdminUsers: React.FC = () => {
             </LazyRender>
           </BookCard>
 
-          <BookCard>
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={180} rootMargin="360px 0px">
               <AdminStackedProgress title="数据资产结构（项目 / 配置）" segments={assetStructureSegments} />
             </LazyRender>
           </BookCard>
 
-          <BookCard>
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={220} rootMargin="360px 0px">
               <AdminBarListChart title="用户活跃分层" data={userLayerChartData} totalOverride={summary.total_users} />
             </LazyRender>
           </BookCard>
-        </div>
+        </section>
 
-        <BookCard className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-sm text-book-text-main">近{trendData?.days || 21}天用户趋势</h2>
-            <div className="inline-flex rounded-lg border border-book-border/50 overflow-hidden">
-              <button
-                className={`px-3 py-1 text-xs ${trendMode === 'line' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
-                onClick={() => setTrendMode('line')}
-              >
-                折线图
-              </button>
-              <button
-                className={`px-3 py-1 text-xs ${trendMode === 'bar' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
-                onClick={() => setTrendMode('bar')}
-              >
-                柱状图
-              </button>
+        <section className="dramatic-surface rounded-[30px]">
+          <div className="relative z-[1] space-y-4 px-5 py-5 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                  User Trend
+                </div>
+                <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">
+                  近 {trendData?.days || 21} 天用户趋势
+                </h2>
+              </div>
+              <div className="inline-flex overflow-hidden rounded-full border border-book-border/50 bg-book-bg-paper/72 p-1">
+                <button
+                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                    trendMode === 'line'
+                      ? 'bg-book-primary text-white'
+                      : 'text-book-text-muted hover:text-book-text-main'
+                  }`}
+                  onClick={() => setTrendMode('line')}
+                >
+                  折线图
+                </button>
+                <button
+                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                    trendMode === 'bar'
+                      ? 'bg-book-primary text-white'
+                      : 'text-book-text-muted hover:text-book-text-main'
+                  }`}
+                  onClick={() => setTrendMode('bar')}
+                >
+                  柱状图
+                </button>
+              </div>
             </div>
+            <LazyRender placeholderHeight={280} rootMargin="420px 0px">
+              <AdminTrendChart
+                series={userTrendSeries}
+                mode={trendMode}
+                emptyText="暂无用户趋势数据"
+              />
+            </LazyRender>
           </div>
-          <LazyRender placeholderHeight={280} rootMargin="420px 0px">
-            <AdminTrendChart
-              series={userTrendSeries}
-              mode={trendMode}
-              emptyText="暂无用户趋势数据"
-            />
-          </LazyRender>
-        </BookCard>
+        </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">筛选与监控视图</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <section className="dramatic-surface sticky top-3 z-20 rounded-[30px]">
+          <div className="relative z-[1] grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_320px] sm:px-6">
+            <div className="space-y-4">
+              <div>
+                <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                  Filter Console
+                </div>
+                <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">筛选与监控视图</h2>
+                <p className="mt-2 text-sm leading-relaxed text-book-text-sub">
+                  先锁定用户集，再进入表格执行启用、授权和密码重置操作。
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <BookInput
                 label="搜索用户"
                 value={searchKeyword}
@@ -605,7 +651,7 @@ export const AdminUsers: React.FC = () => {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                  className="w-full px-4 py-2 rounded-lg bg-book-bg-paper text-book-text-main border border-book-border focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary"
+                  className={adminFilterSelectClassName}
                 >
                   <option value="all">全部</option>
                   <option value="active">仅启用</option>
@@ -617,7 +663,7 @@ export const AdminUsers: React.FC = () => {
                 <select
                   value={focusFilter}
                   onChange={(e) => setFocusFilter(e.target.value as FocusFilter)}
-                  className="w-full px-4 py-2 rounded-lg bg-book-bg-paper text-book-text-main border border-book-border focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary"
+                  className={adminFilterSelectClassName}
                 >
                   <option value="all">全部用户</option>
                   <option value="has_projects">有项目用户</option>
@@ -632,7 +678,7 @@ export const AdminUsers: React.FC = () => {
                 <select
                   value={sortMode}
                   onChange={(e) => setSortMode(e.target.value as SortMode)}
-                  className="w-full px-4 py-2 rounded-lg bg-book-bg-paper text-book-text-main border border-book-border focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary"
+                  className={adminFilterSelectClassName}
                 >
                   <option value="lastActivity">按最近活跃</option>
                   <option value="projects">按项目数量</option>
@@ -640,259 +686,323 @@ export const AdminUsers: React.FC = () => {
                 </select>
               </div>
             </div>
-            <div className="text-xs text-book-text-muted">
-              当前显示 {filteredUsers.length} / {users.length} 个用户
+
             </div>
-          </BookCard>
 
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">用户结构概览</h2>
+            <div className="rounded-[24px] border border-book-border/45 bg-book-bg-paper/72 p-4">
+              <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                当前结果
+              </div>
+              <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">
+                {filteredUsers.length}
+              </div>
+              <div className="mt-2 text-sm text-book-text-sub">共 {users.length} 个用户命中当前筛选条件</div>
 
-            <div className="space-y-2">
-              {activitySegments.map((segment) => (
-                <div key={segment.key} className="flex items-center justify-between text-xs border border-book-border/40 rounded-lg px-3 py-2">
-                  <span className="text-book-text-muted">{segment.label}</span>
-                  <span className="font-bold text-book-primary">{segment.count}</span>
+              <div className="mt-4 space-y-2">
+                <div className="rounded-[18px] border border-book-border/40 px-3 py-2 text-xs text-book-text-muted">
+                  最近 30 天沉默但有数据：<span className="font-semibold text-book-text-main">{riskUsers.length}</span>
                 </div>
-              ))}
-            </div>
-
-            <div className="pt-2 border-t border-book-border/40 space-y-2">
-              <div className="text-xs font-bold text-book-text-main">风险用户（30天沉默但有数据）</div>
-              {riskUsers.length > 0 ? (
-                riskUsers.map((item) => {
-                  const totalAssets =
-                    Number(item.metrics.total_projects || 0) +
-                    Number(item.metrics.llm_configs || 0) +
-                    Number(item.metrics.embedding_configs || 0) +
-                    Number(item.metrics.image_configs || 0) +
-                    Number(item.metrics.theme_configs || 0);
-                  return (
-                    <div key={`risk-${item.id}`} className="flex items-center justify-between text-xs border border-book-border/40 rounded-lg px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="font-mono text-book-text-main truncate">{item.username}</div>
-                        <div className="text-book-text-muted">最近活跃：{formatDate(item.metrics.last_activity_at)}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-book-accent">{totalAssets}</div>
-                        <div className="text-book-text-muted">数据量</div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-xs text-book-text-muted">暂无沉默高风险用户</div>
-              )}
-            </div>
-
-            <div className="pt-2 border-t border-book-border/40 space-y-2">
-              <div className="text-xs font-bold text-book-text-main">项目数量 TOP 5</div>
-              {topProjectUsers.length > 0 ? (
-                topProjectUsers.map((item) => (
-                  <div key={`top-${item.id}`} className="flex items-center justify-between text-xs border border-book-border/40 rounded-lg px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="font-mono text-book-text-main truncate">{item.username}</div>
-                      <div className="text-book-text-muted">ID: {item.id}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold text-book-primary">{item.metrics.total_projects}</div>
-                      <div className="text-book-text-muted">项目</div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-xs text-book-text-muted">暂无可展示数据</div>
-              )}
-            </div>
-          </BookCard>
-        </div>
-
-        <BookCard className="space-y-3">
-          <div className="flex items-center gap-2 text-book-text-main">
-            <UserPlus size={16} className="text-book-primary" />
-            <h2 className="font-bold text-sm">创建用户</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <BookInput
-              label="用户名"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="3-32位：字母数字._-"
-            />
-            <BookInput
-              label="初始密码"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="至少6位"
-            />
-            <div className="flex flex-col justify-end gap-2">
-              <label className="inline-flex items-center gap-2 text-sm text-book-text-sub">
-                <input
-                  type="checkbox"
-                  checked={newUserActive}
-                  onChange={(e) => setNewUserActive(e.target.checked)}
-                  className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                />
-                创建后立即启用
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-book-text-sub">
-                <input
-                  type="checkbox"
-                  checked={newUserAdmin}
-                  onChange={(e) => setNewUserAdmin(e.target.checked)}
-                  className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                />
-                创建为管理员
-              </label>
-              <BookButton variant="primary" onClick={handleCreateUser} disabled={creating}>
-                {creating ? '创建中…' : '创建用户'}
-              </BookButton>
-            </div>
-          </div>
-        </BookCard>
-
-        <BookCard className="space-y-3">
-          <h2 className="font-bold text-sm text-book-text-main">用户数据监控表</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full text-sm">
-              <thead>
-                <tr className="border-b border-book-border/50 text-book-text-muted">
-                  <th className="text-left py-2 pr-3">用户</th>
-                  <th className="text-left py-2 pr-3">状态</th>
-                  <th className="text-left py-2 pr-3">项目（小说/Prompt/总）</th>
-                  <th className="text-left py-2 pr-3">配置（LLM/嵌入/图片/主题）</th>
-                  <th className="text-left py-2 pr-3">最近活跃</th>
-                  <th className="text-left py-2">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleUsers.map((item) => (
-                  <tr key={item.id} className="border-b border-book-border/30 text-book-text-main">
-                    <td className="py-3 pr-3 align-top">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{item.username}</span>
-                        {item.is_admin ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">管理员</span>
-                        ) : null}
-                      </div>
-                      <div className="text-[11px] text-book-text-muted mt-1">ID: {item.id}</div>
-                    </td>
-                    <td className="py-3 pr-3 align-top">
-                      <div className="flex gap-1 flex-wrap">
-                        <span
-                          className={`text-xs px-2 py-1 rounded ${
-                            item.is_active
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                          }`}
-                        >
-                          {item.is_active ? '启用' : '禁用'}
-                        </span>
-                        {item.metrics.recently_active ? (
-                          <span className="text-xs px-2 py-1 rounded bg-book-primary/10 text-book-primary">7天活跃</span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-3 align-top text-xs">
-                      {item.metrics.novel_projects} / {item.metrics.coding_projects} / <span className="font-bold">{item.metrics.total_projects}</span>
-                    </td>
-                    <td className="py-3 pr-3 align-top text-xs">
-                      {item.metrics.llm_configs} / {item.metrics.embedding_configs} / {item.metrics.image_configs} / {item.metrics.theme_configs}
-                    </td>
-                    <td className="py-3 pr-3 align-top text-xs text-book-text-muted">{formatDate(item.metrics.last_activity_at)}</td>
-                    <td className="py-3 align-top">
-                      <div className="flex gap-2 flex-wrap">
-                        <BookButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleToggleStatus(item)}
-                          disabled={statusUpdatingId === item.id}
-                        >
-                          {statusUpdatingId === item.id ? '处理中…' : item.is_active ? '禁用' : '启用'}
-                        </BookButton>
-                        <BookButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleToggleAdminRole(item)}
-                          disabled={roleUpdatingId === item.id}
-                        >
-                          {roleUpdatingId === item.id ? '处理中…' : item.is_admin ? '撤销管理员' : '设为管理员'}
-                        </BookButton>
-                        <BookButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setResetTarget(item);
-                            setResetPassword('');
-                          }}
-                        >
-                          重置密码
-                        </BookButton>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && filteredUsers.length === 0 ? (
-                  <tr>
-                    <td className="py-6 text-center text-book-text-muted" colSpan={6}>
-                      暂无匹配用户
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-          {loading ? <div className="text-xs text-book-text-muted">加载中…</div> : null}
-          {!loading && visibleUsers.length < filteredUsers.length ? (
-            <div className="flex items-center justify-between text-xs text-book-text-muted">
-              <span>已渲染 {visibleUsers.length} / {filteredUsers.length} 条</span>
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={() => setUserRowLimit((value) => value + 80)}
-              >
-                加载更多（剩余 {filteredUsers.length - visibleUsers.length} 条）
-              </BookButton>
-            </div>
-          ) : null}
-        </BookCard>
-
-        {resetTarget ? (
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">重置密码</h2>
-            <div className="text-xs text-book-text-muted">
-              当前目标用户：<span className="font-mono">{resetTarget.username}</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-              <BookInput
-                label="新密码"
-                type="password"
-                value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)}
-                placeholder="至少6位"
-              />
-              <div className="flex items-end gap-2">
-                <BookButton
-                  variant="secondary"
-                  onClick={() => {
-                    setResetPassword('');
-                    setResetTarget(null);
-                  }}
-                >
-                  取消
-                </BookButton>
-                <BookButton
-                  variant="warning"
-                  onClick={handleResetPassword}
-                  disabled={resettingUserId === resetTarget.id}
-                >
-                  {resettingUserId === resetTarget.id ? '重置中…' : '确认重置'}
-                </BookButton>
+                <div className="rounded-[18px] border border-book-border/40 px-3 py-2 text-xs text-book-text-muted">
+                  当前关注模式：<span className="font-semibold text-book-text-main">{focusFilter}</span>
+                </div>
               </div>
             </div>
-          </BookCard>
-        ) : null}
+          </div>
+        </section>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <section className="dramatic-surface rounded-[30px]">
+            <div className="relative z-[1] space-y-4 px-5 py-5 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    User Monitor Table
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">用户数据监控表</h2>
+                </div>
+                <span className="story-pill">已渲染 {visibleUsers.length} 条</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-[24px] border border-book-border/40 bg-book-bg-paper/62 px-4">
+                <table className="min-w-[1120px] w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-book-border/50 text-book-text-muted">
+                      <th className="py-3 pr-3 text-left">用户</th>
+                      <th className="py-3 pr-3 text-left">状态</th>
+                      <th className="py-3 pr-3 text-left">项目（小说/Prompt/总）</th>
+                      <th className="py-3 pr-3 text-left">配置（LLM/嵌入/图片/主题）</th>
+                      <th className="py-3 pr-3 text-left">最近活跃</th>
+                      <th className="py-3 text-left">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleUsers.map((item) => (
+                      <tr key={item.id} className="border-b border-book-border/30 text-book-text-main">
+                        <td className="py-3 pr-3 align-top">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs">{item.username}</span>
+                            {item.is_admin ? (
+                              <span className="rounded-full bg-book-primary/10 px-2 py-0.5 text-[10px] font-bold text-book-primary">
+                                管理员
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-[11px] text-book-text-muted">ID: {item.id}</div>
+                        </td>
+                        <td className="py-3 pr-3 align-top">
+                          <div className="flex flex-wrap gap-1">
+                            <span
+                              className={`rounded-full px-2 py-1 text-xs ${
+                                item.is_active
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                              }`}
+                            >
+                              {item.is_active ? '启用' : '禁用'}
+                            </span>
+                            {item.metrics.recently_active ? (
+                              <span className="rounded-full bg-book-primary/10 px-2 py-1 text-xs text-book-primary">
+                                7天活跃
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 align-top text-xs">
+                          {item.metrics.novel_projects} / {item.metrics.coding_projects} /{' '}
+                          <span className="font-bold">{item.metrics.total_projects}</span>
+                        </td>
+                        <td className="py-3 pr-3 align-top text-xs">
+                          {item.metrics.llm_configs} / {item.metrics.embedding_configs} / {item.metrics.image_configs} / {item.metrics.theme_configs}
+                        </td>
+                        <td className="py-3 pr-3 align-top text-xs text-book-text-muted">
+                          {formatDate(item.metrics.last_activity_at)}
+                        </td>
+                        <td className="py-3 align-top">
+                          <div className="flex flex-wrap gap-2">
+                            <BookButton
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleToggleStatus(item)}
+                              disabled={statusUpdatingId === item.id}
+                            >
+                              {statusUpdatingId === item.id ? '处理中…' : item.is_active ? '禁用' : '启用'}
+                            </BookButton>
+                            <BookButton
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleAdminRole(item)}
+                              disabled={roleUpdatingId === item.id}
+                            >
+                              {roleUpdatingId === item.id ? '处理中…' : item.is_admin ? '撤销管理员' : '设为管理员'}
+                            </BookButton>
+                            <BookButton
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setResetTarget(item);
+                                setResetPassword('');
+                              }}
+                            >
+                              重置密码
+                            </BookButton>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!loading && filteredUsers.length === 0 ? (
+                      <tr>
+                        <td className="py-6 text-center text-book-text-muted" colSpan={6}>
+                          暂无匹配用户
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              {loading ? <div className="text-xs text-book-text-muted">加载中…</div> : null}
+              {!loading && visibleUsers.length < filteredUsers.length ? (
+                <div className="flex items-center justify-between text-xs text-book-text-muted">
+                  <span>
+                    已渲染 {visibleUsers.length} / {filteredUsers.length} 条
+                  </span>
+                  <BookButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setUserRowLimit((value) => value + 80)}
+                  >
+                    加载更多（剩余 {filteredUsers.length - visibleUsers.length} 条）
+                  </BookButton>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <div className="space-y-4">
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5">
+                <div className="flex items-center gap-2 text-book-text-main">
+                  <UserPlus size={16} className="text-book-primary" />
+                  <h2 className="font-serif text-2xl font-bold">创建用户</h2>
+                </div>
+                <div className="grid gap-3">
+                  <BookInput
+                    label="用户名"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="3-32位：字母数字._-"
+                  />
+                  <BookInput
+                    label="初始密码"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="至少6位"
+                  />
+                  <label className="inline-flex items-center gap-2 text-sm text-book-text-sub">
+                    <input
+                      type="checkbox"
+                      checked={newUserActive}
+                      onChange={(e) => setNewUserActive(e.target.checked)}
+                      className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                    />
+                    创建后立即启用
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm text-book-text-sub">
+                    <input
+                      type="checkbox"
+                      checked={newUserAdmin}
+                      onChange={(e) => setNewUserAdmin(e.target.checked)}
+                      className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                    />
+                    创建为管理员
+                  </label>
+                  <BookButton variant="primary" onClick={handleCreateUser} disabled={creating}>
+                    {creating ? '创建中…' : '创建用户'}
+                  </BookButton>
+                </div>
+              </div>
+            </section>
+
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    User Signals
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">用户结构概览</h2>
+                </div>
+
+                <div className="space-y-2">
+              {activitySegments.map((segment) => (
+                  <div
+                    key={segment.key}
+                    className="flex items-center justify-between rounded-[18px] border border-book-border/40 px-3 py-2 text-xs"
+                  >
+                    <span className="text-book-text-muted">{segment.label}</span>
+                    <span className="font-bold text-book-primary">{segment.count}</span>
+                  </div>
+                ))}
+                </div>
+
+                <div className="space-y-2 border-t border-book-border/40 pt-2">
+                  <div className="text-xs font-bold text-book-text-main">风险用户（30天沉默但有数据）</div>
+                  {riskUsers.length > 0 ? (
+                    riskUsers.map((item) => {
+                      const totalAssets =
+                        Number(item.metrics.total_projects || 0) +
+                        Number(item.metrics.llm_configs || 0) +
+                        Number(item.metrics.embedding_configs || 0) +
+                        Number(item.metrics.image_configs || 0) +
+                        Number(item.metrics.theme_configs || 0);
+                      return (
+                        <div
+                          key={`risk-${item.id}`}
+                          className="flex items-center justify-between rounded-[18px] border border-book-border/40 px-3 py-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-mono text-book-text-main">{item.username}</div>
+                            <div className="text-book-text-muted">最近活跃：{formatDate(item.metrics.last_activity_at)}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-book-accent">{totalAssets}</div>
+                            <div className="text-book-text-muted">数据量</div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-xs text-book-text-muted">暂无沉默高风险用户</div>
+                  )}
+                </div>
+
+                <div className="space-y-2 border-t border-book-border/40 pt-2">
+                  <div className="text-xs font-bold text-book-text-main">项目数量 TOP 5</div>
+                  {topProjectUsers.length > 0 ? (
+                    topProjectUsers.map((item) => (
+                      <div
+                        key={`top-${item.id}`}
+                        className="flex items-center justify-between rounded-[18px] border border-book-border/40 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-mono text-book-text-main">{item.username}</div>
+                          <div className="text-book-text-muted">ID: {item.id}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-book-primary">{item.metrics.total_projects}</div>
+                          <div className="text-book-text-muted">项目</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-book-text-muted">暂无可展示数据</div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {resetTarget ? (
+              <section className="dramatic-surface rounded-[30px]">
+                <div className="relative z-[1] space-y-4 px-5 py-5">
+                  <div>
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      Password Reset
+                    </div>
+                    <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">重置密码</h2>
+                    <p className="mt-2 text-sm text-book-text-sub">
+                      当前目标用户：<span className="font-mono">{resetTarget.username}</span>
+                    </p>
+                  </div>
+                  <BookInput
+                    label="新密码"
+                    type="password"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    placeholder="至少6位"
+                  />
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <BookButton
+                      variant="secondary"
+                      onClick={() => {
+                        setResetPassword('');
+                        setResetTarget(null);
+                      }}
+                    >
+                      取消
+                    </BookButton>
+                    <BookButton
+                      variant="warning"
+                      onClick={handleResetPassword}
+                      disabled={resettingUserId === resetTarget.id}
+                    >
+                      {resettingUserId === resetTarget.id ? '重置中…' : '确认重置'}
+                    </BookButton>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -4,42 +4,53 @@ import { BookButton } from '../../components/ui/BookButton';
 import { BookInput, BookTextarea } from '../../components/ui/BookInput';
 
 type LatestPartOutlineModalsProps = {
-  isDeleteLatestPartsModalOpen: boolean;
-  setIsDeleteLatestPartsModalOpen: (open: boolean) => void;
-  deletingLatestParts: boolean;
-  maxDeletablePartCount: number;
-  handleDeleteLatestPartOutlines: () => void | Promise<void>;
-  deleteLatestPartsCount: number;
-  setDeleteLatestPartsCount: (value: number) => void;
-  isRegenerateLatestPartsModalOpen: boolean;
-  setIsRegenerateLatestPartsModalOpen: (open: boolean) => void;
-  regeneratingLatestParts: boolean;
-  partOutlines: any[];
-  handleRegenerateLatestPartOutlines: () => void | Promise<void>;
-  regenerateLatestPartsCount: number;
-  setRegenerateLatestPartsCount: (value: number) => void;
-  regenerateLatestPartsPrompt: string;
-  setRegenerateLatestPartsPrompt: (value: string) => void;
+  deleteModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    deleting: boolean;
+    maxDeletableCount: number;
+    count: number;
+    setCount: (value: number) => void;
+    onConfirm: () => void | Promise<void>;
+  };
+  regenerateModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    regenerating: boolean;
+    partOutlineCount: number;
+    count: number;
+    setCount: (value: number) => void;
+    prompt: string;
+    setPrompt: (value: string) => void;
+    onConfirm: () => void | Promise<void>;
+  };
 };
 
 export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = ({
-  isDeleteLatestPartsModalOpen,
-  setIsDeleteLatestPartsModalOpen,
-  deletingLatestParts,
-  maxDeletablePartCount,
-  handleDeleteLatestPartOutlines,
-  deleteLatestPartsCount,
-  setDeleteLatestPartsCount,
-  isRegenerateLatestPartsModalOpen,
-  setIsRegenerateLatestPartsModalOpen,
-  regeneratingLatestParts,
-  partOutlines,
-  handleRegenerateLatestPartOutlines,
-  regenerateLatestPartsCount,
-  setRegenerateLatestPartsCount,
-  regenerateLatestPartsPrompt,
-  setRegenerateLatestPartsPrompt,
+  deleteModal,
+  regenerateModal,
 }) => {
+  const {
+    isOpen: isDeleteLatestPartsModalOpen,
+    setOpen: setIsDeleteLatestPartsModalOpen,
+    deleting: deletingLatestParts,
+    maxDeletableCount: maxDeletablePartCount,
+    count: deleteLatestPartsCount,
+    setCount: setDeleteLatestPartsCount,
+    onConfirm: handleDeleteLatestPartOutlines,
+  } = deleteModal;
+  const {
+    isOpen: isRegenerateLatestPartsModalOpen,
+    setOpen: setIsRegenerateLatestPartsModalOpen,
+    regenerating: regeneratingLatestParts,
+    partOutlineCount,
+    count: regenerateLatestPartsCount,
+    setCount: setRegenerateLatestPartsCount,
+    prompt: regenerateLatestPartsPrompt,
+    setPrompt: setRegenerateLatestPartsPrompt,
+    onConfirm: handleRegenerateLatestPartOutlines,
+  } = regenerateModal;
+
   return (
     <>
       <Modal
@@ -97,7 +108,7 @@ export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = (
             <BookButton
               variant="primary"
               onClick={handleRegenerateLatestPartOutlines}
-              disabled={regeneratingLatestParts || !partOutlines.length}
+              disabled={regeneratingLatestParts || partOutlineCount <= 0}
             >
               {regeneratingLatestParts ? '重生成中…' : '重生成'}
             </BookButton>
@@ -110,10 +121,10 @@ export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = (
           </div>
 
           <BookInput
-            label={`重生成数量（1-${Math.max(1, partOutlines.length)})`}
+            label={`重生成数量（1-${Math.max(1, partOutlineCount)})`}
             type="number"
             min={1}
-            max={Math.max(1, partOutlines.length)}
+            max={Math.max(1, partOutlineCount)}
             value={regenerateLatestPartsCount}
             onChange={(e) => setRegenerateLatestPartsCount(parseInt(e.target.value, 10) || 1)}
             disabled={regeneratingLatestParts}

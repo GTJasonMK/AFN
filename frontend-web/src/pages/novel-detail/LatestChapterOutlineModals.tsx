@@ -4,40 +4,53 @@ import { BookButton } from '../../components/ui/BookButton';
 import { BookInput, BookTextarea } from '../../components/ui/BookInput';
 
 type LatestChapterOutlineModalsProps = {
-  isRegenerateLatestModalOpen: boolean;
-  setIsRegenerateLatestModalOpen: (open: boolean) => void;
-  regeneratingLatest: boolean;
-  chapterOutlines: any[];
-  handleRegenerateLatestOutlines: () => void | Promise<void>;
-  regenerateLatestCount: number;
-  setRegenerateLatestCount: (value: number) => void;
-  regenerateLatestPrompt: string;
-  setRegenerateLatestPrompt: (value: string) => void;
-  isDeleteLatestModalOpen: boolean;
-  setIsDeleteLatestModalOpen: (open: boolean) => void;
-  deletingLatest: boolean;
-  handleDeleteLatestOutlines: () => void | Promise<void>;
-  deleteLatestCount: number;
-  setDeleteLatestCount: (value: number) => void;
+  regenerateModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    regenerating: boolean;
+    chapterOutlineCount: number;
+    count: number;
+    setCount: (value: number) => void;
+    prompt: string;
+    setPrompt: (value: string) => void;
+    onConfirm: () => void | Promise<void>;
+  };
+  deleteModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    deleting: boolean;
+    chapterOutlineCount: number;
+    count: number;
+    setCount: (value: number) => void;
+    onConfirm: () => void | Promise<void>;
+  };
 };
 
 export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProps> = ({
-  isRegenerateLatestModalOpen,
-  setIsRegenerateLatestModalOpen,
-  regeneratingLatest,
-  chapterOutlines,
-  handleRegenerateLatestOutlines,
-  regenerateLatestCount,
-  setRegenerateLatestCount,
-  regenerateLatestPrompt,
-  setRegenerateLatestPrompt,
-  isDeleteLatestModalOpen,
-  setIsDeleteLatestModalOpen,
-  deletingLatest,
-  handleDeleteLatestOutlines,
-  deleteLatestCount,
-  setDeleteLatestCount,
+  regenerateModal,
+  deleteModal,
 }) => {
+  const {
+    isOpen: isRegenerateLatestModalOpen,
+    setOpen: setIsRegenerateLatestModalOpen,
+    regenerating: regeneratingLatest,
+    chapterOutlineCount,
+    count: regenerateLatestCount,
+    setCount: setRegenerateLatestCount,
+    prompt: regenerateLatestPrompt,
+    setPrompt: setRegenerateLatestPrompt,
+    onConfirm: handleRegenerateLatestOutlines,
+  } = regenerateModal;
+  const {
+    isOpen: isDeleteLatestModalOpen,
+    setOpen: setIsDeleteLatestModalOpen,
+    deleting: deletingLatest,
+    chapterOutlineCount: deleteModalChapterOutlineCount,
+    count: deleteLatestCount,
+    setCount: setDeleteLatestCount,
+    onConfirm: handleDeleteLatestOutlines,
+  } = deleteModal;
+
   return (
     <>
       <Modal
@@ -56,7 +69,7 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
             <BookButton
               variant="primary"
               onClick={handleRegenerateLatestOutlines}
-              disabled={regeneratingLatest || !chapterOutlines.length}
+              disabled={regeneratingLatest || chapterOutlineCount <= 0}
             >
               {regeneratingLatest ? '重生成中…' : '重生成'}
             </BookButton>
@@ -69,10 +82,10 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
           </div>
 
           <BookInput
-            label={`重生成数量（1-${Math.max(1, chapterOutlines.length)})`}
+            label={`重生成数量（1-${Math.max(1, chapterOutlineCount)})`}
             type="number"
             min={1}
-            max={Math.max(1, chapterOutlines.length)}
+            max={Math.max(1, chapterOutlineCount)}
             value={regenerateLatestCount}
             onChange={(e) => setRegenerateLatestCount(parseInt(e.target.value, 10) || 1)}
             disabled={regeneratingLatest}
@@ -101,7 +114,7 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
             <BookButton
               variant="primary"
               onClick={handleDeleteLatestOutlines}
-              disabled={deletingLatest || !chapterOutlines.length}
+              disabled={deletingLatest || deleteModalChapterOutlineCount <= 0}
             >
               {deletingLatest ? '删除中…' : '删除'}
             </BookButton>
@@ -113,10 +126,10 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
             删除会从“最后一章”开始回退。若被删除章节已生成正文/评审/摘要/向量数据，将同时级联删除，避免后续生成引用到失效上下文。
           </div>
           <BookInput
-            label={`删除数量（1-${Math.max(1, chapterOutlines.length)})`}
+            label={`删除数量（1-${Math.max(1, deleteModalChapterOutlineCount)})`}
             type="number"
             min={1}
-            max={Math.max(1, chapterOutlines.length)}
+            max={Math.max(1, deleteModalChapterOutlineCount)}
             value={deleteLatestCount}
             onChange={(e) => setDeleteLatestCount(parseInt(e.target.value, 10) || 1)}
             disabled={deletingLatest}

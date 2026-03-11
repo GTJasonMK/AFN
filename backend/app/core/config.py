@@ -1,13 +1,28 @@
-from functools import lru_cache
-from pathlib import Path
-from typing import ClassVar, Optional
 import os
 import re
 import sys
+from functools import lru_cache
+from pathlib import Path
+from typing import ClassVar, Optional
 
 from pydantic import AliasChoices, AnyUrl, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
+
+
+def _resolve_project_root() -> Path:
+    """解析项目根目录，兼容源码运行与打包运行。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parents[3]
+
+
+def _resolve_storage_dir() -> Path:
+    """统一解析 storage 目录，允许桌面壳通过环境变量覆盖。"""
+    raw_override = (os.environ.get("AFN_STORAGE_DIR") or os.environ.get("STORAGE_DIR") or "").strip()
+    if raw_override:
+        return Path(raw_override).expanduser().resolve()
+    return (_resolve_project_root() / "storage").resolve()
 
 
 def _resolve_env_files() -> tuple[str, ...]:
@@ -27,10 +42,7 @@ def _resolve_env_files() -> tuple[str, ...]:
 
     # 绝对路径（兜底：不依赖当前工作目录）
     try:
-        if getattr(sys, "frozen", False):
-            base_dir = Path(sys.executable).parent
-        else:
-            base_dir = Path(__file__).resolve().parents[3]
+        base_dir = _resolve_project_root()
     except Exception:
         base_dir = Path.cwd()
 
@@ -575,10 +587,8 @@ class Settings(BaseSettings):
             return normalized.render_as_string(hide_password=False)
 
         if self.db_provider == "sqlite":
-            # SQLite 固定使用 storage/afn.db，并转换为绝对路径以避免运行目录差异
-            # 注意：parents[3] 指向项目根目录 E:\code\AFN，与 run_app.py 保持一致
-            project_root = Path(__file__).resolve().parents[3]
-            db_path = (project_root / "storage" / "afn.db").resolve()
+            # SQLite 默认落到统一 storage 目录，便于 Electron 等桌面壳将数据重定向到用户目录。
+            db_path = (self.storage_dir / "afn.db").resolve()
             return f"sqlite+aiosqlite:///{db_path}"
 
         # MySQL 分支：统一对密码进行 URL 编码，避免特殊字符破坏连接串
@@ -604,13 +614,7 @@ class Settings(BaseSettings):
     @property
     def storage_dir(self) -> Path:
         """存储目录根路径"""
-        if getattr(sys, 'frozen', False):
-            # 打包环境：存储在 exe 所在目录
-            return Path(sys.executable).parent / "storage"
-        else:
-            # 开发环境：存储在项目根目录的 storage 目录，与 run_app.py 保持一致
-            # parents[3] 指向项目根目录 E:\code\AFN
-            return Path(__file__).resolve().parents[3] / "storage"
+        return _resolve_storage_dir()
 
     @property
     def generated_images_dir(self) -> Path:
@@ -625,15 +629,7 @@ class Settings(BaseSettings):
 
 def _get_config_file_path() -> Path:
     """获取 config.json 配置文件路径（适配打包环境）"""
-    if getattr(sys, 'frozen', False):
-        # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
-        work_dir = Path(sys.executable).parent
-    else:
-        # 开发环境：配置保存到项目根目录的 storage 文件夹
-        # parents[3] 指向项目根目录 E:\code\AFN，与数据库路径保持一致
-        work_dir = Path(__file__).resolve().parents[3]
-
-    return work_dir / 'storage' / 'config.json'
+    return _resolve_storage_dir() / 'config.json'
 
 
 def _load_json_config() -> dict:

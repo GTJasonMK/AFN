@@ -33,7 +33,7 @@
 
 ## 常见工作流
 
-- 新环境初始化：`python setup_env.py --force`（Python 依赖）+ `cd frontend-web && npm install`（Web 依赖）
+- 新环境初始化：`python setup_env.py --force --web`（一键安装 Python + Web 依赖），或分步执行 `python setup_env.py --force` + `cd frontend-web && npm install`
 - 本地快速回归：`python -m compileall backend/app frontend`（语法检查）+ 关键脚本用例（见 `test/`）
 - Web 调试：`cd frontend-web && npm run dev` 后优先看浏览器 Console / Network；接口问题再看后端日志
 

@@ -5,15 +5,22 @@ AFN (Agents for Novel) - 环境检查与配置
 1. 检查 Python 版本
 2. 安装 uv 包管理器（可选，加速依赖安装）
 3. 创建虚拟环境
-4. 安装依赖
+4. 安装依赖（后端 + 桌面端前端）
+5. （可选）安装 Web 前端 npm 依赖
 
 使用方法:
-  python setup_env.py          # 检查并配置环境
-  python setup_env.py --force  # 强制重新安装依赖
+  python setup_env.py                # 检查并配置 Python 环境
+  python setup_env.py --force        # 强制重新安装 Python 依赖
+  python setup_env.py --web          # 额外检查并安装 frontend-web npm 依赖
+  python setup_env.py --force --web  # 强制安装 Python 依赖 + 安装 Web 依赖
 
 模块结构已拆分到 backend/startup/ 包中，本文件作为兼容层重新导出所有接口。
 """
 
+import argparse
+import os
+import shutil
+import subprocess
 import sys
 import time
 
@@ -57,6 +64,8 @@ from backend.startup import (
     install_dependencies,
 )
 
+WEB_FRONTEND_DIR = BASE_DIR / 'frontend-web'
+
 
 # ============================================================
 # 工具函数
@@ -84,15 +93,90 @@ def safe_input(prompt: str = ""):
         return ""
 
 
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="AFN 环境检查与配置")
+    parser.add_argument(
+        '-f',
+        '--force',
+        action='store_true',
+        help='强制重新安装 Python 依赖',
+    )
+    parser.add_argument(
+        '--web',
+        action='store_true',
+        help='额外检查并安装 frontend-web 的 npm 依赖',
+    )
+    return parser.parse_args()
+
+
+def _has_vite_binary() -> bool:
+    """检查 frontend-web 是否已安装本地 vite"""
+    vite_bin_name = 'vite.cmd' if os.name == 'nt' else 'vite'
+    candidates = [
+        WEB_FRONTEND_DIR / 'node_modules' / '.bin' / vite_bin_name,
+        WEB_FRONTEND_DIR / 'node_modules' / 'vite' / 'bin' / 'vite.js',
+    ]
+    return any(path.exists() for path in candidates)
+
+
+def install_web_dependencies(force: bool = False) -> bool:
+    """安装 Web 前端依赖（frontend-web）"""
+    if not WEB_FRONTEND_DIR.exists():
+        logger.error(f"Web 前端目录不存在: {WEB_FRONTEND_DIR}")
+        return False
+
+    package_json = WEB_FRONTEND_DIR / 'package.json'
+    if not package_json.exists():
+        logger.error(f"未找到 package.json: {package_json}")
+        return False
+
+    print(f"\n[检查] Web 前端依赖...")
+
+    # 已安装且未强制时直接跳过，避免每次都完整 npm install
+    if not force and _has_vite_binary():
+        print("       Web 前端依赖已就绪 [OK]")
+        return True
+
+    npm_bin = 'npm.cmd' if os.name == 'nt' else 'npm'
+    if shutil.which(npm_bin) is None:
+        logger.error("未找到 npm，请先安装 Node.js（建议 18+，推荐 20 LTS）")
+        return False
+
+    print("\n[安装] 安装/更新 Web 前端依赖...")
+    print(f"       执行: {npm_bin} install")
+    try:
+        result = subprocess.run(
+            [npm_bin, 'install'],
+            cwd=str(WEB_FRONTEND_DIR),
+            check=False,
+        )
+    except Exception as e:
+        logger.exception(f"执行 npm install 失败: {e}")
+        return False
+
+    if result.returncode != 0:
+        logger.error(f"npm install 失败，退出码: {result.returncode}")
+        return False
+
+    if not _has_vite_binary():
+        logger.warning("npm install 已执行，但未检测到本地 vite，可尝试删除 node_modules 后重装")
+        return False
+
+    print("\n       Web 前端依赖安装完成 [OK]")
+    return True
+
+
 # ============================================================
 # 环境设置
 # ============================================================
 
-def setup_environment(force: bool = False) -> bool:
+def setup_environment(force: bool = False, web: bool = False) -> bool:
     """设置开发环境（创建虚拟环境、安装依赖）
 
     Args:
         force: 是否强制重新安装依赖
+        web: 是否额外安装 frontend-web npm 依赖
     """
     # 如果是打包环境，跳过环境设置
     if IS_FROZEN:
@@ -139,6 +223,10 @@ def setup_environment(force: bool = False) -> bool:
     if not install_dependencies(FRONTEND_PYTHON, frontend_requirements, "前端", force):
         return False
 
+    # 可选：安装 Web 前端依赖（frontend-web）
+    if web and not install_web_dependencies(force=force):
+        return False
+
     print("\n" + "=" * 60)
     print(" 环境检查完成")
     print("=" * 60)
@@ -152,16 +240,20 @@ def setup_environment(force: bool = False) -> bool:
 def main():
     """主函数 - 仅环境检查"""
     try:
+        args = parse_args()
+
         # 打印启动横幅
         print_banner()
 
-        # 检查命令行参数
-        force = '--force' in sys.argv or '-f' in sys.argv
+        force = args.force
+        web = args.web
         if force:
-            print("[模式] 强制重新安装依赖")
+            print("[模式] 强制重新安装 Python 依赖")
+        if web:
+            print("[模式] 同时检查并安装 Web 前端依赖")
 
         # 设置环境
-        if not setup_environment(force=force):
+        if not setup_environment(force=force, web=web):
             print("\n[错误] 环境设置失败，请查看 storage/logs/startup.log")
             safe_input("按回车键退出...")
             sys.exit(1)

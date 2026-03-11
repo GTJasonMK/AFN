@@ -423,9 +423,31 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     }
   };
 
+  const stageTitle = mode === 'novel' ? '灵感构思' : '需求分析';
+  const stageDescription = mode === 'novel'
+    ? '把碎片化念头压成故事方向、人物动机与蓝图结构。'
+    : '把模糊需求整理为可执行的系统边界、角色职责与架构方案。';
+  const starterPrompts = mode === 'novel'
+    ? [
+        '我想写一个“文明崩塌后重建秩序”的长篇故事。',
+        '主角是一名曾经的历史学者，现在被迫成为战争谈判者。',
+        '希望整体气质是冷峻、克制，但在关键处突然爆发。',
+      ]
+    : [
+        '我要做一个面向小团队的知识库协作系统。',
+        '核心需求是任务跟踪、文档沉淀和权限分层。',
+        '希望先帮我厘清 MVP 范围，再拆出后续扩展阶段。',
+      ];
+  const conversationStatus = isTyping
+    ? 'AI 正在接续你的上下文'
+    : showBlueprintBtn
+      ? (mode === 'novel' ? '已具备生成蓝图条件' : '已具备生成架构设计条件')
+      : '继续补充信息，让结构更扎实';
+
   return (
-    <div className="flex flex-col h-screen bg-book-bg relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-book-bg-paper/30 to-transparent pointer-events-none" />
+    <div className="page-shell min-h-screen overflow-hidden">
+      <div className="ambient-orb -left-16 top-20 h-72 w-72 bg-book-primary/16" />
+      <div className="ambient-orb right-[-5rem] top-8 h-64 w-64 bg-book-primary-light/14" />
 
       <Modal
         isOpen={isBlueprintConfirmOpen}
@@ -448,7 +470,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       >
         <div className="space-y-4">
           {blueprintTip ? (
-            <div className="text-sm text-book-text-sub bg-book-bg p-3 rounded-lg border border-book-border/50">
+            <div className="rounded-[22px] border border-book-border/50 bg-book-bg/72 p-4 text-sm leading-relaxed text-book-text-sub">
               {blueprintTip}
             </div>
           ) : null}
@@ -493,124 +515,207 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         </div>
       </Modal>
 
-      {/* Header */}
-      <div className="h-16 border-b border-book-border/40 bg-book-bg-glass backdrop-blur-md flex items-center justify-between px-6 z-20 shrink-0">
-        <button 
-          onClick={() => navigate('/')}
-          className="flex items-center text-book-text-sub hover:text-book-primary transition-colors group"
-        >
-          <div className="p-1.5 rounded-full bg-book-bg-paper border border-book-border group-hover:border-book-primary/50 mr-3 shadow-sm transition-colors">
-            <ArrowLeft size={16} />
-          </div>
-          <span className="font-serif font-bold text-lg">
-            {mode === 'novel' ? '灵感构思' : '需求分析'}
-          </span>
-        </button>
-
-        {showBlueprintBtn && (
-          <BookButton 
-            variant="primary" 
-            size="md" 
-            onClick={generateBlueprint}
-            disabled={isGeneratingBlueprint}
-            className="shadow-lg shadow-book-primary/20 animate-in fade-in slide-in-from-top-4 duration-500"
-          >
-            <Wand2 size={16} className="mr-2 fill-current" />
-            {isGeneratingBlueprint ? '生成中…' : (mode === 'coding' ? '生成架构设计' : '生成蓝图')}
-          </BookButton>
-        )}
-      </div>
-
-      {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 custom-scrollbar z-10 scroll-smooth">
-        {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-book-text-muted opacity-60 animate-in zoom-in-95 duration-700">
-            <div className="w-24 h-24 bg-book-bg-paper rounded-full flex items-center justify-center mb-6 shadow-inner border border-book-border/50">
-              <Sparkles size={48} className="text-book-accent" />
-            </div>
-            <h2 className="text-2xl font-serif font-bold text-book-text-main mb-2">
-                {mode === 'novel' ? '开启你的创作之旅' : '描述你的软件创意'}
-            </h2>
-            <p className="text-sm">
-                {mode === 'novel' ? '告诉我关于你故事的一切想法...' : '你想构建什么样的系统？'}
-            </p>
-          </div>
-        )}
-        
-        {messages.map((msg) => (
-          <div 
-            key={msg.id} 
-            className={`flex gap-5 max-w-4xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-4 duration-500`}
-          >
-            <div className={`
-              w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-md border border-white/10
-              ${msg.role === 'user' 
-                ? 'bg-gradient-to-br from-book-primary to-book-primary-light text-white' 
-                : 'bg-book-bg-paper text-book-primary border-book-border'}
-            `}>
-              {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
-            </div>
-            
-            <div className={`
-              max-w-[85%] rounded-2xl p-6 leading-relaxed text-base shadow-sm relative
-              ${msg.role === 'user' 
-                ? 'bg-book-primary text-white rounded-tr-sm shadow-book-primary/20' 
-                : 'bg-book-bg-paper border border-book-border/60 rounded-tl-sm text-book-text-main shadow-sm'}
-            `}>
-              <div className="whitespace-pre-wrap font-sans text-[15px]">{msg.content}</div>
-              {msg.isStreaming && (
-                <span className="inline-block w-1.5 h-4 ml-1 align-middle bg-current animate-pulse rounded-full"/>
-              )}
-            </div>
-          </div>
-        ))}
-        
-        {/* Options Bubbles */}
-        {!isTyping && options.length > 0 && (
-            <div className="flex flex-wrap gap-2 max-w-4xl mx-auto pl-14 animate-in fade-in slide-in-from-bottom-2 duration-500">
-              {options.map((opt, idx) => (
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5">
+        <section className="dramatic-surface rounded-[32px] px-5 py-5 sm:px-7 sm:py-6">
+          <div className="relative z-[1] flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
-                  key={idx}
-                  onClick={() => sendText(`选择：${String(opt?.label || '')}`)}
-                  className="px-4 py-2 rounded-full border border-book-primary/30 bg-book-bg-paper text-book-primary text-sm hover:bg-book-primary hover:text-white transition-all duration-300 shadow-sm hover:shadow-md active:scale-95"
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-book-border/55 bg-book-bg-paper/78 px-4 text-sm font-semibold text-book-text-main transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/30 hover:text-book-primary"
                 >
-                  {opt.label}
+                  <ArrowLeft size={16} />
+                  返回首页
                 </button>
-              ))}
-            </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+                <div className="eyebrow">{mode === 'novel' ? 'Story Forge' : 'System Forge'}</div>
+              </div>
 
-      {/* Input Area */}
-      <div className="p-6 pb-8 border-t border-book-border/40 bg-book-bg-glass backdrop-blur-xl z-20 shrink-0">
-        <div className="max-w-4xl mx-auto relative group">
-          <BookTextarea 
-            className="pr-16 max-h-40 min-h-[72px] py-4 px-6 text-base shadow-inner border-book-border/60 focus:border-book-primary/60 bg-book-bg/50 rounded-2xl resize-none"
-            placeholder="输入你的想法... (Shift + Enter 换行)"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isTyping}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!inputValue.trim() || isTyping}
-            className={`
-              absolute right-3 bottom-3 p-2.5 rounded-xl transition-all duration-300 transform
-              ${!inputValue.trim() || isTyping 
-                ? 'text-book-text-muted bg-transparent cursor-not-allowed opacity-50' 
-                : 'text-white bg-book-primary hover:bg-book-primary-light shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95'}
-            `}
-          >
-            <Send size={20} className={isTyping ? "opacity-0" : "opacity-100"} />
-            {isTyping && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <div>
+                <h1 className="font-serif text-[clamp(2.4rem,6vw,4.8rem)] font-bold leading-[0.95] tracking-[-0.04em] text-book-text-main">
+                  {stageTitle}
+                </h1>
+                <p className="mt-3 max-w-3xl text-sm leading-relaxed text-book-text-sub sm:text-base">
+                  {stageDescription}
+                </p>
+              </div>
+            </div>
+
+            {showBlueprintBtn ? (
+              <BookButton
+                variant="primary"
+                size="lg"
+                onClick={generateBlueprint}
+                disabled={isGeneratingBlueprint}
+                className="self-start"
+              >
+                <Wand2 size={16} />
+                {isGeneratingBlueprint ? '生成中…' : (mode === 'coding' ? '生成架构设计' : '生成蓝图')}
+              </BookButton>
+            ) : (
+              <div className="rounded-full border border-book-border/55 bg-book-bg-paper/78 px-4 py-3 text-sm font-semibold text-book-text-sub">
+                继续补全上下文，按钮会在结构足够清晰后解锁
               </div>
             )}
-          </button>
-        </div>
+          </div>
+        </section>
+
+        <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="space-y-4">
+            <BookCard className="p-6">
+              <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                当前状态
+              </div>
+              <div className="mt-4 font-serif text-3xl font-bold text-book-text-main">
+                {conversationStatus}
+              </div>
+              <div className="mt-3 text-sm leading-relaxed text-book-text-sub">
+                已收集 {messages.length} 条对话。{showBlueprintBtn ? '现在可以进入下一阶段。' : '先把背景、目标、冲突与约束说清楚。'}
+              </div>
+            </BookCard>
+
+            <BookCard className="p-6" variant="flat">
+              <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                起手建议
+              </div>
+              <div className="mt-4 space-y-3">
+                {starterPrompts.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => void sendText(prompt)}
+                    className="w-full rounded-[22px] border border-book-border/50 bg-book-bg/72 px-4 py-3 text-left text-sm leading-relaxed text-book-text-main transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/28 hover:text-book-primary"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </BookCard>
+          </aside>
+
+          <div className="dramatic-surface min-h-[30rem] rounded-[32px] p-4 sm:p-6">
+            <div className="relative z-[1] flex h-full min-h-0 flex-col">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-book-border/40 pb-4">
+                <div>
+                  <div className="eyebrow">Conversation Stage</div>
+                  <h2 className="mt-3 font-serif text-3xl font-bold text-book-text-main">
+                    {mode === 'novel' ? '把故事说到足够具体' : '把系统边界说到足够清晰'}
+                  </h2>
+                </div>
+                <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-4 py-2 text-sm font-semibold text-book-text-main">
+                  {isTyping ? '生成中' : '等待输入'}
+                </div>
+              </div>
+
+              <div className="mt-6 flex-1 min-h-0 overflow-y-auto pr-2 custom-scrollbar scroll-smooth">
+                {messages.length === 0 ? (
+                  <div className="flex h-full min-h-[20rem] flex-col items-center justify-center rounded-[30px] border border-dashed border-book-border/55 bg-book-bg-paper/60 px-6 text-center">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full border border-book-border/50 bg-book-bg/75 text-book-primary">
+                      <Sparkles size={36} />
+                    </div>
+                    <div className="mt-5 font-serif text-3xl font-bold text-book-text-main">
+                      {mode === 'novel' ? '先把故事火种抛进来' : '先把系统目标抛进来'}
+                    </div>
+                    <p className="mt-3 max-w-xl text-sm leading-relaxed text-book-text-sub">
+                      {mode === 'novel'
+                        ? '说世界观、人物、冲突、情绪或任何零散念头都可以。系统会帮你压出一个可展开的长篇骨架。'
+                        : '说业务目标、用户角色、核心流程或技术约束都可以。系统会帮你收束为可交付的架构起点。'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        {msg.role !== 'user' ? (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-book-border/50 bg-book-bg/78 text-book-primary">
+                            <Bot size={18} />
+                          </div>
+                        ) : null}
+
+                        <div
+                          className={`
+                            max-w-[88%] rounded-[28px] px-5 py-4 shadow-[0_24px_56px_-42px_rgba(36,18,6,0.96)]
+                            ${msg.role === 'user'
+                              ? 'bg-book-primary text-white'
+                              : 'border border-book-border/55 bg-book-bg-paper/82 text-book-text-main'}
+                          `}
+                        >
+                          <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-[0.18em] opacity-80">
+                            {msg.role === 'user' ? 'You' : 'AFN'}
+                          </div>
+                          <div className="whitespace-pre-wrap text-[15px] leading-relaxed">
+                            {msg.content}
+                          </div>
+                          {msg.isStreaming ? (
+                            <span className="mt-2 inline-block h-4 w-1.5 rounded-full bg-current align-middle animate-pulse" />
+                          ) : null}
+                        </div>
+
+                        {msg.role === 'user' ? (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-book-primary/30 bg-book-primary text-white">
+                            <User size={18} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+
+                    {!isTyping && options.length > 0 ? (
+                      <div className="flex flex-wrap gap-3 pl-0 sm:pl-16">
+                        {options.map((opt, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => void sendText(`选择：${String(opt?.label || '')}`)}
+                            className="rounded-full border border-book-primary/28 bg-book-bg-paper/82 px-4 py-2 text-sm font-semibold text-book-primary transition-all duration-300 hover:-translate-y-0.5 hover:bg-book-primary hover:text-white"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <div className="mt-6 border-t border-book-border/40 pt-4">
+                <div className="rounded-[28px] border border-book-border/55 bg-book-bg-paper/72 p-3 shadow-[0_20px_44px_-34px_rgba(36,18,6,0.96)]">
+                  <div className="relative">
+                    <BookTextarea
+                      className="min-h-[132px] max-h-56 resize-none border-none bg-transparent px-4 pb-4 pr-20 pt-4 shadow-none focus:ring-0"
+                      placeholder="输入你的想法... (Shift + Enter 换行)"
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      disabled={isTyping}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={!inputValue.trim() || isTyping}
+                      className={`
+                        absolute bottom-4 right-4 inline-flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300
+                        ${!inputValue.trim() || isTyping
+                          ? 'cursor-not-allowed border border-book-border/50 bg-book-bg text-book-text-muted opacity-60'
+                          : 'border border-book-primary bg-book-primary text-white shadow-[0_22px_44px_-28px_rgba(87,44,17,0.96)] hover:-translate-y-0.5 hover:bg-book-primary-light'}
+                      `}
+                    >
+                      <Send size={18} className={isTyping ? 'opacity-0' : 'opacity-100'} />
+                      {isTyping ? (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        </div>
+                      ) : null}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

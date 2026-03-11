@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Modal } from '../components/ui/Modal';
 import { BookButton } from '../components/ui/BookButton';
 import { BookTextarea } from '../components/ui/BookInput';
@@ -127,4 +127,3 @@ export const useConfirmTextModal = (opts: UseConfirmTextModalOptions) => {
 
   return { open, modal };
 };
-

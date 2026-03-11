@@ -91,29 +91,52 @@ export const useToast = create<ToastStore>((set) => ({
 export function ToastContainer() {
   const { toasts, removeToast } = useToast();
 
+  const iconMap = {
+    success: <CheckCircle size={18} className="text-emerald-500" />,
+    error: <AlertCircle size={18} className="text-red-500" />,
+    info: <Info size={18} className="text-sky-500" />,
+  } satisfies Record<ToastType, React.ReactNode>;
+
+  const toneClasses = {
+    success: 'border-emerald-500/25 bg-emerald-500/8',
+    error: 'border-red-500/25 bg-red-500/8',
+    info: 'border-sky-500/25 bg-sky-500/8',
+  } satisfies Record<ToastType, string>;
+
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div className="pointer-events-none fixed right-3 top-3 z-[140] flex w-[min(92vw,24rem)] flex-col gap-3 sm:right-5 sm:top-5">
       {toasts.map((toast) => (
         <div
           key={toast.id}
           className={`
-            pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border border-book-border/50
-            bg-book-bg-paper/90 backdrop-blur-md text-book-text-main min-w-[300px]
-            animate-fade-in
+            toast-enter pointer-events-auto relative overflow-hidden rounded-[22px] border
+            bg-book-bg-paper/94 px-4 py-3.5 shadow-[0_30px_70px_-40px_rgba(36,18,6,0.96)]
+            backdrop-blur-xl
+            ${toneClasses[toast.type]}
           `}
         >
-          {toast.type === 'success' && <CheckCircle size={20} className="text-green-500" />}
-          {toast.type === 'error' && <AlertCircle size={20} className="text-red-500" />}
-          {toast.type === 'info' && <Info size={20} className="text-blue-500" />}
-          
-          <p className="flex-1 text-sm font-medium">{toast.message}</p>
-          
-          <button 
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-book-primary/30 to-transparent" />
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-book-border/45 bg-book-bg/75">
+              {iconMap[toast.type]}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[0.7rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                {toast.type === 'success' ? 'Success' : toast.type === 'error' ? 'Error' : 'Info'}
+              </div>
+              <p className="mt-1 text-sm font-medium leading-relaxed text-book-text-main">
+                {toast.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="关闭提示"
+              className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full text-book-text-muted transition-colors hover:bg-book-bg hover:text-book-text-main"
             onClick={() => removeToast(toast.id)}
-            className="text-book-text-muted hover:text-book-text-main"
-          >
-            <X size={16} />
-          </button>
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
       ))}
     </div>

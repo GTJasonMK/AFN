@@ -36,6 +36,8 @@ type AdminConfigsBootstrapSnapshot = {
 
 const ADMIN_CONFIGS_BOOTSTRAP_KEY = 'afn:web:admin:configs:bootstrap:v1';
 const ADMIN_CONFIGS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
+const adminConfigSelectClassName =
+  'w-full rounded-[18px] border border-book-border/45 bg-book-bg-paper/82 px-4 py-3 text-book-text-main shadow-inner focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
 
 const formatDate = (value?: string | null): string => {
   if (!value) return '—';
@@ -334,8 +336,11 @@ export const AdminConfigs: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="page-shell min-h-screen overflow-hidden">
+      <div className="ambient-orb -left-12 top-4 h-64 w-64 bg-book-primary/9" />
+      <div className="ambient-orb right-[-4rem] top-24 h-72 w-72 bg-book-primary-light/10" />
+
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5">
         <AdminPanelHeader
           current="configs"
           title="管理员配置监控"
@@ -350,31 +355,40 @@ export const AdminConfigs: React.FC = () => {
           )}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Boxes size={14} /> 配置总数</div>
-            <div className="text-2xl font-bold text-book-text-main">{data.summary.total_configs}</div>
-            <div className="text-xs text-book-text-muted">所有用户累计</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><SlidersHorizontal size={14} /> 激活配置</div>
-            <div className="text-2xl font-bold text-book-text-main">{data.summary.total_active_configs}</div>
-            <div className="text-xs text-book-text-muted">当前生效配置</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted">测试失败</div>
-            <div className="text-2xl font-bold text-book-text-main">{statusStats.failed}</div>
-            <div className="text-xs text-book-text-muted">失败率 {formatPercent(statusStats.failed, statusStats.all)}%</div>
-          </BookCard>
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Users size={14} /> 统计时间</div>
-            <div className="text-sm font-bold text-book-text-main">{formatDate(data.generated_at)}</div>
-            <div className="text-xs text-book-text-muted">数据库实时聚合</div>
-          </BookCard>
-        </div>
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <Boxes size={14} />
+              配置总数
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{data.summary.total_configs}</div>
+            <div className="mt-2 text-sm text-book-text-sub">所有用户累计</div>
+          </div>
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <SlidersHorizontal size={14} />
+              激活配置
+            </div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{data.summary.total_active_configs}</div>
+            <div className="mt-2 text-sm text-book-text-sub">当前生效配置</div>
+          </div>
+          <div className="metric-tile">
+            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">测试失败</div>
+            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{statusStats.failed}</div>
+            <div className="mt-2 text-sm text-book-text-sub">失败率 {formatPercent(statusStats.failed, statusStats.all)}%</div>
+          </div>
+          <div className="metric-tile">
+            <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+              <Users size={14} />
+              统计时间
+            </div>
+            <div className="mt-3 text-lg font-semibold text-book-text-main">{formatDate(data.generated_at)}</div>
+            <div className="mt-2 text-sm text-book-text-sub">数据库实时聚合</div>
+          </div>
+        </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <BookCard>
+        <section className="grid gap-4 xl:grid-cols-3">
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={220} rootMargin="360px 0px">
               <AdminDonutChart
                 title="配置类型占比"
@@ -385,7 +399,7 @@ export const AdminConfigs: React.FC = () => {
             </LazyRender>
           </BookCard>
 
-          <BookCard>
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={220} rootMargin="360px 0px">
               <AdminDonutChart
                 title="测试状态占比"
@@ -396,50 +410,146 @@ export const AdminConfigs: React.FC = () => {
             </LazyRender>
           </BookCard>
 
-          <BookCard>
+          <BookCard className="rounded-[28px] bg-book-bg-paper/82">
             <LazyRender placeholderHeight={180} rootMargin="360px 0px">
               <AdminStackedProgress title="配置激活结构" segments={activationSegments} />
             </LazyRender>
           </BookCard>
-        </div>
+        </section>
 
-        <BookCard className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-sm text-book-text-main">近{trendData?.days || 21}天配置新增趋势</h2>
-            <div className="inline-flex rounded-lg border border-book-border/50 overflow-hidden">
-              <button
-                className={`px-3 py-1 text-xs ${trendMode === 'line' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
-                onClick={() => setTrendMode('line')}
-              >
-                折线图
-              </button>
-              <button
-                className={`px-3 py-1 text-xs ${trendMode === 'bar' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
-                onClick={() => setTrendMode('bar')}
-              >
-                柱状图
-              </button>
+        <section className="dramatic-surface rounded-[30px]">
+          <div className="relative z-[1] space-y-4 px-5 py-5 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                  Config Trend
+                </div>
+                <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">
+                  近 {trendData?.days || 21} 天配置新增趋势
+                </h2>
+              </div>
+              <div className="inline-flex overflow-hidden rounded-full border border-book-border/50 bg-book-bg-paper/72 p-1">
+                <button
+                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                    trendMode === 'line'
+                      ? 'bg-book-primary text-white'
+                      : 'text-book-text-muted hover:text-book-text-main'
+                  }`}
+                  onClick={() => setTrendMode('line')}
+                >
+                  折线图
+                </button>
+                <button
+                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                    trendMode === 'bar'
+                      ? 'bg-book-primary text-white'
+                      : 'text-book-text-muted hover:text-book-text-main'
+                  }`}
+                  onClick={() => setTrendMode('bar')}
+                >
+                  柱状图
+                </button>
+              </div>
+            </div>
+            <LazyRender placeholderHeight={300} rootMargin="420px 0px">
+              <AdminTrendChart
+                series={configTrendSeries}
+                mode={trendMode}
+                emptyText="暂无配置趋势数据"
+              />
+            </LazyRender>
+          </div>
+        </section>
+
+        <section className="dramatic-surface sticky top-3 z-20 rounded-[30px]">
+          <div className="relative z-[1] grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_320px] sm:px-6">
+            <div className="space-y-4">
+              <div>
+                <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                  Filter Console
+                </div>
+                <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">筛选激活配置</h2>
+                <p className="mt-2 text-sm leading-relaxed text-book-text-sub">
+                  先按配置类型和测试状态收窄范围，再进入明细表排查异常项。
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <BookInput
+                  label="关键词"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="配置名 / 用户 / 配置ID"
+                />
+
+                <div>
+                  <label className="mb-1.5 ml-1 block text-sm font-bold text-book-text-sub">配置类型</label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value as ConfigTypeFilter)}
+                    className={adminConfigSelectClassName}
+                  >
+                    <option value="all">全部类型</option>
+                    <option value="llm">LLM</option>
+                    <option value="embedding">嵌入</option>
+                    <option value="image">图片</option>
+                    <option value="theme">主题</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 ml-1 block text-sm font-bold text-book-text-sub">测试状态</label>
+                  <select
+                    value={testFilter}
+                    onChange={(e) => setTestFilter(e.target.value as TestStatusFilter)}
+                    className={adminConfigSelectClassName}
+                  >
+                    <option value="all">全部</option>
+                    <option value="success">成功</option>
+                    <option value="failed">失败</option>
+                    <option value="pending">进行中</option>
+                    <option value="untested">未测试</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-book-border/45 bg-book-bg-paper/72 p-4">
+              <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                当前结果
+              </div>
+              <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">{filteredActiveConfigs.length}</div>
+              <div className="mt-2 text-sm text-book-text-sub">当前显示的激活配置数量</div>
+
+              <div className="mt-4 space-y-2">
+                <div className="rounded-[18px] border border-book-border/40 px-3 py-2 text-xs text-book-text-muted">
+                  失败配置：<span className="font-semibold text-book-text-main">{statusStats.failed}</span>
+                </div>
+                <div className="rounded-[18px] border border-book-border/40 px-3 py-2 text-xs text-book-text-muted">
+                  进行中配置：<span className="font-semibold text-book-text-main">{statusStats.pending}</span>
+                </div>
+              </div>
             </div>
           </div>
-          <LazyRender placeholderHeight={300} rootMargin="420px 0px">
-            <AdminTrendChart
-              series={configTrendSeries}
-              mode={trendMode}
-              emptyText="暂无配置趋势数据"
-            />
-          </LazyRender>
-        </BookCard>
+        </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">配置类型分布</h2>
-            <div className="space-y-2">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="space-y-4">
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5 sm:px-6">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    Type Distribution
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">配置类型分布</h2>
+                </div>
+                <div className="space-y-2">
               {data.summary.by_type.length > 0 ? (
                 data.summary.by_type.map((item) => {
                   const label = typeLabelMap[item.config_type] || item.config_type;
                   const activeRate = formatPercent(item.active, item.total);
                   return (
-                    <div key={`type-${item.config_type}`} className="space-y-1 border border-book-border/40 rounded-lg px-3 py-2 text-sm">
+                    <div key={`type-${item.config_type}`} className="space-y-1 rounded-[20px] border border-book-border/40 px-3 py-3 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-xs text-book-text-main">{label}</span>
                         <span className="text-book-text-muted">总计 {item.total} · 激活 {item.active}</span>
@@ -454,185 +564,177 @@ export const AdminConfigs: React.FC = () => {
               ) : (
                 <div className="text-xs text-book-text-muted">暂无配置分布数据</div>
               )}
-            </div>
-          </BookCard>
-
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">监控提示</h2>
-            <div className="space-y-2">
-              {healthHints.map((hint) => (
-                <div key={hint} className="text-xs border border-book-border/40 rounded-lg px-3 py-2 text-book-text-muted leading-relaxed">
-                  {hint}
                 </div>
-              ))}
-            </div>
-          </BookCard>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">筛选激活配置</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <BookInput
-                label="关键词"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="配置名 / 用户 / 配置ID"
-              />
-
-              <div>
-                <label className="block text-sm font-bold text-book-text-sub mb-1.5 ml-1">配置类型</label>
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value as ConfigTypeFilter)}
-                  className="w-full px-4 py-2 rounded-lg bg-book-bg-paper text-book-text-main border border-book-border"
-                >
-                  <option value="all">全部类型</option>
-                  <option value="llm">LLM</option>
-                  <option value="embedding">嵌入</option>
-                  <option value="image">图片</option>
-                  <option value="theme">主题</option>
-                </select>
               </div>
+            </section>
 
-              <div>
-                <label className="block text-sm font-bold text-book-text-sub mb-1.5 ml-1">测试状态</label>
-                <select
-                  value={testFilter}
-                  onChange={(e) => setTestFilter(e.target.value as TestStatusFilter)}
-                  className="w-full px-4 py-2 rounded-lg bg-book-bg-paper text-book-text-main border border-book-border"
-                >
-                  <option value="all">全部</option>
-                  <option value="success">成功</option>
-                  <option value="failed">失败</option>
-                  <option value="pending">进行中</option>
-                  <option value="untested">未测试</option>
-                </select>
-              </div>
-            </div>
-            <div className="text-xs text-book-text-muted">当前显示 {filteredActiveConfigs.length} 条激活配置</div>
-          </BookCard>
-
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">活跃配置用户 TOP</h2>
-            {activeConfigUsers.length > 0 ? (
-              <div className="space-y-2">
-                {activeConfigUsers.map((item) => (
-                  <div key={`active-user-${item.username}`} className="flex items-center justify-between text-xs border border-book-border/40 rounded-lg px-3 py-2">
-                    <span className="font-mono text-book-text-main">{item.username}</span>
-                    <span className="font-bold text-book-primary">{item.count}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-book-text-muted">暂无排行数据</div>
-            )}
-          </BookCard>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
-          <BookCard>
-            <LazyRender placeholderHeight={220} rootMargin="520px 0px">
-              <AdminBarListChart
-                title="测试状态分布（全量）"
-                data={testStatusChartData}
-                totalOverride={statusStats.all}
-              />
-            </LazyRender>
-          </BookCard>
-
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">异常配置</h2>
-            {problemConfigs.length > 0 ? (
-              <div className="space-y-2">
-                {problemConfigs.map((item) => {
-                  const statusKey = normalizeTestStatus(item.test_status);
-                  return (
-                    <div key={`problem-${item.config_type}-${item.config_id}`} className="border border-book-border/40 rounded-lg px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-book-text-main">{item.config_name || '未命名配置'}</span>
-                        <span className={`px-2 py-0.5 rounded ${testStatusClassMap[statusKey]}`}>{testStatusLabel[statusKey]}</span>
-                      </div>
-                      <div className="text-book-text-muted mt-1">
-                        {typeLabelMap[item.config_type] || item.config_type} · {item.username}
-                      </div>
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      Active Config Table
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-xs text-book-text-muted">暂无失败或进行中的配置</div>
-            )}
+                    <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">激活配置明细</h2>
+                  </div>
+                  <span className="story-pill">显示 {visibleActiveConfigs.length} / {filteredActiveConfigs.length}</span>
+                </div>
 
-            <div className="pt-2 border-t border-book-border/40">
-              <LazyRender placeholderHeight={180} rootMargin="620px 0px">
-                <AdminBarListChart title="异常类型分布" data={problemByTypeRows} />
-              </LazyRender>
-            </div>
-          </BookCard>
-        </div>
+                <div className="overflow-x-auto rounded-[24px] border border-book-border/40 bg-book-bg-paper/62 px-4">
+                  <table className="min-w-[980px] w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-book-border/50 text-book-text-muted">
+                        <th className="py-3 pr-3 text-left">类型</th>
+                        <th className="py-3 pr-3 text-left">配置名</th>
+                        <th className="py-3 pr-3 text-left">所属用户</th>
+                        <th className="py-3 pr-3 text-left">测试状态</th>
+                        <th className="py-3 text-left">更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleActiveConfigs.map((item) => {
+                        const typeLabel = typeLabelMap[item.config_type] || item.config_type;
+                        const statusKey = normalizeTestStatus(item.test_status);
+                        return (
+                          <tr key={`${item.config_type}-${item.config_id}`} className="border-b border-book-border/30 text-book-text-main">
+                            <td className="py-3 pr-3 align-top"><span className="font-mono text-xs">{typeLabel}</span></td>
+                            <td className="py-3 pr-3 align-top">
+                              <div className="font-medium">{item.config_name || '未命名配置'}</div>
+                              <div className="mt-1 text-[11px] text-book-text-muted">ID: {item.config_id}</div>
+                            </td>
+                            <td className="py-3 pr-3 align-top"><span className="font-mono text-xs">{item.username}</span></td>
+                            <td className="py-3 pr-3 align-top text-xs">
+                              <span className={`rounded-full px-2 py-1 ${testStatusClassMap[statusKey]}`}>
+                                {testStatusLabel[statusKey]}
+                              </span>
+                            </td>
+                            <td className="py-3 align-top text-xs text-book-text-muted">{formatDate(item.updated_at)}</td>
+                          </tr>
+                        );
+                      })}
+                      {!loading && filteredActiveConfigs.length === 0 ? (
+                        <tr>
+                          <td className="py-6 text-center text-book-text-muted" colSpan={5}>暂无匹配配置</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
 
-        <BookCard className="space-y-3">
-          <h2 className="font-bold text-sm text-book-text-main">激活配置明细</h2>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-sm">
-              <thead>
-                <tr className="border-b border-book-border/50 text-book-text-muted">
-                  <th className="text-left py-2 pr-3">类型</th>
-                  <th className="text-left py-2 pr-3">配置名</th>
-                  <th className="text-left py-2 pr-3">所属用户</th>
-                  <th className="text-left py-2 pr-3">测试状态</th>
-                  <th className="text-left py-2">更新时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleActiveConfigs.map((item) => {
-                  const typeLabel = typeLabelMap[item.config_type] || item.config_type;
-                  const statusKey = normalizeTestStatus(item.test_status);
-                  return (
-                    <tr key={`${item.config_type}-${item.config_id}`} className="border-b border-book-border/30 text-book-text-main">
-                      <td className="py-3 pr-3 align-top"><span className="font-mono text-xs">{typeLabel}</span></td>
-                      <td className="py-3 pr-3 align-top">
-                        <div className="font-medium">{item.config_name || '未命名配置'}</div>
-                        <div className="text-[11px] text-book-text-muted mt-1">ID: {item.config_id}</div>
-                      </td>
-                      <td className="py-3 pr-3 align-top"><span className="font-mono text-xs">{item.username}</span></td>
-                      <td className="py-3 pr-3 align-top text-xs">
-                        <span className={`px-2 py-1 rounded ${testStatusClassMap[statusKey]}`}>{testStatusLabel[statusKey]}</span>
-                      </td>
-                      <td className="py-3 align-top text-xs text-book-text-muted">{formatDate(item.updated_at)}</td>
-                    </tr>
-                  );
-                })}
-                {!loading && filteredActiveConfigs.length === 0 ? (
-                  <tr>
-                    <td className="py-6 text-center text-book-text-muted" colSpan={5}>暂无匹配配置</td>
-                  </tr>
+                {loading ? (
+                  <div className="flex items-center gap-2 text-xs text-book-text-muted">
+                    <RefreshCw size={12} className="animate-spin" />
+                    加载中…
+                  </div>
                 ) : null}
-              </tbody>
-            </table>
+                {!loading && visibleActiveConfigs.length < filteredActiveConfigs.length ? (
+                  <div className="flex items-center justify-between text-xs text-book-text-muted">
+                    <span>已渲染 {visibleActiveConfigs.length} / {filteredActiveConfigs.length} 条</span>
+                    <BookButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfigRowLimit((value) => value + 100)}
+                    >
+                      加载更多（剩余 {filteredActiveConfigs.length - visibleActiveConfigs.length} 条）
+                    </BookButton>
+                  </div>
+                ) : null}
+              </div>
+            </section>
           </div>
 
-          {loading ? (
-            <div className="text-xs text-book-text-muted flex items-center gap-2">
-              <RefreshCw size={12} className="animate-spin" />
-              加载中…
-            </div>
-          ) : null}
-          {!loading && visibleActiveConfigs.length < filteredActiveConfigs.length ? (
-            <div className="flex items-center justify-between text-xs text-book-text-muted">
-              <span>已渲染 {visibleActiveConfigs.length} / {filteredActiveConfigs.length} 条</span>
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfigRowLimit((value) => value + 100)}
-              >
-                加载更多（剩余 {filteredActiveConfigs.length - visibleActiveConfigs.length} 条）
-              </BookButton>
-            </div>
-          ) : null}
-        </BookCard>
+          <div className="space-y-4">
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    Monitor Hints
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">监控提示</h2>
+                </div>
+                <div className="space-y-2">
+                  {healthHints.map((hint) => (
+                    <div key={hint} className="rounded-[18px] border border-book-border/40 px-3 py-3 text-xs leading-relaxed text-book-text-muted">
+                      {hint}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    Active Users
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">活跃配置用户 TOP</h2>
+                </div>
+                {activeConfigUsers.length > 0 ? (
+                  <div className="space-y-2">
+                    {activeConfigUsers.map((item) => (
+                      <div key={`active-user-${item.username}`} className="flex items-center justify-between rounded-[18px] border border-book-border/40 px-3 py-3 text-xs">
+                        <span className="font-mono text-book-text-main">{item.username}</span>
+                        <span className="font-bold text-book-primary">{item.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-book-text-muted">暂无排行数据</div>
+                )}
+              </div>
+            </section>
+
+            <section className="dramatic-surface rounded-[30px]">
+              <div className="relative z-[1] space-y-4 px-5 py-5">
+                <div>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    Problem Configs
+                  </div>
+                  <h2 className="mt-2 font-serif text-2xl font-bold text-book-text-main">异常配置</h2>
+                </div>
+                {problemConfigs.length > 0 ? (
+                  <div className="space-y-2">
+                    {problemConfigs.map((item) => {
+                      const statusKey = normalizeTestStatus(item.test_status);
+                      return (
+                        <div key={`problem-${item.config_type}-${item.config_id}`} className="rounded-[18px] border border-book-border/40 px-3 py-3 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-book-text-main">{item.config_name || '未命名配置'}</span>
+                            <span className={`rounded-full px-2 py-0.5 ${testStatusClassMap[statusKey]}`}>
+                              {testStatusLabel[statusKey]}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-book-text-muted">
+                            {typeLabelMap[item.config_type] || item.config_type} · {item.username}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-book-text-muted">暂无失败或进行中的配置</div>
+                )}
+
+                <div className="border-t border-book-border/40 pt-3">
+                  <LazyRender placeholderHeight={180} rootMargin="620px 0px">
+                    <AdminBarListChart title="异常类型分布" data={problemByTypeRows} />
+                  </LazyRender>
+                </div>
+              </div>
+            </section>
+
+            <BookCard className="rounded-[30px] bg-book-bg-paper/82">
+              <LazyRender placeholderHeight={220} rootMargin="520px 0px">
+                <AdminBarListChart
+                  title="测试状态分布（全量）"
+                  data={testStatusChartData}
+                  totalOverride={statusStats.all}
+                />
+              </LazyRender>
+            </BookCard>
+          </div>
+        </div>
       </div>
     </div>
   );

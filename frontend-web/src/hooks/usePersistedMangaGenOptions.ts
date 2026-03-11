@@ -142,29 +142,29 @@ export const usePersistedMangaGenOptions = (projectId: string | undefined) => {
     serialize: serializePersistedOptions,
   });
 
-  const setGenStyle = useCallback((genStyle: MangaGenStyle) => setOptions((prev) => ({ ...prev, genStyle })), []);
-  const setCustomStyle = useCallback((customStyle: string) => setOptions((prev) => ({ ...prev, customStyle })), []);
-  const setGenLanguage = useCallback((genLanguage: MangaGenLanguage) => setOptions((prev) => ({ ...prev, genLanguage })), []);
-  const setMinPages = useCallback((minPages: number) => setOptions((prev) => ({ ...prev, minPages })), []);
-  const setMaxPages = useCallback((maxPages: number) => setOptions((prev) => ({ ...prev, maxPages })), []);
-  const setUsePortraits = useCallback((usePortraits: boolean) => setOptions((prev) => ({ ...prev, usePortraits })), []);
+  const setGenStyle = useCallback((genStyle: MangaGenStyle) => setOptions((prev) => ({ ...prev, genStyle })), [setOptions]);
+  const setCustomStyle = useCallback((customStyle: string) => setOptions((prev) => ({ ...prev, customStyle })), [setOptions]);
+  const setGenLanguage = useCallback((genLanguage: MangaGenLanguage) => setOptions((prev) => ({ ...prev, genLanguage })), [setOptions]);
+  const setMinPages = useCallback((minPages: number) => setOptions((prev) => ({ ...prev, minPages })), [setOptions]);
+  const setMaxPages = useCallback((maxPages: number) => setOptions((prev) => ({ ...prev, maxPages })), [setOptions]);
+  const setUsePortraits = useCallback((usePortraits: boolean) => setOptions((prev) => ({ ...prev, usePortraits })), [setOptions]);
   const setAutoGeneratePortraits = useCallback(
     (autoGeneratePortraits: boolean) => setOptions((prev) => ({ ...prev, autoGeneratePortraits })),
-    [],
+    [setOptions],
   );
   const setAutoGeneratePageImages = useCallback(
     (autoGeneratePageImages: boolean) => setOptions((prev) => ({ ...prev, autoGeneratePageImages })),
-    [],
+    [setOptions],
   );
   const setPagePromptConcurrency = useCallback(
     (pagePromptConcurrency: number) => setOptions((prev) => ({ ...prev, pagePromptConcurrency })),
-    [],
+    [setOptions],
   );
   const setStartFromStage = useCallback(
     (startFromStage: MangaStartFromStage) => setOptions((prev) => ({ ...prev, startFromStage })),
-    [],
+    [setOptions],
   );
-  const setForceRestart = useCallback((forceRestart: boolean) => setOptions((prev) => ({ ...prev, forceRestart })), []);
+  const setForceRestart = useCallback((forceRestart: boolean) => setOptions((prev) => ({ ...prev, forceRestart })), [setOptions]);
 
   return {
     ...options,

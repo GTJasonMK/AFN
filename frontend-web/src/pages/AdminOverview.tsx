@@ -1,6 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, AlertTriangle, Boxes, FolderKanban, Gauge, Users } from 'lucide-react';
+import { AlertTriangle, Gauge } from 'lucide-react';
 import { adminDashboardApi, AdminDashboardTrendsResponse, AdminOverviewResponse, AdminStatusCount } from '../api/adminDashboard';
 import { BookCard } from '../components/ui/BookCard';
 import { AdminPanelHeader } from '../components/admin/AdminPanelHeader';
@@ -254,6 +254,35 @@ export const AdminOverview: React.FC = () => {
     return rows.sort((a, b) => b.value - a.value).slice(0, 8);
   }, [data.coding_status_distribution, data.novel_status_distribution]);
 
+  const heroSummaryCards = useMemo(() => {
+    return [
+      {
+        key: 'users',
+        label: '用户总量',
+        value: data.summary.total_users,
+        description: `启用 ${data.summary.active_users} / 最近活跃 ${data.summary.recently_active_users}`,
+      },
+      {
+        key: 'projects',
+        label: '项目总量',
+        value: data.summary.total_projects,
+        description: `小说 ${data.summary.total_novel_projects} / Prompt ${data.summary.total_coding_projects}`,
+      },
+      {
+        key: 'configs',
+        label: '配置总量',
+        value: configTotal,
+        description: `LLM ${data.summary.total_llm_configs} / 嵌入 ${data.summary.total_embedding_configs}`,
+      },
+      {
+        key: 'generatedAt',
+        label: '统计时间',
+        value: formatDate(data.generated_at),
+        description: '服务端实时聚合后的快照时间',
+      },
+    ];
+  }, [configTotal, data.generated_at, data.summary]);
+
   if (!isAdmin) {
     return <AdminAccessDenied />;
   }
@@ -262,8 +291,8 @@ export const AdminOverview: React.FC = () => {
   const codingTotal = sumCounts(data.coding_status_distribution);
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="page-shell flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <AdminPanelHeader
           current="overview"
           title="管理员总览"
@@ -272,53 +301,132 @@ export const AdminOverview: React.FC = () => {
           refreshing={loading}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Users size={14} /> 用户概况</div>
-            <div className="text-2xl font-bold text-book-text-main">{data.summary.total_users}</div>
-            <div className="text-xs text-book-text-muted">
-              启用 {data.summary.active_users} · 7天活跃 {data.summary.recently_active_users}
-            </div>
-          </BookCard>
+        <section className="dramatic-surface rounded-[32px] p-6 sm:p-8">
+          <div className="relative z-[1] grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="space-y-3">
+                  <div className="eyebrow">Operations Snapshot</div>
+                  <div>
+                    <h2 className="font-serif text-4xl font-bold text-book-text-main">
+                      系统运行概览
+                    </h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-book-text-sub sm:text-base">
+                      把用户、项目、配置和增长趋势压进一个稳定的总控视图。信息密度保持高，但优先级更清晰。
+                    </p>
+                  </div>
+                </div>
 
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><FolderKanban size={14} /> 项目总量</div>
-            <div className="text-2xl font-bold text-book-text-main">{data.summary.total_projects}</div>
-            <div className="text-xs text-book-text-muted">
-              小说 {data.summary.total_novel_projects} · Prompt {data.summary.total_coding_projects}
-            </div>
-          </BookCard>
-
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Boxes size={14} /> 配置总量</div>
-            <div className="text-2xl font-bold text-book-text-main">{configTotal}</div>
-            <div className="text-xs text-book-text-muted">
-              LLM {data.summary.total_llm_configs} · 嵌入 {data.summary.total_embedding_configs}
-            </div>
-          </BookCard>
-
-          <BookCard className="space-y-1">
-            <div className="text-xs text-book-text-muted flex items-center gap-1"><Activity size={14} /> 统计时间</div>
-            <div className="text-sm font-bold text-book-text-main">{formatDate(data.generated_at)}</div>
-            <div className="text-xs text-book-text-muted">数据实时聚合返回</div>
-          </BookCard>
-        </div>
-
-        <BookCard className="space-y-3">
-          <h2 className="font-bold text-sm text-book-text-main flex items-center gap-2">
-            <Gauge size={14} className="text-book-primary" />
-            关键比率
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            {ratioCards.map((item) => (
-              <div key={item.key} className="space-y-1 border border-book-border/40 rounded-lg px-3 py-2">
-                <div className="text-xs text-book-text-muted">{item.label}</div>
-                <div className="text-2xl font-bold text-book-text-main">{item.value}{item.suffix}</div>
-                <div className="text-[11px] text-book-text-muted">{item.description}</div>
+                <div className="rounded-[24px] border border-book-border/55 bg-book-bg-paper/72 px-5 py-4 text-sm text-book-text-sub shadow-[0_20px_44px_-34px_rgba(36,18,6,0.96)]">
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    Last Refresh
+                  </div>
+                  <div className="mt-2 text-base font-semibold text-book-text-main">
+                    {formatDate(data.generated_at)}
+                  </div>
+                </div>
               </div>
-            ))}
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {heroSummaryCards.map((card) => (
+                  <div key={card.key} className="metric-tile">
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      {card.label}
+                    </div>
+                    <div className="mt-3 font-serif text-4xl font-bold text-book-text-main">
+                      {card.value}
+                    </div>
+                    <div className="mt-2 text-sm leading-relaxed text-book-text-sub">
+                      {card.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <BookCard className="p-5">
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+                    <Gauge size={14} className="text-book-primary" />
+                    关键比率
+                  </h2>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {ratioCards.map((item) => (
+                      <div key={item.key} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                        <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                          {item.label}
+                        </div>
+                        <div className="mt-2 text-3xl font-serif font-bold text-book-text-main">
+                          {item.value}{item.suffix}
+                        </div>
+                        <div className="mt-2 text-sm leading-relaxed text-book-text-sub">
+                          {item.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </BookCard>
+
+                <BookCard className="p-5" variant="flat">
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+                    <AlertTriangle size={14} className="text-book-primary" />
+                    监控提示
+                  </h2>
+                  <div className="mt-4 space-y-3">
+                    {healthHints.map((hint) => (
+                      <div key={hint} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3 text-sm leading-relaxed text-book-text-sub">
+                        {hint}
+                      </div>
+                    ))}
+                  </div>
+                </BookCard>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <BookCard className="p-5">
+                <h2 className="text-sm font-bold text-book-text-main">快捷跳转</h2>
+                <div className="mt-4 grid gap-3">
+                  <Link to="/admin/users" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                    <div className="font-semibold text-book-text-main">用户面板</div>
+                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">账号策略、活跃监控、用户动作。</div>
+                  </Link>
+                  <Link to="/admin/projects" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                    <div className="font-semibold text-book-text-main">项目面板</div>
+                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">状态分布、陈旧项目与排行。</div>
+                  </Link>
+                  <Link to="/admin/configs" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                    <div className="font-semibold text-book-text-main">配置面板</div>
+                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">测试状态、激活比例、异常配置。</div>
+                  </Link>
+                </div>
+              </BookCard>
+
+              <BookCard className="p-5" variant="flat">
+                <h2 className="text-sm font-bold text-book-text-main">结构摘要</h2>
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">用户结构</div>
+                    <div className="mt-2 text-lg font-semibold text-book-text-main">
+                      启用 {data.summary.active_users} / 总用户 {data.summary.total_users}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">项目结构</div>
+                    <div className="mt-2 text-lg font-semibold text-book-text-main">
+                      小说 {data.summary.total_novel_projects} · Prompt {data.summary.total_coding_projects}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">配置结构</div>
+                    <div className="mt-2 text-lg font-semibold text-book-text-main">
+                      LLM {data.summary.total_llm_configs} · 主题 {data.summary.total_theme_configs}
+                    </div>
+                  </div>
+                </div>
+              </BookCard>
+            </div>
           </div>
-        </BookCard>
+        </section>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <BookCard>
@@ -345,18 +453,21 @@ export const AdminOverview: React.FC = () => {
           </BookCard>
         </div>
 
-        <BookCard className="space-y-3">
+        <BookCard className="space-y-3 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-sm text-book-text-main">近{trendData?.days || 21}天增长趋势</h2>
-            <div className="inline-flex rounded-lg border border-book-border/50 overflow-hidden">
+            <div>
+              <div className="eyebrow">Growth Curve</div>
+              <h2 className="mt-3 font-serif text-3xl font-bold text-book-text-main">近{trendData?.days || 21}天增长趋势</h2>
+            </div>
+            <div className="inline-flex rounded-full border border-book-border/50 overflow-hidden bg-book-bg/72 p-1">
               <button
-                className={`px-3 py-1 text-xs ${trendMode === 'line' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'line' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
                 onClick={() => setTrendMode('line')}
               >
                 折线图
               </button>
               <button
-                className={`px-3 py-1 text-xs ${trendMode === 'bar' ? 'bg-book-primary/15 text-book-primary' : 'bg-book-bg-paper text-book-text-muted'}`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'bar' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
                 onClick={() => setTrendMode('bar')}
               >
                 柱状图
@@ -372,49 +483,15 @@ export const AdminOverview: React.FC = () => {
           </LazyRender>
         </BookCard>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">快捷跳转</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <Link to="/admin/users" className="text-xs border border-book-border/40 rounded-lg px-3 py-2 hover:border-book-primary/40 transition-colors">
-                <div className="font-bold text-book-text-main">用户面板</div>
-                <div className="text-book-text-muted mt-1">账号管理、活跃监控、用户操作</div>
-              </Link>
-              <Link to="/admin/projects" className="text-xs border border-book-border/40 rounded-lg px-3 py-2 hover:border-book-primary/40 transition-colors">
-                <div className="font-bold text-book-text-main">项目面板</div>
-                <div className="text-book-text-muted mt-1">状态分布、陈旧检测、排行</div>
-              </Link>
-              <Link to="/admin/configs" className="text-xs border border-book-border/40 rounded-lg px-3 py-2 hover:border-book-primary/40 transition-colors">
-                <div className="font-bold text-book-text-main">配置面板</div>
-                <div className="text-book-text-muted mt-1">测试状态、激活比例、异常配置</div>
-              </Link>
-            </div>
-          </BookCard>
-
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main flex items-center gap-2">
-              <AlertTriangle size={14} className="text-book-accent" />
-              监控提示
-            </h2>
-            <div className="space-y-2">
-              {healthHints.map((hint) => (
-                <div key={hint} className="text-xs border border-book-border/40 rounded-lg px-3 py-2 text-book-text-muted leading-relaxed">
-                  {hint}
-                </div>
-              ))}
-            </div>
-          </BookCard>
-        </div>
-
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">小说项目状态分布</h2>
+          <BookCard className="space-y-3 p-5">
+            <h2 className="font-serif text-2xl font-bold text-book-text-main">小说项目状态分布</h2>
             <div className="space-y-2">
               {data.novel_status_distribution.length > 0 ? (
                 data.novel_status_distribution.map((item) => {
                   const percent = ratePercent(item.count, novelTotal);
                   return (
-                    <div key={`novel-${item.status}`} className="space-y-1 border border-book-border/40 rounded-lg px-3 py-2">
+                    <div key={`novel-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-mono text-xs text-book-text-main">{item.status}</span>
                         <span className="font-bold text-book-primary">{item.count}</span>
@@ -432,14 +509,14 @@ export const AdminOverview: React.FC = () => {
             </div>
           </BookCard>
 
-          <BookCard className="space-y-3">
-            <h2 className="font-bold text-sm text-book-text-main">Prompt 项目状态分布</h2>
+          <BookCard className="space-y-3 p-5">
+            <h2 className="font-serif text-2xl font-bold text-book-text-main">Prompt 项目状态分布</h2>
             <div className="space-y-2">
               {data.coding_status_distribution.length > 0 ? (
                 data.coding_status_distribution.map((item) => {
                   const percent = ratePercent(item.count, codingTotal);
                   return (
-                    <div key={`coding-${item.status}`} className="space-y-1 border border-book-border/40 rounded-lg px-3 py-2">
+                    <div key={`coding-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-mono text-xs text-book-text-main">{item.status}</span>
                         <span className="font-bold text-book-primary">{item.count}</span>
@@ -458,7 +535,7 @@ export const AdminOverview: React.FC = () => {
           </BookCard>
         </div>
 
-        <BookCard>
+        <BookCard className="p-5">
           <LazyRender placeholderHeight={220} rootMargin="520px 0px">
             <AdminBarListChart title="高频状态排行（小说 + Prompt）" data={statusAlertData} />
           </LazyRender>

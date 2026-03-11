@@ -183,6 +183,8 @@ export const useNovelDetailBlueprintDraft = ({
       setSavedWorldSettingDraft(pretty);
       setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot(blueprint));
     } else {
+      setBlueprintData({});
+      setWorldSettingDraft('{}');
       setSavedBlueprintSnapshot(buildNovelBlueprintSnapshot({}));
       setSavedWorldSettingDraft('{}');
     }

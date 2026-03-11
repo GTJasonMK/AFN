@@ -10,7 +10,6 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useToast } from '../components/feedback/Toast';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { BookButton } from '../components/ui/BookButton';
-import { BookCard } from '../components/ui/BookCard';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import { downloadBlob } from '../utils/downloadFile';
 import { sanitizeFilenamePart } from '../utils/sanitizeFilename';
@@ -111,6 +110,7 @@ export const WritingDesk: React.FC = () => {
   const selectingChapterRef = useRef<number | null>(null);
   const draftPromptedRef = useRef<Set<string>>(new Set());
   const draftSaveWarnedRef = useRef(false);
+  const [isCompactLayout, setIsCompactLayout] = useState(false);
 
 	      // 可选提示词弹窗（用于“重生成大纲”等可选优化方向输入）
 	      const { open: openOptionalPromptModal, modal: optionalPromptModal } = useConfirmTextModal({
@@ -120,6 +120,22 @@ export const WritingDesk: React.FC = () => {
         defaultRows: 8,
         defaultPlaceholder: '例如：强化冲突、补足动机、压缩节奏、增加悬疑…',
       });
+
+  useEffect(() => {
+    const syncLayoutMode = () => {
+      setIsCompactLayout(window.innerWidth < 1280);
+    };
+
+    syncLayoutMode();
+    window.addEventListener('resize', syncLayoutMode);
+    return () => window.removeEventListener('resize', syncLayoutMode);
+  }, []);
+
+  useEffect(() => {
+    if (!isCompactLayout) return;
+    if (!isSidebarOpen || !isAssistantOpen) return;
+    setIsAssistantOpen(false);
+  }, [isAssistantOpen, isCompactLayout, isSidebarOpen, setIsAssistantOpen]);
 
   useEffect(() => {
     if (!id) return;
@@ -350,6 +366,22 @@ export const WritingDesk: React.FC = () => {
 			    }
 			    navigate(to);
 			  }, [addToast, id, navigate]);
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarOpen((prev) => {
+      const next = !prev;
+      if (isCompactLayout && next) setIsAssistantOpen(false);
+      return next;
+    });
+  }, [isCompactLayout, setIsAssistantOpen, setIsSidebarOpen]);
+
+  const handleToggleAssistant = useCallback(() => {
+    setIsAssistantOpen((prev) => {
+      const next = !prev;
+      if (isCompactLayout && next) setIsSidebarOpen(false);
+      return next;
+    });
+  }, [isCompactLayout, setIsAssistantOpen, setIsSidebarOpen]);
 
 		  const locateInEditor = useCallback((rawText: string) => {
 		    const textRaw = String(rawText || '');
@@ -704,6 +736,22 @@ export const WritingDesk: React.FC = () => {
     return () => disconnect();
   }, [disconnect]);
 
+  const handleStopGenerating = useCallback(() => {
+    disconnect();
+    setIsGenerating(false);
+    setGenProgress(null);
+    addToast('已停止生成', 'info');
+
+    const chapter = currentChapterRef.current;
+    if (id && chapter) {
+      void handleSelectChapter(chapter.chapter_number, {
+        skipConfirm: true,
+        preserveLocalContent: isDirtyRef.current,
+        updateUrl: false,
+      });
+    }
+  }, [addToast, disconnect, handleSelectChapter, id]);
+
 	  const handleVersionSelect = async (index: number) => {
 	    if (!id || !currentChapter) return;
 	    if (isGenerating) {
@@ -864,7 +912,7 @@ export const WritingDesk: React.FC = () => {
 	      }
 	  };
 
-		  const handleDeleteChapter = async (chapter: Chapter) => {
+	  const handleDeleteChapter = async (chapter: Chapter) => {
 		    if (!id) return;
 		    const ok = await confirmDialog({
 		      title: '删除章节',
@@ -898,38 +946,51 @@ export const WritingDesk: React.FC = () => {
 	    return () => window.removeEventListener('beforeunload', onBeforeUnload);
 		  }, [isDirty]);
 
+  const handleSidebarSelectChapter = useCallback(async (chapterNumber: number) => {
+    const ok = await handleSelectChapter(chapterNumber);
+    if (ok && isCompactLayout) {
+      setIsSidebarOpen(false);
+    }
+  }, [handleSelectChapter, isCompactLayout, setIsSidebarOpen]);
+
 		  if (!id) return null;
 
-
 			  return (
-			    <div className="flex flex-col h-screen bg-book-bg">
-			      {/* 简化的顶部导航栏 - 照抄桌面端 header.py */}
+			    <div className="page-shell h-screen overflow-hidden">
+            <div className="ambient-orb -left-14 top-6 h-72 w-72 bg-book-primary/12" />
+            <div className="ambient-orb right-[-4rem] top-20 h-80 w-80 bg-book-primary-light/12" />
+
+            <div className="relative mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3 p-3 sm:gap-4 sm:p-4">
             <WritingDeskHeader
               projectTitle={String(projectInfo?.title || '')}
               projectStyle={String(projectInfo?.style || '')}
               completedChaptersCount={(Array.isArray(chapters) ? chapters : []).filter((ch) => Boolean(ch?.content)).length}
               totalChaptersCount={Array.isArray(chapters) ? chapters.length : 0}
               contentChars={contentChars}
+              currentChapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
               onBack={() => safeNavigate('/')}
+              isSidebarOpen={isSidebarOpen}
+              onToggleSidebar={handleToggleSidebar}
               onOpenImportChapter={openImportChapterModal}
               onExportTxt={() => handleExport('txt')}
               onExportMarkdown={() => handleExport('markdown')}
               onOpenWritingNotes={openWritingNotesModal}
               onOpenPromptPreview={openPromptPreviewModal}
               onOpenProjectDetail={() => safeNavigate(`/novel/${id}`)}
+              onSave={handleSave}
+              isSaving={isSaving}
+              onGenerate={handleGenerate}
+              onIngestRag={handleRagIngest}
+              isRagIngesting={isRagIngesting}
               isAssistantOpen={isAssistantOpen}
-              onToggleAssistant={() => setIsAssistantOpen((v) => !v)}
+              onToggleAssistant={handleToggleAssistant}
               isGenerating={isGenerating}
               genProgress={genProgress}
-              onStopGenerating={() => {
-                disconnect();
-                setIsGenerating(false);
-                setGenProgress(null);
-                addToast('已停止生成', 'info');
-              }}
+              onStopGenerating={handleStopGenerating}
             />
 
-				      <div className="flex-1 flex overflow-hidden">
+              <div className="dramatic-surface min-h-0 flex-1 rounded-[32px]">
+                <div className="relative z-[1] flex h-full min-h-0">
                 {isSidebarOpen ? (
                   <WritingDeskSidebar
                     projectId={id}
@@ -938,8 +999,10 @@ export const WritingDesk: React.FC = () => {
                     currentChapterNumber={currentChapter?.chapter_number}
                     projectInfo={projectInfo}
                     width={sidebarWidth}
+                    compact={isCompactLayout}
+                    onClose={() => setIsSidebarOpen(false)}
                     onResizeMouseDown={startSidebarResizing}
-                    onSelectChapter={handleSelectChapter}
+                    onSelectChapter={handleSidebarSelectChapter}
                     onCreateChapter={handleCreateChapter}
                     onEditOutline={handleEditOutline}
                     onRegenerateOutline={handleRegenerateOutline}
@@ -950,7 +1013,7 @@ export const WritingDesk: React.FC = () => {
                   />
                 ) : null}
 
-		        <div className="flex-1 min-w-0 bg-book-bg">
+                <div className="min-w-0 flex-1 bg-book-bg">
 		          {currentChapter ? (
 				          <WorkspaceTabs
 				            ref={editorRef}
@@ -961,40 +1024,80 @@ export const WritingDesk: React.FC = () => {
 				              isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null)
 				            }
 			            versions={workspaceVersions}
-		            isSaving={isSaving}
-		            isGenerating={isGenerating}
-		            onChange={setContent}
-		            onSave={handleSave}
-		            onGenerate={handleGenerate}
-		            onPreviewPrompt={openPromptPreviewModal}
-		            onSelectVersion={handleVersionSelect}
-		            onIngestRag={handleRagIngest}
-		            isIngestingRag={isRagIngesting}
+				            isSaving={isSaving}
+				            isGenerating={isGenerating}
+				            onChange={setContent}
+				            onSave={handleSave}
+				            onGenerate={handleGenerate}
+				            onSelectVersion={handleVersionSelect}
 				          />
 			          ) : (
-		            <div className="h-full w-full flex items-center justify-center p-8">
-		              <BookCard className="max-w-xl w-full p-6">
-		                <div className="font-serif text-lg font-bold text-book-text-main">未选择章节</div>
-		                <div className="mt-3 text-sm text-book-text-muted leading-relaxed">
+                    <div className="flex h-full w-full items-center justify-center p-6 sm:p-8">
+                      <div className="w-full max-w-2xl rounded-[30px] border border-book-border/55 bg-book-bg-paper/78 p-6 shadow-[0_28px_80px_-50px_rgba(41,20,7,0.92)] backdrop-blur-xl sm:p-8">
+                        <div className="eyebrow">Story Stage</div>
+                        <div className="mt-4 max-w-xl">
+                          <h2 className="font-serif text-[clamp(1.8rem,3vw,2.8rem)] font-bold leading-[0.96] tracking-[-0.04em] text-book-text-main">
+                            {chapters.length > 0 ? '选择一个章节，继续推进故事。' : '先搭起第一章，再让写作台开始运转。'}
+                          </h2>
+                          <p className="mt-3 text-sm leading-relaxed text-book-text-sub sm:text-base">
 		                  {chapters.length > 0
-		                    ? '请从左侧章节列表选择章节开始写作。'
+                            ? '章节导航、生成控制和助手诊断已经收束到同一页。先打开章节栏，锁定当前章节，再进入正文工作区。'
 		                    : '当前项目暂无章节。你可以先创建第一章，或批量生成章节大纲。'}
-		                </div>
-		                <div className="mt-5 flex justify-end gap-2 flex-wrap">
+                          </p>
+                        </div>
+
+                        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                          <div className="metric-tile">
+                            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                              章节总数
+                            </div>
+                            <div className="mt-3 font-serif text-3xl font-bold text-book-text-main">
+                              {chapters.length}
+                            </div>
+                            <div className="mt-2 text-sm text-book-text-sub">从导航栏进入章节流转</div>
+                          </div>
+                          <div className="metric-tile">
+                            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                              助手状态
+                            </div>
+                            <div className="mt-3 text-lg font-semibold text-book-text-main">
+                              {isAssistantOpen ? '已展开' : '待命中'}
+                            </div>
+                            <div className="mt-2 text-sm text-book-text-sub">可用于诊断、定位与跳转</div>
+                          </div>
+                          <div className="metric-tile">
+                            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                              当前阶段
+                            </div>
+                            <div className="mt-3 text-lg font-semibold text-book-text-main">
+                              {chapters.length > 0 ? '等待选章' : '等待创建'}
+                            </div>
+                            <div className="mt-2 text-sm text-book-text-sub">进入编辑前先完成结构准备</div>
+                          </div>
+                        </div>
+
+                        <div className="story-divider mt-6" />
+
+                        <div className="mt-6 flex flex-wrap justify-end gap-2">
 		                  {!isSidebarOpen && (
-		                    <BookButton variant="ghost" onClick={() => setIsSidebarOpen(true)}>
+                            <BookButton variant="ghost" onClick={handleToggleSidebar}>
 		                      显示章节栏
 		                    </BookButton>
 		                  )}
+                          {!isAssistantOpen && chapters.length > 0 ? (
+                            <BookButton variant="ghost" onClick={handleToggleAssistant}>
+                              打开助手
+                            </BookButton>
+                          ) : null}
 		                  <BookButton variant="ghost" onClick={() => setIsBatchModalOpen(true)}>
 		                    批量生成大纲
 		                  </BookButton>
 		                  <BookButton variant="primary" onClick={handleCreateChapter}>
 		                    新增章节
 		                  </BookButton>
-		                </div>
-		              </BookCard>
-		            </div>
+                        </div>
+                      </div>
+                    </div>
 		          )}
 		        </div>
 
@@ -1006,14 +1109,21 @@ export const WritingDesk: React.FC = () => {
                   onLocateText={locateInEditor}
                   onSelectRange={selectRangeInEditor}
                   onJumpToChapter={async (chapterNo) => {
-                    await handleSelectChapter(chapterNo);
+                    const ok = await handleSelectChapter(chapterNo);
+                    if (ok && isCompactLayout) {
+                      setIsAssistantOpen(false);
+                    }
                   }}
                   isOpen={isAssistantOpen}
                   width={assistantWidth}
+                  compact={isCompactLayout}
+                  onClose={() => setIsAssistantOpen(false)}
                   mountReady={assistantMountReady}
                   onResizeMouseDown={startAssistantResizing}
                 />
-				      </div>
+                </div>
+              </div>
+            </div>
 
 			      {/* Modals */}
             <PromptPreviewModal

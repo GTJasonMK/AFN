@@ -1,17 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import React, { useState, useMemo, useRef, useDeferredValue } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { writerApi } from '../api/writer';
-import { useToast } from '../components/feedback/Toast';
-import { confirmDialog } from '../components/feedback/ConfirmDialog';
+import { useToast, type ToastType } from '../components/feedback/Toast';
 import { useConfirmTextModal } from '../hooks/useConfirmTextModal';
 import { usePersistedTab } from '../hooks/usePersistedTab';
-import { NovelDetailTabBar, type NovelDetailTab } from './novel-detail/NovelDetailTabBar';
-import { NovelDetailTabContent } from './novel-detail/NovelDetailTabContent';
-import {
-  writeNovelDetailPartProgress,
-} from './novel-detail/bootstrapCache';
-import { useNovelDetailBootstrap } from './novel-detail/useNovelDetailBootstrap';
-import { useNovelDetailImportStatus } from './novel-detail/useNovelDetailImportStatus';
+import { type NovelDetailTab } from './novel-detail/NovelDetailTabBar';
 import { useNovelDetailChapterSelection } from './novel-detail/useNovelDetailChapterSelection';
 import { useNovelDetailRenderLimits } from './novel-detail/useNovelDetailRenderLimits';
 import { useNovelDetailChapterExport } from './novel-detail/useNovelDetailChapterExport';
@@ -24,29 +16,38 @@ import { useNovelDetailRagSync } from './novel-detail/useNovelDetailRagSync';
 import { useNovelDetailAvatarManager } from './novel-detail/useNovelDetailAvatarManager';
 import { useNovelDetailTitleEditor } from './novel-detail/useNovelDetailTitleEditor';
 import { useNovelDetailExport } from './novel-detail/useNovelDetailExport';
-import { useNovelDetailChapterOutlineRegenerate } from './novel-detail/useNovelDetailChapterOutlineRegenerate';
-import { useNovelDetailPartOutlineRegenerate } from './novel-detail/useNovelDetailPartOutlineRegenerate';
-import { useNovelDetailPartOutlineChapterGenerate } from './novel-detail/useNovelDetailPartOutlineChapterGenerate';
-import { useNovelDetailLatestChapterOutlineActions } from './novel-detail/useNovelDetailLatestChapterOutlineActions';
-import { useNovelDetailLatestPartOutlineActions } from './novel-detail/useNovelDetailLatestPartOutlineActions';
 import { useNovelDetailDerivedData } from './novel-detail/useNovelDetailDerivedData';
-import { useNovelDetailTabProps, type NovelDetailTabSources } from './novel-detail/useNovelDetailTabProps';
-import { LatestPartOutlineModals } from './novel-detail/LatestPartOutlineModals';
-import { LatestChapterOutlineModals } from './novel-detail/LatestChapterOutlineModals';
-import { CharacterAndRelationshipModals } from './novel-detail/CharacterAndRelationshipModals';
-import { TitleAndBlueprintModals } from './novel-detail/TitleAndBlueprintModals';
-import { NovelDetailLazyBusinessModals } from './novel-detail/NovelDetailLazyBusinessModals';
-import { NovelDetailHeader } from './novel-detail/NovelDetailHeader';
+import { useNovelDetailModalStates } from './novel-detail/useNovelDetailModalStates';
+import { useNovelDetailOutlineActions } from './novel-detail/useNovelDetailOutlineActions';
+import { useNovelDetailOutlineEditor } from './novel-detail/useNovelDetailOutlineEditor';
+import { useNovelDetailPartProgressSync } from './novel-detail/useNovelDetailPartProgressSync';
+import { useNovelDetailProjectSync } from './novel-detail/useNovelDetailProjectSync';
+import { useNovelDetailModalProps } from './novel-detail/useNovelDetailModalProps';
+import { useNovelDetailTabProps } from './novel-detail/useNovelDetailTabProps';
+import { NovelDetailPageLayout } from './novel-detail/NovelDetailPageLayout';
+import { buildNovelDetailModalInput } from './novel-detail/buildNovelDetailModalInput';
+import { buildNovelDetailPageLayoutProps } from './novel-detail/buildNovelDetailPageLayoutProps';
+import { buildNovelDetailModalInputParams } from './novel-detail/buildNovelDetailModalInputParams';
+import { buildNovelDetailTabInput } from './novel-detail/buildNovelDetailTabInput';
+import { buildNovelDetailTabSources } from './novel-detail/buildNovelDetailTabSources';
 
 const NOVEL_DETAIL_TABS: readonly NovelDetailTab[] = ['overview', 'world', 'characters', 'relationships', 'outlines', 'chapters'];
 
-export const NovelDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+type NovelDetailPageProps = {
+  projectId: string;
+};
+
+const NovelDetailPage: React.FC<NovelDetailPageProps> = ({ projectId }) => {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const addLegacyToast = React.useCallback((message: string, type?: string) => {
+    const normalizedType: ToastType =
+      type === 'success' || type === 'error' || type === 'info' ? type : 'info';
+    addToast(message, normalizedType);
+  }, [addToast]);
   
   const [project, setProject] = useState<any>(null);
-  const activeTabStorageKey = useMemo(() => (id ? `afn:novel_detail:active_tab:${id}` : ''), [id]);
+  const activeTabStorageKey = useMemo(() => `afn:novel_detail:active_tab:${projectId}`, [projectId]);
   const [activeTab, setActiveTab] = usePersistedTab(activeTabStorageKey, 'overview', NOVEL_DETAIL_TABS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,21 +56,21 @@ export const NovelDetail: React.FC = () => {
   const [blueprintData, setBlueprintData] = useState<any>({});
   const [worldEditMode, setWorldEditMode] = useState<'structured' | 'json'>('structured');
 
-  // Chapter outlines edit
-  const [editingChapter, setEditingChapter] = useState<any | null>(null);
-  const [isOutlineModalOpen, setIsOutlineModalOpen] = useState(false);
-  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-  const [isDeleteLatestModalOpen, setIsDeleteLatestModalOpen] = useState(false);
-  const [isRegenerateLatestModalOpen, setIsRegenerateLatestModalOpen] = useState(false);
-
   // Part outlines progress
   const [partProgress, setPartProgress] = useState<any | null>(null);
   const [partLoading, setPartLoading] = useState(false);
-  const [isPartGenerateModalOpen, setIsPartGenerateModalOpen] = useState(false);
-  const [partGenerateMode, setPartGenerateMode] = useState<'generate' | 'continue'>('generate');
-  const [isDeleteLatestPartsModalOpen, setIsDeleteLatestPartsModalOpen] = useState(false);
-  const [isRegenerateLatestPartsModalOpen, setIsRegenerateLatestPartsModalOpen] = useState(false);
   const [detailPart, setDetailPart] = useState<any | null>(null);
+
+  const modalStates = useNovelDetailModalStates();
+  const {
+    setIsOutlineModalOpen,
+    setIsDeleteLatestModalOpen,
+    setIsRegenerateLatestModalOpen,
+    setIsPartGenerateModalOpen,
+    setPartGenerateMode,
+    setIsDeleteLatestPartsModalOpen,
+    setIsRegenerateLatestPartsModalOpen,
+  } = modalStates;
 
   // 导入分析进度（导入小说专用）
   const [importStatus, setImportStatus] = useState<any | null>(null);
@@ -82,22 +83,18 @@ export const NovelDetail: React.FC = () => {
   const [selectedCompletedChapter, setSelectedCompletedChapter] = useState<any | null>(null);
   const [selectedCompletedChapterLoading, setSelectedCompletedChapterLoading] = useState(false);
 
+  const blueprintDraftState = useNovelDetailBlueprintDraft({
+    blueprintData,
+    setBlueprintData,
+  });
   const {
     worldSettingDraft,
-    setWorldSettingDraft,
     worldSettingError,
-    worldSettingObj,
-    worldListToText,
-    worldTextToList,
-    updateWorldSettingDraft,
     isBlueprintDirty,
     dirtySummary,
     applyProjectBlueprint,
     markBlueprintSaved,
-  } = useNovelDetailBlueprintDraft({
-    blueprintData,
-    setBlueprintData,
-  });
+  } = blueprintDraftState;
 
   const { safeNavigate } = useNovelDetailLeaveGuard({
     isBlueprintDirty,
@@ -119,6 +116,11 @@ export const NovelDetail: React.FC = () => {
 
   const deferredChaptersSearch = useDeferredValue(chaptersSearch);
 
+  const renderLimitState = useNovelDetailRenderLimits({
+    id: projectId,
+    activeTab,
+    deferredChaptersSearch,
+  });
   const {
     charactersRenderLimit,
     relationshipsRenderLimit,
@@ -130,38 +132,9 @@ export const NovelDetail: React.FC = () => {
     setChapterOutlinesRenderLimit,
     setPartOutlinesRenderLimit,
     setCompletedChaptersRenderLimit,
-  } = useNovelDetailRenderLimits({
-    id,
-    activeTab,
-    deferredChaptersSearch,
-  });
+  } = renderLimitState;
 
-  const {
-    chapterOutlines,
-    partOutlines,
-    partCoveredChapters,
-    partTotalChapters,
-    canContinuePartOutlines,
-    maxDeletablePartCount,
-    chaptersByNumber,
-    completedChapters,
-    charactersList,
-    relationshipsList,
-    characterNames,
-    characterProfiles,
-    countOutlinesInRange,
-    visibleCharacters,
-    visibleRelationships,
-    visibleChapterOutlines,
-    visiblePartOutlines,
-    visibleCompletedChapters,
-    remainingCharacters,
-    remainingRelationships,
-    remainingChapterOutlines,
-    remainingPartOutlines,
-    remainingCompletedChapters,
-    latestChapterNumber,
-  } = useNovelDetailDerivedData({
+  const derivedData = useNovelDetailDerivedData({
     blueprintData,
     partProgress,
     project,
@@ -172,69 +145,50 @@ export const NovelDetail: React.FC = () => {
     partOutlinesRenderLimit,
     completedChaptersRenderLimit,
   });
-
-  const openOutlineEditor = useCallback((outline: any) => {
-    const chapterNumber = Number(outline?.chapter_number || 0);
-    if (!chapterNumber) return;
-    setEditingChapter({
-      chapter_number: chapterNumber,
-      title: String(outline?.title || `第${chapterNumber}章`),
-      summary: String(outline?.summary || ''),
-      generation_status: 'not_generated',
-    });
-    setIsOutlineModalOpen(true);
-  }, []);
-
-  const applyProjectPayload = useCallback((data: any) => {
-    setProject(data);
-    applyProjectBlueprint(data?.blueprint);
-  }, [applyProjectBlueprint]);
-
-  const { fetchProject } = useNovelDetailBootstrap({
-    id,
-    applyProjectPayload,
-    setProject,
-    setLoading,
-    setImportStatus,
-    setImportStatusLoading,
-    setPartProgress,
-    setSelectedCompletedChapterNumber,
-    setSelectedCompletedChapter,
-    hasImportStatusBootstrapRef,
-    hasPartProgressBootstrapRef,
-  });
-
-  const fetchProjectButton = useCallback(async () => {
-    if (isBlueprintDirty) {
-      const ok = await confirmDialog({
-        title: '刷新确认',
-        message: `${dirtySummary || '有未保存的修改'}。\n\n确定要刷新并丢弃本地修改吗？`,
-        confirmText: '刷新并丢弃',
-        dialogType: 'warning',
-      });
-      if (!ok) return;
-    }
-    await fetchProject();
-  }, [dirtySummary, fetchProject, isBlueprintDirty]);
+  const {
+    chapterOutlines,
+    partOutlines,
+    partTotalChapters,
+    maxDeletablePartCount,
+    completedChapters,
+    characterNames,
+  } = derivedData;
 
   const {
+    editingChapter,
+    openOutlineEditor,
+  } = useNovelDetailOutlineEditor({
+    setIsOutlineModalOpen,
+  });
+
+  const {
+    fetchProject,
+    fetchProjectButton,
     refreshImportStatus,
     cancelImportAnalysis,
     startImportAnalysis,
-  } = useNovelDetailImportStatus({
-    id,
+  } = useNovelDetailProjectSync({
+    projectId,
+    isBlueprintDirty,
+    dirtySummary,
+    applyProjectBlueprint,
+    setProject,
+    setLoading,
     importStatus,
     projectImportAnalysisStatus: project?.import_analysis_status,
     setImportStatus,
     setImportStatusLoading,
     setImportStarting,
+    setPartProgress,
+    setSelectedCompletedChapterNumber,
+    setSelectedCompletedChapter,
     hasImportStatusBootstrapRef,
-    fetchProject,
-    addToast,
+    hasPartProgressBootstrapRef,
+    addToast: addLegacyToast,
   });
 
   useNovelDetailChapterSelection({
-    id,
+    id: projectId,
     activeTab,
     completedChapters,
     selectedCompletedChapterNumber,
@@ -245,239 +199,114 @@ export const NovelDetail: React.FC = () => {
   });
 
   const { exportSelectedChapter } = useNovelDetailChapterExport({
-    id,
+    id: projectId,
     projectTitle: project?.title,
     selectedCompletedChapterNumber,
     selectedCompletedChapter,
-    addToast,
+    addToast: addLegacyToast,
   });
 
-  const {
-    editingCharIndex,
-    charForm,
-    isCharModalOpen,
-    charactersView,
-    isProtagonistModalOpen,
-    editingRelIndex,
-    relForm,
-    isRelModalOpen,
-    setCharForm,
-    setIsCharModalOpen,
-    setCharactersView,
-    setIsProtagonistModalOpen,
-    setRelForm,
-    setIsRelModalOpen,
-    handleEditChar,
-    handleAddChar,
-    handleSaveChar,
-    handleDeleteChar,
-    handleAddRel,
-    handleEditRel,
-    handleSaveRel,
-    handleDeleteRel,
-  } = useNovelDetailCharacterRelationshipEditor({
+  const characterRelationshipEditor = useNovelDetailCharacterRelationshipEditor({
     blueprintData,
     setBlueprintData,
-    addToast,
+    addToast: addLegacyToast,
   });
+  const {
+    isProtagonistModalOpen,
+    setIsProtagonistModalOpen,
+  } = characterRelationshipEditor;
 
   const { handleSave } = useNovelDetailBlueprintSave({
-    id,
+    id: projectId,
     blueprintData,
     worldSettingDraft,
     setBlueprintData,
     markBlueprintSaved,
     setSaving,
     setActiveTab,
-    addToast,
+    addToast: addLegacyToast,
   });
 
-  const {
-    isRefineModalOpen,
-    refineInstruction,
-    refineForce,
-    refining,
-    refineResult,
-    setRefineInstruction,
-    setRefineForce,
-    closeRefineModal,
-    openRefineModal,
-    handleRefineBlueprint,
-  } = useNovelDetailBlueprintRefine({
-    id,
+  const blueprintRefine = useNovelDetailBlueprintRefine({
+    id: projectId,
     fetchProject,
     setBlueprintData,
-    addToast,
+    addToast: addLegacyToast,
+  });
+  const { openRefineModal, ...blueprintRefineModalProps } = blueprintRefine;
+
+  const ragSync = useNovelDetailRagSync({
+    id: projectId,
+    addToast: addLegacyToast,
   });
 
-  const {
-    ragSyncing,
-    handleRagSync,
-  } = useNovelDetailRagSync({
-    id,
-    addToast,
-  });
-
-  const {
-    avatarLoading,
-    handleAvatarClick,
-    handleDeleteAvatar,
-  } = useNovelDetailAvatarManager({
-    id,
+  const avatarManager = useNovelDetailAvatarManager({
+    id: projectId,
     projectHasBlueprint: Boolean(project?.blueprint),
     hasAvatar: Boolean(blueprintData?.avatar_svg),
     setBlueprintData,
-    addToast,
+    addToast: addLegacyToast,
   });
 
-  const {
-    isEditTitleModalOpen,
-    editTitleValue,
-    editTitleSaving,
-    setEditTitleValue,
-    openEditTitleModal,
-    closeEditTitleModal,
-    saveProjectTitle,
-  } = useNovelDetailTitleEditor({
-    id,
+  const titleEditor = useNovelDetailTitleEditor({
+    id: projectId,
     projectTitle: project?.title,
     fetchProject,
-    addToast,
+    addToast: addLegacyToast,
   });
+  const { openEditTitleModal, ...titleEditorModalProps } = titleEditor;
 
   const { handleExport } = useNovelDetailExport({
-    id,
+    id: projectId,
     projectTitle: project?.title,
-    addToast,
-  });
-
-  const { handleRegenerateOutline } = useNovelDetailChapterOutlineRegenerate({
-    id,
-    chapterOutlines,
-    fetchProject,
-    openOptionalPromptModal,
-    addToast,
+    addToast: addLegacyToast,
   });
 
   const {
-    deleteLatestCount,
-    setDeleteLatestCount,
-    deletingLatest,
-    regenerateLatestCount,
-    setRegenerateLatestCount,
-    regenerateLatestPrompt,
-    setRegenerateLatestPrompt,
-    regeneratingLatest,
-    handleDeleteLatestOutlines,
-    handleRegenerateLatestOutlines,
-  } = useNovelDetailLatestChapterOutlineActions({
-    id,
-    chapterOutlines,
-    fetchProject,
-    setIsDeleteLatestModalOpen,
-    setIsRegenerateLatestModalOpen,
-    addToast,
-  });
-
-  useEffect(() => {
-    if (!id) return;
-    writeNovelDetailPartProgress(id, partProgress ?? null);
-    hasPartProgressBootstrapRef.current = partProgress !== null;
-  }, [id, partProgress]);
-
-  const fetchPartProgress = useCallback(async () => {
-    if (!id) return;
-    const hadPartSnapshot = hasPartProgressBootstrapRef.current;
-    if (!hadPartSnapshot) {
-      setPartLoading(true);
-    }
-    try {
-      const data = await writerApi.getPartOutlines(id);
-      setPartProgress(data);
-      hasPartProgressBootstrapRef.current = data !== null;
-      writeNovelDetailPartProgress(id, data ?? null);
-    } catch (e) {
-      if (!hadPartSnapshot) {
-        setPartProgress(null);
-        hasPartProgressBootstrapRef.current = false;
-      }
-    } finally {
-      setPartLoading(false);
-    }
-  }, [id]);
-
-  const {
-    deleteLatestPartsCount,
-    setDeleteLatestPartsCount,
-    deletingLatestParts,
-    regenerateLatestPartsCount,
-    setRegenerateLatestPartsCount,
-    regenerateLatestPartsPrompt,
-    setRegenerateLatestPartsPrompt,
-    regeneratingLatestParts,
-    handleDeleteLatestPartOutlines,
-    handleRegenerateLatestPartOutlines,
-  } = useNovelDetailLatestPartOutlineActions({
-    id,
-    partOutlines,
-    maxDeletablePartCount,
-    fetchProject,
     fetchPartProgress,
-    setIsDeleteLatestPartsModalOpen,
-    setIsRegenerateLatestPartsModalOpen,
-    addToast,
+    refreshProjectAndPartProgress,
+  } = useNovelDetailPartProgressSync({
+    projectId,
+    activeTab,
+    partProgress,
+    setPartProgress,
+    setPartLoading,
+    hasPartProgressBootstrapRef,
+    fetchProject,
   });
 
-  const openPartOutlinesModal = useCallback((mode: 'generate' | 'continue') => {
-    if (!id) return;
-    if (!partTotalChapters) {
-      addToast('无法获取总章节数，请先生成蓝图', 'error');
-      return;
-    }
-    setPartGenerateMode(mode);
-    setIsPartGenerateModalOpen(true);
-  }, [addToast, id, partTotalChapters]);
-
   const {
+    handleRegenerateOutline,
+    latestOutlineInputParams,
+    openPartOutlinesModal,
     regeneratingPartKey,
     handleRegenerateAllPartOutlines,
     handleRegenerateLastPartOutline,
     handleRegeneratePartOutline,
-  } = useNovelDetailPartOutlineRegenerate({
-    id,
+    generatingPartChapters,
+    handleGeneratePartChapters,
+  } = useNovelDetailOutlineActions({
+    projectId,
+    chapterOutlines,
+    partOutlines,
     partProgress,
+    partTotalChapters,
+    maxDeletablePartCount,
     setPartProgress,
     fetchProject,
     fetchPartProgress,
+    setIsDeleteLatestModalOpen,
+    setIsRegenerateLatestModalOpen,
+    setIsDeleteLatestPartsModalOpen,
+    setIsRegenerateLatestPartsModalOpen,
+    setPartGenerateMode,
+    setIsPartGenerateModalOpen,
     openOptionalPromptModal,
-    addToast,
+    addToast: addLegacyToast,
   });
 
-  const {
-    generatingPartChapters,
-    handleGeneratePartChapters,
-  } = useNovelDetailPartOutlineChapterGenerate({
-    id,
-    chapterOutlines,
-    fetchProject,
-    fetchPartProgress,
-    addToast,
-  });
-
-  useEffect(() => {
-    if (id) {
-      fetchProject();
-    }
-  }, [id, fetchProject]);
-
-  useEffect(() => {
-    if (id && activeTab === 'outlines') {
-      fetchPartProgress();
-    }
-  }, [id, activeTab, fetchPartProgress]);
-
-  const tabInputSources: NovelDetailTabSources = {
-    overviewWorld: {
+  const tabInput = buildNovelDetailTabInput({
+    overviewWorldBase: {
       blueprintData,
       setBlueprintData,
       project,
@@ -489,239 +318,132 @@ export const NovelDetail: React.FC = () => {
       cancelImportAnalysis,
       worldEditMode,
       setWorldEditMode,
-      worldSettingObj,
-      worldListToText,
-      worldTextToList,
-      updateWorldSettingDraft,
-      worldSettingDraft,
-      setWorldSettingDraft,
-      worldSettingError,
     },
-    characterRelationship: {
-      charactersList,
-      visibleCharacters,
-      remainingCharacters,
-      charactersView,
-      setCharactersView,
-      handleAddChar,
-      handleEditChar,
-      handleDeleteChar,
+    characterRelationshipBase: {
       setCharactersRenderLimit,
-      characterNames,
-      characterProfiles,
-      relationshipsList,
-      visibleRelationships,
-      remainingRelationships,
-      handleAddRel,
-      handleEditRel,
-      handleDeleteRel,
       setRelationshipsRenderLimit,
     },
-    outlines: {
+    outlinesBase: {
       blueprintData,
       loading,
       safeNavigate,
       fetchProjectButton,
-      chapterOutlines,
-      visibleChapterOutlines,
-      remainingChapterOutlines,
-      chaptersByNumber,
+      partLoading,
+      partProgress,
       openOutlineEditor,
       handleRegenerateOutline,
       setChapterOutlinesRenderLimit,
-      setDeleteLatestCount,
-      setIsDeleteLatestModalOpen,
-      setRegenerateLatestCount,
-      setRegenerateLatestPrompt,
-      setIsRegenerateLatestModalOpen,
-      setIsBatchModalOpen,
-      partLoading,
-      partOutlines,
-      visiblePartOutlines,
-      remainingPartOutlines,
-      partProgress,
-      canContinuePartOutlines,
-      partCoveredChapters,
-      maxDeletablePartCount,
-      deletingLatestParts,
-      regeneratingLatestParts,
       regeneratingPartKey,
       generatingPartChapters,
-      setIsDeleteLatestPartsModalOpen,
-      setIsRegenerateLatestPartsModalOpen,
       openPartOutlinesModal,
       handleRegenerateLastPartOutline,
       handleRegenerateAllPartOutlines,
       handleRegeneratePartOutline,
       handleGeneratePartChapters,
       setDetailPart,
-      countOutlinesInRange,
       setPartOutlinesRenderLimit,
     },
-    chapters: {
-      completedChapters,
-      visibleCompletedChapters,
-      remainingCompletedChapters,
-      setCompletedChaptersRenderLimit,
+    chaptersBase: {
       chaptersSearch,
       setChaptersSearch,
       selectedCompletedChapterNumber,
       setSelectedCompletedChapterNumber,
       selectedCompletedChapter,
       selectedCompletedChapterLoading,
+      setCompletedChaptersRenderLimit,
       exportSelectedChapter,
-      latestChapterNumber,
       fetchProject,
       safeNavigate,
     },
-  };
+    blueprintDraftState,
+    characterRelationshipEditor,
+    derivedData,
+    modalStates,
+  });
+
+  const tabSources = buildNovelDetailTabSources({
+    tab: tabInput,
+    ...latestOutlineInputParams,
+  });
+
+  const modalInput = buildNovelDetailModalInput({
+    businessBase: {
+      blueprintData,
+      editingChapter,
+      isProtagonistModalOpen,
+      setIsProtagonistModalOpen,
+      detailPart,
+      setDetailPart,
+      refreshProjectAndPartProgress,
+    },
+    derivedData,
+    modalStates,
+  });
+
+  const modalInputParamsArgs = buildNovelDetailModalInputParams({
+    modal: modalInput,
+    ...latestOutlineInputParams,
+  });
+
+  const tabProps = useNovelDetailTabProps({
+    projectId,
+    sources: tabSources,
+  });
 
   const {
-    overviewTabProps,
-    worldTabProps,
-    charactersTabProps,
-    relationshipsTabProps,
-    outlinesTabProps,
-    chaptersTabProps,
-  } = useNovelDetailTabProps({
-    projectId: id!,
-    sources: tabInputSources,
+    lazyBusinessModalProps,
+    latestPartOutlineModalProps,
+    latestChapterOutlineModalProps,
+  } = useNovelDetailModalProps(modalInputParamsArgs);
+
+  const {
+    headerProps,
+    titleAndBlueprintModalProps,
+    characterAndRelationshipModalProps,
+  } = buildNovelDetailPageLayoutProps({
+    project,
+    projectId,
+    blueprintData,
+    avatarManager,
+    openEditTitleModal,
+    isBlueprintDirty,
+    dirtySummary,
+    saving,
+    worldSettingError,
+    handleSave,
+    safeNavigate,
+    handleExport,
+    ragSync,
+    openRefineModal,
+    blueprintRefineModalProps,
+    titleEditorModalProps,
+    characterRelationshipEditor,
+    characterNames,
   });
 
   if (loading) return <div className="flex h-screen items-center justify-center text-book-text-muted">加载中...</div>;
   if (!project) return <div className="flex h-screen items-center justify-center text-book-text-muted">项目不存在</div>;
 
   return (
-    <div className="min-h-screen bg-book-bg flex flex-col">
-      <NovelDetailHeader
-        project={project}
-        projectId={id!}
-        blueprintData={blueprintData}
-        avatarLoading={avatarLoading}
-        handleAvatarClick={handleAvatarClick}
-        handleDeleteAvatar={handleDeleteAvatar}
-        openEditTitleModal={openEditTitleModal}
-        isBlueprintDirty={isBlueprintDirty}
-        dirtySummary={dirtySummary}
-        saving={saving}
-        worldSettingError={worldSettingError}
-        handleSave={handleSave}
-        safeNavigate={safeNavigate}
-        handleExport={handleExport}
-        ragSyncing={ragSyncing}
-        handleRagSync={handleRagSync}
-        openRefineModal={openRefineModal}
-      />
-
-      {/* Tabs - 照抄桌面端 novel_detail/mixins/tab_manager.py */}
-      <NovelDetailTabBar activeTab={activeTab} onChange={(next) => setActiveTab(next)} />
-
-      <NovelDetailTabContent
-        activeTab={activeTab}
-        overviewTabProps={overviewTabProps}
-        worldTabProps={worldTabProps}
-        charactersTabProps={charactersTabProps}
-        relationshipsTabProps={relationshipsTabProps}
-        outlinesTabProps={outlinesTabProps}
-        chaptersTabProps={chaptersTabProps}
-      />
-
-      {/* Optional Prompt Modal（用于“重生成”类操作的可选优化提示词） */}
-      {optionalPromptModal}
-
-      <TitleAndBlueprintModals
-        isRefineModalOpen={isRefineModalOpen}
-        closeRefineModal={closeRefineModal}
-        handleRefineBlueprint={handleRefineBlueprint}
-        refining={refining}
-        refineInstruction={refineInstruction}
-        setRefineInstruction={setRefineInstruction}
-        refineForce={refineForce}
-        setRefineForce={setRefineForce}
-        refineResult={refineResult}
-        isEditTitleModalOpen={isEditTitleModalOpen}
-        closeEditTitleModal={closeEditTitleModal}
-        editTitleSaving={editTitleSaving}
-        saveProjectTitle={saveProjectTitle}
-        editTitleValue={editTitleValue}
-        setEditTitleValue={setEditTitleValue}
-      />
-
-      <CharacterAndRelationshipModals
-        isCharModalOpen={isCharModalOpen}
-        setIsCharModalOpen={setIsCharModalOpen}
-        editingCharIndex={editingCharIndex}
-        handleSaveChar={handleSaveChar}
-        charForm={charForm}
-        setCharForm={setCharForm}
-        isRelModalOpen={isRelModalOpen}
-        setIsRelModalOpen={setIsRelModalOpen}
-        editingRelIndex={editingRelIndex}
-        handleSaveRel={handleSaveRel}
-        characterNames={characterNames}
-        relForm={relForm}
-        setRelForm={setRelForm}
-      />
-
-      <NovelDetailLazyBusinessModals
-        projectId={id!}
-        isOutlineModalOpen={isOutlineModalOpen}
-        setIsOutlineModalOpen={setIsOutlineModalOpen}
-        editingChapter={editingChapter}
-        fetchProject={fetchProject}
-        isBatchModalOpen={isBatchModalOpen}
-        setIsBatchModalOpen={setIsBatchModalOpen}
-        isProtagonistModalOpen={isProtagonistModalOpen}
-        setIsProtagonistModalOpen={setIsProtagonistModalOpen}
-        currentChapterNumber={latestChapterNumber}
-        isPartGenerateModalOpen={isPartGenerateModalOpen}
-        setIsPartGenerateModalOpen={setIsPartGenerateModalOpen}
-        partGenerateMode={partGenerateMode}
-        totalChapters={Math.max(10, partTotalChapters || 10)}
-        chaptersPerPart={Number(blueprintData?.chapters_per_part || 25) || 25}
-        currentCoveredChapters={partCoveredChapters || undefined}
-        currentPartsCount={partOutlines.length || undefined}
-        fetchPartProgress={fetchPartProgress}
-        detailPart={detailPart}
-        setDetailPart={setDetailPart}
-      />
-
-      <LatestPartOutlineModals
-        isDeleteLatestPartsModalOpen={isDeleteLatestPartsModalOpen}
-        setIsDeleteLatestPartsModalOpen={setIsDeleteLatestPartsModalOpen}
-        deletingLatestParts={deletingLatestParts}
-        maxDeletablePartCount={maxDeletablePartCount}
-        handleDeleteLatestPartOutlines={handleDeleteLatestPartOutlines}
-        deleteLatestPartsCount={deleteLatestPartsCount}
-        setDeleteLatestPartsCount={setDeleteLatestPartsCount}
-        isRegenerateLatestPartsModalOpen={isRegenerateLatestPartsModalOpen}
-        setIsRegenerateLatestPartsModalOpen={setIsRegenerateLatestPartsModalOpen}
-        regeneratingLatestParts={regeneratingLatestParts}
-        partOutlines={partOutlines}
-        handleRegenerateLatestPartOutlines={handleRegenerateLatestPartOutlines}
-        regenerateLatestPartsCount={regenerateLatestPartsCount}
-        setRegenerateLatestPartsCount={setRegenerateLatestPartsCount}
-        regenerateLatestPartsPrompt={regenerateLatestPartsPrompt}
-        setRegenerateLatestPartsPrompt={setRegenerateLatestPartsPrompt}
-      />
-
-      <LatestChapterOutlineModals
-        isRegenerateLatestModalOpen={isRegenerateLatestModalOpen}
-        setIsRegenerateLatestModalOpen={setIsRegenerateLatestModalOpen}
-        regeneratingLatest={regeneratingLatest}
-        chapterOutlines={chapterOutlines}
-        handleRegenerateLatestOutlines={handleRegenerateLatestOutlines}
-        regenerateLatestCount={regenerateLatestCount}
-        setRegenerateLatestCount={setRegenerateLatestCount}
-        regenerateLatestPrompt={regenerateLatestPrompt}
-        setRegenerateLatestPrompt={setRegenerateLatestPrompt}
-        isDeleteLatestModalOpen={isDeleteLatestModalOpen}
-        setIsDeleteLatestModalOpen={setIsDeleteLatestModalOpen}
-        deletingLatest={deletingLatest}
-        handleDeleteLatestOutlines={handleDeleteLatestOutlines}
-        deleteLatestCount={deleteLatestCount}
-        setDeleteLatestCount={setDeleteLatestCount}
-      />
-    </div>
+    <NovelDetailPageLayout
+      headerProps={headerProps}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      tabProps={tabProps}
+      optionalPromptModal={optionalPromptModal}
+      titleAndBlueprintModalProps={titleAndBlueprintModalProps}
+      characterAndRelationshipModalProps={characterAndRelationshipModalProps}
+      projectId={projectId}
+      onProjectRefresh={fetchProject}
+      lazyBusinessModalProps={lazyBusinessModalProps}
+      latestPartOutlineModalProps={latestPartOutlineModalProps}
+      latestChapterOutlineModalProps={latestChapterOutlineModalProps}
+    />
   );
+};
+
+export const NovelDetail: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <div className="flex h-screen items-center justify-center text-book-text-muted">项目不存在</div>;
+  return <NovelDetailPage projectId={id} />;
 };

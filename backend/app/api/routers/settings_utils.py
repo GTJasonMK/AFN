@@ -9,25 +9,18 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
+
+from ...core.config import _resolve_storage_dir
 
 logger = logging.getLogger(__name__)
 
 
 def get_config_file() -> Path:
     """获取配置文件路径（适配打包环境）"""
-    if getattr(sys, "frozen", False):
-        # 打包环境：配置保存到 exe 所在目录的 storage 文件夹
-        work_dir = Path(sys.executable).parent
-    else:
-        # 开发环境：配置保存到项目根目录的 storage 文件夹
-        # 从 backend/app/api/routers/settings_utils.py 向上4级到达项目根目录
-        work_dir = Path(__file__).resolve().parents[4]
-
-    storage_dir = work_dir / "storage"
-    storage_dir.mkdir(exist_ok=True)
+    storage_dir = _resolve_storage_dir()
+    storage_dir.mkdir(parents=True, exist_ok=True)
     return storage_dir / "config.json"
 
 
@@ -48,6 +41,7 @@ def save_config(config: Dict[str, Any]) -> None:
     config_file = get_config_file()
     with open(config_file, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+
 
 def persist_config_updates(updates: Mapping[str, Any]) -> Dict[str, Any]:
     """

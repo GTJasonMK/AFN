@@ -18,60 +18,83 @@ const PartOutlineDetailModalLazy = lazy(() =>
 
 type NovelDetailLazyBusinessModalsProps = {
   projectId: string;
-  isOutlineModalOpen: boolean;
-  setIsOutlineModalOpen: (open: boolean) => void;
-  editingChapter: any | null;
-  fetchProject: () => void | Promise<void>;
-  isBatchModalOpen: boolean;
-  setIsBatchModalOpen: (open: boolean) => void;
-  isProtagonistModalOpen: boolean;
-  setIsProtagonistModalOpen: (open: boolean) => void;
-  currentChapterNumber: number;
-  isPartGenerateModalOpen: boolean;
-  setIsPartGenerateModalOpen: (open: boolean) => void;
-  partGenerateMode: 'generate' | 'continue';
-  totalChapters: number;
-  chaptersPerPart: number;
-  currentCoveredChapters?: number;
-  currentPartsCount?: number;
-  fetchPartProgress: () => Promise<void>;
-  detailPart: any | null;
-  setDetailPart: (part: any | null) => void;
+  onProjectRefresh: () => void | Promise<void>;
+  outlineModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    editingChapter: any | null;
+  };
+  batchModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+  };
+  protagonistModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    currentChapterNumber: number;
+  };
+  partGenerateModal: {
+    isOpen: boolean;
+    setOpen: (open: boolean) => void;
+    mode: 'generate' | 'continue';
+    totalChapters: number;
+    chaptersPerPart: number;
+    currentCoveredChapters?: number;
+    currentPartsCount?: number;
+    onSuccess: () => Promise<void>;
+  };
+  partDetailModal: {
+    detailPart: any | null;
+    setDetailPart: (part: any | null) => void;
+  };
 };
 
 export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModalsProps> = ({
   projectId,
-  isOutlineModalOpen,
-  setIsOutlineModalOpen,
-  editingChapter,
-  fetchProject,
-  isBatchModalOpen,
-  setIsBatchModalOpen,
-  isProtagonistModalOpen,
-  setIsProtagonistModalOpen,
-  currentChapterNumber,
-  isPartGenerateModalOpen,
-  setIsPartGenerateModalOpen,
-  partGenerateMode,
-  totalChapters,
-  chaptersPerPart,
-  currentCoveredChapters,
-  currentPartsCount,
-  fetchPartProgress,
-  detailPart,
-  setDetailPart,
+  onProjectRefresh,
+  outlineModal,
+  batchModal,
+  protagonistModal,
+  partGenerateModal,
+  partDetailModal,
 }) => {
+  const {
+    isOpen: isOutlineModalOpen,
+    setOpen: setOutlineModalOpen,
+    editingChapter,
+  } = outlineModal;
+  const {
+    isOpen: isBatchModalOpen,
+    setOpen: setBatchModalOpen,
+  } = batchModal;
+  const {
+    isOpen: isProtagonistModalOpen,
+    setOpen: setProtagonistModalOpen,
+    currentChapterNumber,
+  } = protagonistModal;
+  const {
+    isOpen: isPartGenerateModalOpen,
+    setOpen: setPartGenerateModalOpen,
+    mode: partGenerateMode,
+    totalChapters,
+    chaptersPerPart,
+    currentCoveredChapters,
+    currentPartsCount,
+    onSuccess: onPartGenerateSuccess,
+  } = partGenerateModal;
+  const { detailPart, setDetailPart } = partDetailModal;
+
   return (
     <>
       {isOutlineModalOpen ? (
         <Suspense fallback={null}>
           <OutlineEditModalLazy
             isOpen={isOutlineModalOpen}
-            onClose={() => setIsOutlineModalOpen(false)}
+            onClose={() => setOutlineModalOpen(false)}
             chapter={editingChapter}
             projectId={projectId}
             onSuccess={() => {
-              fetchProject();
+              onProjectRefresh();
             }}
           />
         </Suspense>
@@ -81,10 +104,10 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
         <Suspense fallback={null}>
           <BatchGenerateModalLazy
             isOpen={isBatchModalOpen}
-            onClose={() => setIsBatchModalOpen(false)}
+            onClose={() => setBatchModalOpen(false)}
             projectId={projectId}
             onSuccess={() => {
-              fetchProject();
+              onProjectRefresh();
             }}
           />
         </Suspense>
@@ -94,7 +117,7 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
         <Suspense fallback={null}>
           <ProtagonistProfilesModalLazy
             isOpen={isProtagonistModalOpen}
-            onClose={() => setIsProtagonistModalOpen(false)}
+            onClose={() => setProtagonistModalOpen(false)}
             projectId={projectId}
             currentChapterNumber={currentChapterNumber}
           />
@@ -105,7 +128,7 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
         <Suspense fallback={null}>
           <PartOutlineGenerateModalLazy
             isOpen={isPartGenerateModalOpen}
-            onClose={() => setIsPartGenerateModalOpen(false)}
+            onClose={() => setPartGenerateModalOpen(false)}
             projectId={projectId}
             mode={partGenerateMode}
             totalChapters={totalChapters}
@@ -113,8 +136,7 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
             currentCoveredChapters={currentCoveredChapters}
             currentPartsCount={currentPartsCount}
             onSuccess={async () => {
-              await fetchProject();
-              await fetchPartProgress();
+              await onPartGenerateSuccess();
             }}
           />
         </Suspense>

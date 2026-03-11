@@ -42,26 +42,55 @@ export const Dropdown: React.FC<DropdownProps> = ({ items, label }) => {
   useEffect(() => {
     if (isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const estimatedWidth = 240;
+      const left = Math.max(12, Math.min(rect.right - estimatedWidth, window.innerWidth - estimatedWidth - 12));
       setMenuPosition({
-        top: rect.bottom + 4,
-        left: rect.right,
+        top: rect.bottom + 8,
+        left,
       });
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    const handleReposition = () => {
+      if (!buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const estimatedWidth = 240;
+      const left = Math.max(12, Math.min(rect.right - estimatedWidth, window.innerWidth - estimatedWidth - 12));
+      setMenuPosition({
+        top: rect.bottom + 8,
+        left,
+      });
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
   }, [isOpen]);
 
   const menuContent = isOpen && (
     <div
       ref={menuRef}
-      className="fixed pointer-events-auto min-w-[8rem] bg-book-bg-paper border border-book-border rounded-lg shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100"
+      className="fixed pointer-events-auto min-w-[15rem] overflow-hidden rounded-[20px] border border-book-border/60 bg-book-bg-paper/94 p-1.5 shadow-[0_28px_68px_-36px_rgba(36,18,6,0.96)] backdrop-blur-xl"
       style={{
         top: menuPosition.top,
-        right: window.innerWidth - menuPosition.left,
+        left: menuPosition.left,
         zIndex: 9999,
       }}
     >
       {items.map((item, idx) => {
         if ('type' in item && item.type === 'divider') {
-          return <div key={`divider-${idx}`} className="my-1 border-t border-book-border/50" />;
+          return <div key={`divider-${idx}`} className="my-1.5 border-t border-book-border/45" />;
         }
         const menuItem = item as { label: string; onClick: () => void; danger?: boolean; icon?: React.ReactNode };
         return (
@@ -73,14 +102,16 @@ export const Dropdown: React.FC<DropdownProps> = ({ items, label }) => {
               setIsOpen(false);
             }}
             className={`
-              w-full text-left px-3 py-2 text-xs flex items-center gap-2 whitespace-nowrap
+              flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left text-sm transition-all duration-200
               ${menuItem.danger
-                ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                ? 'text-red-500 hover:bg-red-50/80 dark:hover:bg-red-900/20'
                 : 'text-book-text-main hover:bg-book-bg'}
             `}
           >
-            {menuItem.icon}
-            {menuItem.label}
+            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-book-border/45 bg-book-bg/70 text-book-text-muted">
+              {menuItem.icon}
+            </span>
+            <span className="flex-1 whitespace-nowrap">{menuItem.label}</span>
           </button>
         );
       })}
@@ -92,11 +123,14 @@ export const Dropdown: React.FC<DropdownProps> = ({ items, label }) => {
       {label ? (
         <button
           ref={buttonRef}
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             setIsOpen(!isOpen);
           }}
-          className="px-2 py-1 rounded-md text-xs text-book-text-muted hover:bg-book-bg hover:text-book-text-main transition-colors flex items-center gap-1"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          className="inline-flex items-center gap-1 rounded-full border border-book-border/45 bg-book-bg-paper/72 px-2.5 py-1.5 text-xs font-semibold text-book-text-muted transition-all duration-200 hover:border-book-primary/25 hover:text-book-primary"
         >
           {label}
           <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -104,11 +138,14 @@ export const Dropdown: React.FC<DropdownProps> = ({ items, label }) => {
       ) : (
         <button
           ref={buttonRef}
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             setIsOpen(!isOpen);
           }}
-          className="p-1 rounded-md text-book-text-muted hover:bg-book-bg hover:text-book-text-main transition-colors"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-book-border/45 bg-book-bg-paper/72 text-book-text-muted transition-all duration-200 hover:border-book-primary/25 hover:text-book-primary"
         >
           <MoreVertical size={14} />
         </button>

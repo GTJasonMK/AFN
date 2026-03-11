@@ -1,4 +1,4 @@
-"""FastAPI 应用入口（PyQt 桌面版）。
+"""FastAPI 应用入口（桌面版）。
 
 职责：
 - 配置日志系统（必须早于 router 导入）
@@ -7,6 +7,7 @@
 """
 
 import logging
+import os
 import traceback
 from contextlib import asynccontextmanager
 
@@ -87,9 +88,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=f"{settings.app_name} - PyQt Desktop Edition",
+    title=f"{settings.app_name} - Desktop Edition",
     debug=settings.debug,
-    version="1.0.0-pyqt",
+    version="1.0.0-desktop",
     lifespan=lifespan,
 )
 
@@ -144,8 +145,8 @@ async def health_check():
     return {
         "status": "healthy",
         "app": settings.app_name,
-        "version": "1.0.0-pyqt",
-        "edition": "Desktop (PyQt)",
+        "version": "1.0.0-desktop",
+        "edition": os.environ.get("AFN_DESKTOP_EDITION", "Desktop"),
     }
 
 
