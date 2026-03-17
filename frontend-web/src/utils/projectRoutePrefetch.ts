@@ -1,76 +1,93 @@
-export interface RoutePrefetchProjectInfo {
-  kind?: 'novel' | 'coding';
-  status?: string;
-}
+import { RoutedProject, isDraftLikeProject } from './projectRouting';
+
+export interface RoutePrefetchProjectInfo extends RoutedProject {}
 
 const prefetchedKeys = new Set<string>();
+const inflightKeys = new Set<string>();
+const HOVER_PREFETCH_DELAY_MS = 220;
 
-const markAndRun = (key: string, run: () => void) => {
-  if (prefetchedKeys.has(key)) return;
-  prefetchedKeys.add(key);
-  run();
+const lowPowerMode = () => {
+  if (typeof navigator === 'undefined') return false;
+  const nav = navigator as Navigator & {
+    connection?: {
+      saveData?: boolean;
+      effectiveType?: string;
+    };
+    hardwareConcurrency?: number;
+  };
+  if (nav.connection?.saveData) return true;
+  const effectiveType = String(nav.connection?.effectiveType || '').toLowerCase();
+  if (effectiveType.includes('2g') || effectiveType.includes('3g')) return true;
+  const cores = Number(nav.hardwareConcurrency || 0);
+  return Number.isFinite(cores) && cores > 0 && cores <= 4;
 };
 
-const preloadInspiration = () => {
-  markAndRun('page:inspiration', () => {
-    void import('../pages/InspirationChat');
-  });
+const canPrefetch = () => {
+  if (typeof window === 'undefined') return false;
+  if (document.visibilityState !== 'visible') return false;
+  return !lowPowerMode();
 };
 
-const preloadWritingDesk = () => {
-  markAndRun('page:writing-desk', () => {
-    void import('../pages/WritingDesk');
-  });
+const runPrefetch = (key: string, load: () => Promise<unknown>) => {
+  if (!canPrefetch()) return;
+  if (prefetchedKeys.has(key) || inflightKeys.has(key) || inflightKeys.size >= 1) return;
+
+  inflightKeys.add(key);
+  void load()
+    .then(() => {
+      prefetchedKeys.add(key);
+    })
+    .catch(() => {
+      // ignore
+    })
+    .finally(() => {
+      inflightKeys.delete(key);
+    });
 };
 
-const preloadNovelDetail = () => {
-  markAndRun('page:novel-detail', () => {
-    void import('../pages/NovelDetail');
-  });
-};
-
-const preloadBlueprintPreview = () => {
-  markAndRun('page:blueprint-preview', () => {
-    void import('../pages/BlueprintPreview');
-  });
-};
-
-const preloadCodingDetail = () => {
-  markAndRun('page:coding-detail', () => {
-    void import('../pages/CodingDetail');
-  });
-};
-
-const preloadCodingDesk = () => {
-  markAndRun('page:coding-desk', () => {
-    void import('../pages/CodingDesk');
-  });
-};
-
-export const prefetchProjectRouteByStatus = (project: RoutePrefetchProjectInfo) => {
-  const kind = project.kind === 'coding' ? 'coding' : 'novel';
-  const status = String(project.status || '').trim().toLowerCase();
-
-  if (kind === 'coding') {
-    if (status.includes('draft')) {
-      preloadInspiration();
-      preloadCodingDetail();
-      return;
-    }
-
-    preloadCodingDetail();
-    preloadCodingDesk();
-    return;
+const resolveProjectPrefetchTarget = (project: RoutePrefetchProjectInfo): { key: string; load: () => Promise<unknown> } | null => {
+  if (isDraftLikeProject(project)) {
+    return {
+      key: 'page:inspiration',
+      load: () => import('../pages/InspirationChat'),
+    };
   }
 
-  if (status === 'draft' || status === 'inspiration') {
-    preloadInspiration();
-    return;
+  if (project.kind === 'coding') {
+    return {
+      key: 'page:coding-detail',
+      load: () => import('../pages/CodingDetail'),
+    };
   }
 
-  preloadWritingDesk();
-  preloadNovelDetail();
-  if (status.includes('blueprint')) {
-    preloadBlueprintPreview();
+  return {
+    key: 'page:novel-detail',
+    load: () => import('../pages/NovelDetail'),
+  };
+};
+
+export const prefetchProjectRouteByStatus = (
+  project: RoutePrefetchProjectInfo,
+  opts: { immediate?: boolean; delayMs?: number } = {},
+): (() => void) => {
+  if (typeof window === 'undefined') return () => {};
+  const target = resolveProjectPrefetchTarget(project);
+  if (!target) return () => {};
+
+  const { immediate = false, delayMs = HOVER_PREFETCH_DELAY_MS } = opts;
+  if (immediate) {
+    runPrefetch(target.key, target.load);
+    return () => {};
   }
+
+  let cancelled = false;
+  const timerId = window.setTimeout(() => {
+    if (cancelled) return;
+    runPrefetch(target.key, target.load);
+  }, Math.max(0, delayMs));
+
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timerId);
+  };
 };

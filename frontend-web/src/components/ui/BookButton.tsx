@@ -45,3 +45,46 @@ export const BookButton: React.FC<BookButtonProps> = ({
     </button>
   );
 };
+
+interface BookIconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  label: string;
+  variant?: 'secondary' | 'ghost';
+  size?: 'sm' | 'md';
+}
+
+export const BookIconButton: React.FC<BookIconButtonProps> = ({
+  children,
+  label,
+  variant = 'ghost',
+  size = 'md',
+  className = '',
+  type,
+  ...props
+}) => {
+  const base =
+    'relative inline-flex shrink-0 items-center justify-center rounded-full border transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-book-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-book-bg disabled:pointer-events-none disabled:opacity-50';
+
+  const variants = {
+    secondary:
+      'border-book-border/60 bg-book-bg-paper/86 text-book-text-muted shadow-lg hover:-translate-y-0.5 hover:border-book-primary/35 hover:text-book-primary',
+    ghost:
+      'border-transparent bg-transparent text-book-text-muted hover:border-book-border/40 hover:bg-book-bg-paper/55 hover:text-book-text-main',
+  } as const;
+
+  const sizes = {
+    sm: 'h-10 w-10',
+    md: 'h-12 w-12',
+  } as const;
+
+  return (
+    <button
+      type={type ?? 'button'}
+      aria-label={label}
+      title={props.title ?? label}
+      className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+};

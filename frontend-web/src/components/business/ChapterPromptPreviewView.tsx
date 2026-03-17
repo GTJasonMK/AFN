@@ -1,10 +1,17 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { BookCard } from '../ui/BookCard';
+import { ChevronDown, ChevronUp, Copy, Eye, RefreshCw } from 'lucide-react';
 import { BookButton } from '../ui/BookButton';
 import { BookTextarea } from '../ui/BookInput';
 import { useToast } from '../feedback/Toast';
-import { writerApi, PromptPreviewResponse } from '../../api/writer';
-import { Eye, Copy, RefreshCw, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { writerApi, type PromptPreviewResponse } from '../../api/writer';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 interface ChapterPromptPreviewViewProps {
   projectId: string;
@@ -32,13 +39,12 @@ export const ChapterPromptPreviewView: React.FC<ChapterPromptPreviewViewProps> =
   const [isRetry, setIsRetry] = useState(false);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PromptPreviewResponse | null>(null);
-
   const [showSystem, setShowSystem] = useState(false);
   const [showUser, setShowUser] = useState(false);
 
   const sections = useMemo(() => {
     const map = data?.prompt_sections || {};
-    return Object.entries(map).filter(([, v]) => Boolean((v || '').trim()));
+    return Object.entries(map).filter(([, value]) => Boolean((value || '').trim()));
   }, [data]);
 
   const handlePreview = useCallback(async () => {
@@ -74,157 +80,179 @@ export const ChapterPromptPreviewView: React.FC<ChapterPromptPreviewViewProps> =
   const rag = data?.rag_statistics;
 
   return (
-    <div className="space-y-4">
-      <BookCard className="p-4 space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="font-bold text-book-text-main flex items-center gap-2">
-            <Sparkles size={16} className="text-book-primary" />
-            提示词预览
-          </div>
+    <NovelDialogStack>
+      <NovelDialogSection
+        eyebrow="Prompt Console"
+        title="构建本章提示词"
+        description="调整写作指令、RAG 开关与重生成模式，确认这次生成会使用什么上下文。"
+        actions={(
           <BookButton variant="primary" size="sm" onClick={handlePreview} disabled={loading}>
-            <Eye size={14} className="mr-1" />
+            <Eye size={14} />
             {loading ? '生成中…' : '预览'}
           </BookButton>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex items-center gap-2 text-sm text-book-text-main">
-            <input
-              type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
-              checked={useRag}
-              onChange={(e) => setUseRag(e.target.checked)}
-              disabled={loading}
-            />
-            <span className="font-bold">启用 RAG</span>
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-book-text-main">
-            <input
-              type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
-              checked={isRetry}
-              onChange={(e) => setIsRetry(e.target.checked)}
-              disabled={loading}
-            />
-            <span className="font-bold">重生成模式</span>
-          </label>
-        </div>
-
-        <BookTextarea
-          label="写作指令（可选）"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={5}
-          placeholder="例如：本章重点描写主角内心变化，减少对话，多用动作推动剧情…"
-        />
-      </BookCard>
-
-      {data && (
-        <BookCard className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="font-bold text-book-text-main">统计</div>
-            <BookButton variant="ghost" size="sm" onClick={handlePreview} disabled={loading}>
-              <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-              刷新
-            </BookButton>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <span className="story-pill">第 {chapterNumber} 章</span>
+            <span className="story-pill">{useRag ? '启用 RAG' : '关闭 RAG'}</span>
+            <span className="story-pill">{isRetry ? '重生成模式' : '首次生成模式'}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-xs text-book-text-muted">
-            <div className="bg-book-bg p-3 rounded-lg border border-book-border/40">
-              <div className="font-bold text-book-text-main mb-1">长度 / tokens</div>
-              <div>字符：{data.total_length}</div>
-              <div>估算 tokens：{data.estimated_tokens}</div>
-            </div>
-            <div className="bg-book-bg p-3 rounded-lg border border-book-border/40">
-              <div className="font-bold text-book-text-main mb-1">RAG</div>
-              <div>chunks：{rag?.chunk_count ?? 0}</div>
-              <div>summaries：{rag?.summary_count ?? 0}</div>
-              <div>压缩后长度：{rag?.context_length ?? 0}</div>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 rounded-[20px] border border-book-border/45 bg-book-bg/72 px-4 py-3 text-sm text-book-text-main">
+              <input
+                type="checkbox"
+                className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                checked={useRag}
+                onChange={(e) => setUseRag(e.target.checked)}
+                disabled={loading}
+              />
+              <span className="font-semibold">启用 RAG 上下文</span>
+            </label>
+
+            <label className="flex items-center gap-2 rounded-[20px] border border-book-border/45 bg-book-bg/72 px-4 py-3 text-sm text-book-text-main">
+              <input
+                type="checkbox"
+                className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                checked={isRetry}
+                onChange={(e) => setIsRetry(e.target.checked)}
+                disabled={loading}
+              />
+              <span className="font-semibold">重生成模式</span>
+            </label>
           </div>
 
-          {(rag?.query_main || (rag?.query_characters || []).length || (rag?.query_foreshadowing || []).length) ? (
-            <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/40 space-y-1">
-              {rag?.query_main ? <div>主查询：{rag?.query_main}</div> : null}
-              {(rag?.query_characters || []).length ? (
-                <div>角色查询：{(rag?.query_characters || []).join(' / ')}</div>
-              ) : null}
-              {(rag?.query_foreshadowing || []).length ? (
-                <div>伏笔查询：{(rag?.query_foreshadowing || []).join(' / ')}</div>
-              ) : null}
-            </div>
-          ) : null}
-        </BookCard>
-      )}
+          <BookTextarea
+            label="写作指令（可选）"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={6}
+            placeholder="例如：本章重点描写主角内心变化，减少对话，多用动作推动剧情…"
+          />
+        </div>
+      </NovelDialogSection>
 
-      {data && (
-        <div className="space-y-3">
-          <BookCard className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-bold text-book-text-main">系统提示词</div>
-              <div className="flex items-center gap-2">
-                <BookButton variant="ghost" size="sm" onClick={() => setShowSystem((v) => !v)}>
-                  {showSystem ? <ChevronUp size={14} className="mr-1" /> : <ChevronDown size={14} className="mr-1" />}
-                  {showSystem ? '收起' : '展开'}
-                </BookButton>
-                <BookButton variant="secondary" size="sm" onClick={() => copyText(data.system_prompt, '系统提示词')}>
-                  <Copy size={14} className="mr-1" />
-                  复制
-                </BookButton>
-              </div>
-            </div>
-            {showSystem && (
-              <pre className="mt-3 text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg-paper p-3 rounded-lg border border-book-border/40 overflow-auto">
-                {data.system_prompt}
-              </pre>
+      {!data ? (
+        <NovelDialogIntro
+          eyebrow="Preview State"
+          title="等待生成预览"
+          description="点击上方“预览”后，将在这里展示系统提示词、用户提示词、RAG 查询和分段内容。"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="story-pill">提示词尚未生成</span>
+            <span className="story-pill">可先调整写作指令</span>
+          </div>
+        </NovelDialogIntro>
+      ) : (
+        <>
+          <NovelDialogSection
+            eyebrow="Prompt Stats"
+            title="预览统计"
+            description="确认这次提示词的长度、RAG 命中规模和查询结构是否符合预期。"
+            actions={(
+              <BookButton variant="ghost" size="sm" onClick={handlePreview} disabled={loading}>
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                刷新
+              </BookButton>
             )}
-          </BookCard>
+          >
+            <NovelDialogMetricGrid className="xl:grid-cols-4">
+              <NovelDialogMetric label="字符长度" value={data.total_length} note="合成后完整提示词长度。" />
+              <NovelDialogMetric label="估算 Tokens" value={data.estimated_tokens} note="用于粗略判断模型预算。" />
+              <NovelDialogMetric label="RAG Chunks" value={rag?.chunk_count ?? 0} note="命中的上下文切片数量。" />
+              <NovelDialogMetric label="摘要条目" value={rag?.summary_count ?? 0} note="参与压缩的摘要段数。" />
+            </NovelDialogMetricGrid>
 
-          <BookCard className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-bold text-book-text-main">用户提示词（写作上下文）</div>
-              <div className="flex items-center gap-2">
-                <BookButton variant="ghost" size="sm" onClick={() => setShowUser((v) => !v)}>
-                  {showUser ? <ChevronUp size={14} className="mr-1" /> : <ChevronDown size={14} className="mr-1" />}
-                  {showUser ? '收起' : '展开'}
-                </BookButton>
-                <BookButton variant="secondary" size="sm" onClick={() => copyText(data.user_prompt, '用户提示词')}>
-                  <Copy size={14} className="mr-1" />
-                  复制
-                </BookButton>
-              </div>
+            {(rag?.query_main || (rag?.query_characters || []).length || (rag?.query_foreshadowing || []).length) ? (
+              <NovelDialogSurface className="mt-4 space-y-2 text-sm leading-relaxed text-book-text-sub">
+                {rag?.query_main ? <div>主查询：{rag.query_main}</div> : null}
+                {(rag?.query_characters || []).length ? (
+                  <div>角色查询：{(rag?.query_characters || []).join(' / ')}</div>
+                ) : null}
+                {(rag?.query_foreshadowing || []).length ? (
+                  <div>伏笔查询：{(rag?.query_foreshadowing || []).join(' / ')}</div>
+                ) : null}
+              </NovelDialogSurface>
+            ) : null}
+          </NovelDialogSection>
+
+          <NovelDialogSection
+            eyebrow="Prompt Payload"
+            title="系统与用户提示词"
+            description="展开查看最终传给模型的系统提示词与用户提示词。"
+          >
+            <div className="space-y-4">
+              <NovelDialogSurface>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-semibold text-book-text-main">系统提示词</div>
+                  <div className="flex gap-2">
+                    <BookButton variant="ghost" size="sm" onClick={() => setShowSystem((v) => !v)}>
+                      {showSystem ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      {showSystem ? '收起' : '展开'}
+                    </BookButton>
+                    <BookButton variant="secondary" size="sm" onClick={() => copyText(data.system_prompt, '系统提示词')}>
+                      <Copy size={14} />
+                      复制
+                    </BookButton>
+                  </div>
+                </div>
+                {showSystem ? (
+                  <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-[20px] border border-book-border/40 bg-book-bg-paper px-4 py-4 font-mono text-xs leading-relaxed text-book-text-main">
+                    {data.system_prompt}
+                  </pre>
+                ) : null}
+              </NovelDialogSurface>
+
+              <NovelDialogSurface>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-semibold text-book-text-main">用户提示词（写作上下文）</div>
+                  <div className="flex gap-2">
+                    <BookButton variant="ghost" size="sm" onClick={() => setShowUser((v) => !v)}>
+                      {showUser ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      {showUser ? '收起' : '展开'}
+                    </BookButton>
+                    <BookButton variant="secondary" size="sm" onClick={() => copyText(data.user_prompt, '用户提示词')}>
+                      <Copy size={14} />
+                      复制
+                    </BookButton>
+                  </div>
+                </div>
+                {showUser ? (
+                  <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-[20px] border border-book-border/40 bg-book-bg-paper px-4 py-4 font-mono text-xs leading-relaxed text-book-text-main">
+                    {data.user_prompt}
+                  </pre>
+                ) : null}
+              </NovelDialogSurface>
             </div>
-            {showUser && (
-              <pre className="mt-3 text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg-paper p-3 rounded-lg border border-book-border/40 overflow-auto">
-                {data.user_prompt}
-              </pre>
-            )}
-          </BookCard>
+          </NovelDialogSection>
 
-          {sections.length > 0 && (
-            <BookCard className="p-4">
-              <div className="font-bold text-book-text-main mb-3">分段预览</div>
+          {sections.length > 0 ? (
+            <NovelDialogSection
+              eyebrow="Prompt Sections"
+              title="分段预览"
+              description="拆开查看每个阶段的内容拼接，判断哪一段造成提示词膨胀或语义偏差。"
+            >
               <div className="space-y-3">
                 {sections.map(([key, value]) => (
-                  <div key={key} className="rounded-lg border border-book-border/40 bg-book-bg p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-bold text-book-primary text-sm truncate">{key}</div>
+                  <NovelDialogSurface key={key}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-book-primary">{key}</div>
                       <BookButton variant="ghost" size="sm" onClick={() => copyText(value, key)}>
-                        <Copy size={14} className="mr-1" />
+                        <Copy size={14} />
                         复制
                       </BookButton>
                     </div>
-                    <pre className="mt-2 text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed">
+                    <pre className="mt-3 whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
                       {value}
                     </pre>
-                  </div>
+                  </NovelDialogSurface>
                 ))}
               </div>
-            </BookCard>
-          )}
-        </div>
+            </NovelDialogSection>
+          ) : null}
+        </>
       )}
-    </div>
+    </NovelDialogStack>
   );
 };

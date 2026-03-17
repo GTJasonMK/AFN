@@ -6,6 +6,14 @@ import { BookTextarea } from '../ui/BookInput';
 import { useToast } from '../feedback/Toast';
 import { writerApi } from '../../api/writer';
 import { Files, RefreshCw, Check, Copy, Loader2 } from 'lucide-react';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 const countChars = (text: string) => text.replace(/\s/g, '').length;
 
@@ -262,30 +270,60 @@ export const ChapterVersionsView: React.FC<ChapterVersionsViewProps> = ({
           </div>
         }
       >
-        <div className="space-y-4">
-          <BookTextarea
-            label="优化提示词（可选）"
-            rows={6}
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            placeholder="例如：加强冲突、补足动机、提升画面感、减少口水对白…"
-          />
-          <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-            说明：留空则按系统默认策略重生成该版本；填写则会把你的提示作为优化方向。本操作会更新版本列表，但不会自动覆盖你当前未保存的编辑内容。
-          </div>
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Retry Version"
+            title={retryIndex === null ? '重生成当前版本' : `重生成版本 ${retryIndex + 1}`}
+            description="你可以为当前版本补充一个明确的优化方向，系统会据此重新生成候选内容并更新版本列表。"
+          >
+            <div className="flex flex-wrap gap-2">
+              <span className="story-pill">不会自动覆盖未保存编辑</span>
+              {retryIndex !== null ? <span className="story-pill">目标版本 {retryIndex + 1}</span> : null}
+            </div>
+          </NovelDialogIntro>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="版本长度"
+              value={countChars(retryContent || '')}
+              note="按去空白字符统计，用于快速判断该版内容体量。"
+            />
+            <NovelDialogMetric
+              label="优化策略"
+              value={customPrompt.trim() ? '定向优化' : '默认策略'}
+              note={customPrompt.trim() ? '会把你的提示作为重生成方向。' : '留空则按系统默认策略重生成。'}
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Prompt"
+            title="优化提示词"
+            description="只描述你想调整的方向，例如冲突强度、人物动机、画面感或对白压缩。"
+          >
+            <BookTextarea
+              label="优化提示词（可选）"
+              rows={6}
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="例如：加强冲突、补足动机、提升画面感、减少口水对白…"
+            />
+          </NovelDialogSection>
 
           {retryContent && retryContent.trim() ? (
-            <div className="text-xs">
-              <div className="font-bold text-book-text-main mb-2">该版本内容预览</div>
-              <div className="max-h-40 overflow-auto rounded-lg border border-book-border/40 bg-book-bg-paper p-3 custom-scrollbar">
-                <pre className="whitespace-pre-wrap text-book-text-main font-serif leading-relaxed">
+            <NovelDialogSection
+              eyebrow="Preview"
+              title="该版本内容预览"
+              description="这里只截取前 600 字，方便你回忆这一版的主要走向。"
+            >
+              <NovelDialogSurface className="max-h-40 overflow-auto custom-scrollbar">
+                <pre className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-book-text-main">
                   {retryContent.trim().slice(0, 600)}
                   {retryContent.trim().length > 600 ? '\n...' : ''}
                 </pre>
-              </div>
-            </div>
+              </NovelDialogSurface>
+            </NovelDialogSection>
           ) : null}
-        </div>
+        </NovelDialogStack>
       </Modal>
     </div>
   );

@@ -11,6 +11,7 @@ export const WritingDeskSidebar: React.FC<{
   projectInfo: any;
   width: number;
   compact?: boolean;
+  compactMode?: 'overlay' | 'pane';
   onClose?: () => void;
   onResizeMouseDown: (e: React.MouseEvent) => void;
   onSelectChapter: (chapterNumber: number) => void | Promise<void>;
@@ -29,6 +30,7 @@ export const WritingDeskSidebar: React.FC<{
   projectInfo,
   width,
   compact = false,
+  compactMode = 'overlay',
   onClose,
   onResizeMouseDown,
   onSelectChapter,
@@ -40,7 +42,7 @@ export const WritingDeskSidebar: React.FC<{
   onBatchGenerate,
   onOpenProtagonistProfiles,
 }) => {
-  if (compact) {
+  if (compact && compactMode === 'overlay') {
     return (
       <>
         <button
@@ -73,6 +75,7 @@ export const WritingDeskSidebar: React.FC<{
                 chapters={chapters}
                 projectId={projectId}
                 draftRevision={draftRevision}
+                panelMode="pane"
                 currentChapterNumber={currentChapterNumber}
                 projectInfo={projectInfo}
                 onSelectChapter={onSelectChapter}
@@ -91,6 +94,29 @@ export const WritingDeskSidebar: React.FC<{
     );
   }
 
+  if (compact && compactMode === 'pane') {
+    return (
+      <div className="h-full min-h-0">
+        <ChapterList
+          chapters={chapters}
+          projectId={projectId}
+          draftRevision={draftRevision}
+          panelMode="pane"
+          currentChapterNumber={currentChapterNumber}
+          projectInfo={projectInfo}
+          onSelectChapter={onSelectChapter}
+          onCreateChapter={onCreateChapter}
+          onEditOutline={onEditOutline}
+          onRegenerateOutline={onRegenerateOutline}
+          onResetChapter={onResetChapter}
+          onDeleteChapter={onDeleteChapter}
+          onBatchGenerate={onBatchGenerate}
+          onOpenProtagonistProfiles={onOpenProtagonistProfiles}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="shrink-0 h-full" style={{ width }}>
@@ -98,6 +124,7 @@ export const WritingDeskSidebar: React.FC<{
           chapters={chapters}
           projectId={projectId}
           draftRevision={draftRevision}
+          panelMode="rail"
           currentChapterNumber={currentChapterNumber}
           projectInfo={projectInfo}
           onSelectChapter={onSelectChapter}

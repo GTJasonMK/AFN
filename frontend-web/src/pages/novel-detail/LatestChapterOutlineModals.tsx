@@ -2,6 +2,14 @@ import React from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { BookButton } from '../../components/ui/BookButton';
 import { BookInput, BookTextarea } from '../../components/ui/BookInput';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from '../../components/business/novel/NovelDialogPrimitives';
 
 type LatestChapterOutlineModalsProps = {
   regenerateModal: {
@@ -57,6 +65,7 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
         isOpen={isRegenerateLatestModalOpen}
         onClose={() => setIsRegenerateLatestModalOpen(false)}
         title="重生成最新章节大纲"
+        maxWidthClassName="max-w-2xl"
         footer={
           <div className="flex justify-end gap-2">
             <BookButton
@@ -76,36 +85,70 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            说明：该操作等价于桌面端“重新生成最新 N 个章节大纲”。实现方式为：从“最后 N 个大纲”中找到最早的那一章，重生成该章大纲，并按串行原则级联删除后续大纲。删除后如需补齐，可使用“批量生成章节大纲”继续生成。
-          </div>
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Regenerate Latest"
+            title="回退并重建最新章节大纲"
+            tone="warning"
+            description="系统会定位最近 N 个章节大纲中最早的一章，从那里重新生成，并按串行生成原则移除其后的章节大纲。"
+          >
+            <div className="flex flex-wrap gap-2">
+              <span className="story-pill">可用章节大纲 {chapterOutlineCount}</span>
+              <span className="story-pill">支持附加优化提示词</span>
+            </div>
+          </NovelDialogIntro>
 
-          <BookInput
-            label={`重生成数量（1-${Math.max(1, chapterOutlineCount)})`}
-            type="number"
-            min={1}
-            max={Math.max(1, chapterOutlineCount)}
-            value={regenerateLatestCount}
-            onChange={(e) => setRegenerateLatestCount(parseInt(e.target.value, 10) || 1)}
-            disabled={regeneratingLatest}
-          />
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="现有大纲"
+              value={chapterOutlineCount}
+              note="只能在已有章节大纲的范围内回退和重生。"
+            />
+            <NovelDialogMetric
+              label="本次重生成"
+              value={regenerateLatestCount}
+              note="系统会从最近 N 章中最早的一章重新起算。"
+            />
+          </NovelDialogMetricGrid>
 
-          <BookTextarea
-            label="优化提示词（可选）"
-            value={regenerateLatestPrompt}
-            onChange={(e) => setRegenerateLatestPrompt(e.target.value)}
-            rows={5}
-            placeholder="留空则使用默认生成策略，例如：加强冲突、优化节奏、强化伏笔回收…"
-            disabled={regeneratingLatest}
-          />
-        </div>
+          <NovelDialogSection
+            eyebrow="Scope"
+            title="重生成范围"
+            description="先确认需要回退几章，再决定是否补充额外优化指令。"
+          >
+            <div className="space-y-4">
+              <BookInput
+                label={`重生成数量（1-${Math.max(1, chapterOutlineCount)})`}
+                type="number"
+                min={1}
+                max={Math.max(1, chapterOutlineCount)}
+                value={regenerateLatestCount}
+                onChange={(e) => setRegenerateLatestCount(parseInt(e.target.value, 10) || 1)}
+                disabled={regeneratingLatest}
+              />
+
+              <BookTextarea
+                label="优化提示词（可选）"
+                value={regenerateLatestPrompt}
+                onChange={(e) => setRegenerateLatestPrompt(e.target.value)}
+                rows={5}
+                placeholder="留空则使用默认生成策略，例如：加强冲突、优化节奏、强化伏笔回收…"
+                disabled={regeneratingLatest}
+              />
+            </div>
+          </NovelDialogSection>
+
+          <NovelDialogSurface className="text-xs leading-relaxed text-book-text-muted">
+            提示：删除后若需要补齐后续章节，可回到章节大纲面板使用“批量生成章节大纲”继续向后生成。
+          </NovelDialogSurface>
+        </NovelDialogStack>
       </Modal>
 
       <Modal
         isOpen={isDeleteLatestModalOpen}
         onClose={() => setIsDeleteLatestModalOpen(false)}
         title="删除最新章节大纲"
+        maxWidthClassName="max-w-xl"
         footer={
           <div className="flex justify-end gap-2">
             <BookButton variant="ghost" onClick={() => setIsDeleteLatestModalOpen(false)} disabled={deletingLatest}>
@@ -121,20 +164,43 @@ export const LatestChapterOutlineModals: React.FC<LatestChapterOutlineModalsProp
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            删除会从“最后一章”开始回退。若被删除章节已生成正文/评审/摘要/向量数据，将同时级联删除，避免后续生成引用到失效上下文。
-          </div>
-          <BookInput
-            label={`删除数量（1-${Math.max(1, deleteModalChapterOutlineCount)})`}
-            type="number"
-            min={1}
-            max={Math.max(1, deleteModalChapterOutlineCount)}
-            value={deleteLatestCount}
-            onChange={(e) => setDeleteLatestCount(parseInt(e.target.value, 10) || 1)}
-            disabled={deletingLatest}
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Delete Latest"
+            title="回退最新章节大纲"
+            tone="danger"
+            description="删除会从最后一章开始回退，并联动清理依附其上的正文、评审、摘要与向量数据，避免后续链路引用失效上下文。"
           />
-        </div>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="可删除大纲"
+              value={deleteModalChapterOutlineCount}
+              note="删除会从最新一章开始，按顺序向前回退。"
+            />
+            <NovelDialogMetric
+              label="本次删除"
+              value={deleteLatestCount}
+              note="建议小步回退，逐次确认结构变更是否符合预期。"
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Rollback"
+            title="删除范围"
+            description="删除后不可在前端直接恢复，建议先确认最近生成链路是否需要保留。"
+          >
+            <BookInput
+              label={`删除数量（1-${Math.max(1, deleteModalChapterOutlineCount)})`}
+              type="number"
+              min={1}
+              max={Math.max(1, deleteModalChapterOutlineCount)}
+              value={deleteLatestCount}
+              onChange={(e) => setDeleteLatestCount(parseInt(e.target.value, 10) || 1)}
+              disabled={deletingLatest}
+            />
+          </NovelDialogSection>
+        </NovelDialogStack>
       </Modal>
     </>
   );

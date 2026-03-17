@@ -17,11 +17,8 @@ export const BookInput = forwardRef<HTMLInputElement, BookInputProps>(
         <input
           ref={ref}
           className={`
-            w-full rounded-2xl border border-book-border/60 bg-book-bg-paper/82 px-4 py-3
-            text-book-text-main shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]
-            backdrop-blur-md
+            book-control w-full rounded-2xl border px-4 py-3
             focus:border-book-primary/45 focus:outline-none focus:ring-2 focus:ring-book-primary/18
-            placeholder:text-book-text-muted
             transition-all duration-200
             ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''}
             ${className}
@@ -55,11 +52,8 @@ export const BookTextarea = forwardRef<HTMLTextAreaElement, BookTextareaProps>(
         <textarea
           ref={ref}
           className={`
-            w-full rounded-[24px] border border-book-border/60 bg-book-bg-paper/82 px-4 py-3
-            text-book-text-main shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]
-            backdrop-blur-md
+            book-control w-full rounded-[24px] border px-4 py-3
             focus:border-book-primary/45 focus:outline-none focus:ring-2 focus:ring-book-primary/18
-            placeholder:text-book-text-muted
             transition-all duration-200
             resize-none
             ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''}

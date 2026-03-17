@@ -4,6 +4,12 @@ import { BookButton } from '../../components/ui/BookButton';
 import { BookTextarea } from '../../components/ui/BookInput';
 import { confirmDialog } from '../../components/feedback/ConfirmDialog';
 import { useToast } from '../../components/feedback/Toast';
+import {
+  NovelDialogIntro,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from '../../components/business/novel/NovelDialogPrimitives';
 
 export const WritingNotesModal: React.FC<{
   isOpen: boolean;
@@ -52,19 +58,36 @@ export const WritingNotesModal: React.FC<{
         </div>
       }
     >
-      <div className="space-y-4">
-        <BookTextarea
-          label="写作指导"
-          rows={10}
-          value={draft}
-          onChange={(e) => onChangeDraft(e.target.value)}
-          placeholder="例如：本章重点描写主角内心变化，减少对话，多用动作推动剧情…"
-        />
-        <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-          提示：写作指导会参与“提示词预览 / AI 续写 / RAG 检索”，用于控制本章写作方向。留空则按大纲与上下文自动生成。
-        </div>
-      </div>
+      <NovelDialogStack>
+        <NovelDialogIntro
+          eyebrow="Writing Notes"
+          title="控制本章写作倾向"
+          description="写作指导会参与提示词预览、AI 续写和 RAG 检索，用来约束本章节奏、视角与重点描写方向。"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="story-pill">可选输入</span>
+            <span className="story-pill">留空则按大纲自动生成</span>
+          </div>
+        </NovelDialogIntro>
+
+        <NovelDialogSection
+          eyebrow="Instruction"
+          title="写作指导"
+          description="建议描述本章节奏、冲突重心、语言风格和需要回避的表达。"
+        >
+          <BookTextarea
+            label="写作指导"
+            rows={10}
+            value={draft}
+            onChange={(e) => onChangeDraft(e.target.value)}
+            placeholder="例如：本章重点描写主角内心变化，减少对话，多用动作推动剧情…"
+          />
+        </NovelDialogSection>
+
+        <NovelDialogSurface className="text-xs leading-relaxed text-book-text-muted">
+          提示：写作指导不是章节正文，它更像本章的导演提示。适合填写“节奏、气氛、镜头感、冲突重点、人物内心”等高层要求。
+        </NovelDialogSurface>
+      </NovelDialogStack>
     </Modal>
   );
 };
-

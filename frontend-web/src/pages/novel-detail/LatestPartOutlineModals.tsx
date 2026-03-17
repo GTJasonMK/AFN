@@ -2,6 +2,14 @@ import React from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { BookButton } from '../../components/ui/BookButton';
 import { BookInput, BookTextarea } from '../../components/ui/BookInput';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from '../../components/business/novel/NovelDialogPrimitives';
 
 type LatestPartOutlineModalsProps = {
   deleteModal: {
@@ -57,6 +65,7 @@ export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = (
         isOpen={isDeleteLatestPartsModalOpen}
         onClose={() => setIsDeleteLatestPartsModalOpen(false)}
         title="删除最新部分大纲"
+        maxWidthClassName="max-w-xl"
         footer={
           <div className="flex justify-end gap-2">
             <BookButton
@@ -76,26 +85,50 @@ export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = (
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            删除会从“最后一个部分”开始回退，并按“串行生成原则”级联删除对应范围的章节大纲。后端禁止删除全部部分大纲（至少保留 1 个部分）。
-          </div>
-          <BookInput
-            label={`删除数量（1-${Math.max(1, maxDeletablePartCount)})`}
-            type="number"
-            min={1}
-            max={Math.max(1, maxDeletablePartCount)}
-            value={deleteLatestPartsCount}
-            onChange={(e) => setDeleteLatestPartsCount(parseInt(e.target.value, 10) || 1)}
-            disabled={deletingLatestParts || maxDeletablePartCount <= 0}
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Delete Latest Parts"
+            title="回退最近的部分结构"
+            tone="danger"
+            description="删除会从最后一个部分开始回退，并按串行生成原则级联移除对应范围内的章节大纲。后端会保留至少一个部分，避免结构被清空。"
           />
-        </div>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="最大可删"
+              value={maxDeletablePartCount}
+              note="系统至少保留 1 个部分大纲，防止整体结构失效。"
+            />
+            <NovelDialogMetric
+              label="本次回退"
+              value={deleteLatestPartsCount}
+              note="建议逐次回退并检查对应章节大纲是否仍符合节奏规划。"
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Rollback"
+            title="删除数量"
+            description="删除后如需补齐，可重新生成部分大纲并继续向下扩写章节结构。"
+          >
+            <BookInput
+              label={`删除数量（1-${Math.max(1, maxDeletablePartCount)})`}
+              type="number"
+              min={1}
+              max={Math.max(1, maxDeletablePartCount)}
+              value={deleteLatestPartsCount}
+              onChange={(e) => setDeleteLatestPartsCount(parseInt(e.target.value, 10) || 1)}
+              disabled={deletingLatestParts || maxDeletablePartCount <= 0}
+            />
+          </NovelDialogSection>
+        </NovelDialogStack>
       </Modal>
 
       <Modal
         isOpen={isRegenerateLatestPartsModalOpen}
         onClose={() => setIsRegenerateLatestPartsModalOpen(false)}
         title="重生成最新部分大纲"
+        maxWidthClassName="max-w-2xl"
         footer={
           <div className="flex justify-end gap-2">
             <BookButton
@@ -115,30 +148,63 @@ export const LatestPartOutlineModals: React.FC<LatestPartOutlineModalsProps> = (
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            说明：该操作等价于桌面端“重新生成最新 N 个部分大纲”。实现方式为：从“最后 N 个部分”中找到最早的那一部分，重生成该部分大纲，并按串行原则级联删除后续部分与对应章节大纲/内容/向量数据。
-          </div>
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Regenerate Latest Parts"
+            title="回退并重建最近部分"
+            tone="warning"
+            description="系统会从最近 N 个部分中最早的一部分重新起算，并联动清理其后的部分、章节大纲、正文与向量数据。"
+          >
+            <div className="flex flex-wrap gap-2">
+              <span className="story-pill">现有部分 {partOutlineCount}</span>
+              <span className="story-pill">支持追加优化提示词</span>
+            </div>
+          </NovelDialogIntro>
 
-          <BookInput
-            label={`重生成数量（1-${Math.max(1, partOutlineCount)})`}
-            type="number"
-            min={1}
-            max={Math.max(1, partOutlineCount)}
-            value={regenerateLatestPartsCount}
-            onChange={(e) => setRegenerateLatestPartsCount(parseInt(e.target.value, 10) || 1)}
-            disabled={regeneratingLatestParts}
-          />
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="现有部分"
+              value={partOutlineCount}
+              note="重生成范围只能落在已存在的部分大纲之内。"
+            />
+            <NovelDialogMetric
+              label="本次重生成"
+              value={regenerateLatestPartsCount}
+              note="会从最近 N 个部分里最早的一部分重新向后生成。"
+            />
+          </NovelDialogMetricGrid>
 
-          <BookTextarea
-            label="优化提示词（可选）"
-            value={regenerateLatestPartsPrompt}
-            onChange={(e) => setRegenerateLatestPartsPrompt(e.target.value)}
-            rows={5}
-            placeholder="留空则使用默认生成策略，例如：优化节奏、强化冲突、提升转折密度…"
-            disabled={regeneratingLatestParts}
-          />
-        </div>
+          <NovelDialogSection
+            eyebrow="Scope"
+            title="重生成范围"
+            description="先确认需要回退的部分数量，再决定是否提供补充提示词。"
+          >
+            <div className="space-y-4">
+              <BookInput
+                label={`重生成数量（1-${Math.max(1, partOutlineCount)})`}
+                type="number"
+                min={1}
+                max={Math.max(1, partOutlineCount)}
+                value={regenerateLatestPartsCount}
+                onChange={(e) => setRegenerateLatestPartsCount(parseInt(e.target.value, 10) || 1)}
+                disabled={regeneratingLatestParts}
+              />
+
+              <BookTextarea
+                label="优化提示词（可选）"
+                value={regenerateLatestPartsPrompt}
+                onChange={(e) => setRegenerateLatestPartsPrompt(e.target.value)}
+                rows={5}
+                placeholder="留空则使用默认生成策略，例如：优化节奏、强化冲突、提升转折密度…"
+                disabled={regeneratingLatestParts}
+              />
+            </div>
+          </NovelDialogSection>
+
+          <NovelDialogSurface className="text-xs leading-relaxed text-book-text-muted">
+            提示：如果只是补充后续部分，优先使用“继续生成部分大纲”；只有当前结构整体失真时再考虑回退重生。
+          </NovelDialogSurface>
+        </NovelDialogStack>
       </Modal>
     </>
   );

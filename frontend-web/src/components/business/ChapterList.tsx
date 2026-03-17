@@ -7,12 +7,13 @@ import { novelsApi } from '../../api/novels';
 import { protagonistApi } from '../../api/protagonist';
 import { API_BASE_URL } from '../../api/client';
 import { scheduleIdleTask } from '../../utils/scheduleIdleTask';
-import { getWritingDraftKey, hasWritingDraft } from '../../utils/writingDraft';
+import { getProjectWritingDraftSet } from '../../utils/writingDraft';
 
 interface ChapterListProps {
   chapters: Chapter[];
   projectId?: string;
   draftRevision?: number;
+  panelMode?: 'rail' | 'pane';
   currentChapterNumber?: number;
   projectInfo?: {
     title: string;
@@ -32,6 +33,7 @@ interface ChapterListProps {
 const INITIAL_CHAPTER_RENDER_LIMIT = 80;
 const CHAPTER_RENDER_BATCH_SIZE = 80;
 const PORTRAIT_CACHE_TTL_MS = 2 * 60 * 1000;
+const EMPTY_DRAFT_SET = new Set<number>();
 
 const portraitCache = new Map<string, { expiresAt: number; value: { name: string | null; url: string } | null }>();
 
@@ -56,6 +58,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   chapters,
   projectId,
   draftRevision,
+  panelMode = 'rail',
   currentChapterNumber,
   projectInfo,
   onSelectChapter,
@@ -71,22 +74,46 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [blueprintPortrait, setBlueprintPortrait] = useState<{ name: string | null; url: string } | null>(null);
   const [renderLimit, setRenderLimit] = useState(INITIAL_CHAPTER_RENDER_LIMIT);
+  const [draftState, setDraftState] = useState<{ projectId: string | null; chapters: Set<number> }>({
+    projectId: projectId || null,
+    chapters: EMPTY_DRAFT_SET,
+  });
 
   const sortedChapters = useMemo(() => {
     return [...chapters].sort((a, b) => a.chapter_number - b.chapter_number);
   }, [chapters]);
 
-  const draftSet = useMemo(() => {
-    const set = new Set<number>();
+  useEffect(() => {
     const revision = typeof draftRevision === 'number' ? draftRevision : 0;
-    if (revision < 0 || !projectId) return set;
-
-    for (const chapter of sortedChapters) {
-      const key = getWritingDraftKey(projectId, chapter.chapter_number);
-      if (hasWritingDraft(key)) set.add(chapter.chapter_number);
+    const normalizedProjectId = String(projectId || '').trim();
+    if (revision < 0 || !normalizedProjectId) {
+      setDraftState({ projectId: normalizedProjectId || null, chapters: EMPTY_DRAFT_SET });
+      return;
     }
-    return set;
-  }, [draftRevision, projectId, sortedChapters]);
+
+    let cancelled = false;
+    setDraftState({ projectId: normalizedProjectId, chapters: EMPTY_DRAFT_SET });
+
+    const syncDraftState = () => {
+      const next = getProjectWritingDraftSet(normalizedProjectId);
+      if (cancelled) return;
+      setDraftState({
+        projectId: normalizedProjectId,
+        chapters: new Set(next),
+      });
+    };
+
+    syncDraftState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftRevision, projectId]);
+
+  const draftSet = useMemo(() => {
+    if (draftState.projectId !== (projectId || null)) return EMPTY_DRAFT_SET;
+    return draftState.chapters;
+  }, [draftState, projectId]);
 
   const toFullImageUrl = (url: string) => {
     const raw = String(url || '').trim();
@@ -203,7 +230,11 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   }, [chapters]);
 
   return (
-    <div className="h-full flex flex-col bg-book-bg-paper border-r border-book-border/60 w-full transition-colors duration-300 shadow-sm relative z-20">
+    <div
+      className={`h-full flex flex-col bg-book-bg-paper w-full transition-colors duration-300 shadow-sm relative z-20 ${
+        panelMode === 'pane' ? '' : 'border-r border-book-border/60'
+      }`}
+    >
       <div className="p-4 space-y-4 bg-gradient-to-b from-book-bg-paper to-book-bg-paper/95">
         <div
           className="transform transition-transform hover:scale-[1.02] duration-300"
@@ -250,14 +281,14 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               placeholder="搜索..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-book-bg rounded-md border border-book-border/50 focus:border-book-primary/50 focus:ring-2 focus:ring-book-primary/10 outline-none transition-all placeholder:text-book-text-muted text-book-text-main"
+              className="book-control w-full rounded-md border py-1.5 pl-8 pr-3 text-xs focus:border-book-primary/50 focus:ring-2 focus:ring-book-primary/10 outline-none transition-all"
             />
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-book-text-muted group-focus-within:text-book-primary transition-colors" />
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5 custom-scrollbar">
+      <div className="perf-scroll-region perf-scroll-stack flex-1 overflow-y-auto px-3 pb-3 space-y-1.5 custom-scrollbar">
         {visibleChapters.map((chapter) => {
           const isActive = currentChapterNumber === chapter.chapter_number;
           const isCompleted = chapter.generation_status === 'successful' || chapter.generation_status === 'completed';

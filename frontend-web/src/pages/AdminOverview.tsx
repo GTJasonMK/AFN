@@ -10,6 +10,7 @@ import { LazyRender } from '../components/admin/LazyRender';
 import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { AppViewportFrame, AppViewportScrollArea, AppViewportShell, SegmentPager } from '../components/layout/AppViewport';
 
 const emptyData: AdminOverviewResponse = {
   summary: {
@@ -67,6 +68,7 @@ export const AdminOverview: React.FC = () => {
   );
   const [trendMode, setTrendMode] = useState<'line' | 'bar'>('line');
   const [loading, setLoading] = useState(false);
+  const [activeSection, setActiveSection] = useState<'snapshot' | 'growth' | 'status'>('snapshot');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -291,8 +293,8 @@ export const AdminOverview: React.FC = () => {
   const codingTotal = sumCounts(data.coding_status_distribution);
 
   return (
-    <div className="page-shell flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <AppViewportShell>
+      <AppViewportFrame size="narrow">
         <AdminPanelHeader
           current="overview"
           title="管理员总览"
@@ -301,9 +303,9 @@ export const AdminOverview: React.FC = () => {
           refreshing={loading}
         />
 
-        <section className="dramatic-surface rounded-[32px] p-6 sm:p-8">
-          <div className="relative z-[1] grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="space-y-6">
+        <section className="dramatic-surface min-h-0 flex-1 rounded-[32px] p-5 sm:p-6">
+          <div className="relative z-[1] flex h-full min-h-0 flex-col">
+            <div className="space-y-5 border-b border-book-border/40 pb-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="space-y-3">
                   <div className="eyebrow">Operations Snapshot</div>
@@ -312,7 +314,7 @@ export const AdminOverview: React.FC = () => {
                       系统运行概览
                     </h2>
                     <p className="mt-2 max-w-3xl text-sm leading-relaxed text-book-text-sub sm:text-base">
-                      把用户、项目、配置和增长趋势压进一个稳定的总控视图。信息密度保持高，但优先级更清晰。
+                      把用户、项目、配置和增长趋势收束成单屏总控台。优先级固定，详细数据按分段展开。
                     </p>
                   </div>
                 </div>
@@ -343,204 +345,230 @@ export const AdminOverview: React.FC = () => {
                 ))}
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                <BookCard className="p-5">
-                  <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
-                    <Gauge size={14} className="text-book-primary" />
-                    关键比率
-                  </h2>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {ratioCards.map((item) => (
-                      <div key={item.key} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                        <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-                          {item.label}
-                        </div>
-                        <div className="mt-2 text-3xl font-serif font-bold text-book-text-main">
-                          {item.value}{item.suffix}
-                        </div>
-                        <div className="mt-2 text-sm leading-relaxed text-book-text-sub">
-                          {item.description}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </BookCard>
-
-                <BookCard className="p-5" variant="flat">
-                  <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
-                    <AlertTriangle size={14} className="text-book-primary" />
-                    监控提示
-                  </h2>
-                  <div className="mt-4 space-y-3">
-                    {healthHints.map((hint) => (
-                      <div key={hint} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3 text-sm leading-relaxed text-book-text-sub">
-                        {hint}
-                      </div>
-                    ))}
-                  </div>
-                </BookCard>
-              </div>
+              <SegmentPager
+                value={activeSection}
+                onChange={(next) => setActiveSection(next as typeof activeSection)}
+                items={[
+                  { id: 'snapshot', label: '结构总览', hint: '看关键比率、监控提示与快捷跳转。' },
+                  { id: 'growth', label: '增长趋势', hint: '看趋势曲线与结构图表。' },
+                  { id: 'status', label: '状态分布', hint: '看小说 / Prompt 状态与高频异常。' },
+                ]}
+              />
             </div>
 
-            <div className="space-y-4">
-              <BookCard className="p-5">
-                <h2 className="text-sm font-bold text-book-text-main">快捷跳转</h2>
-                <div className="mt-4 grid gap-3">
-                  <Link to="/admin/users" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
-                    <div className="font-semibold text-book-text-main">用户面板</div>
-                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">账号策略、活跃监控、用户动作。</div>
-                  </Link>
-                  <Link to="/admin/projects" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
-                    <div className="font-semibold text-book-text-main">项目面板</div>
-                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">状态分布、陈旧项目与排行。</div>
-                  </Link>
-                  <Link to="/admin/configs" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
-                    <div className="font-semibold text-book-text-main">配置面板</div>
-                    <div className="mt-1 text-sm leading-relaxed text-book-text-sub">测试状态、激活比例、异常配置。</div>
-                  </Link>
-                </div>
-              </BookCard>
+            <div className="mt-6 min-h-0 flex-1">
+              {activeSection === 'snapshot' ? (
+                <AppViewportScrollArea className="pr-1">
+                  <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                    <BookCard className="p-5">
+                      <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+                        <Gauge size={14} className="text-book-primary" />
+                        关键比率
+                      </h2>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {ratioCards.map((item) => (
+                          <div key={item.key} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                              {item.label}
+                            </div>
+                            <div className="mt-2 text-3xl font-serif font-bold text-book-text-main">
+                              {item.value}{item.suffix}
+                            </div>
+                            <div className="mt-2 text-sm leading-relaxed text-book-text-sub">
+                              {item.description}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </BookCard>
 
-              <BookCard className="p-5" variant="flat">
-                <h2 className="text-sm font-bold text-book-text-main">结构摘要</h2>
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">用户结构</div>
-                    <div className="mt-2 text-lg font-semibold text-book-text-main">
-                      启用 {data.summary.active_users} / 总用户 {data.summary.total_users}
-                    </div>
+                    <BookCard className="p-5" variant="flat">
+                      <h2 className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+                        <AlertTriangle size={14} className="text-book-primary" />
+                        监控提示
+                      </h2>
+                      <div className="mt-4 space-y-3">
+                        {healthHints.map((hint) => (
+                          <div key={hint} className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3 text-sm leading-relaxed text-book-text-sub">
+                            {hint}
+                          </div>
+                        ))}
+                      </div>
+                    </BookCard>
+
+                    <BookCard className="p-5">
+                      <h2 className="text-sm font-bold text-book-text-main">快捷跳转</h2>
+                      <div className="mt-4 grid gap-3">
+                        <Link to="/admin/users" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                          <div className="font-semibold text-book-text-main">用户面板</div>
+                          <div className="mt-1 text-sm leading-relaxed text-book-text-sub">账号策略、活跃监控、用户动作。</div>
+                        </Link>
+                        <Link to="/admin/projects" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                          <div className="font-semibold text-book-text-main">项目面板</div>
+                          <div className="mt-1 text-sm leading-relaxed text-book-text-sub">状态分布、陈旧项目与排行。</div>
+                        </Link>
+                        <Link to="/admin/configs" className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/25">
+                          <div className="font-semibold text-book-text-main">配置面板</div>
+                          <div className="mt-1 text-sm leading-relaxed text-book-text-sub">测试状态、激活比例、异常配置。</div>
+                        </Link>
+                      </div>
+                    </BookCard>
+
+                    <BookCard className="p-5" variant="flat">
+                      <h2 className="text-sm font-bold text-book-text-main">结构摘要</h2>
+                      <div className="mt-4 space-y-3">
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                          <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">用户结构</div>
+                          <div className="mt-2 text-lg font-semibold text-book-text-main">
+                            启用 {data.summary.active_users} / 总用户 {data.summary.total_users}
+                          </div>
+                        </div>
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                          <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">项目结构</div>
+                          <div className="mt-2 text-lg font-semibold text-book-text-main">
+                            小说 {data.summary.total_novel_projects} · Prompt {data.summary.total_coding_projects}
+                          </div>
+                        </div>
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                          <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">配置结构</div>
+                          <div className="mt-2 text-lg font-semibold text-book-text-main">
+                            LLM {data.summary.total_llm_configs} · 主题 {data.summary.total_theme_configs}
+                          </div>
+                        </div>
+                      </div>
+                    </BookCard>
                   </div>
-                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">项目结构</div>
-                    <div className="mt-2 text-lg font-semibold text-book-text-main">
-                      小说 {data.summary.total_novel_projects} · Prompt {data.summary.total_coding_projects}
+                </AppViewportScrollArea>
+              ) : null}
+
+              {activeSection === 'growth' ? (
+                <AppViewportScrollArea className="pr-1">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                      <BookCard>
+                        <LazyRender placeholderHeight={220} rootMargin="360px 0px">
+                          <AdminDonutChart
+                            title="项目结构占比"
+                            data={projectMixData}
+                            centerLabel="项目总量"
+                            centerValue={data.summary.total_projects}
+                          />
+                        </LazyRender>
+                      </BookCard>
+
+                      <BookCard>
+                        <LazyRender placeholderHeight={180} rootMargin="360px 0px">
+                          <AdminStackedProgress title="用户活跃结构" segments={userSegments} />
+                        </LazyRender>
+                      </BookCard>
+
+                      <BookCard>
+                        <LazyRender placeholderHeight={220} rootMargin="360px 0px">
+                          <AdminBarListChart title="配置类型规模" data={configMixData} totalOverride={configTotal} />
+                        </LazyRender>
+                      </BookCard>
                     </div>
+
+                    <BookCard className="space-y-3 p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="eyebrow">Growth Curve</div>
+                          <h2 className="mt-3 font-serif text-3xl font-bold text-book-text-main">近{trendData?.days || 21}天增长趋势</h2>
+                        </div>
+                        <div className="inline-flex rounded-full border border-book-border/50 overflow-hidden bg-book-bg/72 p-1">
+                          <button
+                            className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'line' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
+                            onClick={() => setTrendMode('line')}
+                          >
+                            折线图
+                          </button>
+                          <button
+                            className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'bar' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
+                            onClick={() => setTrendMode('bar')}
+                          >
+                            柱状图
+                          </button>
+                        </div>
+                      </div>
+                      <LazyRender placeholderHeight={280} rootMargin="420px 0px">
+                        <AdminTrendChart
+                          series={overviewTrendSeries}
+                          mode={trendMode}
+                          emptyText="暂无趋势数据"
+                        />
+                      </LazyRender>
+                    </BookCard>
                   </div>
-                  <div className="rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">配置结构</div>
-                    <div className="mt-2 text-lg font-semibold text-book-text-main">
-                      LLM {data.summary.total_llm_configs} · 主题 {data.summary.total_theme_configs}
+                </AppViewportScrollArea>
+              ) : null}
+
+              {activeSection === 'status' ? (
+                <AppViewportScrollArea className="pr-1">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <BookCard className="space-y-3 p-5">
+                        <h2 className="font-serif text-2xl font-bold text-book-text-main">小说项目状态分布</h2>
+                        <div className="space-y-2">
+                          {data.novel_status_distribution.length > 0 ? (
+                            data.novel_status_distribution.map((item) => {
+                              const percent = ratePercent(item.count, novelTotal);
+                              return (
+                                <div key={`novel-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="font-mono text-xs text-book-text-main">{item.status}</span>
+                                    <span className="font-bold text-book-primary">{item.count}</span>
+                                  </div>
+                                  <div className="h-1.5 rounded bg-book-bg">
+                                    <div className="h-1.5 rounded bg-book-primary" style={{ width: `${Math.min(percent, 100)}%` }} />
+                                  </div>
+                                  <div className="text-[11px] text-book-text-muted">占比 {percent}%</div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-xs text-book-text-muted">暂无小说项目数据</div>
+                          )}
+                        </div>
+                      </BookCard>
+
+                      <BookCard className="space-y-3 p-5">
+                        <h2 className="font-serif text-2xl font-bold text-book-text-main">Prompt 项目状态分布</h2>
+                        <div className="space-y-2">
+                          {data.coding_status_distribution.length > 0 ? (
+                            data.coding_status_distribution.map((item) => {
+                              const percent = ratePercent(item.count, codingTotal);
+                              return (
+                                <div key={`coding-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="font-mono text-xs text-book-text-main">{item.status}</span>
+                                    <span className="font-bold text-book-primary">{item.count}</span>
+                                  </div>
+                                  <div className="h-1.5 rounded bg-book-bg">
+                                    <div className="h-1.5 rounded bg-book-accent" style={{ width: `${Math.min(percent, 100)}%` }} />
+                                  </div>
+                                  <div className="text-[11px] text-book-text-muted">占比 {percent}%</div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-xs text-book-text-muted">暂无 Prompt 项目数据</div>
+                          )}
+                        </div>
+                      </BookCard>
                     </div>
+
+                    <BookCard className="p-5">
+                      <LazyRender placeholderHeight={220} rootMargin="520px 0px">
+                        <AdminBarListChart title="高频状态排行（小说 + Prompt）" data={statusAlertData} />
+                      </LazyRender>
+                    </BookCard>
                   </div>
-                </div>
-              </BookCard>
+                </AppViewportScrollArea>
+              ) : null}
             </div>
           </div>
         </section>
-
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <BookCard>
-            <LazyRender placeholderHeight={220} rootMargin="360px 0px">
-              <AdminDonutChart
-                title="项目结构占比"
-                data={projectMixData}
-                centerLabel="项目总量"
-                centerValue={data.summary.total_projects}
-              />
-            </LazyRender>
-          </BookCard>
-
-          <BookCard>
-            <LazyRender placeholderHeight={180} rootMargin="360px 0px">
-              <AdminStackedProgress title="用户活跃结构" segments={userSegments} />
-            </LazyRender>
-          </BookCard>
-
-          <BookCard>
-            <LazyRender placeholderHeight={220} rootMargin="360px 0px">
-              <AdminBarListChart title="配置类型规模" data={configMixData} totalOverride={configTotal} />
-            </LazyRender>
-          </BookCard>
-        </div>
-
-        <BookCard className="space-y-3 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="eyebrow">Growth Curve</div>
-              <h2 className="mt-3 font-serif text-3xl font-bold text-book-text-main">近{trendData?.days || 21}天增长趋势</h2>
-            </div>
-            <div className="inline-flex rounded-full border border-book-border/50 overflow-hidden bg-book-bg/72 p-1">
-              <button
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'line' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
-                onClick={() => setTrendMode('line')}
-              >
-                折线图
-              </button>
-              <button
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${trendMode === 'bar' ? 'bg-book-primary text-white' : 'text-book-text-muted'}`}
-                onClick={() => setTrendMode('bar')}
-              >
-                柱状图
-              </button>
-            </div>
-          </div>
-          <LazyRender placeholderHeight={280} rootMargin="420px 0px">
-            <AdminTrendChart
-              series={overviewTrendSeries}
-              mode={trendMode}
-              emptyText="暂无趋势数据"
-            />
-          </LazyRender>
-        </BookCard>
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <BookCard className="space-y-3 p-5">
-            <h2 className="font-serif text-2xl font-bold text-book-text-main">小说项目状态分布</h2>
-            <div className="space-y-2">
-              {data.novel_status_distribution.length > 0 ? (
-                data.novel_status_distribution.map((item) => {
-                  const percent = ratePercent(item.count, novelTotal);
-                  return (
-                    <div key={`novel-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-mono text-xs text-book-text-main">{item.status}</span>
-                        <span className="font-bold text-book-primary">{item.count}</span>
-                      </div>
-                      <div className="h-1.5 rounded bg-book-bg">
-                        <div className="h-1.5 rounded bg-book-primary" style={{ width: `${Math.min(percent, 100)}%` }} />
-                      </div>
-                      <div className="text-[11px] text-book-text-muted">占比 {percent}%</div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-xs text-book-text-muted">暂无小说项目数据</div>
-              )}
-            </div>
-          </BookCard>
-
-          <BookCard className="space-y-3 p-5">
-            <h2 className="font-serif text-2xl font-bold text-book-text-main">Prompt 项目状态分布</h2>
-            <div className="space-y-2">
-              {data.coding_status_distribution.length > 0 ? (
-                data.coding_status_distribution.map((item) => {
-                  const percent = ratePercent(item.count, codingTotal);
-                  return (
-                    <div key={`coding-${item.status}`} className="space-y-1 rounded-[22px] border border-book-border/45 bg-book-bg/72 px-4 py-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-mono text-xs text-book-text-main">{item.status}</span>
-                        <span className="font-bold text-book-primary">{item.count}</span>
-                      </div>
-                      <div className="h-1.5 rounded bg-book-bg">
-                        <div className="h-1.5 rounded bg-book-accent" style={{ width: `${Math.min(percent, 100)}%` }} />
-                      </div>
-                      <div className="text-[11px] text-book-text-muted">占比 {percent}%</div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-xs text-book-text-muted">暂无 Prompt 项目数据</div>
-              )}
-            </div>
-          </BookCard>
-        </div>
-
-        <BookCard className="p-5">
-          <LazyRender placeholderHeight={220} rootMargin="520px 0px">
-            <AdminBarListChart title="高频状态排行（小说 + Prompt）" data={statusAlertData} />
-          </LazyRender>
-        </BookCard>
-      </div>
-    </div>
+      </AppViewportFrame>
+    </AppViewportShell>
   );
 };

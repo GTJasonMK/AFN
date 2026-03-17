@@ -197,7 +197,7 @@ export const Editor = React.forwardRef<EditorHandle, EditorProps>(({
       </div>
 
       {/* Editing Area - Paper Style */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-book-bg scroll-smooth">
+      <div className="perf-scroll-region flex-1 overflow-y-auto custom-scrollbar bg-book-bg">
         <div className={`
           mx-auto my-8 bg-book-bg-paper shadow-book-card rounded-lg border border-book-border/20
           transition-all duration-700 ease-out min-h-[calc(100%-6rem)] relative

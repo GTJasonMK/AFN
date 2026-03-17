@@ -10,6 +10,7 @@ interface ModalProps {
   footer?: React.ReactNode;
   maxWidthClassName?: string;
   className?: string;
+  bodyClassName?: string;
   zIndexClassName?: string;
   closeOnBackdrop?: boolean;
   showCloseButton?: boolean;
@@ -47,6 +48,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidthClassName = 'max-w-lg',
   className = '',
+  bodyClassName = 'overflow-y-auto px-5 py-5 sm:px-7 sm:py-6',
   zIndexClassName = 'z-50',
   closeOnBackdrop = true,
   showCloseButton = true,
@@ -142,19 +144,17 @@ export const Modal: React.FC<ModalProps> = ({
         className={`dialog-panel dialog-sheet-mobile relative z-10 w-full ${maxWidthClassName} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-book-primary/40 to-transparent" />
         <div className="relative z-[1] flex max-h-[inherit] min-h-[inherit] flex-col">
-          <div className="flex items-start justify-between gap-4 border-b border-book-border/45 bg-book-bg-paper/86 px-5 py-4 backdrop-blur-xl sm:px-7">
+          <div className="flex items-start justify-between gap-4 border-b border-book-border/45 bg-book-bg-paper px-5 py-4 sm:px-7">
             <div className="min-w-0">
-              <div className="eyebrow">Dialog</div>
-              <h3 id={titleId} className="mt-3 font-serif text-xl font-bold text-book-text-main sm:text-2xl">
+              <h3 id={titleId} className="font-serif text-xl font-bold text-book-text-main sm:text-2xl">
                 {title}
               </h3>
             </div>
             {showCloseButton ? (
               <button
                 onClick={onClose}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-book-border/50 bg-book-bg-paper/72 text-book-text-muted transition-all duration-300 hover:border-book-primary/30 hover:text-book-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-book-primary/20"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-book-border/50 bg-book-bg-paper/72 text-book-text-muted transition-all duration-300 hover:border-book-primary/30 hover:text-book-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-book-primary/50 focus-visible:ring-offset-2"
                 aria-label="关闭弹窗"
               >
                 <X size={18} />
@@ -162,12 +162,12 @@ export const Modal: React.FC<ModalProps> = ({
             ) : null}
           </div>
 
-          <div className="overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+          <div className={bodyClassName}>
             {children}
           </div>
 
           {footer ? (
-            <div className="border-t border-book-border/45 bg-book-bg-paper/72 px-5 py-4 backdrop-blur-xl sm:px-7">
+            <div className="border-t border-book-border/45 bg-book-bg-paper px-5 py-4 sm:px-7">
               <div className="flex flex-wrap justify-end gap-3">
                 {footer}
               </div>

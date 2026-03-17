@@ -9,6 +9,7 @@ const { URL } = require('url');
 const HOST = '127.0.0.1';
 const DEFAULT_BACKEND_PORT = 8123;
 const DEFAULT_FRONTEND_PORT = 5173;
+const DEV_SERVER_START_RETRY_LIMIT = 6;
 const FRONTEND_DIR = path.resolve(__dirname, '..');
 const ROOT_DIR = path.resolve(FRONTEND_DIR, '..');
 const IS_DEV_MODE = !app.isPackaged && process.argv.includes('--dev');
@@ -66,6 +67,203 @@ function getNpmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+function getNodeCommand() {
+  return process.platform === 'win32' ? 'node.exe' : 'node';
+}
+
+function getLocalToolBin(toolName) {
+  const binName = process.platform === 'win32' ? `${toolName}.cmd` : toolName;
+  const toolPath = path.join(FRONTEND_DIR, 'node_modules', '.bin', binName);
+  return fs.existsSync(toolPath) ? toolPath : null;
+}
+
+function getViteJsEntry() {
+  const viteEntry = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js');
+  return fs.existsSync(viteEntry) ? viteEntry : null;
+}
+
+function hasLocalVite() {
+  return Boolean(getLocalToolBin('vite'));
+}
+
+function getNodePackageVersion(packageName) {
+  const packageJsonPath = path.join(
+    FRONTEND_DIR,
+    'node_modules',
+    ...packageName.split('/'),
+    'package.json',
+  );
+
+  try {
+    if (!fs.existsSync(packageJsonPath)) {
+      return null;
+    }
+    const raw = fs.readFileSync(packageJsonPath, 'utf-8');
+    return JSON.parse(raw).version || null;
+  } catch {
+    return null;
+  }
+}
+
+function extractMissingModuleName(output) {
+  const patterns = [
+    /Cannot find module ['"]([^'"]+)['"]/,
+    /Cannot find module ([^ \r\n]+)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = output.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim().replace(/[.,:;]+$/, '');
+    }
+  }
+
+  return null;
+}
+
+function resolveRuntimePackageSpec(packageName) {
+  let version = null;
+
+  if (packageName.startsWith('@rollup/rollup-')) {
+    version = getNodePackageVersion('rollup');
+  } else if (packageName.startsWith('@esbuild/')) {
+    version = getNodePackageVersion('esbuild');
+  }
+
+  return version ? `${packageName}@${version}` : packageName;
+}
+
+async function runFrontendNpmInstall(args) {
+  const child = spawn(
+    getNpmCommand(),
+    args,
+    {
+      cwd: FRONTEND_DIR,
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
+
+  attachProcessLogging(child, 'npm');
+
+  const spawnResult = await waitForChildSpawn(child);
+  if (!spawnResult.ok) {
+    throw spawnResult.error || new Error(`Failed to start npm ${args.join(' ')}`);
+  }
+
+  const result = await waitForChildExit(child);
+  if (result.code !== 0) {
+    throw new Error(`npm ${args.join(' ')} failed with exit code ${result.code}`);
+  }
+}
+
+function getViteProbeCommand() {
+  const viteEntry = getViteJsEntry();
+  if (process.platform === 'win32' && viteEntry) {
+    return [getNodeCommand(), viteEntry, '--version'];
+  }
+
+  const localVite = getLocalToolBin('vite');
+  if (localVite) {
+    return [localVite, '--version'];
+  }
+
+  if (viteEntry) {
+    return [getNodeCommand(), viteEntry, '--version'];
+  }
+
+  return null;
+}
+
+async function probeViteRuntime() {
+  const probeCommand = getViteProbeCommand();
+  if (!probeCommand) {
+    return { ok: false, output: 'Local Vite was not found.' };
+  }
+
+  const [command, ...args] = probeCommand;
+  const child = spawn(
+    command,
+    args,
+    {
+      cwd: FRONTEND_DIR,
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
+
+  let stdout = '';
+  let stderr = '';
+
+  if (child.stdout) {
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+  }
+
+  const spawnResult = await waitForChildSpawn(child);
+  if (!spawnResult.ok) {
+    return {
+      ok: false,
+      output: String(spawnResult.error || 'Failed to spawn the Vite probe process'),
+    };
+  }
+
+  const result = await waitForChildExit(child);
+  return {
+    ok: result.code === 0,
+    output: `${stdout}\n${stderr}`.trim(),
+  };
+}
+
+async function ensureViteRuntimeDependencies() {
+  const repairedModules = new Set();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const probeResult = await probeViteRuntime();
+    if (probeResult.ok) {
+      return;
+    }
+
+    const missingModule = extractMissingModuleName(probeResult.output || '');
+    if (!missingModule || repairedModules.has(missingModule)) {
+      const firstLine = (probeResult.output || '').split(/\r?\n/).find(Boolean);
+      throw new Error(firstLine || 'Vite runtime self-check failed');
+    }
+
+    repairedModules.add(missingModule);
+    if (missingModule.startsWith('@rollup/rollup-') || missingModule.startsWith('@esbuild/')) {
+      log(
+        'vite',
+        `Detected missing optional platform runtime package ${missingModule}. ` +
+          'This usually means npm omitted optionalDependencies. ' +
+          'Running npm install --include=dev --include=optional.',
+      );
+      await runFrontendNpmInstall(['install', '--include=dev', '--include=optional']);
+      continue;
+    }
+
+    const packageSpec = resolveRuntimePackageSpec(missingModule);
+    log('vite', `Detected missing frontend runtime package ${missingModule}. Installing ${packageSpec}.`);
+    await runFrontendNpmInstall(['install', '--no-save', '--no-package-lock', packageSpec]);
+  }
+
+  throw new Error('Vite runtime dependencies could not be repaired automatically');
+}
+
 function getPythonLaunchers() {
   const backendDir = getBackendDir();
   const candidates = [
@@ -108,26 +306,32 @@ function getPythonLaunchers() {
   });
 }
 
-function attachProcessLogging(child, scope) {
+function attachProcessLogging(child, scope, outputBuffer = null) {
+  const handleChunk = (chunk) => {
+    const text = String(chunk).trim();
+    if (!text) {
+      return;
+    }
+
+    if (outputBuffer) {
+      outputBuffer.push(text);
+    }
+    log(scope, text);
+  };
+
   if (child.stdout) {
-    child.stdout.on('data', (chunk) => {
-      const text = String(chunk).trim();
-      if (text) log(scope, text);
-    });
+    child.stdout.on('data', handleChunk);
   }
   if (child.stderr) {
-    child.stderr.on('data', (chunk) => {
-      const text = String(chunk).trim();
-      if (text) log(scope, text);
-    });
+    child.stderr.on('data', handleChunk);
   }
 }
 
 function monitorCriticalProcess(child, label) {
   child.on('exit', (code, signal) => {
     if (runtime.shuttingDown) return;
-    const detail = `退出码=${code ?? 'null'} 信号=${signal ?? 'null'}`;
-    dialog.showErrorBox(`${label} 已退出`, `${label} 运行中断，应用即将关闭。\n${detail}`);
+    const detail = `exitCode=${code ?? 'null'} signal=${signal ?? 'null'}`;
+    dialog.showErrorBox(`${label} exited`, `${label} stopped unexpectedly. The app will now close.\n${detail}`);
     app.quit();
   });
 }
@@ -151,6 +355,19 @@ function waitForChildSpawn(child, timeoutMs = 1500) {
 
     child.once('spawn', handleSpawn);
     child.once('error', handleError);
+  });
+}
+
+function waitForChildExit(child) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null) {
+      resolve({ code: child?.exitCode ?? 0, signal: null });
+      return;
+    }
+
+    child.once('exit', (code, signal) => {
+      resolve({ code: code ?? 0, signal: signal ?? null });
+    });
   });
 }
 
@@ -190,7 +407,7 @@ function closeServer(server) {
   });
 }
 
-function isPortFree(port) {
+function canListenOnHost(port, host) {
   return new Promise((resolve) => {
     const server = net.createServer();
 
@@ -199,8 +416,20 @@ function isPortFree(port) {
       server.close(() => resolve(true));
     });
 
-    server.listen(port, HOST);
+    server.listen(port, host);
   });
+}
+
+async function isPortFree(port) {
+  const hostsToProbe = [HOST, '0.0.0.0'];
+
+  for (const host of hostsToProbe) {
+    if (!await canListenOnHost(port, host)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function findAvailablePort(preferredPort, excludePorts = new Set()) {
@@ -253,10 +482,68 @@ async function waitForHttpReady(targetUrl, timeoutMs = 45000) {
   return false;
 }
 
+function waitForChildHttpReady(child, targetUrl, timeoutMs = 45000) {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      child.off('exit', handleExit);
+      resolve(result);
+    };
+
+    const handleExit = (code, signal) => {
+      finish({
+        ready: false,
+        reason: 'exit',
+        code: code ?? 0,
+        signal: signal ?? null,
+      });
+    };
+
+    child.once('exit', handleExit);
+
+    (async () => {
+      const start = Date.now();
+      while (!settled && Date.now() - start < timeoutMs) {
+        if (await httpProbe(targetUrl)) {
+          await delay(250);
+          if (!settled && child.exitCode === null) {
+            finish({ ready: true, reason: 'ready' });
+            return;
+          }
+        }
+
+        if (settled) {
+          return;
+        }
+
+        await delay(400);
+      }
+
+      finish({ ready: false, reason: 'timeout' });
+    })();
+  });
+}
+
+function isPortConflictError(output, port) {
+  const patterns = [
+    new RegExp(`Port\\s+${port}\\s+is already in use`, 'i'),
+    /\bEADDRINUSE\b/i,
+    /\baddress already in use\b/i,
+  ];
+
+  return patterns.some((pattern) => pattern.test(output));
+}
+
 async function startBackend(backendPort) {
   const backendDir = getBackendDir();
   if (!fs.existsSync(backendDir)) {
-    throw new Error(`未找到 backend 目录: ${backendDir}`);
+    throw new Error(`Backend directory was not found: ${backendDir}`);
   }
 
   const storageDir = getStorageDir();
@@ -287,7 +574,7 @@ async function startBackend(backendPort) {
       continue;
     }
 
-    log('backend', `尝试使用 ${launcher.label} 启动后端`);
+    log('backend', `Trying backend launcher: ${launcher.label}`);
     const child = spawn(
       launcher.command,
       [...launcher.prefixArgs, ...backendArgs],
@@ -311,48 +598,141 @@ async function startBackend(backendPort) {
 
     const ready = await waitForHttpReady(`http://${HOST}:${backendPort}/health`, 45000);
     if (ready) {
-      monitorCriticalProcess(child, 'AFN 后端');
-      log('backend', `后端已就绪: http://${HOST}:${backendPort}`);
+      monitorCriticalProcess(child, 'AFN Backend');
+      log('backend', `Backend is ready: http://${HOST}:${backendPort}`);
       return;
     }
 
-    lastError = new Error(`后端未在预期时间内就绪（${launcher.label}）`);
+    lastError = new Error(`Backend did not become ready in time (${launcher.label})`);
     terminateChildProcess(child);
     runtime.backendProcess = null;
   }
 
-  throw lastError || new Error('后端启动失败');
+  throw lastError || new Error('Backend startup failed');
 }
 
-async function startViteServer(frontendPort, backendPort) {
-  const child = spawn(
-    getNpmCommand(),
-    ['run', 'dev', '--', '--host', HOST, '--port', String(frontendPort), '--strictPort'],
-    {
-      cwd: FRONTEND_DIR,
-      env: {
-        ...process.env,
-        VITE_BACKEND_HOST: HOST,
-        VITE_BACKEND_PORT: String(backendPort),
-        VITE_WEB_PORT: String(frontendPort),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    },
-  );
+async function ensureViteDevDependency() {
+  if (!hasLocalVite()) {
+    if (process.platform === 'win32' && getViteJsEntry()) {
+      log('vite', 'Detected vite.js but vite.cmd is missing on Windows. Repairing frontend dependencies.');
+    } else {
+      log('vite', 'No platform-ready local Vite executable was found. Repairing frontend dependencies.');
+    }
 
-  attachProcessLogging(child, 'vite');
-  runtime.frontendProcess = child;
+    await runFrontendNpmInstall(['install', '--include=dev', '--include=optional']);
 
-  const ready = await waitForHttpReady(`http://${HOST}:${frontendPort}`, 45000);
-  if (!ready) {
-    terminateChildProcess(child);
-    runtime.frontendProcess = null;
-    throw new Error('Vite 前端服务未在预期时间内就绪');
+    if (!hasLocalVite()) {
+      throw new Error('npm install finished, but a platform-ready Vite executable is still missing');
+    }
   }
 
-  monitorCriticalProcess(child, 'Vite 前端服务');
-  log('vite', `前端开发服务已就绪: http://${HOST}:${frontendPort}`);
+  await ensureViteRuntimeDependencies();
+}
+
+function getViteDevCommand(frontendPort) {
+  const viteArgs = ['--host', HOST, '--port', String(frontendPort), '--strictPort'];
+  const viteEntry = getViteJsEntry();
+  if (process.platform === 'win32' && viteEntry) {
+    return [getNodeCommand(), viteEntry, ...viteArgs];
+  }
+
+  const localVite = getLocalToolBin('vite');
+  if (localVite) {
+    return [localVite, ...viteArgs];
+  }
+
+  if (viteEntry) {
+    return [getNodeCommand(), viteEntry, ...viteArgs];
+  }
+
+  throw new Error('Local Vite was not found. Run npm install --include=dev --include=optional first.');
+}
+
+async function startViteServer(preferredFrontendPort, backendPort) {
+  await ensureViteDevDependency();
+
+  const excludedPorts = new Set([backendPort]);
+  let candidatePort = preferredFrontendPort;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= DEV_SERVER_START_RETRY_LIMIT; attempt += 1) {
+    candidatePort = await findAvailablePort(candidatePort, excludedPorts);
+    excludedPorts.add(candidatePort);
+
+    const [command, ...args] = getViteDevCommand(candidatePort);
+    const outputBuffer = [];
+    const child = spawn(
+      command,
+      args,
+      {
+        cwd: FRONTEND_DIR,
+        env: {
+          ...process.env,
+          VITE_BACKEND_HOST: HOST,
+          VITE_BACKEND_PORT: String(backendPort),
+          VITE_WEB_PORT: String(candidatePort),
+          NODE_ENV: 'development',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
+    );
+
+    attachProcessLogging(child, 'vite', outputBuffer);
+
+    const spawnResult = await waitForChildSpawn(child);
+    if (!spawnResult.ok) {
+      throw spawnResult.error || new Error('Failed to start the Vite frontend service');
+    }
+
+    runtime.frontendProcess = child;
+
+    const readyState = await waitForChildHttpReady(
+      child,
+      `http://${HOST}:${candidatePort}`,
+      45000,
+    );
+
+    if (readyState.ready) {
+      monitorCriticalProcess(child, 'Vite Frontend Service');
+      log('vite', `Frontend dev server is ready: http://${HOST}:${candidatePort}`);
+      return candidatePort;
+    }
+
+    runtime.frontendProcess = null;
+    const combinedOutput = outputBuffer.join('\n');
+    const isPortConflict = readyState.reason === 'exit'
+      && isPortConflictError(combinedOutput, candidatePort);
+
+    if (isPortConflict && attempt < DEV_SERVER_START_RETRY_LIMIT) {
+      log(
+        'vite',
+        `Port ${candidatePort} became unavailable during startup. Retrying with another port (${attempt}/${DEV_SERVER_START_RETRY_LIMIT}).`,
+      );
+      lastError = new Error(`Port ${candidatePort} is already in use`);
+      continue;
+    }
+
+    if (readyState.reason === 'timeout') {
+      terminateChildProcess(child);
+      throw new Error(`The Vite frontend service did not become ready in time (port ${candidatePort})`);
+    }
+
+    const failureDetail = combinedOutput
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    const exitDetail = readyState.reason === 'exit'
+      ? `exitCode=${readyState.code} signal=${readyState.signal ?? 'null'}`
+      : readyState.reason;
+    throw new Error(
+      failureDetail
+        ? `Vite frontend startup failed on port ${candidatePort}: ${failureDetail} (${exitDetail})`
+        : `Vite frontend startup failed on port ${candidatePort} (${exitDetail})`,
+    );
+  }
+
+  throw lastError || new Error('Vite frontend service could not acquire a free port');
 }
 
 function proxyToBackend(req, res, backendPort) {
@@ -374,11 +754,11 @@ function proxyToBackend(req, res, backendPort) {
   );
 
   proxyReq.on('error', (error) => {
-    log('proxy', `代理请求失败: ${error.message}`);
+    log('proxy', `Proxy request failed: ${error.message}`);
     if (!res.headersSent) {
       res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     }
-    res.end(JSON.stringify({ detail: '后端代理请求失败' }));
+    res.end(JSON.stringify({ detail: 'Backend proxy request failed' }));
   });
 
   req.pipe(proxyReq);
@@ -394,7 +774,7 @@ function serveStaticFile(req, res, distDir) {
     fs.createReadStream(indexFile)
       .on('error', () => {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('前端入口文件读取失败');
+        res.end('Failed to read the frontend entry file');
       })
       .once('open', () => {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -407,14 +787,14 @@ function serveStaticFile(req, res, distDir) {
   const resolvedFile = path.resolve(distRoot, normalizedPath);
   if (!resolvedFile.startsWith(distRoot)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('禁止访问');
+    res.end('Access denied');
     return;
   }
 
   fs.stat(resolvedFile, (error, stats) => {
     if (error || !stats.isFile()) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('文件不存在');
+      res.end('File not found');
       return;
     }
 
@@ -429,7 +809,7 @@ async function startStaticServer(frontendPort, backendPort) {
   const distDir = getDistDir();
   const indexFile = path.join(distDir, 'index.html');
   if (!fs.existsSync(indexFile)) {
-    throw new Error('未找到 dist/index.html，请先运行 npm run build');
+    throw new Error('dist/index.html was not found. Run npm run build first.');
   }
 
   const server = http.createServer((req, res) => {
@@ -448,7 +828,7 @@ async function startStaticServer(frontendPort, backendPort) {
   });
 
   runtime.staticServer = server;
-  log('static', `静态服务已就绪: http://${HOST}:${frontendPort}`);
+  log('static', `Static server is ready: http://${HOST}:${frontendPort}`);
 }
 
 function createMainWindow() {
@@ -480,16 +860,16 @@ function createMainWindow() {
 
 async function bootstrap() {
   runtime.backendPort = await findAvailablePort(DEFAULT_BACKEND_PORT);
-  runtime.frontendPort = await findAvailablePort(
-    DEFAULT_FRONTEND_PORT,
-    new Set([runtime.backendPort]),
-  );
 
   await startBackend(runtime.backendPort);
 
   if (IS_DEV_MODE) {
-    await startViteServer(runtime.frontendPort, runtime.backendPort);
+    runtime.frontendPort = await startViteServer(DEFAULT_FRONTEND_PORT, runtime.backendPort);
   } else {
+    runtime.frontendPort = await findAvailablePort(
+      DEFAULT_FRONTEND_PORT,
+      new Set([runtime.backendPort]),
+    );
     await startStaticServer(runtime.frontendPort, runtime.backendPort);
   }
 
@@ -525,7 +905,8 @@ ipcMain.handle('afn:get-backend-port', () => runtime.backendPort);
 app.whenReady()
   .then(bootstrap)
   .catch((error) => {
-    dialog.showErrorBox('AFN Electron 启动失败', String(error?.message || error));
+    log('bootstrap', `Startup failed: ${String(error?.message || error)}`);
+    dialog.showErrorBox('AFN Electron startup failed', String(error?.message || error));
     app.quit();
   });
 

@@ -58,11 +58,32 @@ async def stream_inspiration_parsed_result_events(
             if option_delay_seconds:
                 await asyncio.sleep(option_delay_seconds)
 
+    next_question = parsed.get("next_question", None)
+    if not next_question:
+        conversation_state = parsed.get("conversation_state", {}) or {}
+        if isinstance(conversation_state, dict):
+            next_question = conversation_state.get("next_question", None)
+
+    next_question_points = parsed.get("next_question_points", None)
+    if not next_question_points:
+        conversation_state = parsed.get("conversation_state", {}) or {}
+        if isinstance(conversation_state, dict):
+            next_question_points = conversation_state.get("next_question_points", None)
+
+    progress_summary = parsed.get("progress_summary", None)
+    if not progress_summary:
+        conversation_state = parsed.get("conversation_state", {}) or {}
+        if isinstance(conversation_state, dict):
+            progress_summary = conversation_state.get("progress_summary", None)
+
     yield sse_event(
         "complete",
         {
             "placeholder": ui_control.get("placeholder", placeholder_default),
             "conversation_state": parsed.get("conversation_state", {}) or {},
+            "next_question": next_question,
+            "next_question_points": next_question_points,
+            "progress_summary": progress_summary,
             "is_complete": is_complete,
             "ready_for_blueprint": ready_for_blueprint,
         },

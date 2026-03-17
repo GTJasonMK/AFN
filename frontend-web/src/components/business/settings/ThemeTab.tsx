@@ -13,6 +13,14 @@ import { defaultWebAppearanceConfig, notifyWebAppearanceChanged, readWebAppearan
 import { Dropdown } from '../../ui/Dropdown';
 import { Modal } from '../../ui/Modal';
 import { downloadJson } from '../../../utils/downloadFile';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from '../novel/NovelDialogPrimitives';
 
 function formatTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -416,7 +424,14 @@ export const ThemeTab: React.FC = () => {
     setActivatingId(id);
     try {
       const cfg = await themeConfigsApi.activate(id);
-      addToast(`已激活主题：${cfg.config_name}`, 'success');
+      const modeLabel = cfg.parent_mode === 'dark' ? '深色' : '亮色';
+      const isCurrentMode = cfg.parent_mode === currentMode;
+      addToast(
+        isCurrentMode
+          ? `已激活并应用${modeLabel}主题：${cfg.config_name}`
+          : `已激活${modeLabel}主题：${cfg.config_name}（切换到${modeLabel}模式后生效）`,
+        'success'
+      );
 
       // 若激活的是当前模式，立刻应用到 CSS 变量
       if (cfg.parent_mode === currentMode) {
@@ -604,6 +619,7 @@ export const ThemeTab: React.FC = () => {
               type="checkbox"
               checked={Boolean(appearance.enabled)}
               onChange={(e) => setAppearance((prev) => ({ ...prev, enabled: e.target.checked }))}
+              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
             />
             启用背景图
           </label>
@@ -615,7 +631,7 @@ export const ThemeTab: React.FC = () => {
               value={appearance.backgroundImageUrl || ''}
               onChange={(e) => setAppearance((prev) => ({ ...prev, backgroundImageUrl: e.target.value }))}
               placeholder="https://..."
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main outline-none focus:border-book-primary/50"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
             />
           </label>
 
@@ -627,7 +643,7 @@ export const ThemeTab: React.FC = () => {
               max={48}
               value={Number(appearance.blurPx) || 0}
               onChange={(e) => setAppearance((prev) => ({ ...prev, blurPx: Math.max(0, Math.min(48, Number(e.target.value) || 0)) }))}
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main outline-none focus:border-book-primary/50"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
             />
           </label>
 
@@ -640,7 +656,7 @@ export const ThemeTab: React.FC = () => {
               max={1}
               value={Number(appearance.overlayOpacity) || 0}
               onChange={(e) => setAppearance((prev) => ({ ...prev, overlayOpacity: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main outline-none focus:border-book-primary/50"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
             />
           </label>
         </div>
@@ -694,107 +710,134 @@ export const ThemeTab: React.FC = () => {
         }
       >
         {editingLoading ? (
-          <div className="text-sm text-book-text-muted">加载中…</div>
+          <NovelDialogSurface className="text-sm text-book-text-muted">加载中…</NovelDialogSurface>
         ) : editingConfig ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+          <NovelDialogStack>
+            <NovelDialogIntro
+              eyebrow="Theme Editor"
+              title={`编辑主题：${editingConfig.config_name}`}
+              description="这里直接编辑后端主题配置 JSON。适合在明确理解 Schema 的前提下做精细调整和版本迁移。"
+            >
+              <div className="flex flex-wrap gap-2">
+                <span className="story-pill">{editingConfig.parent_mode === 'dark' ? '深色模式' : '亮色模式'}</span>
+                <span className="story-pill">V{editingConfig.config_version || 1}</span>
+                {editingConfig.is_active ? <span className="story-pill">当前已激活</span> : null}
+              </div>
+            </NovelDialogIntro>
+
+            <NovelDialogMetricGrid>
+              <NovelDialogMetric
+                label="主题模式"
+                value={editingConfig.parent_mode === 'dark' ? 'Dark' : 'Light'}
+                note="决定这份主题配置作用于亮色还是深色外观。"
+              />
+              <NovelDialogMetric
+                label="配置版本"
+                value={`V${editingConfig.config_version || 1}`}
+                note={Number(editingConfig.config_version || 1) === 1 ? '可迁移到组件模式 V2。' : '当前已是 V2 结构。'}
+              />
+            </NovelDialogMetricGrid>
+
+            <NovelDialogSection
+              eyebrow="Metadata"
+              title="配置元信息"
+              description="先确认配置名称、模式和版本，再决定是否需要重新加载或迁移。"
+              actions={(
+                <>
+                  <BookButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (!editingConfig) return;
+                      setEditingLoading(true);
+                      try {
+                        const cfg = await themeConfigsApi.getUnified(editingId!);
+                        setEditingConfig(cfg);
+                        setEditingName(cfg.config_name || '');
+                        setEditingJson(buildEditPayloadText(cfg));
+                        addToast('已重新加载', 'success');
+                      } catch (e) {
+                        console.error(e);
+                        addToast('重新加载失败', 'error');
+                      } finally {
+                        setEditingLoading(false);
+                      }
+                    }}
+                    disabled={editingSaving}
+                  >
+                    重新加载
+                  </BookButton>
+                  {Number(editingConfig.config_version || 1) === 1 ? (
+                    <BookButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={async () => {
+                        const ok = await confirmDialog({
+                          title: '迁移到 V2',
+                          message: '将迁移到 V2（组件模式）并填充默认 V2 字段。\n是否继续？',
+                          confirmText: '迁移',
+                          dialogType: 'warning',
+                        });
+                        if (!ok) return;
+                        setEditingLoading(true);
+                        try {
+                          await themeConfigsApi.migrateToV2(editingId!);
+                          const cfg = await themeConfigsApi.getUnified(editingId!);
+                          setEditingConfig(cfg);
+                          setEditingJson(buildEditPayloadText(cfg));
+                          addToast('已迁移到 V2（组件模式）', 'success');
+                          await fetchList();
+                        } catch (e) {
+                          console.error(e);
+                          addToast('迁移失败', 'error');
+                        } finally {
+                          setEditingLoading(false);
+                        }
+                      }}
+                      disabled={editingSaving}
+                      title="桌面端默认使用组件模式（V2）。迁移后可编辑 token/comp/effects。"
+                    >
+                      迁移到V2
+                    </BookButton>
+                  ) : null}
+                </>
+              )}
+            >
               <BookInput
                 label="配置名称"
                 value={editingName}
                 onChange={(e) => setEditingName(e.target.value)}
                 disabled={editingSaving}
               />
-              <div className="text-xs text-book-text-muted flex items-end">
-                <div className="pb-1">
-                  模式：<span className="font-bold text-book-text-main">{editingConfig.parent_mode === 'dark' ? '深色' : '亮色'}</span>
-                  <span className="mx-2 opacity-40">|</span>
-                  版本：<span className="font-bold text-book-text-main">V{editingConfig.config_version || 1}</span>
-                  {editingConfig.is_active ? (
-                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">已激活</span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="flex items-end justify-end gap-2">
-                <BookButton
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (!editingConfig) return;
-                    setEditingLoading(true);
-                    try {
-                      const cfg = await themeConfigsApi.getUnified(editingId!);
-                      setEditingConfig(cfg);
-                      setEditingName(cfg.config_name || '');
-                      setEditingJson(buildEditPayloadText(cfg));
-                      addToast('已重新加载', 'success');
-                    } catch (e) {
-                      console.error(e);
-                      addToast('重新加载失败', 'error');
-                    } finally {
-                      setEditingLoading(false);
-                    }
-                  }}
-                  disabled={editingSaving}
-                >
-                  重新加载
-                </BookButton>
-                {Number(editingConfig.config_version || 1) === 1 ? (
-                  <BookButton
-	                    variant="secondary"
-	                    size="sm"
-	                    onClick={async () => {
-	                      const ok = await confirmDialog({
-	                        title: '迁移到 V2',
-	                        message: '将迁移到 V2（组件模式）并填充默认 V2 字段。\n是否继续？',
-	                        confirmText: '迁移',
-	                        dialogType: 'warning',
-	                      });
-	                      if (!ok) return;
-	                      setEditingLoading(true);
-	                      try {
-	                        await themeConfigsApi.migrateToV2(editingId!);
-	                        const cfg = await themeConfigsApi.getUnified(editingId!);
-                        setEditingConfig(cfg);
-                        setEditingJson(buildEditPayloadText(cfg));
-                        addToast('已迁移到 V2（组件模式）', 'success');
-                        await fetchList();
-                      } catch (e) {
-                        console.error(e);
-                        addToast('迁移失败', 'error');
-                      } finally {
-                        setEditingLoading(false);
-                      }
-                    }}
-                    disabled={editingSaving}
-                    title="桌面端默认使用组件模式（V2）。迁移后可编辑 token/comp/effects。"
-                  >
-                    迁移到V2
-                  </BookButton>
-                ) : null}
-              </div>
-            </div>
+            </NovelDialogSection>
 
             {editingError ? (
-              <div className="text-xs text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-2 rounded">
+              <NovelDialogSurface className="border-red-200 bg-red-50/80 text-xs leading-relaxed text-red-600">
                 {editingError}
-              </div>
+              </NovelDialogSurface>
             ) : null}
 
-            <BookTextarea
-              label="配置 JSON（按后端 Schema 字段填写）"
-              value={editingJson}
-              onChange={(e) => setEditingJson(e.target.value)}
-              rows={18}
-              className="font-mono text-xs leading-relaxed"
-              disabled={editingSaving}
-            />
+            <NovelDialogSection
+              eyebrow="JSON"
+              title="配置 JSON"
+              description="按后端 Schema 字段填写。这里的修改会直接影响 Web 主题变量与组件外观表现。"
+            >
+              <BookTextarea
+                label="配置 JSON（按后端 Schema 字段填写）"
+                value={editingJson}
+                onChange={(e) => setEditingJson(e.target.value)}
+                rows={18}
+                className="font-mono text-xs leading-relaxed"
+                disabled={editingSaving}
+              />
+            </NovelDialogSection>
 
-            <div className="text-[11px] text-book-text-muted leading-relaxed">
-              提示：保存后会更新后端主题配置；如果该配置为当前模式已激活主题，会立即应用到 WebUI（CSS 变量）。
-            </div>
-          </div>
+            <NovelDialogSurface className="text-[11px] leading-relaxed text-book-text-muted">
+              提示：保存后会更新后端主题配置；如果该配置是当前模式已激活主题，WebUI 会立即重新计算并应用 CSS 变量。
+            </NovelDialogSurface>
+          </NovelDialogStack>
         ) : (
-          <div className="text-sm text-book-text-muted">无法加载该配置</div>
+          <NovelDialogSurface className="text-sm text-book-text-muted">无法加载该配置</NovelDialogSurface>
         )}
       </Modal>
     </div>

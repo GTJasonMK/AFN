@@ -4,6 +4,14 @@ import { BookInput } from '../ui/BookInput';
 import { BookButton } from '../ui/BookButton';
 import { useSSE } from '../../hooks/useSSE';
 import { useToast } from '../feedback/Toast';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 type PartOutlineGenerateMode = 'generate' | 'continue';
 
@@ -197,65 +205,85 @@ export const PartOutlineGenerateModal: React.FC<PartOutlineGenerateModalProps> =
         </div>
       }
     >
-      <div className="space-y-4">
-        <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-          {description}
-        </div>
+      <NovelDialogStack>
+        <NovelDialogIntro
+          eyebrow={mode === 'continue' ? 'Continue Parts' : 'Generate Parts'}
+          title={mode === 'continue' ? '继续扩写部分大纲' : '重建部分大纲结构'}
+          description={description}
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="story-pill">总章节上限 {Math.max(10, totalChapters || 10)}</span>
+            {currentPartsCount ? <span className="story-pill">现有部分 {currentPartsCount}</span> : null}
+          </div>
+        </NovelDialogIntro>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <BookInput
-            label={`目标章节（覆盖到第 N 章，≤ ${Math.max(10, totalChapters || 10)}）`}
-            type="number"
-            min={10}
-            max={Math.max(10, totalChapters || 10)}
-            value={targetChapters}
-            onChange={(e) => setTargetChapters(parseInt(e.target.value, 10) || 10)}
-            disabled={running || isConnected}
-          />
-          <BookInput
-            label="每部分章节数（10-100）"
-            type="number"
-            min={10}
-            max={100}
-            value={chaptersPerPart}
-            onChange={(e) => setChaptersPerPart(parseInt(e.target.value, 10) || 25)}
-            disabled={running || isConnected}
-          />
-        </div>
+        <NovelDialogMetricGrid>
+          <NovelDialogMetric label="目标覆盖章节" value={targetChapters} note="生成后会覆盖到的章节上限。" />
+          <NovelDialogMetric label="每部分章节数" value={chaptersPerPart} note="控制分部粒度与后续结构密度。" />
+        </NovelDialogMetricGrid>
 
-        {mode === 'continue' ? (
-          <BookInput
-            label="限制新增部分数量（可选）"
-            type="number"
-            min={1}
-            max={100}
-            value={limitParts}
-            onChange={(e) => {
-              const v = e.target.value.trim();
-              setLimitParts(v === '' ? '' : (parseInt(v, 10) || 1));
-            }}
-            disabled={running || isConnected}
-            placeholder="留空则生成全部剩余部分"
-          />
-        ) : null}
+        <NovelDialogSection
+          eyebrow="Generation Setup"
+          title="生成参数"
+          description="先确定目标覆盖章节，再决定每部分的章节跨度。"
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <BookInput
+              label={`目标章节（覆盖到第 N 章，≤ ${Math.max(10, totalChapters || 10)}）`}
+              type="number"
+              min={10}
+              max={Math.max(10, totalChapters || 10)}
+              value={targetChapters}
+              onChange={(e) => setTargetChapters(parseInt(e.target.value, 10) || 10)}
+              disabled={running || isConnected}
+            />
+            <BookInput
+              label="每部分章节数（10-100）"
+              type="number"
+              min={10}
+              max={100}
+              value={chaptersPerPart}
+              onChange={(e) => setChaptersPerPart(parseInt(e.target.value, 10) || 25)}
+              disabled={running || isConnected}
+            />
+          </div>
+
+          {mode === 'continue' ? (
+            <div className="mt-4">
+              <BookInput
+                label="限制新增部分数量（可选）"
+                type="number"
+                min={1}
+                max={100}
+                value={limitParts}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  setLimitParts(v === '' ? '' : (parseInt(v, 10) || 1));
+                }}
+                disabled={running || isConnected}
+                placeholder="留空则生成全部剩余部分"
+              />
+            </div>
+          ) : null}
+        </NovelDialogSection>
 
         {running || isConnected ? (
-          <div className="space-y-2">
-            <div className="text-xs text-book-primary animate-pulse font-medium">
+          <NovelDialogSurface>
+            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Progress</div>
+            <div className="mt-3 text-sm font-semibold text-book-primary animate-pulse">
               {progressText || '生成中…'}
             </div>
             {typeof progressPercent === 'number' ? (
-              <div className="w-full h-2 rounded bg-book-bg border border-book-border/40 overflow-hidden">
+              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-book-bg border border-book-border/40">
                 <div
                   className="h-2 bg-book-primary transition-all duration-500"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
             ) : null}
-          </div>
+          </NovelDialogSurface>
         ) : null}
-      </div>
+      </NovelDialogStack>
     </Modal>
   );
 };
-

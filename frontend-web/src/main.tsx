@@ -39,6 +39,9 @@ function ensureBackendPortBridge() {
 
 ensureBackendPortBridge()
 
+const runtime = ((window as any)?.electronAPI?.isElectron === true) ? 'electron' : 'web'
+document.documentElement.dataset.runtime = runtime
+
 const appElement = import.meta.env.DEV ? (
   <App />
 ) : (

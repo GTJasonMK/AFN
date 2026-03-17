@@ -24,12 +24,15 @@ export default {
         }
       },
       fontFamily: {
-        serif: ['"Noto Serif SC"', 'serif'],
-        sans: ['"Noto Sans SC"', 'sans-serif'],
+        serif: ['"Noto Serif SC"', '"Source Han Serif SC"', 'Georgia', 'serif'],
+        sans: ['"Noto Sans SC"', '"Source Han Sans SC"', '"Microsoft YaHei"', '"PingFang SC"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'Consolas', 'Monaco', '"Courier New"', 'monospace'],
       },
       boxShadow: {
         'book-card': 'var(--shadow-card)',
         'glass': 'var(--shadow-glass)',
+        'surface': 'var(--shadow-surface)',
+        'surface-strong': 'var(--shadow-surface-strong)',
       },
       keyframes: {
         fadeIn: {

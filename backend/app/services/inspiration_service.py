@@ -276,7 +276,74 @@ class InspirationService:
             parsed["is_complete"] = True
             parsed["ready_for_blueprint"] = True
 
-        parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
+        conversation_state = parsed.get("conversation_state")
+        if not isinstance(conversation_state, dict):
+            conversation_state = {}
+            parsed["conversation_state"] = conversation_state
+
+        # 下一个问题：用于前端左侧“下一个问题”面板展示
+        next_question = parsed.get("next_question")
+        if is_complete:
+            parsed["next_question"] = None
+            conversation_state.pop("next_question", None)
+        else:
+            next_question_text = next_question.strip() if isinstance(next_question, str) else ""
+            if next_question_text:
+                parsed["next_question"] = next_question_text
+                conversation_state["next_question"] = next_question_text
+            else:
+                parsed["next_question"] = None
+
+        # 下一个问题要点：用于前端左侧展示 checklist，引导用户更好回答
+        next_question_points = parsed.get("next_question_points")
+        if is_complete:
+            parsed["next_question_points"] = None
+            conversation_state.pop("next_question_points", None)
+        else:
+            normalized_points: List[str] = []
+            if isinstance(next_question_points, list):
+                normalized_points = [
+                    str(item).strip()
+                    for item in next_question_points
+                    if item is not None and str(item).strip()
+                ]
+            elif isinstance(next_question_points, str):
+                normalized_points = [
+                    part.strip()
+                    for part in next_question_points.replace("\r\n", "\n").split("\n")
+                    if part.strip()
+                ]
+
+            # 去重并截断到 3 条，避免 UI 过长
+            deduped_points: List[str] = []
+            for item in normalized_points:
+                if item in deduped_points:
+                    continue
+                deduped_points.append(item)
+                if len(deduped_points) >= 3:
+                    break
+
+            if deduped_points:
+                parsed["next_question_points"] = deduped_points
+                conversation_state["next_question_points"] = deduped_points
+            else:
+                parsed["next_question_points"] = None
+                conversation_state.pop("next_question_points", None)
+
+        # 进度摘要：用于前端侧边栏展示“已获取信息”，帮助判断何时生成蓝图
+        progress_summary = parsed.get("progress_summary")
+        if isinstance(progress_summary, list):
+            progress_summary = "\n".join([str(item).strip() for item in progress_summary if item is not None and str(item).strip()])
+
+        progress_summary_text = progress_summary.strip() if isinstance(progress_summary, str) else ""
+        if progress_summary_text:
+            # 保护性截断，避免异常超长内容影响 UI 与缓存
+            progress_summary_text = progress_summary_text[:1200]
+            parsed["progress_summary"] = progress_summary_text
+            conversation_state["progress_summary"] = progress_summary_text
+        else:
+            parsed["progress_summary"] = None
+            conversation_state.pop("progress_summary", None)
 
         return InspirationResult(
             parsed_response=parsed,
@@ -392,7 +459,73 @@ class InspirationService:
             parsed["is_complete"] = True
             parsed["ready_for_blueprint"] = True
 
-        parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
+        conversation_state = parsed.get("conversation_state")
+        if not isinstance(conversation_state, dict):
+            conversation_state = {}
+            parsed["conversation_state"] = conversation_state
+
+        # 下一个问题：用于前端左侧“下一个问题”面板展示
+        next_question = parsed.get("next_question")
+        if is_complete:
+            parsed["next_question"] = None
+            conversation_state.pop("next_question", None)
+        else:
+            next_question_text = next_question.strip() if isinstance(next_question, str) else ""
+            if next_question_text:
+                parsed["next_question"] = next_question_text
+                conversation_state["next_question"] = next_question_text
+            else:
+                parsed["next_question"] = None
+
+        # 下一个问题要点：用于前端左侧展示 checklist，引导用户更好回答
+        next_question_points = parsed.get("next_question_points")
+        if is_complete:
+            parsed["next_question_points"] = None
+            conversation_state.pop("next_question_points", None)
+        else:
+            normalized_points: List[str] = []
+            if isinstance(next_question_points, list):
+                normalized_points = [
+                    str(item).strip()
+                    for item in next_question_points
+                    if item is not None and str(item).strip()
+                ]
+            elif isinstance(next_question_points, str):
+                normalized_points = [
+                    part.strip()
+                    for part in next_question_points.replace("\r\n", "\n").split("\n")
+                    if part.strip()
+                ]
+
+            # 去重并截断到 3 条，避免 UI 过长
+            deduped_points: List[str] = []
+            for item in normalized_points:
+                if item in deduped_points:
+                    continue
+                deduped_points.append(item)
+                if len(deduped_points) >= 3:
+                    break
+
+            if deduped_points:
+                parsed["next_question_points"] = deduped_points
+                conversation_state["next_question_points"] = deduped_points
+            else:
+                parsed["next_question_points"] = None
+                conversation_state.pop("next_question_points", None)
+
+        # 进度摘要：用于前端侧边栏展示“已获取信息”，帮助判断何时生成蓝图
+        progress_summary = parsed.get("progress_summary")
+        if isinstance(progress_summary, list):
+            progress_summary = "\n".join([str(item).strip() for item in progress_summary if item is not None and str(item).strip()])
+
+        progress_summary_text = progress_summary.strip() if isinstance(progress_summary, str) else ""
+        if progress_summary_text:
+            progress_summary_text = progress_summary_text[:1200]
+            parsed["progress_summary"] = progress_summary_text
+            conversation_state["progress_summary"] = progress_summary_text
+        else:
+            parsed["progress_summary"] = None
+            conversation_state.pop("progress_summary", None)
 
         # 8. 返回解析结果
         yield {

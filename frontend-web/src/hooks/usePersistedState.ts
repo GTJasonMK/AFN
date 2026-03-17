@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 type UsePersistedStateOptions<T> = {
@@ -29,24 +29,30 @@ export const usePersistedState = <T,>(
   initialValue: T,
   opts: UsePersistedStateOptions<T> = {},
 ): [T, Dispatch<SetStateAction<T>>] => {
-  const parse = useMemo(() => opts.parse ?? defaultParse<T>, [opts.parse]);
-  const serialize = useMemo(() => opts.serialize ?? defaultSerialize<T>, [opts.serialize]);
+  const parse = opts.parse ?? defaultParse<T>;
+  const serialize = opts.serialize ?? defaultSerialize<T>;
+  const parseRef = useRef(parse);
+  const serializeRef = useRef(serialize);
+
+  parseRef.current = parse;
+  serializeRef.current = serialize;
 
   const [value, setValue] = useState<T>(() => readPersisted(storageKey, initialValue, parse));
 
   useEffect(() => {
-    setValue(readPersisted(storageKey, initialValue, parse));
-  }, [initialValue, parse, storageKey]);
+    // 只在 key 或初始值语义变化时重新从存储读取，避免调用方传入内联 parse/serialize
+    // 时触发 “每次渲染都重置状态” 的读写乒乓。
+    setValue(readPersisted(storageKey, initialValue, parseRef.current));
+  }, [initialValue, storageKey]);
 
   useEffect(() => {
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, serialize(value));
+      localStorage.setItem(storageKey, serializeRef.current(value));
     } catch {
       // ignore
     }
-  }, [serialize, storageKey, value]);
+  }, [storageKey, value]);
 
   return [value, setValue];
 };
-

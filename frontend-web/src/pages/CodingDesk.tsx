@@ -890,11 +890,11 @@ export const CodingDesk: React.FC = () => {
   }, [connectAgentStream, id, resetAgentLogBuffer]);
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center text-book-text-muted">加载中...</div>;
+    return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">加载中...</div>;
   }
 
   return (
-    <div className="flex flex-col h-screen bg-book-bg overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col bg-book-bg overflow-hidden">
       {/* Header - 完全照抄桌面端 coding_desk/header.py */}
       <div className="h-14 border-b border-book-border bg-book-bg-paper flex items-center px-4 gap-3 shrink-0 z-30">
         {/* 返回按钮 */}

@@ -3,14 +3,14 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ToastContainer } from './components/feedback/Toast';
 import { ErrorBoundary } from './components/feedback/ErrorBoundary';
 import { ConfirmDialogHost } from './components/feedback/ConfirmDialog';
+import { BookIconButton } from './components/ui/BookButton';
 import { Settings, Moon, Sun, Loader2 } from 'lucide-react';
 import { useUIStore } from './store/ui';
 import { themeConfigsApi } from './api/themeConfigs';
-import { adminDashboardApi } from './api/adminDashboard';
 import { applyThemeFromUnifiedConfig, clearThemeVariables } from './theme/applyTheme';
 import { readWebAppearanceConfig, WEB_APPEARANCE_CHANGED_EVENT, WEB_APPEARANCE_STORAGE_KEY } from './theme/webAppearance';
 import { AuthGate } from './components/auth/AuthGate';
-import { isAdminUser, useAuthStore } from './store/auth';
+import { useAuthStore } from './store/auth';
 import { scheduleIdleTask } from './utils/scheduleIdleTask';
 import { usePersistedState } from './hooks/usePersistedState';
 
@@ -93,26 +93,7 @@ const AdminUsers = lazy(loadAdminUsers);
 const AdminProjects = lazy(loadAdminProjects);
 const AdminConfigs = lazy(loadAdminConfigs);
 const SettingsModalLazy = lazy(loadSettingsModal);
-
-const preloadAdminRoutes = () =>
-  Promise.allSettled([loadAdminOverview(), loadAdminUsers(), loadAdminProjects(), loadAdminConfigs()]);
-
-const preloadCoreWorkflowRoutes = () =>
-  Promise.allSettled([loadInspirationChat(), loadWritingDesk(), loadNovelDetail(), loadBlueprintPreview()]);
-
-const preloadCodingWorkflowRoutes = () =>
-  Promise.allSettled([loadCodingDetail(), loadCodingDesk()]);
-
-const shouldSkipAggressivePrefetch = (): boolean => {
-  if (typeof navigator === 'undefined') return false;
-
-  const networkInfo = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
-  if (!networkInfo) return false;
-
-  if (networkInfo.saveData) return true;
-  const effectiveType = String(networkInfo.effectiveType || '').toLowerCase();
-  return effectiveType.includes('2g') || effectiveType.includes('3g');
-};
+const THEME_APPLIED_EVENT = 'afn:theme-applied';
 
 const RouteFallback: React.FC = () => (
   <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/20 backdrop-blur-sm p-6">
@@ -124,7 +105,7 @@ const RouteFallback: React.FC = () => (
 );
 
 // Layout wrapper to handle theme and common UI
-const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const Layout: React.FC<{ children: (context: { isDark: boolean }) => React.ReactNode }> = ({ children }) => {
   const [isDark, setIsDark] = usePersistedState<boolean>('afn-theme-mode', false, {
     parse: (raw) => String(raw).trim().toLowerCase() === 'dark',
     serialize: (value) => (value ? 'dark' : 'light'),
@@ -141,38 +122,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     return cancel;
   }, []);
-
-  useEffect(() => {
-    if (!initialized) return;
-    if (authEnabled && !user) return;
-    if (shouldSkipAggressivePrefetch()) return;
-
-    const cancelPrimary = scheduleIdleTask(() => {
-      void preloadCoreWorkflowRoutes();
-    }, { delay: 1000, timeout: 2600 });
-
-    const cancelSecondary = scheduleIdleTask(() => {
-      void preloadCodingWorkflowRoutes();
-    }, { delay: 2600, timeout: 3600 });
-
-    return () => {
-      cancelPrimary();
-      cancelSecondary();
-    };
-  }, [initialized, authEnabled, user]);
-
-  useEffect(() => {
-    if (!initialized) return;
-    if (authEnabled && !user) return;
-    if (!isAdminUser(authEnabled, user)) return;
-
-    const cancel = scheduleIdleTask(() => {
-      void preloadAdminRoutes();
-      adminDashboardApi.prefetchTrends(21);
-    }, { delay: 1500, timeout: 2800 });
-
-    return cancel;
-  }, [initialized, authEnabled, user]);
 
   useEffect(() => {
     const refresh = () => setAppearance(readWebAppearanceConfig());
@@ -194,6 +143,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    window.dispatchEvent(new CustomEvent(THEME_APPLIED_EVENT, { detail: { mode: isDark ? 'dark' : 'light' } }));
   }, [isDark]);
 
   useEffect(() => {
@@ -202,16 +152,27 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     clearThemeVariables();
 
     const mode = isDark ? 'dark' : 'light';
+    let cancelled = false;
+
     themeConfigsApi
       .getActive(mode)
       .then((cfg) => {
-        if (cfg) applyThemeFromUnifiedConfig(cfg);
+        if (cancelled) return;
+        if (cfg && cfg.parent_mode === mode) {
+          applyThemeFromUnifiedConfig(cfg);
+        }
+        window.dispatchEvent(new CustomEvent(THEME_APPLIED_EVENT, { detail: { mode } }));
       })
       .catch((e) => {
+        if (cancelled) return;
         const status = Number((e as any)?.response?.status || 0);
         if (status === 401 || status === 403) return;
         console.error(e);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isDark, initialized, authEnabled, user]);
 
   useEffect(() => {
@@ -226,7 +187,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const bgOverlayOpacity = bgEnabled ? Math.max(0, Math.min(1, Number(appearance.overlayOpacity))) : 0;
 
   return (
-    <div className="min-h-screen bg-book-bg transition-colors duration-300 flex flex-col relative">
+    <div className="h-[100dvh] min-h-0 overflow-hidden bg-book-bg transition-colors duration-300 flex flex-col relative">
       {bgEnabled ? (
         <div className="fixed inset-0 -z-10 pointer-events-none">
           <div
@@ -249,29 +210,35 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </Suspense>
       ) : null}
 
-      <main className="flex-1 flex flex-col min-h-0">{children}</main>
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">{children({ isDark })}</main>
 
-      {canOpenSettings ? (
-        <button
-          onClick={openSettings}
-          className="fixed bottom-20 right-6 z-[100] p-3 rounded-full bg-book-bg-paper border border-book-border shadow-lg hover:border-book-primary hover:text-book-primary transition-all duration-300 group"
-          title="全局设置"
+      <div className="fixed z-[100] flex flex-col gap-3 right-[calc(1.5rem+env(safe-area-inset-right))] bottom-[calc(1.5rem+env(safe-area-inset-bottom))]">
+        {canOpenSettings ? (
+          <BookIconButton
+            label="全局设置"
+            onClick={openSettings}
+            className="group"
+            variant="secondary"
+            size="md"
+          >
+            <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />
+          </BookIconButton>
+        ) : null}
+
+        <BookIconButton
+          label={isDark ? '切换到亮色模式' : '切换到深色模式'}
+          onClick={() => setIsDark((prev) => !prev)}
+          className="group"
+          variant="secondary"
+          size="md"
         >
-          <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />
-        </button>
-      ) : null}
-
-      <button
-        onClick={() => setIsDark(!isDark)}
-        className="fixed bottom-6 right-6 z-[100] p-3 rounded-full bg-book-bg-paper border border-book-border shadow-lg hover:border-book-primary hover:text-book-primary transition-all duration-300 group"
-        title={isDark ? '切换到亮色模式' : '切换到深色模式'}
-      >
-        {isDark ? (
-          <Sun size={20} className="group-hover:rotate-90 transition-transform duration-500" />
-        ) : (
-          <Moon size={20} className="group-hover:-rotate-12 transition-transform duration-500" />
-        )}
-      </button>
+          {isDark ? (
+            <Sun size={20} className="group-hover:rotate-90 transition-transform duration-500" />
+          ) : (
+            <Moon size={20} className="group-hover:-rotate-12 transition-transform duration-500" />
+          )}
+        </BookIconButton>
+      </div>
     </div>
   );
 };
@@ -280,29 +247,33 @@ function App() {
   return (
     <Router>
       <Layout>
-        <ErrorBoundary>
-          <AuthGate>
-            <Suspense fallback={<RouteFallback />}>
-              <Routes>
-                <Route path="/" element={<NovelList />} />
-                <Route path="/inspiration/:id" element={<InspirationChat />} />
-                <Route path="/blueprint/:id" element={<BlueprintPreview />} />
-                <Route path="/novel/:id" element={<NovelDetail />} />
-                <Route path="/write/:id" element={<WritingDesk />} />
+        {({ isDark }) => (
+          <ErrorBoundary>
+            <AuthGate>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route path="/" element={<NovelList isDark={isDark} />} />
+                    <Route path="/inspiration/:id" element={<InspirationChat />} />
+                    <Route path="/blueprint/:id" element={<BlueprintPreview />} />
+                    <Route path="/novel/:id" element={<NovelDetail />} />
+                    <Route path="/write/:id" element={<WritingDesk />} />
 
-                <Route path="/coding/inspiration/:id" element={<InspirationChat mode="coding" />} />
-                <Route path="/coding/detail/:id" element={<CodingDetail />} />
-                <Route path="/coding/desk/:id" element={<CodingDesk />} />
+                    <Route path="/coding/inspiration/:id" element={<InspirationChat mode="coding" />} />
+                    <Route path="/coding/detail/:id" element={<CodingDetail />} />
+                    <Route path="/coding/desk/:id" element={<CodingDesk />} />
 
-                <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
-                <Route path="/admin/overview" element={<AdminOverview />} />
-                <Route path="/admin/users" element={<AdminUsers />} />
-                <Route path="/admin/projects" element={<AdminProjects />} />
-                <Route path="/admin/configs" element={<AdminConfigs />} />
-              </Routes>
-            </Suspense>
-          </AuthGate>
-        </ErrorBoundary>
+                    <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
+                    <Route path="/admin/overview" element={<AdminOverview />} />
+                    <Route path="/admin/users" element={<AdminUsers />} />
+                    <Route path="/admin/projects" element={<AdminProjects />} />
+                    <Route path="/admin/configs" element={<AdminConfigs />} />
+                  </Routes>
+                </Suspense>
+              </div>
+            </AuthGate>
+          </ErrorBoundary>
+        )}
       </Layout>
     </Router>
   );

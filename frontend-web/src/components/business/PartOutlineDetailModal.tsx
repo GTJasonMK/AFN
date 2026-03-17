@@ -1,8 +1,15 @@
 import React, { useMemo } from 'react';
 import { Modal } from '../ui/Modal';
 import { BookButton } from '../ui/BookButton';
-import { BookCard } from '../ui/BookCard';
 import { useToast } from '../feedback/Toast';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 interface PartOutlineDetailModalProps {
   isOpen: boolean;
@@ -82,6 +89,8 @@ export const PartOutlineDetailModal: React.FC<PartOutlineDetailModalProps> = ({ 
   }, [part]);
 
   const endingHook = String(part?.ending_hook || '').trim();
+  const theme = String(part?.theme || '').trim();
+  const summary = String(part?.summary || '').trim();
 
   const handleCopy = async () => {
     try {
@@ -105,100 +114,155 @@ export const PartOutlineDetailModal: React.FC<PartOutlineDetailModalProps> = ({ 
         </div>
       }
     >
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-xs text-book-text-muted">
-            {startChapter && endChapter ? (
-              <span>章节 {startChapter}–{endChapter} · {statusLabel}</span>
-            ) : (
-              <span>{statusLabel}</span>
+      {!part ? (
+        <NovelDialogIntro
+          eyebrow="Part Outline"
+          title="暂无可展示的部分大纲"
+          tone="warning"
+          description="当前没有选中的部分数据，或数据尚未加载完成。返回列表后重新选择一个部分即可查看详情。"
+        />
+      ) : (
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Part Outline"
+            title={partNumber ? `第 ${partNumber} 部分详情` : '部分大纲详情'}
+            description="这里展示当前部分的主题、摘要、关键事件、角色推进与冲突结构，适合在重写前快速核对结构完整性。"
+          >
+            <div className="flex flex-wrap gap-2">
+              {startChapter && endChapter ? <span className="story-pill">章节 {startChapter} - {endChapter}</span> : null}
+              <span className="story-pill">{statusLabel}</span>
+            </div>
+          </NovelDialogIntro>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="章节范围"
+              value={startChapter && endChapter ? `${startChapter}-${endChapter}` : '未标注'}
+              note="用于确认该部分覆盖的叙事区间是否与预期一致。"
+            />
+            <NovelDialogMetric
+              label="结构状态"
+              value={statusLabel}
+              note={status === 'generating' ? `当前进度 ${progress}%` : '可复制 JSON 以便归档或排查。'}
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Overview"
+            title="部分概览"
+            description="先从主题和摘要快速判断这一部分的叙事重心。"
+            actions={(
+              <BookButton variant="ghost" size="sm" onClick={handleCopy}>
+                复制JSON
+              </BookButton>
             )}
-          </div>
-          <BookButton variant="ghost" size="sm" onClick={handleCopy}>复制JSON</BookButton>
-        </div>
+          >
+            {theme || summary ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {theme ? (
+                  <NovelDialogSurface>
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Theme</div>
+                    <div className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-book-text-main">{theme}</div>
+                  </NovelDialogSurface>
+                ) : null}
+                {summary ? (
+                  <NovelDialogSurface>
+                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Summary</div>
+                    <div className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-book-text-main">{summary}</div>
+                  </NovelDialogSurface>
+                ) : null}
+              </div>
+            ) : (
+              <NovelDialogSurface className="text-sm text-book-text-muted">
+                当前部分尚未生成主题与剧情摘要。
+              </NovelDialogSurface>
+            )}
+          </NovelDialogSection>
 
-        {String(part?.theme || '').trim() ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">主题</div>
-            <div className="text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-              {String(part.theme || '').trim()}
-            </div>
-          </BookCard>
-        ) : null}
-
-        {String(part?.summary || '').trim() ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">剧情摘要</div>
-            <div className="text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-              {String(part.summary || '').trim()}
-            </div>
-          </BookCard>
-        ) : null}
-
-        {keyEvents.length ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">关键事件</div>
-            <div className="space-y-2">
-              {keyEvents.map((evt, idx) => (
-                <div key={`${idx}-${evt.title || evt.desc || 'evt'}`} className="text-sm text-book-text-secondary">
-                  <div className="font-bold">
-                    {evt.chapter ? <span className="mr-2 text-book-text-muted">[{evt.chapter}]</span> : null}
-                    {evt.title || evt.desc || '（未命名事件）'}
-                  </div>
-                  {evt.desc && evt.title ? (
-                    <div className="mt-1 whitespace-pre-wrap leading-relaxed">{evt.desc}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </BookCard>
-        ) : null}
-
-        {characterArcs.length ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">角色发展</div>
-            <div className="space-y-2">
-              {characterArcs.map((a) => (
-                <div key={a.name} className="text-sm text-book-text-secondary">
-                  <div className="font-bold text-book-text-main">{a.name}</div>
-                  <div className="mt-1 whitespace-pre-wrap leading-relaxed">{a.desc}</div>
-                </div>
-              ))}
-            </div>
-          </BookCard>
-        ) : null}
-
-        {conflicts.length ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">冲突</div>
-            <div className="space-y-2">
-              {conflicts.map((c, idx) => (
-                <div key={`${idx}-${c.type || c.description}`} className="text-sm text-book-text-secondary">
-                  <div className="font-bold">
-                    {c.type ? <span className="mr-2 text-book-text-main">{c.type}</span> : null}
-                    {c.description}
-                  </div>
-                  {c.characters.length ? (
-                    <div className="mt-1 text-xs text-book-text-muted">
-                      涉及角色：{c.characters.join('、')}
+          {keyEvents.length ? (
+            <NovelDialogSection
+              eyebrow="Key Events"
+              title="关键事件"
+              description="按事件粒度查看这一部分的主要推进节点。"
+            >
+              <div className="space-y-3">
+                {keyEvents.map((evt, idx) => (
+                  <NovelDialogSurface key={`${idx}-${evt.title || evt.desc || 'evt'}`}>
+                    <div className="text-sm font-semibold text-book-text-main">
+                      {evt.chapter ? <span className="mr-2 text-book-text-muted">[{evt.chapter}]</span> : null}
+                      {evt.title || evt.desc || '（未命名事件）'}
                     </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </BookCard>
-        ) : null}
+                    {evt.desc && evt.title ? (
+                      <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-book-text-sub">{evt.desc}</div>
+                    ) : null}
+                  </NovelDialogSurface>
+                ))}
+              </div>
+            </NovelDialogSection>
+          ) : null}
 
-        {endingHook ? (
-          <BookCard className="p-4">
-            <div className="text-sm font-bold text-book-text-main mb-2">与下一部分衔接点</div>
-            <div className="text-sm text-book-text-secondary whitespace-pre-wrap leading-relaxed">
-              {endingHook}
-            </div>
-          </BookCard>
-        ) : null}
-      </div>
+          {(characterArcs.length || conflicts.length) ? (
+            <NovelDialogSection
+              eyebrow="Dynamics"
+              title="人物推进与冲突"
+              description="这两组信息决定了部分内部的人物变化密度和情节张力。"
+            >
+              <div className="grid gap-3 lg:grid-cols-2">
+                <NovelDialogSurface>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Character Arcs</div>
+                  {characterArcs.length ? (
+                    <div className="mt-3 space-y-3">
+                      {characterArcs.map((arc) => (
+                        <div key={arc.name}>
+                          <div className="text-sm font-semibold text-book-text-main">{arc.name}</div>
+                          <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-book-text-sub">{arc.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-book-text-muted">当前没有记录角色发展线。</div>
+                  )}
+                </NovelDialogSurface>
+
+                <NovelDialogSurface>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Conflicts</div>
+                  {conflicts.length ? (
+                    <div className="mt-3 space-y-3">
+                      {conflicts.map((conflictItem, idx) => (
+                        <div key={`${idx}-${conflictItem.type || conflictItem.description}`}>
+                          <div className="text-sm font-semibold text-book-text-main">
+                            {conflictItem.type ? <span className="mr-2 text-book-text-muted">{conflictItem.type}</span> : null}
+                            {conflictItem.description}
+                          </div>
+                          {conflictItem.characters.length ? (
+                            <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
+                              涉及角色：{conflictItem.characters.join('、')}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-book-text-muted">当前没有记录冲突结构。</div>
+                  )}
+                </NovelDialogSurface>
+              </div>
+            </NovelDialogSection>
+          ) : null}
+
+          {endingHook ? (
+            <NovelDialogSection
+              eyebrow="Next Hook"
+              title="与下一部分衔接点"
+              description="检查这一部分结尾是否为下一部分留下了明确的情绪、事件或悬念接口。"
+            >
+              <NovelDialogSurface className="whitespace-pre-wrap text-sm leading-relaxed text-book-text-main">
+                {endingHook}
+              </NovelDialogSurface>
+            </NovelDialogSection>
+          ) : null}
+        </NovelDialogStack>
+      )}
     </Modal>
   );
 };
-

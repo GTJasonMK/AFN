@@ -4,6 +4,7 @@ import { BookInput, BookTextarea } from '../ui/BookInput';
 import { BookButton } from '../ui/BookButton';
 import { writerApi, Chapter } from '../../api/writer';
 import { useToast } from '../feedback/Toast';
+import { NovelDialogIntro, NovelDialogSection, NovelDialogStack } from './novel/NovelDialogPrimitives';
 
 interface OutlineEditModalProps {
   isOpen: boolean;
@@ -62,19 +63,33 @@ export const OutlineEditModal: React.FC<OutlineEditModalProps> = ({
         </div>
       }
     >
-      <div className="space-y-4">
-        <BookInput 
-          label="章节标题"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
+      <NovelDialogStack>
+        <NovelDialogIntro
+          eyebrow="Outline Edit"
+          title={`第 ${chapter?.chapter_number ?? '-'} 章的大纲修订`}
+          description="在不改动正文的前提下，修正章节标题和摘要，让后续生成、评审和上下文引用回到正确方向。"
         />
-        <BookTextarea 
-          label="章节摘要"
-          rows={6}
-          value={summary}
-          onChange={e => setSummary(e.target.value)}
-        />
-      </div>
+
+        <NovelDialogSection
+          eyebrow="Outline Fields"
+          title="章节标题与摘要"
+          description="标题负责识别章节定位，摘要负责后续生成和上下文压缩。"
+        >
+          <div className="space-y-4">
+            <BookInput 
+              label="章节标题"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+            />
+            <BookTextarea 
+              label="章节摘要"
+              rows={6}
+              value={summary}
+              onChange={e => setSummary(e.target.value)}
+            />
+          </div>
+        </NovelDialogSection>
+      </NovelDialogStack>
     </Modal>
   );
 };

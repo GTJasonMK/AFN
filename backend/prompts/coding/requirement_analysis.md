@@ -86,6 +86,8 @@
 ```json
 {
   "ai_message": "string",
+  "next_question": "string | null",
+  "progress_summary": "string | null",
   "ui_control": {
     "type": "inspired_options",
     "options": [
@@ -104,6 +106,16 @@
   "is_complete": false
 }
 ```
+
+**新增字段说明：**
+- `next_question`: 供前端左侧「下一个问题」面板展示的**一句话问题**（尽量简短、可直接回答）。
+  - 在对话进行中（`is_complete: false`）建议每轮都输出。
+  - 在对话完成（`is_complete: true`）时请输出 `null` 或空字符串。
+- `progress_summary`: 供前端左侧展示的**进度摘要**（面向用户可读），用于随时查看 AI 已经收集到的信息。
+  - 建议用 `\\n` 分行（4-8 行），每行一个信息点，尽量短。
+  - 只总结**已确认**的信息，不要臆测；必要时可以加 1-2 行“尚未确认/缺口”。
+  - 在对话进行中（`is_complete: false`）建议每轮都输出并覆盖更新（不要无限增长）。
+  - 内容建议包含：项目目标、核心功能、规模、目标用户、关键约束、技术偏好等关键信息。
 
 **conversation_state 字段说明：**
 - 每轮对话后更新已收集的信息

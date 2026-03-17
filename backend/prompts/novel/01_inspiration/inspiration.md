@@ -190,6 +190,8 @@ tags: inspiration, dialogue, creative
 ```json
 {
   "ai_message": "string",
+  "next_question": "string | null",
+  "progress_summary": "string | null",
   "ui_control": {
     "type": "single_choice | text_input | info_display | inspired_options",
     "options": [
@@ -201,6 +203,17 @@ tags: inspiration, dialogue, creative
   "is_complete": false
 }
 ```
+
+**新增字段说明：**
+- `next_question`: 供前端左侧「下一个问题」面板展示的**一句话问题**（尽量简短、可直接回答）。
+  - 在对话进行中（`is_complete: false`）**必须**输出。
+  - 在对话完成（`is_complete: true`）时请输出 `null` 或空字符串。
+  - 建议与 `ai_message` 中的主问题保持一致（避免前后不一致造成困惑）。
+- `progress_summary`: 供前端左侧展示的**进度摘要**（面向用户可读），用于随时查看 AI 已经收集到的信息。
+  - 建议用 `\\n` 分行（4-8 行），每行一个信息点，尽量短。
+  - 只总结**已确认**的信息，不要臆测；必要时可以加 1-2 行“尚未确认/缺口”。
+  - 在对话进行中（`is_complete: false`）建议每轮都输出并覆盖更新（不要无限增长）。
+  - 内容建议包含：类型/基调、主角、核心冲突、主题、篇幅（chapter_count 是否已确认）等关键要素。
 
 **UI控件类型说明：**
 - `single_choice`: 简单单选（仅显示label）

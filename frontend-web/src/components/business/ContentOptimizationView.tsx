@@ -7,6 +7,14 @@ import { useSSE } from '../../hooks/useSSE';
 import { apiClient } from '../../api/client';
 import { Wand2, PauseCircle, PlayCircle, XCircle, ListChecks, CheckCircle2, Copy, Undo2, Eye, Search } from 'lucide-react';
 import { Modal } from '../ui/Modal';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 type OptimizationMode = 'auto' | 'review' | 'plan';
 type AnalysisScope = 'full' | 'selected';
@@ -733,7 +741,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
           <label className="text-xs font-bold text-book-text-sub">
             模式
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={mode}
               onChange={(e) => setMode(e.target.value as OptimizationMode)}
               disabled={running}
@@ -747,7 +755,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
           <label className="text-xs font-bold text-book-text-sub">
             范围
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={scope}
               onChange={(e) => setScope(e.target.value as AnalysisScope)}
               disabled={running}
@@ -771,6 +779,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
                   checked={dimensions.includes(d.id)}
                   onChange={() => toggleDimension(d.id)}
                   disabled={running}
+                  className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
                 />
                 {d.label}
               </label>
@@ -832,7 +841,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
             </div>
             <div className="flex items-center gap-2">
               <input
-                className="flex-1 px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+                className="book-control flex-1 rounded-lg border px-3 py-2 text-sm text-book-text-main"
                 placeholder="范围：1-5, 9-18, 20（回车应用）"
                 value={rangeInput}
                 onChange={(e) => setRangeInput(e.target.value)}
@@ -858,6 +867,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
                       });
                     }}
                     disabled={running}
+                    className="book-check mt-0.5 h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
                   />
                   <div className="min-w-0">
                     <div className="text-[11px] text-book-text-muted">段落 {p.index + 1} · {p.length}</div>
@@ -1121,52 +1131,87 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
         }
       >
         {previewSuggestion ? (
-          <div className="space-y-4">
-            {previewSuggestion.reason ? (
-              <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed whitespace-pre-wrap">
-                理由：{previewSuggestion.reason}
+          <NovelDialogStack>
+            <NovelDialogIntro
+              eyebrow="Optimization Preview"
+              title={`段落 ${previewSuggestion.paragraph_index + 1} 的建议预览`}
+              description="先看差异高亮，再决定是直接应用，还是先把建议投射到编辑器里做一次临时预览。"
+            >
+              <div className="flex flex-wrap gap-2">
+                <span className="story-pill">{previewSuggestion.category}</span>
+                <span className="story-pill">{previewApplied ? '该建议已应用' : '尚未应用'}</span>
               </div>
+            </NovelDialogIntro>
+
+            <NovelDialogMetricGrid>
+              <NovelDialogMetric
+                label="原文长度"
+                value={previewSuggestion.original_text.length}
+                note="按字符数统计，用于快速判断本次修改片段规模。"
+              />
+              <NovelDialogMetric
+                label="建议长度"
+                value={previewSuggestion.suggested_text.length}
+                note="如果建议明显更短或更长，建议先预览到编辑器再决定。"
+              />
+            </NovelDialogMetricGrid>
+
+            {previewSuggestion.reason ? (
+              <NovelDialogSurface className="whitespace-pre-wrap text-xs leading-relaxed text-book-text-muted">
+                理由：{previewSuggestion.reason}
+              </NovelDialogSurface>
             ) : null}
 
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-book-text-sub">差异高亮</div>
-              <div className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg-paper p-3 rounded-lg border border-book-border/40 overflow-auto max-h-[30vh]">
-                {buildSimpleInlineDiff(previewSuggestion.original_text, previewSuggestion.suggested_text).map((seg, idx) => (
-                  <span
-                    key={`pd-${idx}`}
-                    className={
-                      seg.type === 'remove'
-                        ? 'bg-red-500/10 text-red-700 line-through'
-                        : seg.type === 'add'
-                          ? 'bg-green-500/10 text-green-700'
-                          : ''
-                    }
-                  >
-                    {seg.text}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <NovelDialogSection
+              eyebrow="Diff"
+              title="差异高亮"
+              description="红色表示删除，绿色表示新增，用来快速判断本次建议的改动密度。"
+            >
+              <NovelDialogSurface className="max-h-[30vh] overflow-auto">
+                <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
+                  {buildSimpleInlineDiff(previewSuggestion.original_text, previewSuggestion.suggested_text).map((seg, idx) => (
+                    <span
+                      key={`pd-${idx}`}
+                      className={
+                        seg.type === 'remove'
+                          ? 'bg-red-500/10 text-red-700 line-through'
+                          : seg.type === 'add'
+                            ? 'bg-green-500/10 text-green-700'
+                            : ''
+                      }
+                    >
+                      {seg.text}
+                    </span>
+                  ))}
+                </div>
+              </NovelDialogSurface>
+            </NovelDialogSection>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-book-text-sub">原文</div>
-                <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg-paper p-3 rounded-lg border border-book-border/40 overflow-auto max-h-[60vh]">
-                  {previewSuggestion.original_text}
-                </pre>
+            <NovelDialogSection
+              eyebrow="Compare"
+              title="原文与建议对照"
+              description="左右对照查看语言密度、信息遗漏和节奏变化。"
+            >
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <NovelDialogSurface>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Original</div>
+                  <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
+                    {previewSuggestion.original_text}
+                  </pre>
+                </NovelDialogSurface>
+                <NovelDialogSurface>
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Suggested</div>
+                  <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
+                    {previewSuggestion.suggested_text}
+                  </pre>
+                </NovelDialogSurface>
               </div>
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-book-text-sub">建议</div>
-                <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg-paper p-3 rounded-lg border border-book-border/40 overflow-auto max-h-[60vh]">
-                  {previewSuggestion.suggested_text}
-                </pre>
-              </div>
-            </div>
+            </NovelDialogSection>
 
-            <div className="text-xs text-book-text-muted">
-              提示：应用后可在面板顶部点击“撤销”恢复上一次应用前的正文。
-            </div>
-          </div>
+            <NovelDialogSurface className="text-xs leading-relaxed text-book-text-muted">
+              提示：应用后可在面板顶部点击“撤销”恢复到上一次应用前的正文。
+            </NovelDialogSurface>
+          </NovelDialogStack>
         ) : null}
       </Modal>
     </div>

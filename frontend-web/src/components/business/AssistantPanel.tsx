@@ -25,6 +25,7 @@ interface AssistantPanelProps {
   projectId: string;
   chapterNumber?: number;
   content?: string;
+  panelMode?: 'rail' | 'pane';
   onChangeContent?: (value: string) => void;
   onJumpToChapter?: (chapterNumber: number) => void | Promise<void>;
   onLocateText?: (text: string) => void;
@@ -35,6 +36,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   projectId,
   chapterNumber,
   content,
+  panelMode = 'rail',
   onChangeContent,
   onJumpToChapter,
   onLocateText,
@@ -179,7 +181,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   }, [ragDiagnose, ragIngestResult]);
 
   return (
-    <div className="w-full border-l border-book-border/50 bg-book-bg-paper flex flex-col h-full">
+    <div
+      className={`w-full bg-book-bg-paper flex flex-col h-full ${
+        panelMode === 'pane' ? '' : 'border-l border-book-border/50'
+      }`}
+    >
       {/* 模式切换按钮 - 照抄桌面端 assistant_panel.py */}
       <div className="h-12 border-b border-book-border/50 flex items-center px-4 gap-2 shrink-0">
         <button
@@ -226,7 +232,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                     max={30}
                     value={ragTopK}
                     onChange={(e) => setRagTopK(Math.max(1, Math.min(30, Number(e.target.value) || 10)))}
-                    className="w-14 px-2 py-1 rounded bg-book-bg border border-book-border/60 text-book-text-main outline-none focus:border-book-primary/60"
+                    className="book-control w-14 rounded border px-2 py-1 text-[11px] outline-none focus:border-book-primary/60"
                     disabled={!vectorStoreReady}
                   />
                 </div>
@@ -344,7 +350,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                 value={ragQuery}
                 onChange={(e) => setRagQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
-                className="w-full pl-10 pr-10 py-3 text-sm bg-book-bg rounded-lg border border-book-border/60 focus:border-book-primary/60 outline-none transition-all"
+                className="book-control w-full rounded-lg border py-3 pl-10 pr-10 text-sm focus:border-book-primary/60 outline-none transition-all"
                 disabled={!vectorStoreReady}
               />
               <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-book-text-muted" />

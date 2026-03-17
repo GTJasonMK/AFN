@@ -1,10 +1,15 @@
-export const CREATIVE_QUOTES = [
-  ["写书不是为了名利，而是为了安放那个躁动不安的灵魂。", "Writing is not for fame or fortune, but to settle that restless soul."],
-  ["每一个字符，都是通向另一个世界的钥匙。", "Every character is a key to another world."],
-  ["灵感是风，而持续的写作是帆。", "Inspiration is the wind, but consistent writing is the sail."],
-  ["不要等待完美的时刻，抓住这一刻让它变完美。", "Don't wait for the perfect moment, take the moment and make it perfect."],
-  ["伟大的故事往往源于一个微小的念头。", "Great stories often start with a tiny thought."],
-  ["写作是孤独者的狂欢。", "Writing is a carnival for the lonely."],
+/** 首页名言：[正文, 出处] */
+export const CREATIVE_QUOTES: [string, string][] = [
+  ['写小说就是跟自己的灵魂下一盘很长的棋。', '—— 余华'],
+  ['一切伟大的行动和思想，都有一个微不足道的开始。', '—— 加缪'],
+  ['故事是人类对抗遗忘的最古老的武器。', '—— 本雅明'],
+  ['你不是在写故事，是故事在借你的手说话。', '—— 斯蒂芬·金'],
+  ['世界上只有一种英雄主义，就是在认清生活真相之后依然热爱生活。', '—— 罗曼·罗兰'],
+  ['灵感是风，而持续的写作是帆。', '—— 杰克·伦敦'],
+  ['每一个不曾起舞的日子，都是对生命的辜负。', '—— 尼采'],
+  ['真正的发现之旅不在于寻找新风景，而在于拥有新眼光。', '—— 普鲁斯特'],
+  ['所有坚韧不拔的努力迟早会取得报酬的。', '—— 安格尔'],
+  ['我写作不是因为我有话要说，而是因为我有需要被说出的话。', '—— 菲茨杰拉德'],
 ];
 
 export const PROJECT_STATUS_MAP: Record<string, string> = {

@@ -13,6 +13,7 @@ import { isAdminUser, useAuthStore } from '../store/auth';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import { downloadCsv } from '../utils/csv';
+import { AppViewportFrame, AppViewportScrollArea, AppViewportShell } from '../components/layout/AppViewport';
 
 type KindFilter = 'all' | 'novel' | 'coding';
 type SortMode = 'updated_desc' | 'updated_asc' | 'title' | 'username';
@@ -38,7 +39,7 @@ type AdminProjectsBootstrapSnapshot = {
 const ADMIN_PROJECTS_BOOTSTRAP_KEY = 'afn:web:admin:projects:bootstrap:v1';
 const ADMIN_PROJECTS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
 const adminProjectSelectClassName =
-  'w-full rounded-[18px] border border-book-border/45 bg-book-bg-paper/82 px-4 py-3 text-book-text-main shadow-inner focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
+  'book-control book-select w-full rounded-[18px] border px-4 py-3 text-book-text-main focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
 
 const formatDate = (value?: string | null): string => {
   if (!value) return '—';
@@ -350,11 +351,11 @@ export const AdminProjects: React.FC = () => {
   }
 
   return (
-    <div className="page-shell min-h-screen overflow-hidden">
+    <AppViewportShell>
       <div className="ambient-orb -left-14 top-6 h-64 w-64 bg-book-primary/9" />
       <div className="ambient-orb right-[-5rem] top-20 h-72 w-72 bg-book-primary-light/10" />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5">
+      <AppViewportFrame>
         <AdminPanelHeader
           current="projects"
           title="管理员项目监控"
@@ -369,6 +370,7 @@ export const AdminProjects: React.FC = () => {
           )}
         />
 
+        <AppViewportScrollArea className="pr-1">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="metric-tile">
             <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
@@ -545,7 +547,7 @@ export const AdminProjects: React.FC = () => {
                     type="checkbox"
                     checked={staleOnly}
                     onChange={(e) => setStaleOnly(e.target.checked)}
-                    className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                    className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
                   />
                   仅看陈旧项目
                 </label>
@@ -749,7 +751,8 @@ export const AdminProjects: React.FC = () => {
             </section>
           </div>
         </div>
-      </div>
-    </div>
+        </AppViewportScrollArea>
+      </AppViewportFrame>
+    </AppViewportShell>
   );
 };

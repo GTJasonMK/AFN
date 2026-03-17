@@ -16,6 +16,7 @@ import { extractApiErrorMessage } from '../api/client';
 import { scheduleIdleTask } from '../utils/scheduleIdleTask';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import { downloadCsv } from '../utils/csv';
+import { AppViewportFrame, AppViewportScrollArea, AppViewportShell } from '../components/layout/AppViewport';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type SortMode = 'lastActivity' | 'projects' | 'username';
@@ -59,7 +60,7 @@ type AdminUsersBootstrapSnapshot = {
 const ADMIN_USERS_BOOTSTRAP_KEY = 'afn:web:admin:users:bootstrap:v1';
 const ADMIN_USERS_BOOTSTRAP_TTL_MS = 3 * 60 * 1000;
 const adminFilterSelectClassName =
-  'w-full rounded-[18px] border border-book-border/45 bg-book-bg-paper/82 px-4 py-3 text-book-text-main shadow-inner focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
+  'book-control book-select w-full rounded-[18px] border px-4 py-3 text-book-text-main focus:outline-none focus:ring-2 focus:ring-book-primary/20 focus:border-book-primary';
 
 export const AdminUsers: React.FC = () => {
   const { addToast } = useToast();
@@ -497,11 +498,11 @@ export const AdminUsers: React.FC = () => {
   }
 
   return (
-    <div className="page-shell min-h-screen overflow-hidden">
+    <AppViewportShell>
       <div className="ambient-orb -left-16 top-0 h-64 w-64 bg-book-primary/10" />
       <div className="ambient-orb right-[-4rem] top-28 h-72 w-72 bg-book-primary-light/10" />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5">
+      <AppViewportFrame>
         <AdminPanelHeader
           current="users"
           title="管理员用户管理"
@@ -516,6 +517,7 @@ export const AdminUsers: React.FC = () => {
           )}
         />
 
+        <AppViewportScrollArea className="pr-1">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="metric-tile">
             <div className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
@@ -864,7 +866,7 @@ export const AdminUsers: React.FC = () => {
                       type="checkbox"
                       checked={newUserActive}
                       onChange={(e) => setNewUserActive(e.target.checked)}
-                      className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                      className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
                     />
                     创建后立即启用
                   </label>
@@ -873,7 +875,7 @@ export const AdminUsers: React.FC = () => {
                       type="checkbox"
                       checked={newUserAdmin}
                       onChange={(e) => setNewUserAdmin(e.target.checked)}
-                      className="rounded border-book-border text-book-primary focus:ring-book-primary"
+                      className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
                     />
                     创建为管理员
                   </label>
@@ -1003,7 +1005,8 @@ export const AdminUsers: React.FC = () => {
             ) : null}
           </div>
         </div>
-      </div>
-    </div>
+        </AppViewportScrollArea>
+      </AppViewportFrame>
+    </AppViewportShell>
   );
 };

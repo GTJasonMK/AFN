@@ -5,6 +5,12 @@ import { BookCard } from '../components/ui/BookCard';
 import { BookButton } from '../components/ui/BookButton';
 import { ArrowLeft, Map, Users, ScrollText, Play } from 'lucide-react';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import {
+  AppViewportFrame,
+  AppViewportScrollArea,
+  AppViewportShell,
+  SegmentPager,
+} from '../components/layout/AppViewport';
 
 interface BlueprintData {
   title?: string;
@@ -29,6 +35,7 @@ export const BlueprintPreview: React.FC = () => {
   const [data, setData] = useState<BlueprintData | null>(null);
   const [loading, setLoading] = useState(true);
   const [characterRenderLimit, setCharacterRenderLimit] = useState(INITIAL_PREVIEW_CHARACTER_LIMIT);
+  const [previewPane, setPreviewPane] = useState<'summary' | 'characters'>('summary');
   const hasBootstrapRef = React.useRef(false);
 
   useEffect(() => {
@@ -127,98 +134,145 @@ export const BlueprintPreview: React.FC = () => {
   }, [characterRenderLimit, characters]);
 
   const remainingCharacters = Math.max(0, characters.length - visibleCharacters.length);
+  const previewPaneItems = [
+    {
+      id: 'summary',
+      label: '设定摘要',
+      hint: '查看世界观和故事梗概，不让两块内容上下挤压。',
+    },
+    {
+      id: 'characters',
+      label: '角色列表',
+      hint: '切换到角色轨道，集中查看人物设定。',
+    },
+  ] as const;
 
-  if (loading) return <div className="p-20 text-center text-book-text-muted">加载蓝图设定中...</div>;
-  if (!data) return <div className="p-20 text-center text-book-text-muted">未找到蓝图数据</div>;
+  if (loading) return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">加载蓝图设定中...</div>;
+  if (!data) return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">未找到蓝图数据</div>;
 
   return (
-    <div className="max-w-5xl mx-auto p-8 space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex justify-between items-end border-b border-book-border pb-6">
-        <div className="space-y-2">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-sm text-book-text-muted hover:text-book-primary flex items-center gap-1 transition-colors"
-          >
-            <ArrowLeft size={14} /> 返回
-          </button>
-          <h1 className="font-serif text-4xl font-bold text-book-text-main">{data.title || '未命名项目'}</h1>
-          <p className="text-xl text-book-text-sub font-serif italic opacity-80">“{data.one_sentence_summary || '暂无一句话概要'}”</p>
-        </div>
-        <BookButton size="lg" onClick={handleStartWriting} className="mb-1">
-          <Play size={18} className="mr-2 fill-current" /> 开始执笔
-        </BookButton>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-10">
-          <section className="space-y-4">
-            <h2 className="font-serif text-2xl font-bold text-book-text-main flex items-center gap-2">
-              <Map className="text-book-primary" /> 世界观设定
-            </h2>
-            <BookCard variant="flat" className="bg-book-bg-paper/50 leading-relaxed text-book-text-secondary whitespace-pre-wrap">
-              {worldText}
-            </BookCard>
-          </section>
-
-          <section className="space-y-4">
-            <h2 className="font-serif text-2xl font-bold text-book-text-main flex items-center gap-2">
-              <ScrollText className="text-book-primary" /> 故事梗概
-            </h2>
-            <BookCard variant="flat" className="bg-book-bg-paper/50 leading-relaxed text-book-text-secondary whitespace-pre-wrap">
-              {synopsisText}
-            </BookCard>
-          </section>
-        </div>
-
-        <div className="space-y-4">
-          <h2 className="font-serif text-2xl font-bold text-book-text-main flex items-center gap-2">
-            <Users className="text-book-primary" /> 登场角色
-          </h2>
-          <div className="space-y-4">
-            {visibleCharacters.map((char, index) => (
-              <BookCard key={String(char?.name || `char-${index}`)} className="hover:border-book-primary/30 transition-colors">
-                <div className="font-bold text-book-text-main border-b border-book-border/30 pb-1 mb-2">
-                  {String(char?.name || `角色 ${index + 1}`)}
-                </div>
-                <div className="text-xs space-y-1 text-book-text-sub">
-                  {char?.identity ? <p><span className="font-semibold text-book-text-muted">身份：</span>{String(char.identity)}</p> : null}
-                  {char?.personality ? <p><span className="font-semibold text-book-text-muted">性格：</span>{String(char.personality)}</p> : null}
-                  {char?.goal ? <p><span className="font-semibold text-book-text-muted">目标：</span>{String(char.goal)}</p> : null}
-                  {!char?.identity && !char?.personality && !char?.goal ? (
-                    <pre className="whitespace-pre-wrap text-[11px] text-book-text-main leading-relaxed bg-book-bg p-2 rounded border border-book-border/40 overflow-auto">
-                      {(() => {
-                        try {
-                          return JSON.stringify(char, null, 2);
-                        } catch {
-                          return String(char ?? '');
-                        }
-                      })()}
-                    </pre>
-                  ) : null}
-                </div>
-              </BookCard>
-            ))}
-
-            {remainingCharacters > 0 ? (
-              <div className="flex justify-center pt-1">
-                <BookButton
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setCharacterRenderLimit((prev) => prev + PREVIEW_CHARACTER_BATCH_SIZE)}
-                >
-                  加载更多角色（剩余 {remainingCharacters}）
-                </BookButton>
+    <AppViewportShell>
+      <AppViewportFrame size="narrow" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <section className="dramatic-surface rounded-[32px] px-5 py-5 sm:px-7 sm:py-6">
+          <div className="relative z-[1] flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-3">
+              <button
+                onClick={() => navigate(-1)}
+                className="inline-flex items-center gap-1 text-sm text-book-text-muted transition-colors hover:text-book-primary"
+              >
+                <ArrowLeft size={14} /> 返回
+              </button>
+              <div>
+                <h1 className="font-serif text-[clamp(2rem,4vw,3.4rem)] font-bold text-book-text-main">
+                  {data.title || '未命名项目'}
+                </h1>
+                <p className="mt-3 max-w-3xl font-serif text-lg italic text-book-text-sub opacity-80">
+                  “{data.one_sentence_summary || '暂无一句话概要'}”
+                </p>
               </div>
-            ) : null}
+            </div>
 
-            {characters.length === 0 && (
-              <BookCard className="p-4 text-xs text-book-text-muted">
-                暂无角色信息。
-              </BookCard>
-            )}
+            <BookButton size="lg" onClick={handleStartWriting} className="self-start lg:self-auto">
+              <Play size={18} className="mr-2 fill-current" /> 开始执笔
+            </BookButton>
+          </div>
+        </section>
+
+        <div className="lg:hidden">
+          <div className="dramatic-surface rounded-[28px] px-4 py-4">
+            <div className="relative z-[1]">
+              <SegmentPager
+                items={[...previewPaneItems]}
+                value={previewPane}
+                onChange={(next) => setPreviewPane(next as 'summary' | 'characters')}
+              />
+            </div>
           </div>
         </div>
-      </div>
-    </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.45fr)_360px]">
+          <section className={`${previewPane === 'summary' ? 'min-h-0' : 'hidden'} lg:block`}>
+            <div className="dramatic-surface min-h-0 h-full rounded-[30px]">
+              <AppViewportScrollArea className="px-5 py-5 sm:px-6 sm:py-6">
+                <div className="space-y-8">
+                  <section className="space-y-4">
+                    <h2 className="flex items-center gap-2 font-serif text-2xl font-bold text-book-text-main">
+                      <Map className="text-book-primary" /> 世界观设定
+                    </h2>
+                    <BookCard variant="flat" className="bg-book-bg-paper/50 leading-relaxed text-book-text-secondary whitespace-pre-wrap">
+                      {worldText}
+                    </BookCard>
+                  </section>
+
+                  <section className="space-y-4">
+                    <h2 className="flex items-center gap-2 font-serif text-2xl font-bold text-book-text-main">
+                      <ScrollText className="text-book-primary" /> 故事梗概
+                    </h2>
+                    <BookCard variant="flat" className="bg-book-bg-paper/50 leading-relaxed text-book-text-secondary whitespace-pre-wrap">
+                      {synopsisText}
+                    </BookCard>
+                  </section>
+                </div>
+              </AppViewportScrollArea>
+            </div>
+          </section>
+
+          <section className={`${previewPane === 'characters' ? 'min-h-0' : 'hidden'} lg:block`}>
+            <div className="dramatic-surface min-h-0 h-full rounded-[30px]">
+              <AppViewportScrollArea className="px-5 py-5 sm:px-6 sm:py-6">
+                <div className="space-y-4">
+                  <h2 className="flex items-center gap-2 font-serif text-2xl font-bold text-book-text-main">
+                    <Users className="text-book-primary" /> 登场角色
+                  </h2>
+                  <div className="space-y-4">
+                    {visibleCharacters.map((char, index) => (
+                      <BookCard key={String(char?.name || `char-${index}`)} className="transition-colors hover:border-book-primary/30">
+                        <div className="mb-2 border-b border-book-border/30 pb-1 font-bold text-book-text-main">
+                          {String(char?.name || `角色 ${index + 1}`)}
+                        </div>
+                        <div className="space-y-1 text-xs text-book-text-sub">
+                          {char?.identity ? <p><span className="font-semibold text-book-text-muted">身份：</span>{String(char.identity)}</p> : null}
+                          {char?.personality ? <p><span className="font-semibold text-book-text-muted">性格：</span>{String(char.personality)}</p> : null}
+                          {char?.goal ? <p><span className="font-semibold text-book-text-muted">目标：</span>{String(char.goal)}</p> : null}
+                          {!char?.identity && !char?.personality && !char?.goal ? (
+                            <pre className="whitespace-pre-wrap text-[11px] text-book-text-main leading-relaxed bg-book-bg p-2 rounded border border-book-border/40 overflow-auto">
+                              {(() => {
+                                try {
+                                  return JSON.stringify(char, null, 2);
+                                } catch {
+                                  return String(char ?? '');
+                                }
+                              })()}
+                            </pre>
+                          ) : null}
+                        </div>
+                      </BookCard>
+                    ))}
+
+                    {remainingCharacters > 0 ? (
+                      <div className="flex justify-center pt-1">
+                        <BookButton
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCharacterRenderLimit((prev) => prev + PREVIEW_CHARACTER_BATCH_SIZE)}
+                        >
+                          加载更多角色（剩余 {remainingCharacters}）
+                        </BookButton>
+                      </div>
+                    ) : null}
+
+                    {characters.length === 0 ? (
+                      <BookCard className="p-4 text-xs text-book-text-muted">
+                        暂无角色信息。
+                      </BookCard>
+                    ) : null}
+                  </div>
+                </div>
+              </AppViewportScrollArea>
+            </div>
+          </section>
+        </div>
+      </AppViewportFrame>
+    </AppViewportShell>
   );
 };

@@ -35,6 +35,64 @@ type CodingDetailBootstrapSnapshot = {
   modules: CodingModule[];
   dependencies: CodingDependency[];
   ragCompleteness: any | null;
+  resourceState?: Partial<Record<ResourceKey, Pick<ResourceStatus, 'loaded' | 'lastLoadedAt'>>>;
+};
+
+type ResourceKey = 'systems' | 'modules' | 'dependencies' | 'ragCompleteness' | 'treeData';
+type ResourceStatus = {
+  loaded: boolean;
+  loading: boolean;
+  error: string | null;
+  lastLoadedAt: number | null;
+};
+type ResourceStatusMap = Record<ResourceKey, ResourceStatus>;
+
+const RESOURCE_KEYS: readonly ResourceKey[] = ['systems', 'modules', 'dependencies', 'ragCompleteness', 'treeData'];
+
+const createEmptyResourceStatus = (): ResourceStatusMap => ({
+  systems: { loaded: false, loading: false, error: null, lastLoadedAt: null },
+  modules: { loaded: false, loading: false, error: null, lastLoadedAt: null },
+  dependencies: { loaded: false, loading: false, error: null, lastLoadedAt: null },
+  ragCompleteness: { loaded: false, loading: false, error: null, lastLoadedAt: null },
+  treeData: { loaded: false, loading: false, error: null, lastLoadedAt: null },
+});
+
+const createInitialResourceStatus = (cached: CodingDetailBootstrapSnapshot | null): ResourceStatusMap => {
+  const next = createEmptyResourceStatus();
+  if (!cached) return next;
+
+  for (const key of RESOURCE_KEYS) {
+    const meta = cached.resourceState?.[key];
+    if (!meta) continue;
+    next[key] = {
+      ...next[key],
+      loaded: Boolean(meta.loaded),
+      lastLoadedAt: Number.isFinite(meta.lastLoadedAt) ? Number(meta.lastLoadedAt) : null,
+    };
+  }
+
+  if (!cached.resourceState) {
+    next.treeData.loaded = cached.treeData !== null;
+    next.ragCompleteness.loaded = cached.ragCompleteness !== null;
+    next.systems.loaded = Array.isArray(cached.systems) && cached.systems.length > 0;
+    next.modules.loaded = Array.isArray(cached.modules) && cached.modules.length > 0;
+    next.dependencies.loaded = Array.isArray(cached.dependencies) && cached.dependencies.length > 0;
+  }
+
+  return next;
+};
+
+const serializeResourceStatus = (
+  resourceState: ResourceStatusMap,
+): Partial<Record<ResourceKey, Pick<ResourceStatus, 'loaded' | 'lastLoadedAt'>>> => {
+  const next: Partial<Record<ResourceKey, Pick<ResourceStatus, 'loaded' | 'lastLoadedAt'>>> = {};
+  for (const key of RESOURCE_KEYS) {
+    next[key] = {
+      loaded: Boolean(resourceState[key].loaded),
+      lastLoadedAt: resourceState[key].lastLoadedAt,
+    };
+  }
+  return next;
 };
 
 export const CodingDetail: React.FC = () => {
@@ -42,6 +100,15 @@ export const CodingDetail: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const hasBootstrapRef = useRef(false);
+  const currentProjectIdRef = useRef<string | null>(null);
+  const inflightResourceLoadsRef = useRef<Partial<Record<ResourceKey, Promise<void>>>>({});
+  const resourceRequestVersionRef = useRef<Record<ResourceKey, number>>({
+    systems: 0,
+    modules: 0,
+    dependencies: 0,
+    ragCompleteness: 0,
+    treeData: 0,
+  });
 
   // 对齐桌面端：从 CodingDetail 可直达 CodingDesk，并可携带 fileId 定位到指定文件
   const openCodingDesk = useCallback(
@@ -104,7 +171,9 @@ export const CodingDetail: React.FC = () => {
   const [systems, setSystems] = useState<CodingSystem[]>([]);
   const [modules, setModules] = useState<CodingModule[]>([]);
   const [dependencies, setDependencies] = useState<CodingDependency[]>([]);
-  const [tabLoading, setTabLoading] = useState(false);
+  const [resourceState, setResourceState] = useState<ResourceStatusMap>(() => createEmptyResourceStatus());
+  const resourceStateRef = useRef<ResourceStatusMap>(createEmptyResourceStatus());
+  const [tabActionLoading, setTabActionLoading] = useState(false);
 
   // System modal
   const [isSystemModalOpen, setIsSystemModalOpen] = useState(false);
@@ -137,14 +206,59 @@ export const CodingDetail: React.FC = () => {
 
   // RAG
   const [ragCompleteness, setRagCompleteness] = useState<any | null>(null);
-  const [ragLoading, setRagLoading] = useState(false);
   const [ragIngesting, setRagIngesting] = useState(false);
   const [ragQuery, setRagQuery] = useState('');
   const [ragQueryLoading, setRagQueryLoading] = useState(false);
   const [ragResult, setRagResult] = useState<any | null>(null);
+  const tabLoading = tabActionLoading || Object.values(resourceState).some((item) => item.loading);
+  const ragLoading = resourceState.ragCompleteness.loading;
+
+  const replaceResourceState = useCallback((next: ResourceStatusMap) => {
+    resourceStateRef.current = next;
+    setResourceState(next);
+  }, []);
+
+  const patchResourceState = useCallback((key: ResourceKey, patch: Partial<ResourceStatus>) => {
+    setResourceState((prev) => {
+      const next = {
+        ...prev,
+        [key]: {
+          ...prev[key],
+          ...patch,
+        },
+      };
+      resourceStateRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const invalidateResources = useCallback((keys: ResourceKey[]) => {
+    setResourceState((prev) => {
+      const next = { ...prev };
+      for (const key of keys) {
+        next[key] = {
+          ...prev[key],
+          loaded: false,
+          loading: false,
+          error: null,
+        };
+      }
+      resourceStateRef.current = next;
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!id) return;
+    currentProjectIdRef.current = id;
+    inflightResourceLoadsRef.current = {};
+    resourceRequestVersionRef.current = {
+      systems: 0,
+      modules: 0,
+      dependencies: 0,
+      ragCompleteness: 0,
+      treeData: 0,
+    };
 
     setCurrentFile(null);
     setSelectedDirectory(null);
@@ -165,6 +279,7 @@ export const CodingDetail: React.FC = () => {
       setModules([]);
       setDependencies([]);
       setRagCompleteness(null);
+      replaceResourceState(createEmptyResourceStatus());
       setLoading(true);
       return;
     }
@@ -175,10 +290,11 @@ export const CodingDetail: React.FC = () => {
     setModules(Array.isArray(cached.modules) ? cached.modules : []);
     setDependencies(Array.isArray(cached.dependencies) ? cached.dependencies : []);
     setRagCompleteness(cached.ragCompleteness ?? null);
+    replaceResourceState(createInitialResourceStatus(cached));
 
     hasBootstrapRef.current = Boolean(cached.project);
     setLoading(!cached.project);
-  }, [id]);
+  }, [id, replaceResourceState]);
 
   const openPreferenceModal = useCallback((opts: {
     title?: string;
@@ -222,16 +338,6 @@ export const CodingDetail: React.FC = () => {
     }
   }, [id]);
 
-  const refreshTreeData = useCallback(async () => {
-    if (!id) return;
-    try {
-      const tree = await codingApi.getDirectoryTree(id);
-      setTreeData(tree);
-    } catch (e) {
-      console.error(e);
-    }
-  }, [id]);
-
   useEffect(() => {
     if (id) {
       loadData();
@@ -251,8 +357,9 @@ export const CodingDetail: React.FC = () => {
       modules,
       dependencies,
       ragCompleteness,
+      resourceState: serializeResourceStatus(resourceState),
     });
-  }, [dependencies, id, modules, project, ragCompleteness, systems, treeData]);
+  }, [dependencies, id, modules, project, ragCompleteness, resourceState, systems, treeData]);
 
   const handleGenerateBlueprint = async () => {
     if (!id) return;
@@ -266,65 +373,125 @@ export const CodingDetail: React.FC = () => {
     }
   };
 
-  const refreshSystems = useCallback(async () => {
+  const ensureResource = useCallback(async (key: ResourceKey, opts: { force?: boolean } = {}) => {
     if (!id) return;
-    setTabLoading(true);
-    try {
-      const list = await codingApi.listSystems(id);
-      setSystems(list);
-    } catch (e) {
-      console.error(e);
-      addToast('加载系统列表失败', 'error');
-      setSystems([]);
-    } finally {
-      setTabLoading(false);
-    }
-  }, [addToast, id]);
 
-  const refreshModules = useCallback(async () => {
-    if (!id) return;
-    setTabLoading(true);
-    try {
-      const list = await codingApi.listModules(id);
-      setModules(list);
-    } catch (e) {
-      console.error(e);
-      addToast('加载模块列表失败', 'error');
-      setModules([]);
-    } finally {
-      setTabLoading(false);
+    const force = Boolean(opts.force);
+    const currentState = resourceStateRef.current[key];
+    const inflight = inflightResourceLoadsRef.current[key];
+    if (!force) {
+      if (currentState.loaded) return;
+      if (inflight) return inflight;
     }
-  }, [addToast, id]);
+
+    const requestId = id;
+    const requestVersion = resourceRequestVersionRef.current[key] + 1;
+    resourceRequestVersionRef.current[key] = requestVersion;
+    patchResourceState(key, { loading: true, error: null });
+
+    const request = (async () => {
+      try {
+        switch (key) {
+          case 'systems': {
+            const list = await codingApi.listSystems(requestId);
+            if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+            setSystems(list);
+            break;
+          }
+          case 'modules': {
+            const list = await codingApi.listModules(requestId);
+            if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+            setModules(list);
+            break;
+          }
+          case 'dependencies': {
+            const list = await codingApi.listDependencies(requestId);
+            if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+            setDependencies(list);
+            break;
+          }
+          case 'ragCompleteness': {
+            const data = await codingApi.getRagCompleteness(requestId);
+            if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+            setRagCompleteness(data);
+            break;
+          }
+          case 'treeData': {
+            const tree = await codingApi.getDirectoryTree(requestId);
+            if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+            setTreeData(tree);
+            break;
+          }
+        }
+
+        patchResourceState(key, {
+          loaded: true,
+          loading: false,
+          error: null,
+          lastLoadedAt: Date.now(),
+        });
+      } catch (e) {
+        console.error(e);
+        if (currentProjectIdRef.current !== requestId || resourceRequestVersionRef.current[key] !== requestVersion) return;
+
+        switch (key) {
+          case 'systems':
+            setSystems([]);
+            addToast('加载系统列表失败', 'error');
+            break;
+          case 'modules':
+            setModules([]);
+            addToast('加载模块列表失败', 'error');
+            break;
+          case 'dependencies':
+            setDependencies([]);
+            addToast('加载依赖列表失败', 'error');
+            break;
+          case 'ragCompleteness':
+            setRagCompleteness(null);
+            addToast('RAG 完整性检查失败', 'error');
+            break;
+          case 'treeData':
+            setTreeData(null);
+            addToast('加载目录结构失败', 'error');
+            break;
+        }
+
+        patchResourceState(key, {
+          loaded: false,
+          loading: false,
+          error: e instanceof Error ? e.message : 'load_failed',
+        });
+      } finally {
+        if (resourceRequestVersionRef.current[key] === requestVersion) {
+          delete inflightResourceLoadsRef.current[key];
+        }
+      }
+    })();
+
+    inflightResourceLoadsRef.current[key] = request;
+    return request;
+  }, [addToast, id, patchResourceState]);
+
+  const ensureResources = useCallback(async (keys: ResourceKey[], opts: { force?: boolean } = {}) => {
+    await Promise.allSettled(keys.map((key) => ensureResource(key, opts)));
+  }, [ensureResource]);
+
+  const refreshSystems = useCallback(async () => {
+    await ensureResources(['systems'], { force: true });
+  }, [ensureResources]);
 
   const refreshDependencies = useCallback(async () => {
-    if (!id) return;
-    setTabLoading(true);
-    try {
-      const list = await codingApi.listDependencies(id);
-      setDependencies(list);
-    } catch (e) {
-      console.error(e);
-      addToast('加载依赖列表失败', 'error');
-      setDependencies([]);
-    } finally {
-      setTabLoading(false);
-    }
-  }, [addToast, id]);
+    await ensureResources(['dependencies'], { force: true });
+  }, [ensureResources]);
 
   const refreshRagCompleteness = useCallback(async () => {
-    if (!id) return;
-    setRagLoading(true);
-    try {
-      const data = await codingApi.getRagCompleteness(id);
-      setRagCompleteness(data);
-    } catch (e) {
-      console.error(e);
-      addToast('RAG 完整性检查失败', 'error');
-      setRagCompleteness(null);
-    } finally {
-      setRagLoading(false);
-    }
-  }, [addToast, id]);
+    await ensureResources(['ragCompleteness'], { force: true });
+  }, [ensureResources]);
+
+  const refreshTreeData = useCallback(async () => {
+    await ensureResources(['treeData'], { force: true });
+  }, [ensureResources]);
 
 	  const ingestRag = useCallback(async (force: boolean) => {
 	    if (!id) return;
@@ -373,23 +540,22 @@ export const CodingDetail: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
-    // 概览Tab需要加载系统和模块数据
     if (activeTab === 'overview') {
-      Promise.allSettled([refreshSystems(), refreshModules()]);
+      void ensureResources(['systems', 'modules']);
+      return;
     }
-    // 架构设计Tab需要加载系统和模块数据
     if (activeTab === 'architecture') {
-      Promise.allSettled([refreshSystems(), refreshModules()]);
+      void ensureResources(['systems', 'modules']);
+      return;
     }
-    // 目录结构Tab只在进入时加载目录树（减少详情页首屏阻塞）
-    if (activeTab === 'directory' && treeData === null) {
-      refreshTreeData();
+    if (activeTab === 'directory') {
+      void ensureResources(['treeData']);
+      return;
     }
-    // 生成管理Tab需要RAG和依赖数据
     if (activeTab === 'generation') {
-      Promise.allSettled([refreshModules(), refreshDependencies(), refreshRagCompleteness()]);
+      void ensureResources(['modules', 'dependencies', 'ragCompleteness']);
     }
-  }, [activeTab, id, refreshDependencies, refreshModules, refreshRagCompleteness, refreshSystems, refreshTreeData, treeData]);
+  }, [activeTab, ensureResources, id]);
 
   const sortedSystemNumbers = useMemo(() => {
     return [...new Set(systems.map((s) => Number(s.system_number || 0)).filter((n) => n > 0))].sort((a, b) => a - b);
@@ -512,7 +678,8 @@ export const CodingDetail: React.FC = () => {
 	    try {
 	      await codingApi.deleteSystem(id, sys.system_number);
 	      addToast('系统已删除', 'success');
-	      await Promise.allSettled([refreshSystems(), refreshModules()]);
+	      invalidateResources(['systems', 'modules', 'dependencies']);
+	      await ensureResources(['systems', 'modules', 'dependencies'], { force: true });
     } catch (e) {
       console.error(e);
       addToast('删除失败', 'error');
@@ -527,22 +694,30 @@ export const CodingDetail: React.FC = () => {
 		      confirmText: '继续',
 		      dialogType: 'danger',
 		    });
-		    if (!ok) return;
-	      openPreferenceModal({
+	    if (!ok) return;
+      openPreferenceModal({
 	        title: '输入偏好指导（可选）',
 	        hint: '留空则按默认策略生成；填写可指定技术栈/分层/命名习惯等偏好。',
 	        onConfirm: async (preference?: string) => {
           try {
-            setTabLoading(true);
-            const list = await codingApi.generateSystems(id, { preference: preference || undefined });
-            setSystems(list);
-            setModules([]);
-            addToast('系统划分已生成', 'success');
+	            setTabActionLoading(true);
+	            const list = await codingApi.generateSystems(id, { preference: preference || undefined });
+	            setSystems(list);
+	            setModules([]);
+	            setDependencies([]);
+	            patchResourceState('systems', {
+	              loaded: true,
+	              loading: false,
+	              error: null,
+	              lastLoadedAt: Date.now(),
+	            });
+	            invalidateResources(['modules', 'dependencies']);
+	            addToast('系统划分已生成', 'success');
           } catch (e) {
             console.error(e);
             addToast('生成失败', 'error');
           } finally {
-            setTabLoading(false);
+	            setTabActionLoading(false);
           }
         },
       });
@@ -601,7 +776,8 @@ export const CodingDetail: React.FC = () => {
         addToast('模块已创建', 'success');
       }
       setIsModuleModalOpen(false);
-      await Promise.allSettled([refreshModules(), refreshSystems()]);
+      invalidateResources(['modules', 'systems', 'dependencies']);
+      await ensureResources(['modules', 'systems', 'dependencies'], { force: true });
     } catch (e) {
       console.error(e);
       addToast('保存失败', 'error');
@@ -622,7 +798,8 @@ export const CodingDetail: React.FC = () => {
 	    try {
 	      await codingApi.deleteModule(id, m.module_number);
 	      addToast('模块已删除', 'success');
-	      await Promise.allSettled([refreshModules(), refreshSystems(), refreshDependencies()]);
+	      invalidateResources(['modules', 'systems', 'dependencies']);
+	      await ensureResources(['modules', 'systems', 'dependencies'], { force: true });
     } catch (e) {
       console.error(e);
       addToast('删除失败', 'error');
@@ -642,21 +819,22 @@ export const CodingDetail: React.FC = () => {
 		      confirmText: '覆盖生成',
 		      dialogType: 'warning',
 		    });
-		    if (!ok) return;
-	      openPreferenceModal({
+	    if (!ok) return;
+      openPreferenceModal({
 	        title: '输入偏好指导（可选）',
 	        hint: '留空则按默认策略生成；填写可指定模块边界/命名/依赖倾向等。',
 	        onConfirm: async (preference?: string) => {
           try {
-            setTabLoading(true);
-            await codingApi.generateModules(id, { systemNumber: sysNo, preference: preference || undefined });
-            addToast('模块已生成', 'success');
-            await Promise.allSettled([refreshModules(), refreshSystems(), refreshDependencies()]);
+	            setTabActionLoading(true);
+	            await codingApi.generateModules(id, { systemNumber: sysNo, preference: preference || undefined });
+	            addToast('模块已生成', 'success');
+	            invalidateResources(['modules', 'systems', 'dependencies']);
+	            await ensureResources(['modules', 'systems', 'dependencies'], { force: true });
           } catch (e) {
             console.error(e);
             addToast('生成失败', 'error');
           } finally {
-            setTabLoading(false);
+	            setTabActionLoading(false);
           }
         },
       });
@@ -695,7 +873,8 @@ export const CodingDetail: React.FC = () => {
         ...prev,
         `全部完成：系统 ${data?.systems_processed || 0}，模块 ${data?.total_modules || 0}`,
       ]);
-      Promise.allSettled([refreshModules(), refreshSystems(), refreshDependencies()]);
+      invalidateResources(['modules', 'systems', 'dependencies']);
+      void ensureResources(['modules', 'systems', 'dependencies'], { force: true });
       return;
     }
     if (event === 'error') {
@@ -703,7 +882,7 @@ export const CodingDetail: React.FC = () => {
       setGenAllLogs((prev) => [...prev, `错误：${data?.message || 'unknown'}`]);
       return;
     }
-  }, [refreshDependencies, refreshModules, refreshSystems]);
+  }, [ensureResources, invalidateResources]);
 
   const { connect: connectModulesStream, disconnect: disconnectModulesStream } = useSSE(handleModulesSseEvent);
 
@@ -737,7 +916,8 @@ export const CodingDetail: React.FC = () => {
     try {
       await codingApi.deleteDependency(id, { id: d.id, from: d.from_module, to: d.to_module });
       addToast('依赖已删除', 'success');
-      await Promise.allSettled([refreshDependencies(), refreshModules()]);
+      invalidateResources(['dependencies', 'modules']);
+      await ensureResources(['dependencies', 'modules'], { force: true });
     } catch (e) {
       console.error(e);
       addToast('删除失败', 'error');
@@ -914,7 +1094,7 @@ export const CodingDetail: React.FC = () => {
     };
   }, [disconnectFileStream, resetFileTokenBuffer]);
 
-  if (loading) return <div className="flex h-screen items-center justify-center">加载中...</div>;
+  if (loading) return <div className="flex h-full min-h-0 items-center justify-center">加载中...</div>;
 
   // 照抄桌面端 coding_detail/mixins/tab_manager.py 的Tab配置
   const tabs = [
@@ -925,7 +1105,7 @@ export const CodingDetail: React.FC = () => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-screen bg-book-bg">
+    <div className="flex h-full min-h-0 flex-col bg-book-bg overflow-hidden">
       {/* Header - 完全照抄桌面端 coding_detail/mixins/header_manager.py */}
       <div className="h-[110px] border-b border-book-border bg-book-bg-paper flex items-center px-6 gap-4 shrink-0 z-30">
         {/* 左侧：项目图标 64x64 */}
@@ -1011,7 +1191,7 @@ export const CodingDetail: React.FC = () => {
       </div>
 
       {/* 照抄桌面端 coding_detail 的4个Tab内容区域 */}
-      <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+      <div className="perf-scroll-region flex-1 overflow-y-auto p-6 custom-scrollbar">
         {/* Tab 1: 概览 - 照抄 overview.py */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
@@ -1533,7 +1713,7 @@ export const CodingDetail: React.FC = () => {
                 </BookButton>
               </div>
               <input
-                className="w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main mb-4"
+                className="book-control mb-4 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
                 value={ragQuery}
                 onChange={(e) => setRagQuery(e.target.value)}
                 placeholder="输入问题，例如：模块职责/依赖关系/异常处理..."
@@ -1680,7 +1860,7 @@ export const CodingDetail: React.FC = () => {
           <label className="text-xs font-bold text-book-text-sub">
             优先级
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={fileInfoForm.priority}
               onChange={(e) => setFileInfoForm({ ...fileInfoForm, priority: e.target.value as CodingFilePriority })}
             >
@@ -1751,7 +1931,7 @@ export const CodingDetail: React.FC = () => {
           <label className="text-xs font-bold text-book-text-sub">
             所属系统
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={moduleForm.systemNumber}
               onChange={(e) => setModuleForm({ ...moduleForm, systemNumber: e.target.value ? Number(e.target.value) : '' })}
               disabled={Boolean(editingModule)}

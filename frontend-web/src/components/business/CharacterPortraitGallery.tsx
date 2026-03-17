@@ -8,6 +8,14 @@ import { Modal } from '../ui/Modal';
 import { useToast } from '../feedback/Toast';
 import { confirmDialog } from '../feedback/ConfirmDialog';
 import { CheckCircle2, Image as ImageIcon, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 interface CharacterPortraitGalleryProps {
   projectId: string;
@@ -442,13 +450,20 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            提示：你可以在这里把某张立绘“设为当前使用”，或删除/重绘指定立绘。
-          </div>
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Portrait Manager"
+            title={manageName ? `${manageName} 的立绘管理` : '立绘管理'}
+            description="在这里把某张立绘设为当前使用，或者删除、重绘指定立绘。"
+          >
+            <div className="flex flex-wrap gap-2">
+              {manageName ? <span className="story-pill">{manageName}</span> : null}
+              <span className="story-pill">立绘数 {managedPortraits.length}</span>
+            </div>
+          </NovelDialogIntro>
 
           {managedPortraits.length ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
               {managedPortraits.map((p) => {
                 const id = String((p as any)?.id || '');
                 const isActive = Boolean((p as any)?.is_active);
@@ -462,7 +477,7 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
                 ].filter(Boolean).join(' · ');
 
                 return (
-                  <BookCard key={id || `${manageName}-${createdAt}`} className="p-3 space-y-2">
+                  <NovelDialogSurface key={id || `${manageName}-${createdAt}`} className="space-y-3 p-3">
                     <div className="relative aspect-[3/4] overflow-hidden rounded-md bg-book-bg">
                       {p?.image_url ? (
                         <img
@@ -470,28 +485,29 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
                           alt={manageName || ''}
                           loading="lazy"
                           decoding="async"
-                          className="w-full h-full object-cover"
+                          className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-book-text-muted">
+                        <div className="flex h-full w-full items-center justify-center text-book-text-muted">
                           无图片
                         </div>
                       )}
                       {label ? (
-                        <div className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-black/60 text-white">
+                        <div className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white">
                           {label}
                         </div>
                       ) : null}
                     </div>
 
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-book-text-muted truncate">
+                    <div className="text-xs text-book-text-muted truncate">
+                      <div className="font-semibold text-book-text-main">{manageName || '角色立绘'}</div>
+                      <div className="mt-1">
                         {String((p as any)?.style || '') || '—'}
                         {createdAt ? ` · ${createdAt.slice(0, 19).replace('T', ' ')}` : ''}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <BookButton
                         variant="secondary"
                         size="sm"
@@ -523,16 +539,16 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
                         删除
                       </BookButton>
                     </div>
-                  </BookCard>
+                  </NovelDialogSurface>
                 );
               })}
             </div>
           ) : (
-            <div className="py-10 text-center text-sm text-book-text-muted">
+            <NovelDialogSurface className="py-10 text-center text-sm text-book-text-muted">
               暂无立绘数据
-            </div>
+            </NovelDialogSurface>
           )}
-        </div>
+        </NovelDialogStack>
       </Modal>
 
       {/* 生成/重绘弹窗 */}
@@ -563,45 +579,85 @@ export const CharacterPortraitGallery: React.FC<CharacterPortraitGalleryProps> =
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <div className="text-xs text-book-text-muted font-bold">风格</div>
-              <select
-                value={genStyle}
-                onChange={(e) => setGenStyle(e.target.value as PortraitStyle)}
-                className="w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main outline-none focus:border-book-primary/60"
-                disabled={Boolean(busyKey)}
-              >
-                {styles.map((s) => (
-                  <option key={s.style} value={s.style}>{s.name}</option>
-                ))}
-              </select>
-              <div className="text-[11px] text-book-text-muted">
-                {styles.find((s) => s.style === genStyle)?.description || ''}
-              </div>
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow={genMode === 'generate' ? 'Generate Portrait' : 'Regenerate Portrait'}
+            title={genMode === 'generate' ? `生成 ${genName} 的立绘` : `重绘 ${genName} 的立绘`}
+            description={
+              genMode === 'generate'
+                ? '先确定画风，再决定是否补充角色外貌描述和附加提示词。'
+                : '重绘会沿用当前角色立绘链路，但你仍可切换风格或补充附加提示词。'
+            }
+          >
+            <div className="flex flex-wrap gap-2">
+              <span className="story-pill">{genName || '待选择角色'}</span>
+              <span className="story-pill">{genStyle}</span>
             </div>
-            <BookTextarea
-              label="自定义提示词（可选）"
-              value={genCustomPrompt}
-              onChange={(e) => setGenCustomPrompt(e.target.value)}
-              rows={4}
-              placeholder="追加到系统提示词后，例如：更偏冷色调、加入特定服装细节…"
-              disabled={Boolean(busyKey)}
+          </NovelDialogIntro>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric
+              label="当前模式"
+              value={genMode === 'generate' ? '新生成' : '重绘'}
+              note={genMode === 'generate' ? '会新增一张立绘。' : '会对指定立绘执行重绘。'}
             />
-          </div>
+            <NovelDialogMetric
+              label="风格描述"
+              value={styles.find((s) => s.style === genStyle)?.name || genStyle}
+              note={styles.find((s) => s.style === genStyle)?.description || '可在下方切换。'}
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Generation Setup"
+            title="生成参数"
+            description="风格控制整体画风，自定义提示词用于补充局部细节。"
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-sm font-bold text-book-text-sub">
+                风格
+                <select
+                  value={genStyle}
+                  onChange={(e) => setGenStyle(e.target.value as PortraitStyle)}
+                  className="book-control book-select mt-1 w-full rounded-2xl border px-4 py-3 text-sm text-book-text-main outline-none focus:border-book-primary/45 focus:ring-2 focus:ring-book-primary/18"
+                  disabled={Boolean(busyKey)}
+                >
+                  {styles.map((s) => (
+                    <option key={s.style} value={s.style}>{s.name}</option>
+                  ))}
+                </select>
+                <div className="mt-2 text-[11px] font-normal leading-relaxed text-book-text-muted">
+                  {styles.find((s) => s.style === genStyle)?.description || ''}
+                </div>
+              </label>
+              <BookTextarea
+                label="自定义提示词（可选）"
+                value={genCustomPrompt}
+                onChange={(e) => setGenCustomPrompt(e.target.value)}
+                rows={4}
+                placeholder="追加到系统提示词后，例如：更偏冷色调、加入特定服装细节…"
+                disabled={Boolean(busyKey)}
+              />
+            </div>
+          </NovelDialogSection>
 
           {genMode === 'generate' ? (
-            <BookTextarea
-              label="角色外貌描述（可选）"
-              value={genDescription}
-              onChange={(e) => setGenDescription(e.target.value)}
-              rows={6}
-              placeholder="留空则尝试从蓝图自动补全（身份/性格等）"
-              disabled={Boolean(busyKey)}
-            />
+            <NovelDialogSection
+              eyebrow="Appearance"
+              title="角色外貌描述"
+              description="留空时会尝试从蓝图资料中自动补全；如果你想控制脸型、服装或年龄感，建议在这里明确写出。"
+            >
+              <BookTextarea
+                label="角色外貌描述（可选）"
+                value={genDescription}
+                onChange={(e) => setGenDescription(e.target.value)}
+                rows={6}
+                placeholder="留空则尝试从蓝图自动补全（身份 / 性格 / 外貌线索等）"
+                disabled={Boolean(busyKey)}
+              />
+            </NovelDialogSection>
           ) : null}
-        </div>
+        </NovelDialogStack>
       </Modal>
     </div>
   );

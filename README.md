@@ -405,8 +405,20 @@ flowchart LR
 git clone https://github.com/your-repo/AFN.git
 cd AFN
 
-# 一键启动（自动配置环境、安装依赖）
+# 桌面版一键启动（PyQt）
 python run_app.py
+
+# Web 版一键启动（React + Vite）
+python start_web.py
+
+# Electron 开发模式一键启动
+python start_electron.py
+```
+
+如果要运行 Electron 构建产物：
+
+```bash
+python start_electron.py --prod
 ```
 
 **系统要求**：

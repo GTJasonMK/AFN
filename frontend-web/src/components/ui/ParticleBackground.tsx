@@ -11,13 +11,6 @@ type Palette = {
   line: RGB;
 };
 
-type NavigatorConnectionInfo = Navigator & {
-  connection?: {
-    saveData?: boolean;
-    effectiveType?: string;
-  };
-};
-
 const clamp255 = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -36,7 +29,17 @@ const parseRgbTriplet = (raw: string): RGB | null => {
 const rgba = (rgb: RGB, alpha: number) =>
   `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${clamp01(alpha)})`;
 
-export const ParticleBackground: React.FC = () => {
+const THEME_APPLIED_EVENT = 'afn:theme-applied';
+
+type ParticleBackgroundProps = {
+  isDark?: boolean;
+  enableConstellations?: boolean;
+};
+
+export const ParticleBackground: React.FC<ParticleBackgroundProps> = ({
+  isDark = false,
+  enableConstellations = true,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -50,17 +53,7 @@ export const ParticleBackground: React.FC = () => {
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     if (prefersReducedMotion) return;
 
-    const connection = (navigator as NavigatorConnectionInfo).connection;
-    const effectiveType = String(connection?.effectiveType || '').toLowerCase();
-    const cpuCores = Number((navigator as Navigator & { hardwareConcurrency?: number }).hardwareConcurrency || 0);
-    const lowPowerMode = Boolean(
-      connection?.saveData ||
-      effectiveType.includes('2g') ||
-      effectiveType.includes('3g') ||
-      (Number.isFinite(cpuCores) && cpuCores > 0 && cpuCores <= 4)
-    );
-
-    const maxFps = lowPowerMode ? 24 : 40;
+    const maxFps = 40;
     const frameIntervalMs = 1000 / maxFps;
 
     let animationFrameId: number | null = null;
@@ -84,8 +77,6 @@ export const ParticleBackground: React.FC = () => {
     const paletteRef = { current: null as Palette | null };
 
     const refreshPalette = () => {
-      const isDark = document.documentElement.classList.contains('dark');
-
       // 颜色策略对齐桌面端：首页粒子在浅色主题下不应造成“整体偏暗”的暗色调
       // - 浅色：尽量使用更“灰”的墨色与更浅的连线色，降低玻璃态面板下的发灰感
       // - 深色：允许更饱和的主色与更明显的连线
@@ -285,9 +276,9 @@ export const ParticleBackground: React.FC = () => {
       particles.length = 0;
       sparkleParticles.length = 0;
 
-      const inkCount = lowPowerMode ? 8 : 15;
-      const paperCount = lowPowerMode ? 4 : 8;
-      const sparkleCount = lowPowerMode ? 10 : 20;
+      const inkCount = 12;
+      const paperCount = 6;
+      const sparkleCount = 14;
 
       for (let i = 0; i < inkCount; i++) {
         const p = new Particle('ink');
@@ -308,9 +299,8 @@ export const ParticleBackground: React.FC = () => {
       if (!pal) return;
 
       // 星座连线：只连接 sparkle 粒子，降低计算量与“脏感”
-      const maxDistance = lowPowerMode ? 120 : 150;
+      const maxDistance = 150;
       const maxDistanceSq = maxDistance * maxDistance;
-      const isDark = document.documentElement.classList.contains('dark');
       const alphaBase = (isDark ? 20 : 10) / 255;
       for (let i = 0; i < sparkleParticles.length; i++) {
         for (let j = i + 1; j < sparkleParticles.length; j++) {
@@ -341,7 +331,7 @@ export const ParticleBackground: React.FC = () => {
         for (const p of particles) {
           p.update();
         }
-        if (!lowPowerMode) {
+        if (enableConstellations) {
           drawConstellations();
         }
         for (const p of particles) {
@@ -351,21 +341,47 @@ export const ParticleBackground: React.FC = () => {
       animationFrameId = requestAnimationFrame(animate);
     };
 
-    const observer = new MutationObserver(() => refreshPalette());
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
+    const stopAnimation = () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    };
+
+    const startAnimation = () => {
+      if (document.hidden) return;
+      if (animationFrameId !== null) return;
+      lastDrawTime = 0;
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopAnimation();
+        return;
+      }
+      startAnimation();
+    };
+
+    const handleThemeApplied = () => {
+      refreshPalette();
+    };
 
     window.addEventListener('resize', resize, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener(THEME_APPLIED_EVENT, handleThemeApplied as EventListener);
     resize();
     refreshPalette();
     init();
-    animationFrameId = requestAnimationFrame(animate);
+    startAnimation();
 
     return () => {
       window.removeEventListener('resize', resize);
-      observer.disconnect();
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener(THEME_APPLIED_EVENT, handleThemeApplied as EventListener);
+      stopAnimation();
     };
-  }, []);
+  }, [enableConstellations, isDark]);
 
   // 视觉口径：浅色主题下粒子应更“淡”，避免玻璃态面板下整体偏暗；深色主题允许更明显
   return <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-0 opacity-20 dark:opacity-50" />;

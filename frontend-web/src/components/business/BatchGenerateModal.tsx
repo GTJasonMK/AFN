@@ -4,6 +4,14 @@ import { BookInput } from '../ui/BookInput';
 import { BookButton } from '../ui/BookButton';
 import { useToast } from '../feedback/Toast';
 import { useSSE } from '../../hooks/useSSE';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+  NovelDialogSurface,
+} from './novel/NovelDialogPrimitives';
 
 interface BatchGenerateModalProps {
   isOpen: boolean;
@@ -71,37 +79,64 @@ export const BatchGenerateModal: React.FC<BatchGenerateModalProps> = ({
         </div>
       }
     >
-      <div className="space-y-4">
-        <p className="text-sm text-book-text-secondary">
-          基于当前的蓝图和已有的章节内容，自动续写后续章节大纲。
-        </p>
-        <BookInput 
-          label="生成数量"
-          type="number"
-          min={1}
-          max={100}
-          value={count}
-          onChange={e => setCount(parseInt(e.target.value) || 1)}
-          disabled={generating}
-        />
-        <BookInput
-          label="起始章节（可选）"
-          type="number"
-          min={1}
-          value={startFrom}
-          onChange={(e) => {
-            const v = e.target.value.trim();
-            setStartFrom(v === '' ? '' : (parseInt(v, 10) || 1));
-          }}
-          disabled={generating}
-          placeholder="留空则自动续写到下一章"
-        />
-        {progress && (
-          <div className="text-xs text-book-primary animate-pulse font-medium">
-            {progress}
+      <NovelDialogStack>
+        <NovelDialogIntro
+          eyebrow="Batch Outline"
+          title="批量续写章节大纲"
+          description="基于当前蓝图和已有章节状态，自动续写后续章节大纲。适合在主线结构稳定后批量补齐后续章节。"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="story-pill">蓝图稳定后执行</span>
+            <span className="story-pill">支持指定起始章节</span>
           </div>
-        )}
-      </div>
+        </NovelDialogIntro>
+
+        <NovelDialogMetricGrid>
+          <NovelDialogMetric label="默认数量" value={count} note="可一次性生成 1-100 章大纲。" />
+          <NovelDialogMetric
+            label="起始方式"
+            value={startFrom === '' ? '自动续写' : `从第 ${startFrom} 章开始`}
+            note="留空时会自动从当前最大章节号的下一章开始。"
+          />
+        </NovelDialogMetricGrid>
+
+        <NovelDialogSection
+          eyebrow="Generation Setup"
+          title="生成参数"
+          description="建议先确认生成数量，再决定是否从指定章节号开始续写。"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <BookInput 
+              label="生成数量"
+              type="number"
+              min={1}
+              max={100}
+              value={count}
+              onChange={e => setCount(parseInt(e.target.value) || 1)}
+              disabled={generating}
+            />
+            <BookInput
+              label="起始章节（可选）"
+              type="number"
+              min={1}
+              value={startFrom}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setStartFrom(v === '' ? '' : (parseInt(v, 10) || 1));
+              }}
+              disabled={generating}
+              placeholder="留空则自动续写到下一章"
+            />
+          </div>
+        </NovelDialogSection>
+
+        {progress ? (
+          <NovelDialogSurface>
+            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Progress</div>
+            <div className="mt-3 text-sm font-semibold text-book-primary animate-pulse">{progress}</div>
+          </NovelDialogSurface>
+        ) : null}
+      </NovelDialogStack>
     </Modal>
   );
 };

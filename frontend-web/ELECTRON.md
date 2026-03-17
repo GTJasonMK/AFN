@@ -6,10 +6,12 @@
 
 ** 🚀 常用命令 **
 
-1. 安装依赖：`cd frontend-web && npm install`
-2. 开发模式：`cd frontend-web && npm run electron:dev`
-3. 运行构建产物：`cd frontend-web && npm run build && npm run electron:start`
-4. 生成安装包：`cd frontend-web && npm run electron:dist`
+1. 根目录一键启动开发模式：`python start_electron.py`
+2. 根目录启动生产模式：`python start_electron.py --prod`
+3. 安装依赖：`cd frontend-web && npm install`
+4. 开发模式：`cd frontend-web && npm run electron:dev`
+5. 运行构建产物：`cd frontend-web && npm run build && npm run electron:start`
+6. 生成安装包：`cd frontend-web && npm run electron:dist`
 
 
 ** 🔧 运行方式 **
@@ -19,6 +21,9 @@
 - 生产模式：
   Electron 会加载 `dist/` 静态资源，并在本地启动一个轻量 HTTP
   服务，把 `/api` 请求转发到 FastAPI。
+- 根目录脚本：
+  `start_electron.py` 会优先检查并修复 `frontend-web` 的
+  Electron/Vite 依赖，适合 Windows 下直接一键启动。
 - 数据目录：
   Electron 会把后端 `storage` 重定向到系统用户目录，避免安装版写回源码目录。
 

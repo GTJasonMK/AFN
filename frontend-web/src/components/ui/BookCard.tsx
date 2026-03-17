@@ -17,11 +17,11 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   const variants = {
     default:
-      'bg-book-bg-paper/86 border-book-border/60 shadow-[0_24px_56px_-42px_rgba(46,23,9,0.88)] before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/45 before:via-transparent before:to-book-primary/10',
+      'bg-book-bg-paper/86 border-book-border/60 shadow-[0_24px_56px_-42px_rgba(46,23,9,0.88)] before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/45 before:via-transparent before:to-book-primary/10 dark:before:from-white/14 dark:before:to-book-primary/14',
     flat:
-      'bg-book-bg-paper/72 border-book-border/40 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/30 before:to-transparent',
+      'bg-book-bg-paper/72 border-book-border/40 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/30 before:to-transparent dark:before:from-white/10',
     glass:
-      'glass-panel border-book-border/50 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/28 before:via-transparent before:to-book-primary/8',
+      'glass-panel border-book-border/50 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/28 before:via-transparent before:to-book-primary/8 dark:before:from-white/10 dark:before:to-book-primary/12',
   };
 
   const hoverStyles = hover

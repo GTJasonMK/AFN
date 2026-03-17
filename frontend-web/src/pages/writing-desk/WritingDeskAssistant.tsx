@@ -16,6 +16,7 @@ export const WritingDeskAssistant: React.FC<{
   isOpen: boolean;
   width: number;
   compact?: boolean;
+  compactMode?: 'overlay' | 'pane';
   onClose?: () => void;
   mountReady: boolean;
   onResizeMouseDown: (e: React.MouseEvent) => void;
@@ -30,13 +31,14 @@ export const WritingDeskAssistant: React.FC<{
   isOpen,
   width,
   compact = false,
+  compactMode = 'overlay',
   onClose,
   mountReady,
   onResizeMouseDown,
 }) => {
   if (!isOpen) return null;
 
-  if (compact) {
+  if (compact && compactMode === 'overlay') {
     return (
       <>
         <button
@@ -71,6 +73,7 @@ export const WritingDeskAssistant: React.FC<{
                     projectId={projectId}
                     chapterNumber={chapterNumber}
                     content={content}
+                    panelMode="pane"
                     onChangeContent={onChangeContent}
                     onLocateText={onLocateText}
                     onSelectRange={onSelectRange}
@@ -84,6 +87,29 @@ export const WritingDeskAssistant: React.FC<{
           </div>
         </div>
       </>
+    );
+  }
+
+  if (compact && compactMode === 'pane') {
+    return (
+      <div className="h-full min-h-0">
+        {mountReady ? (
+          <Suspense fallback={<div className="h-full p-4 text-xs text-book-text-muted">助手面板加载中…</div>}>
+            <AssistantPanelLazy
+              projectId={projectId}
+              chapterNumber={chapterNumber}
+              content={content}
+              panelMode="pane"
+              onChangeContent={onChangeContent}
+              onLocateText={onLocateText}
+              onSelectRange={onSelectRange}
+              onJumpToChapter={onJumpToChapter}
+            />
+          </Suspense>
+        ) : (
+          <div className="h-full p-4 text-xs text-book-text-muted">助手面板准备中…</div>
+        )}
+      </div>
     );
   }
 
@@ -101,6 +127,7 @@ export const WritingDeskAssistant: React.FC<{
               projectId={projectId}
               chapterNumber={chapterNumber}
               content={content}
+              panelMode="rail"
               onChangeContent={onChangeContent}
               onLocateText={onLocateText}
               onSelectRange={onSelectRange}

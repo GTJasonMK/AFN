@@ -421,8 +421,8 @@ const NovelDetailPage: React.FC<NovelDetailPageProps> = ({ projectId }) => {
     characterNames,
   });
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-book-text-muted">加载中...</div>;
-  if (!project) return <div className="flex h-screen items-center justify-center text-book-text-muted">项目不存在</div>;
+  if (loading) return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">加载中...</div>;
+  if (!project) return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">项目不存在</div>;
 
   return (
     <NovelDetailPageLayout
@@ -444,6 +444,6 @@ const NovelDetailPage: React.FC<NovelDetailPageProps> = ({ projectId }) => {
 
 export const NovelDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  if (!id) return <div className="flex h-screen items-center justify-center text-book-text-muted">项目不存在</div>;
+  if (!id) return <div className="flex h-full min-h-0 items-center justify-center text-book-text-muted">项目不存在</div>;
   return <NovelDetailPage projectId={id} />;
 };

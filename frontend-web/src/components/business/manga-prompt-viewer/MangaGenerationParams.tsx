@@ -65,7 +65,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="text-xs font-bold text-book-text-sub">
             风格
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={genStyle}
               onChange={(e) => setGenStyle(e.target.value as MangaGenStyle)}
               disabled={disabled}
@@ -81,7 +81,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="text-xs font-bold text-book-text-sub">
             语言
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={genLanguage}
               onChange={(e) => setGenLanguage(e.target.value as MangaGenLanguage)}
               disabled={disabled}
@@ -99,7 +99,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
             自定义风格描述
             <input
               type="text"
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={customStyle}
               onChange={(e) => setCustomStyle(e.target.value)}
               disabled={disabled}
@@ -115,7 +115,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
               type="number"
               min={3}
               max={30}
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={minPages}
               onChange={(e) => {
                 const v = Math.max(3, Math.min(30, Number(e.target.value) || 3));
@@ -131,7 +131,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
               type="number"
               min={3}
               max={30}
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={maxPages}
               onChange={(e) => {
                 const v = Math.max(3, Math.min(30, Number(e.target.value) || 3));
@@ -147,7 +147,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="text-xs font-bold text-book-text-sub">
             从阶段开始
             <select
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={startFromStage}
               onChange={(e) => setStartFromStage(e.target.value as MangaStartFromStage)}
               disabled={disabled}
@@ -167,7 +167,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
               type="number"
               min={1}
               max={20}
-              className="mt-1 w-full px-3 py-2 rounded-lg bg-book-bg border border-book-border text-sm text-book-text-main"
+              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
               value={pagePromptConcurrency}
               onChange={(e) => {
                 const v = Math.max(1, Math.min(20, Math.floor(Number(e.target.value) || 1)));
@@ -182,7 +182,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="flex items-center gap-2 text-sm text-book-text-main">
             <input
               type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
+              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
               checked={usePortraits}
               onChange={(e) => setUsePortraits(e.target.checked)}
               disabled={disabled}
@@ -192,7 +192,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="flex items-center gap-2 text-sm text-book-text-main">
             <input
               type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
+              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
               checked={autoGeneratePortraits}
               onChange={(e) => setAutoGeneratePortraits(e.target.checked)}
               disabled={disabled}
@@ -202,7 +202,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="flex items-center gap-2 text-sm text-book-text-main">
             <input
               type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
+              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
               checked={autoGeneratePageImages}
               onChange={(e) => setAutoGeneratePageImages(e.target.checked)}
               disabled={disabled}
@@ -212,7 +212,7 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
           <label className="flex items-center gap-2 text-sm text-book-text-main">
             <input
               type="checkbox"
-              className="rounded border-book-border text-book-primary focus:ring-book-primary"
+              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
               checked={forceRestart}
               onChange={(e) => setForceRestart(e.target.checked)}
               disabled={disabled}
@@ -228,4 +228,3 @@ export const MangaGenerationParams: React.FC<MangaGenerationParamsProps> = ({
     </details>
   );
 };
-

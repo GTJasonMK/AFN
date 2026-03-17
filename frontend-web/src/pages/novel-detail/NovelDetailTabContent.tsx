@@ -14,6 +14,7 @@ import {
   PART_OUTLINES_RENDER_BATCH_SIZE,
   RELATIONSHIPS_RENDER_BATCH_SIZE,
 } from './useNovelDetailRenderLimits';
+import { AppViewportScrollArea } from '../../components/layout/AppViewport';
 
 type NovelDetailTabContentProps = {
   activeTab: NovelDetailTab;
@@ -35,7 +36,7 @@ export const NovelDetailTabContent: React.FC<NovelDetailTabContentProps> = ({
   const activeTabMeta = NOVEL_DETAIL_TAB_ITEMS.find((item) => item.id === activeTab) || NOVEL_DETAIL_TAB_ITEMS[0];
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar">
+    <AppViewportScrollArea>
       <div className="mx-auto w-full max-w-6xl px-5 py-6 sm:px-7 sm:py-7">
         <div className="rounded-[28px] border border-book-border/55 bg-book-bg-paper/76 px-5 py-5 shadow-[0_24px_50px_-36px_rgba(36,18,6,0.92)]">
           <div className="eyebrow">Current Section</div>
@@ -93,6 +94,6 @@ export const NovelDetailTabContent: React.FC<NovelDetailTabContentProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </AppViewportScrollArea>
   );
 };

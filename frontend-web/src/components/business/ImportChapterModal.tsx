@@ -5,6 +5,13 @@ import { BookInput, BookTextarea } from '../ui/BookInput';
 import { useToast } from '../feedback/Toast';
 import { writerApi } from '../../api/writer';
 import { sanitizeFilenamePart } from '../../utils/sanitizeFilename';
+import {
+  NovelDialogIntro,
+  NovelDialogMetric,
+  NovelDialogMetricGrid,
+  NovelDialogSection,
+  NovelDialogStack,
+} from './novel/NovelDialogPrimitives';
 
 type Encoding = 'utf-8' | 'gb18030';
 
@@ -138,62 +145,98 @@ export const ImportChapterModal: React.FC<{
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="text-xs text-book-text-muted leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/50">
-            说明：导入会创建（或更新）指定章节，并生成一个新的版本。支持直接粘贴正文，或选择 TXT/MD 文件自动填充内容。
-          </div>
-
-          <div className="flex items-end gap-3 flex-wrap">
-            <BookButton variant="secondary" size="sm" onClick={pickFile} disabled={importing}>
-              选择文件
-            </BookButton>
-            <div className="text-xs text-book-text-muted">
-              {fileName ? `已选择：${fileName}` : '未选择文件（可直接粘贴内容）'}
+        <NovelDialogStack>
+          <NovelDialogIntro
+            eyebrow="Chapter Import"
+            title="导入章节文本"
+            description="导入会创建或更新指定章节，并生成一个新的正文版本。你可以直接粘贴内容，也可以选择 TXT / MD 文件自动填充。"
+          >
+            <div className="flex flex-wrap gap-2">
+              <span className="story-pill">建议先确认章节号</span>
+              <span className="story-pill">可切换编码避免乱码</span>
             </div>
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-book-text-muted">编码</span>
-              <select
-                value={encoding}
-                onChange={(e) => setEncoding(e.target.value === 'gb18030' ? 'gb18030' : 'utf-8')}
+          </NovelDialogIntro>
+
+          <NovelDialogMetricGrid>
+            <NovelDialogMetric label="建议章节" value={suggestedChapterNumber} note="默认从当前最大章节号继续递增。" />
+            <NovelDialogMetric
+              label="文件状态"
+              value={fileName ? '已选择' : '未选择'}
+              note={fileName ? fileName : '未选择文件时可直接粘贴正文内容。'}
+            />
+          </NovelDialogMetricGrid>
+
+          <NovelDialogSection
+            eyebrow="Source"
+            title="文件与编码"
+            description="如果 TXT 出现乱码，可优先尝试切换为 GB18030。"
+            actions={(
+              <BookButton variant="secondary" size="sm" onClick={pickFile} disabled={importing}>
+                选择文件
+              </BookButton>
+            )}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-book-text-sub">
+                {fileName ? `已选择：${fileName}` : '未选择文件（可直接粘贴内容）'}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-book-text-muted">编码</span>
+                <select
+                  value={encoding}
+                  onChange={(e) => setEncoding(e.target.value === 'gb18030' ? 'gb18030' : 'utf-8')}
+                  disabled={importing}
+                  className="book-control book-select rounded-full border px-3 py-2 text-xs outline-none focus:border-book-primary/50"
+                  title="若文件乱码，请切换为 GB18030（部分浏览器可能不支持）"
+                >
+                  <option value="utf-8">UTF-8</option>
+                  <option value="gb18030">GB18030（Win 常见）</option>
+                </select>
+              </div>
+            </div>
+          </NovelDialogSection>
+
+          <NovelDialogSection
+            eyebrow="Target"
+            title="章节定位"
+            description="导入前确认章节号和章节标题，避免覆盖到错误章节。"
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <BookInput
+                label="章节号"
+                type="number"
+                min={1}
+                value={chapterNumber}
+                onChange={(e) => setChapterNumber(parseInt(e.target.value, 10) || 1)}
                 disabled={importing}
-                className="text-xs bg-book-bg-paper border border-book-border/50 rounded-md px-2 py-1 outline-none focus:border-book-primary/50"
-                title="若文件乱码，请切换为 GB18030（部分浏览器可能不支持）"
-              >
-                <option value="utf-8">UTF-8</option>
-                <option value="gb18030">GB18030（Win 常见）</option>
-              </select>
+              />
+              <BookInput
+                label="章节标题"
+                value={chapterTitle}
+                onChange={(e) => {
+                  setTitleTouched(true);
+                  setChapterTitle(e.target.value);
+                }}
+                disabled={importing}
+              />
             </div>
-          </div>
+          </NovelDialogSection>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <BookInput
-              label="章节号"
-              type="number"
-              min={1}
-              value={chapterNumber}
-              onChange={(e) => setChapterNumber(parseInt(e.target.value, 10) || 1)}
+          <NovelDialogSection
+            eyebrow="Content"
+            title="章节内容"
+            description="支持直接粘贴正文；如果已选择文件，这里会自动填充解码后的内容。"
+          >
+            <BookTextarea
+              label="章节内容"
+              rows={12}
+              value={chapterContent}
+              onChange={(e) => setChapterContent(e.target.value)}
+              placeholder="可直接粘贴；或选择 TXT/MD 文件自动填充"
               disabled={importing}
             />
-            <BookInput
-              label="章节标题"
-              value={chapterTitle}
-              onChange={(e) => {
-                setTitleTouched(true);
-                setChapterTitle(e.target.value);
-              }}
-              disabled={importing}
-            />
-          </div>
-
-          <BookTextarea
-            label="章节内容"
-            rows={12}
-            value={chapterContent}
-            onChange={(e) => setChapterContent(e.target.value)}
-            placeholder="可直接粘贴；或选择 TXT/MD 文件自动填充"
-            disabled={importing}
-          />
-        </div>
+          </NovelDialogSection>
+        </NovelDialogStack>
       </Modal>
     </>
   );

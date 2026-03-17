@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { BookButton } from '../../components/ui/BookButton';
+import { NovelDialogIntro, NovelDialogStack } from '../../components/business/novel/NovelDialogPrimitives';
 
 const ChapterPromptPreviewViewLazy = lazy(() =>
   import('../../components/business/ChapterPromptPreviewView').then((m) => ({ default: m.ChapterPromptPreviewView }))
@@ -31,19 +32,29 @@ export const PromptPreviewModal: React.FC<{
     >
       <div className="max-h-[75vh] overflow-auto custom-scrollbar pr-1">
         {chapterNumber ? (
-          <Suspense fallback={<div className="text-sm text-book-text-muted">提示词预览加载中…</div>}>
-            <ChapterPromptPreviewViewLazy
-              projectId={projectId}
-              chapterNumber={chapterNumber}
-              writingNotes={writingNotes}
-              onChangeWritingNotes={onChangeWritingNotes}
+          <NovelDialogStack>
+            <NovelDialogIntro
+              eyebrow="Prompt Preview"
+              title={`第 ${chapterNumber} 章的模型输入预览`}
+              description="这里展示系统提示词、用户提示词和 RAG 查询上下文，便于确认这次生成到底会喂给模型什么信息。"
             />
-          </Suspense>
+            <Suspense fallback={<div className="text-sm text-book-text-muted">提示词预览加载中…</div>}>
+              <ChapterPromptPreviewViewLazy
+                projectId={projectId}
+                chapterNumber={chapterNumber}
+                writingNotes={writingNotes}
+                onChangeWritingNotes={onChangeWritingNotes}
+              />
+            </Suspense>
+          </NovelDialogStack>
         ) : (
-          <div className="text-sm text-book-text-muted">请先选择章节</div>
+          <NovelDialogIntro
+            eyebrow="Prompt Preview"
+            title="请先选择章节"
+            description="提示词预览需要基于具体章节构建，选择章节后即可查看本次生成的完整输入。"
+          />
         )}
       </div>
     </Modal>
   );
 };
-

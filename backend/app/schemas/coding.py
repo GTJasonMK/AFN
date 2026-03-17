@@ -177,6 +177,9 @@ class CodingUIControl(BaseModel):
 class CodingConverseResponse(BaseModel):
     """需求分析对话接口的统一返回体"""
     ai_message: str
+    next_question: Optional[str] = None
+    next_question_points: Optional[List[str]] = None
+    progress_summary: Optional[str] = None
     ui_control: CodingUIControl
     conversation_state: Dict[str, Any]
     is_complete: bool = False
