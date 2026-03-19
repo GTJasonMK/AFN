@@ -21,11 +21,16 @@ export const ConfigCardActions: React.FC<ConfigCardActionsProps> = ({
 }) => {
   return (
     <div className="flex flex-col gap-2 shrink-0">
-      {!isActive && onActivate && (
-        <BookButton variant="primary" size="sm" onClick={onActivate}>
-          设为激活
+      {onActivate ? (
+        <BookButton
+          variant={isActive ? 'ghost' : 'primary'}
+          size="sm"
+          onClick={onActivate}
+          disabled={isActive}
+        >
+          {isActive ? '已激活' : '设为激活'}
         </BookButton>
-      )}
+      ) : null}
       <BookButton variant="ghost" size="sm" onClick={onTest} disabled={isTesting}>
         <FlaskConical size={14} className={`mr-1 ${isTesting ? 'animate-pulse' : ''}`} />
         {isTesting ? '测试中…' : '测试'}
@@ -41,4 +46,3 @@ export const ConfigCardActions: React.FC<ConfigCardActionsProps> = ({
     </div>
   );
 };
-

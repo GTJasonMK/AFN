@@ -48,7 +48,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidthClassName = 'max-w-lg',
   className = '',
-  bodyClassName = 'overflow-y-auto px-5 py-5 sm:px-7 sm:py-6',
+  bodyClassName = 'min-h-0 flex-1 overflow-y-auto custom-scrollbar px-5 py-5 sm:px-7 sm:py-6',
   zIndexClassName = 'z-50',
   closeOnBackdrop = true,
   showCloseButton = true,
@@ -162,7 +162,7 @@ export const Modal: React.FC<ModalProps> = ({
             ) : null}
           </div>
 
-          <div className={bodyClassName}>
+          <div data-modal-body="1" className={`min-h-0 flex-1 ${bodyClassName}`}>
             {children}
           </div>
 

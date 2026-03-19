@@ -86,7 +86,7 @@ function readV1TokenTriplet(obj: Record<string, any> | null | undefined, keys: s
   return toRgbTriplet(getAnyKey(obj ?? null, keys));
 }
 
-function buildCssVarsFromUnifiedConfig(config: ThemeConfigUnifiedRead): CssVarMap {
+export function buildCssVarsFromUnifiedConfig(config: ThemeConfigUnifiedRead): CssVarMap {
   const vars: CssVarMap = {};
 
   const configVersion = Number(config.config_version || 1);

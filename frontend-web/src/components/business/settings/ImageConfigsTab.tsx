@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { BookButton } from '../../ui/BookButton';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
 import { confirmDialog } from '../../feedback/ConfirmDialog';
@@ -9,11 +10,10 @@ import {
   ImageConfigUpdate,
   ImageProviderType,
 } from '../../../api/imageConfigs';
-import { CheckCircle2, Circle, Image as ImageIcon } from 'lucide-react';
+import { CheckCircle2, Circle, Image as ImageIcon, Plus, RefreshCw } from 'lucide-react';
 import { ConfigsCardsList } from './components/ConfigsCardsList';
 import { SettingsEditorModal } from './components/SettingsEditorModal';
-import { SettingsInfoBox } from './components/SettingsInfoBox';
-import { SettingsTabHeader } from './components/SettingsTabHeader';
+import { SettingsTabPanel } from './components/SettingsTabPanel';
 
 type EditorMode = 'create' | 'edit';
 
@@ -219,39 +219,69 @@ export const ImageConfigsTab: React.FC = () => {
   const commonListProps = { items: sorted, loading, testingId, onActivate: handleActivate, onTest: handleTest, onEdit: openEdit, onDelete: handleDelete };
 
   return (
-    <div className="space-y-4">
-      <SettingsTabHeader title="图片配置" loading={loading} onRefresh={fetchList} onCreate={openCreate} />
-
-      <SettingsInfoBox>说明：图片配置用于角色立绘、漫画图片等生成。请确保至少有一个“激活配置”。</SettingsInfoBox>
-
-      <ConfigsCardsList
-        {...commonListProps}
-        renderLeft={(cfg) => (
-          <>
-            <div className="flex items-center gap-2">
-              {cfg.is_active ? (
-                <CheckCircle2 size={16} className="text-book-primary" />
-              ) : (
-                <Circle size={16} className="text-book-text-muted" />
-              )}
-              <div className="font-bold text-book-text-main truncate">{cfg.config_name}</div>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-book-bg text-book-text-muted font-bold border border-book-border/40">
-                {PROVIDER_LABELS[cfg.provider_type] || cfg.provider_type}
-              </span>
-              {cfg.is_verified && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">已验证</span>
-              )}
+    <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
+      <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-book-text-main">图片配置</div>
+              <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
+                用于角色立绘、漫画图片等生成；请确保至少有一个“激活配置”。
+              </div>
             </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-book-text-muted">
-              <div className="truncate">Base URL：{cfg.api_base_url || '—'}</div>
-              <div className="truncate">模型：{cfg.model_name || '—'}</div>
-              <div className="truncate">默认风格：{cfg.default_style || '—'}</div>
-              <div className="truncate">默认比例：{cfg.default_ratio || '—'}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <BookButton variant="ghost" size="sm" onClick={fetchList} disabled={loading}>
+                <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+                刷新
+              </BookButton>
+              <BookButton variant="primary" size="sm" onClick={openCreate}>
+                <Plus size={14} className="mr-1" />
+                新增
+              </BookButton>
             </div>
-          </>
-        )}
-      />
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+          <ConfigsCardsList
+            {...commonListProps}
+            renderLeft={(cfg) => {
+              const providerLabel = PROVIDER_LABELS[cfg.provider_type] || cfg.provider_type;
+              const baseUrl = cfg.api_base_url || '—';
+              const model = cfg.model_name || '—';
+              const style = cfg.default_style || '—';
+              const ratio = cfg.default_ratio || '—';
+
+              return (
+                <>
+                  <div className="flex items-center gap-2">
+                    {cfg.is_active ? (
+                      <CheckCircle2 size={16} className="text-book-primary" />
+                    ) : (
+                      <Circle size={16} className="text-book-text-muted" />
+                    )}
+                    <div className="font-bold text-book-text-main truncate">{cfg.config_name}</div>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-book-bg text-book-text-muted font-bold border border-book-border/40">
+                      {providerLabel}
+                    </span>
+                    {cfg.is_verified && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">已验证</span>
+                    )}
+                  </div>
+
+                  <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 text-xs text-book-text-muted sm:grid-cols-2">
+                    <div className="min-w-0 truncate" title={`Base URL：${baseUrl}`}>Base URL：{baseUrl}</div>
+                    <div className="min-w-0 truncate" title={`模型：${model}`}>模型：{model}</div>
+                    <div className="min-w-0 truncate" title={`默认风格：${style}`}>默认风格：{style}</div>
+                    <div className="min-w-0 truncate" title={`默认比例：${ratio}`}>默认比例：{ratio}</div>
+                  </div>
+                </>
+              );
+            }}
+          />
+        </div>
+      </div>
 
       <SettingsEditorModal
         isOpen={Boolean(editor)}
@@ -308,6 +338,6 @@ export const ImageConfigsTab: React.FC = () => {
           />
         </div>
       </SettingsEditorModal>
-    </div>
+    </SettingsTabPanel>
   );
 };

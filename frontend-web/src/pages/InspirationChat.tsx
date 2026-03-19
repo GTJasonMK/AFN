@@ -486,20 +486,6 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     : '把模糊需求整理为可执行的系统边界、角色职责与架构方案。';
   const safeConversationState = conversationState && typeof conversationState === 'object' ? conversationState : {};
 
-  const extractNextQuestion = (state: any) => {
-    if (!state || typeof state !== 'object') return null;
-    const raw =
-      state.next_question ??
-      state.nextQuestion ??
-      state.next_prompt ??
-      state.nextPrompt ??
-      state.next_step_question ??
-      state.nextStepQuestion;
-    if (raw === null || raw === undefined) return null;
-    const text = String(raw).trim();
-    return text ? text : null;
-  };
-
   const extractProgressSummary = (state: any) => {
     if (!state || typeof state !== 'object') return null;
     const raw = state.progress_summary ?? state.progressSummary ?? state.collected_summary ?? state.collectedSummary;
@@ -508,7 +494,6 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     return text ? text : null;
   };
 
-  const nextQuestion = isTyping ? null : extractNextQuestion(safeConversationState);
   const progressSummary = isTyping ? null : extractProgressSummary(safeConversationState);
   const progressSummaryLines = progressSummary
     ? progressSummary
@@ -518,13 +503,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         .filter(Boolean)
         .map((line) => line.replace(/^[-•]\s*/, ''))
     : [];
-  const nextQuestionPlaceholder = mode === 'novel'
-    ? '模型会在每轮回答结束后给你一个「下一个问题」，用来继续收敛世界观、人物与冲突。'
-    : '模型会在每轮回答结束后给你一个「下一个问题」，用来继续补齐边界、角色与核心流程。';
   const progressSummaryPlaceholder = mode === 'novel'
     ? '每轮回答后，这里会自动总结已确认的世界观、人物与冲突信息，便于你判断何时生成蓝图。'
     : '每轮回答后，这里会自动总结已确认的目标、功能与约束信息，便于你判断何时生成架构设计。';
-  const progressSummaryMaxLines = isElectronRuntime ? 10 : 10;
+  const progressSummaryMaxLines = isElectronRuntime ? 16 : 10;
 
   const chapterCount = Number((safeConversationState as any)?.chapter_count ?? (safeConversationState as any)?.chapterCount ?? 0) || null;
 
@@ -602,12 +584,12 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       label: '对话区',
       hint: '继续推进灵感对话，保持上下文连续。',
     },
-	    {
-	      id: 'guide',
-	      label: '引导区',
-	      hint: '查看进度、下一个问题和已收集信息，不把它们堆到主对话下面。',
-	    },
-	  ] as const;
+		    {
+		      id: 'guide',
+		      label: '引导区',
+		      hint: '查看当前进度与生成提示，不把它们堆到主对话下面。',
+		    },
+		  ] as const;
 
   return (
     <AppViewportShell>
@@ -878,30 +860,11 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 	                    ) : null}
 	                  </div>
 
-	                  <div className="mt-4 rounded-xl border border-book-border/50 bg-book-bg/72 px-4 py-3">
-	                    <div className="text-xs font-semibold text-book-text-muted">
-	                      下一个问题
-	                    </div>
-	                    {nextQuestion && !isTyping ? (
-	                      <div
-	                        className={`mt-2 text-sm leading-relaxed text-book-text-main ${
-	                          isElectronRuntime ? 'line-clamp-4' : ''
-	                        }`}
-	                      >
-	                        {nextQuestion}
+	                      <div className="mt-4 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+	                        当前进度
 	                      </div>
-	                    ) : (
-	                      <div className="mt-2 text-xs leading-relaxed text-book-text-sub">
-	                        {isTyping ? 'AI 正在生成下一步问题…' : nextQuestionPlaceholder}
-	                      </div>
-	                    )}
-	                  </div>
-
-                      <div className="mt-5 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-                        当前进度
-                      </div>
-                      <div className="mt-3 flex-1 min-h-0 flex flex-col">
-                        {progressSummaryLines.length > 0 ? (
+	                      <div className="mt-3 flex-1 min-h-0 flex flex-col">
+	                        {progressSummaryLines.length > 0 ? (
                           isElectronRuntime ? (
                             <>
                               <ul className="space-y-2">
@@ -912,13 +875,13 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
                                   </li>
                                 ))}
                               </ul>
-                              <div className="mt-auto pt-4 text-xs leading-relaxed text-book-text-sub">
-                                {showBlueprintBtn
-                                  ? (mode === 'coding' ? '信息已足够清晰，可以开始生成架构设计。' : '信息已足够清晰，可以开始生成蓝图。')
-                                  : '继续回答上面的「下一个问题」，这里会自动汇总你已经确认的信息。'}
-                              </div>
-                            </>
-                          ) : (
+	                              <div className="mt-auto pt-4 text-xs leading-relaxed text-book-text-sub">
+	                                {showBlueprintBtn
+	                                  ? (mode === 'coding' ? '信息已足够清晰，可以开始生成架构设计。' : '信息已足够清晰，可以开始生成蓝图。')
+	                                  : '继续在右侧对话区补充信息，这里会自动汇总你已经确认的关键点。'}
+	                              </div>
+	                            </>
+	                          ) : (
                             <ul className="space-y-2">
                               {progressSummaryLines.slice(0, progressSummaryMaxLines).map((line, idx) => (
                                 <li
@@ -947,34 +910,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
                         )}
                       </div>
 
-		                  {collectedInfoItems.length > 0 ? (
-                        <details className="mt-5 rounded-xl border border-book-border/45 bg-book-bg-paper/80">
-                          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-book-text-main">
-                            已收集信息（{collectedInfoItems.length}）
-                          </summary>
-                          <div className="px-4 pb-4">
-                            <div className="space-y-3">
-                              {collectedInfoItems.map((item) => (
-                                <div
-                                  key={item.label}
-                                  className="rounded-xl border border-book-border/50 bg-book-bg/72 px-4 py-3"
-                                >
-                                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-                                    {item.label}
-                                  </div>
-                                  <div className="mt-2 text-sm leading-relaxed text-book-text-main">
-                                    {item.value}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </details>
-                      ) : null}
-		                </BookCard>
-		              </aside>
-	            </div>
-	          </div>
+			                </BookCard>
+			              </aside>
+		            </div>
+		          </div>
 
           <div
             className={

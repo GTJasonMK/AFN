@@ -27,9 +27,9 @@ export const SettingsTabHeader: React.FC<SettingsTabHeaderProps> = ({
 }) => {
   const label = refreshLabel || '刷新';
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm font-bold text-book-text-main">{title}</div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <BookButton variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
           {showRefreshIcon && <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />}
           {showRefreshIcon ? label : loading ? (refreshingLabel || '刷新中…') : label}

@@ -3,6 +3,7 @@ import React from 'react';
 interface BookCardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'flat' | 'glass';
   hover?: boolean;
+  contentClassName?: string;
 }
 
 export const BookCard: React.FC<BookCardProps> = ({
@@ -10,6 +11,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   className = '',
   variant = 'default',
   hover = false,
+  contentClassName = '',
   ...props
 }) => {
   const baseStyles =
@@ -33,7 +35,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       className={`${baseStyles} ${variants[variant]} ${hoverStyles} ${className}`}
       {...props}
     >
-      <div className="relative z-[1]">{children}</div>
+      <div className={`relative z-[1] ${contentClassName}`}>{children}</div>
     </div>
   );
 };

@@ -39,6 +39,42 @@ function ensureBackendPortBridge() {
 
 ensureBackendPortBridge()
 
+function enableAutoHideScrollbars() {
+  if (typeof window === 'undefined') return
+
+  const timers = new WeakMap<HTMLElement, number>()
+
+  const markActive = (el: HTMLElement) => {
+    if (!el.classList.contains('custom-scrollbar')) return
+
+    el.dataset.scrollActive = '1'
+
+    const prevTimer = timers.get(el)
+    if (typeof prevTimer === 'number') {
+      window.clearTimeout(prevTimer)
+    }
+
+    const timer = window.setTimeout(() => {
+      el.removeAttribute('data-scroll-active')
+      timers.delete(el)
+    }, 900)
+    timers.set(el, timer)
+  }
+
+  // scroll 事件不冒泡，但可以在 capture 阶段监听到来自各滚动容器的事件
+  window.addEventListener(
+    'scroll',
+    (event) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      markActive(target)
+    },
+    true,
+  )
+}
+
+enableAutoHideScrollbars()
+
 const runtime = ((window as any)?.electronAPI?.isElectron === true) ? 'electron' : 'web'
 document.documentElement.dataset.runtime = runtime
 

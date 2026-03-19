@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { BookButton } from '../../ui/BookButton';
 import { BookInput } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
 import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { llmConfigsApi, LLMConfigCreate, LLMConfigRead, LLMConfigUpdate } from '../../../api/llmConfigs';
-import { CheckCircle2, Circle } from 'lucide-react';
+import { CheckCircle2, Circle, Plus, RefreshCw } from 'lucide-react';
 import { ConfigsCardsList } from './components/ConfigsCardsList';
 import { SettingsEditorModal } from './components/SettingsEditorModal';
-import { SettingsInfoBox } from './components/SettingsInfoBox';
-import { SettingsTabHeader } from './components/SettingsTabHeader';
+import { SettingsTabPanel } from './components/SettingsTabPanel';
 
 type EditorMode = 'create' | 'edit';
 
@@ -163,40 +163,67 @@ export const LLMConfigsTab: React.FC = () => {
   const commonListProps = { items: sorted, loading, testingId, onActivate: handleActivate, onTest: handleTest, onEdit: openEdit, onDelete: handleDelete };
 
   return (
-    <div className="space-y-4">
-      <SettingsTabHeader title="LLM 配置" loading={loading} onRefresh={fetchList} onCreate={openCreate} />
-
-      <SettingsInfoBox>
-        说明：LLM 配置用于蓝图/大纲/写作等生成。桌面版默认使用“激活的配置”；WebUI 与桌面保持一致。
-      </SettingsInfoBox>
-
-      <ConfigsCardsList
-        {...commonListProps}
-        renderLeft={(cfg) => (
-          <>
-            <div className="flex items-center gap-2">
-              {cfg.is_active ? (
-                <CheckCircle2 size={16} className="text-book-primary" />
-              ) : (
-                <Circle size={16} className="text-book-text-muted" />
-              )}
-              <div className="font-bold text-book-text-main truncate">{cfg.config_name}</div>
-              {cfg.is_verified && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">已验证</span>
-              )}
-              {cfg.test_status === 'failed' && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-book-accent/10 text-book-accent font-bold">测试失败</span>
-              )}
+    <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
+      <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-book-text-main">LLM 配置</div>
+              <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
+                用于蓝图/大纲/写作等生成；桌面端默认使用“激活的配置”。
+              </div>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-book-text-muted">
-              <div className="truncate">URL：{cfg.llm_provider_url || '（使用默认）'}</div>
-              <div className="truncate">模型：{cfg.llm_provider_model || '（使用默认）'}</div>
-              <div className="truncate">Key：{cfg.llm_provider_api_key_masked || '（未设置）'}</div>
-              <div className="truncate">上次测试：{cfg.last_test_at || '—'}</div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <BookButton variant="ghost" size="sm" onClick={fetchList} disabled={loading}>
+                <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+                刷新
+              </BookButton>
+              <BookButton variant="primary" size="sm" onClick={openCreate}>
+                <Plus size={14} className="mr-1" />
+                新增
+              </BookButton>
             </div>
-          </>
-        )}
-      />
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+          <ConfigsCardsList
+            {...commonListProps}
+            renderLeft={(cfg) => {
+              const url = cfg.llm_provider_url || '（使用默认）';
+              const model = cfg.llm_provider_model || '（使用默认）';
+              const key = cfg.llm_provider_api_key_masked || '（未设置）';
+              const lastTestAt = cfg.last_test_at || '—';
+
+              return (
+                <>
+                  <div className="flex items-center gap-2">
+                    {cfg.is_active ? (
+                      <CheckCircle2 size={16} className="text-book-primary" />
+                    ) : (
+                      <Circle size={16} className="text-book-text-muted" />
+                    )}
+                    <div className="font-bold text-book-text-main truncate">{cfg.config_name}</div>
+                    {cfg.is_verified && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">已验证</span>
+                    )}
+                    {cfg.test_status === 'failed' && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-book-accent/10 text-book-accent font-bold">测试失败</span>
+                    )}
+                  </div>
+                  <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 text-xs text-book-text-muted sm:grid-cols-2">
+                    <div className="min-w-0 truncate" title={`URL：${url}`}>URL：{url}</div>
+                    <div className="min-w-0 truncate" title={`模型：${model}`}>模型：{model}</div>
+                    <div className="min-w-0 truncate" title={`Key：${key}`}>Key：{key}</div>
+                    <div className="min-w-0 truncate" title={`上次测试：${lastTestAt}`}>上次测试：{lastTestAt}</div>
+                  </div>
+                </>
+              );
+            }}
+          />
+        </div>
+      </div>
 
       <SettingsEditorModal
         isOpen={Boolean(editor)}
@@ -216,6 +243,6 @@ export const LLMConfigsTab: React.FC = () => {
           </div>
         </div>
       </SettingsEditorModal>
-    </div>
+    </SettingsTabPanel>
   );
 };

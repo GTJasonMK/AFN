@@ -387,6 +387,76 @@ html[data-runtime='electron'] .metric-tile {
       color 180ms ease;
   }
 
+  .book-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--color-border) / 0.62);
+    background:
+      linear-gradient(
+        90deg,
+        rgb(var(--color-primary) / 0.88) var(--range-percent, 0%),
+        rgb(var(--color-border) / 0.42) var(--range-percent, 0%)
+      );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / var(--control-highlight-opacity));
+    backdrop-filter: blur(14px);
+    cursor: pointer;
+    transition:
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      background 180ms ease;
+  }
+
+  .book-range:focus-visible {
+    outline: none;
+    border-color: rgb(var(--color-primary) / 0.32);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / var(--control-highlight-opacity)),
+      0 0 0 4px rgb(var(--color-primary) / 0.16);
+  }
+
+  .book-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid rgb(var(--color-bg-secondary) / 0.92);
+    background: rgb(var(--color-primary));
+    box-shadow: 0 18px 40px -30px rgb(0 0 0 / 0.62);
+    transition:
+      transform 120ms ease,
+      background 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .book-range:active::-webkit-slider-thumb {
+    transform: scale(1.05);
+  }
+
+  .book-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid rgb(var(--color-bg-secondary) / 0.92);
+    background: rgb(var(--color-primary));
+    box-shadow: 0 18px 40px -30px rgb(0 0 0 / 0.62);
+    transition:
+      transform 120ms ease,
+      background 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .book-range::-moz-range-track {
+    height: 0.6rem;
+    border-radius: 999px;
+    background: rgb(var(--color-border) / 0.42);
+    border: 1px solid rgb(var(--color-border) / 0.62);
+  }
+
   .book-control:hover {
     border-color: rgb(var(--color-primary) / 0.26);
   }
@@ -416,21 +486,61 @@ html[data-runtime='electron'] .metric-tile {
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
+  border-radius: 999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--color-border));
-  border-radius: 3px;
+  background-color: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(var(--color-text-tertiary));
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.custom-scrollbar[data-scroll-active='1'] {
+  scrollbar-color: rgb(var(--color-border) / 0.95) rgb(var(--color-bg-secondary) / 0.18);
+}
+
+.custom-scrollbar:hover,
+.custom-scrollbar:focus-within {
+  scrollbar-color: rgb(var(--color-border) / 0.9) rgb(var(--color-bg-secondary) / 0.14);
+}
+
+.custom-scrollbar[data-scroll-active='1']::-webkit-scrollbar-track {
+  background: rgb(var(--color-bg-secondary) / 0.3);
+}
+
+.custom-scrollbar:hover::-webkit-scrollbar-track,
+.custom-scrollbar:focus-within::-webkit-scrollbar-track {
+  background: rgb(var(--color-bg-secondary) / 0.22);
+}
+
+.custom-scrollbar[data-scroll-active='1']::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-border) / 0.98);
+}
+
+.custom-scrollbar:hover::-webkit-scrollbar-thumb,
+.custom-scrollbar:focus-within::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-border) / 0.92);
+}
+
+.custom-scrollbar[data-scroll-active='1']::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--color-text-tertiary) / 0.9);
+}
+
+.custom-scrollbar:hover::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar:focus-within::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--color-text-tertiary) / 0.9);
 }
 
 .no-scrollbar::-webkit-scrollbar {

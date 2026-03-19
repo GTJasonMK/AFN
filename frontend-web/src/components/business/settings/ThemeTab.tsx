@@ -1,14 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookCard } from '../../ui/BookCard';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookButton } from '../../ui/BookButton';
+import { BookCard } from '../../ui/BookCard';
+import { BookSlider } from '../../ui/BookSlider';
 import { BookInput, BookTextarea } from '../../ui/BookInput';
 import { useToast } from '../../feedback/Toast';
 import { confirmDialog } from '../../feedback/ConfirmDialog';
 import { themeConfigsApi, ThemeConfigListItem, ThemeConfigUnifiedRead, ThemeMode } from '../../../api/themeConfigs';
-import { applyThemeFromUnifiedConfig } from '../../../theme/applyTheme';
-import { CheckCircle2, Circle, Copy, Download, Edit3, Palette, RotateCcw, Trash2, Upload } from 'lucide-react';
-import { SettingsInfoBox } from './components/SettingsInfoBox';
-import { SettingsTabHeader } from './components/SettingsTabHeader';
+import { applyThemeFromUnifiedConfig, buildCssVarsFromUnifiedConfig } from '../../../theme/applyTheme';
+import { CheckCircle2, Circle, Copy, Download, Edit3, Palette, RefreshCw, RotateCcw, Search, Trash2, Upload } from 'lucide-react';
+import { SettingsTabPanel } from './components/SettingsTabPanel';
 import { defaultWebAppearanceConfig, notifyWebAppearanceChanged, readWebAppearanceConfig, writeWebAppearanceConfig, type WebAppearanceConfig } from '../../../theme/webAppearance';
 import { Dropdown } from '../../ui/Dropdown';
 import { Modal } from '../../ui/Modal';
@@ -21,6 +21,7 @@ import {
   NovelDialogStack,
   NovelDialogSurface,
 } from '../novel/NovelDialogPrimitives';
+import { useSettingsModalFooter } from './components/SettingsModalFooterContext';
 
 function formatTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -31,15 +32,32 @@ function formatTime(iso?: string | null): string {
   }
 }
 
+function formatDate(iso?: string | null): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
+}
+
 export const ThemeTab: React.FC = () => {
   const { addToast } = useToast();
+  const { setFooter } = useSettingsModalFooter();
   const [items, setItems] = useState<ThemeConfigListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [activatingId, setActivatingId] = useState<number | null>(null);
   const [appearance, setAppearance] = useState<WebAppearanceConfig>(() => readWebAppearanceConfig());
+  const [appearanceBaseline, setAppearanceBaseline] = useState<WebAppearanceConfig>(() => readWebAppearanceConfig());
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedUnified, setSelectedUnified] = useState<ThemeConfigUnifiedRead | null>(null);
+  const [selectedLoading, setSelectedLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -87,6 +105,88 @@ export const ThemeTab: React.FC = () => {
   }, [items]);
 
   const currentMode: ThemeMode = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+  const [modeView, setModeView] = useState<ThemeMode>(currentMode);
+  const modeList = modeView === 'light' ? byMode.light : byMode.dark;
+
+  const filteredList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return modeList;
+    return modeList.filter((it) => String(it.config_name || '').toLowerCase().includes(q));
+  }, [modeList, query]);
+
+  const selectedItem = useMemo(() => {
+    if (!selectedId) return null;
+    return items.find((it) => it.id === selectedId) ?? null;
+  }, [items, selectedId]);
+
+  useEffect(() => {
+    if (modeList.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    if (selectedId && modeList.some((it) => it.id === selectedId)) return;
+    const active = modeList.find((it) => it.is_active);
+    setSelectedId(active?.id ?? modeList[0].id);
+  }, [modeList, selectedId]);
+
+  const refreshSelectedUnified = useCallback(
+    async (id?: number | null) => {
+      const targetId = Number(id ?? selectedId ?? 0);
+      if (!targetId) return;
+      setSelectedLoading(true);
+      try {
+        const cfg = await themeConfigsApi.getUnified(targetId);
+        setSelectedUnified(cfg);
+      } catch (e) {
+        console.error(e);
+        setSelectedUnified(null);
+      } finally {
+        setSelectedLoading(false);
+      }
+    },
+    [selectedId],
+  );
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedUnified(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedLoading(true);
+    themeConfigsApi
+      .getUnified(selectedId)
+      .then((cfg) => {
+        if (cancelled) return;
+        setSelectedUnified(cfg);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (cancelled) return;
+        setSelectedUnified(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSelectedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  const appearanceDirty = useMemo(() => {
+    return JSON.stringify(appearance) !== JSON.stringify(appearanceBaseline);
+  }, [appearance, appearanceBaseline]);
+
+  const previewStyle = useMemo(() => {
+    if (!selectedUnified) return undefined;
+    const vars = buildCssVarsFromUnifiedConfig(selectedUnified);
+    const style: React.CSSProperties = {};
+    Object.entries(vars).forEach(([key, value]) => {
+      (style as any)[key] = value;
+    });
+    return style;
+  }, [selectedUnified]);
 
   const sanitizeFilename = (name: string) => {
     const raw = String(name || '').trim();
@@ -233,6 +333,9 @@ export const ThemeTab: React.FC = () => {
       }
 
       await fetchList();
+      if (editingId === selectedId) {
+        await refreshSelectedUnified(editingId);
+      }
       closeEditor();
     } catch (e) {
       console.error(e);
@@ -385,6 +488,9 @@ export const ThemeTab: React.FC = () => {
       }
       addToast('已重置主题配置', 'success');
       await fetchList();
+      if (cfg.id === selectedId) {
+        await refreshSelectedUnified(cfg.id);
+      }
 
       if (cfg.is_active && cfg.parent_mode === currentMode) {
         const active = await themeConfigsApi.getActive(currentMode);
@@ -439,6 +545,9 @@ export const ThemeTab: React.FC = () => {
       }
 
       await fetchList();
+      if (id === selectedId) {
+        setSelectedUnified(cfg);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -451,246 +560,475 @@ export const ThemeTab: React.FC = () => {
       const cfg = await themeConfigsApi.getActive(currentMode);
       if (cfg) {
         applyThemeFromUnifiedConfig(cfg);
-        addToast('已同步当前主题到 WebUI', 'success');
+        addToast('已同步当前主题到界面', 'success');
       } else {
-        addToast('当前模式没有激活的主题配置（已使用默认主题）', 'error');
+        addToast('当前模式没有激活主题配置', 'error');
       }
     } catch (e) {
       console.error(e);
     }
   };
 
-  const renderSection = (mode: ThemeMode, list: ThemeConfigListItem[]) => {
-    return (
-      <BookCard className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs font-bold text-book-text-muted flex items-center gap-2">
-            <Palette size={14} className="text-book-primary" />
-            {mode === 'light' ? '亮色主题' : '深色主题'}
-          </div>
-          <div className="text-[11px] text-book-text-muted">
-            当前显示模式：{currentMode === 'light' ? '亮色' : '深色'}
-          </div>
-        </div>
+  const getThemeMenuItems = (cfg: ThemeConfigListItem) => [
+    {
+      label: '编辑',
+      icon: <Edit3 size={14} />,
+      onClick: () => openEditor(cfg.id),
+    },
+    {
+      label: '复制',
+      icon: <Copy size={14} />,
+      onClick: () => handleDuplicate(cfg),
+    },
+    {
+      label: '导出',
+      icon: <Download size={14} />,
+      onClick: () => handleExportOne(cfg),
+    },
+    { type: 'divider' as const },
+    {
+      label: '重置',
+      icon: <RotateCcw size={14} />,
+      onClick: () => handleReset(cfg),
+      danger: true,
+    },
+    {
+      label: '删除',
+      icon: <Trash2 size={14} />,
+      onClick: () => handleDelete(cfg),
+      danger: true,
+    },
+  ];
 
-        {list.length === 0 ? (
-          <div className="py-8 text-center text-book-text-muted text-sm">暂无主题配置</div>
-        ) : (
-          <div className="space-y-3">
-            {list.map((cfg) => (
-              <BookCard key={cfg.id} className="p-4 bg-book-bg/40 border-book-border/40">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      {cfg.is_active ? (
-                        <CheckCircle2 size={16} className="text-book-primary" />
-                      ) : (
-                        <Circle size={16} className="text-book-text-muted" />
-                      )}
-                      <div className="font-bold text-book-text-main truncate">{cfg.config_name}</div>
-                      {cfg.is_active && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-book-primary/10 text-book-primary font-bold">
-                          已激活
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2 text-xs text-book-text-muted grid grid-cols-2 gap-2">
-                      <div className="truncate">创建：{formatTime(cfg.created_at)}</div>
-                      <div className="truncate">更新：{formatTime(cfg.updated_at)}</div>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-start gap-2">
-                    {!cfg.is_active && (
-                      <BookButton
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleActivate(cfg.id)}
-                        disabled={activatingId === cfg.id || busyId === cfg.id}
-                      >
-                        {activatingId === cfg.id ? '切换中…' : '激活'}
-                      </BookButton>
-                    )}
-                    <Dropdown
-                      items={[
-                        {
-                          label: '编辑',
-                          icon: <Edit3 size={14} />,
-                          onClick: () => openEditor(cfg.id),
-                        },
-                        {
-                          label: '复制',
-                          icon: <Copy size={14} />,
-                          onClick: () => handleDuplicate(cfg),
-                        },
-                        {
-                          label: '导出',
-                          icon: <Download size={14} />,
-                          onClick: () => handleExportOne(cfg),
-                        },
-                        {
-                          label: '重置',
-                          icon: <RotateCcw size={14} />,
-                          onClick: () => handleReset(cfg),
-                          danger: true,
-                        },
-                        {
-                          label: '删除',
-                          icon: <Trash2 size={14} />,
-                          onClick: () => handleDelete(cfg),
-                          danger: true,
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
-              </BookCard>
-            ))}
-          </div>
-        )}
-      </BookCard>
-    );
-  };
-
-  const applyAppearance = () => {
-    writeWebAppearanceConfig(appearance);
+  const applyAppearance = useCallback(() => {
+    writeWebAppearanceConfig(appearanceRef.current);
     notifyWebAppearanceChanged();
-    addToast('已应用 Web 外观设置（仅本地浏览器生效）', 'success');
-  };
+    setAppearanceBaseline(appearanceRef.current);
+    addToast('已应用界面外观（本机生效）', 'success');
+  }, [addToast]);
 
-  const resetAppearance = () => {
+  const resetAppearance = useCallback(() => {
     const cfg = defaultWebAppearanceConfig();
     setAppearance(cfg);
     writeWebAppearanceConfig(cfg);
     notifyWebAppearanceChanged();
-    addToast('已重置 Web 外观设置', 'success');
-  };
+    setAppearanceBaseline(cfg);
+    addToast('已恢复默认外观', 'success');
+  }, [addToast]);
+
+  const footer = useMemo(
+    () => (
+      <>
+        <BookButton variant="ghost" size="sm" onClick={resetAppearance}>
+          恢复默认
+        </BookButton>
+        <BookButton variant="primary" size="sm" onClick={applyAppearance} disabled={!appearanceDirty}>
+          {appearanceDirty ? '应用外观' : '已应用'}
+        </BookButton>
+      </>
+    ),
+    [applyAppearance, appearanceDirty, resetAppearance],
+  );
+
+  useEffect(() => {
+    setFooter(footer);
+    return () => setFooter(null);
+  }, [footer, setFooter]);
 
   return (
-    <div className="space-y-4">
-      <SettingsTabHeader
-        title="主题"
-        loading={loading}
-        onRefresh={fetchList}
-        showRefreshIcon
-        extraActions={
-          <div className="flex items-center gap-2">
-            <BookButton variant="ghost" size="sm" onClick={handleSyncCurrent}>
-              同步当前主题
-            </BookButton>
-            <BookButton variant="ghost" size="sm" onClick={handleExportAll} disabled={exporting}>
-              <Download size={14} className="mr-1" />
-              {exporting ? '导出中…' : '导出'}
-            </BookButton>
-            <BookButton variant="ghost" size="sm" onClick={handleImportClick} disabled={importing}>
-              <Upload size={14} className="mr-1" />
-              {importing ? '导入中…' : '导入'}
-            </BookButton>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleImportFile(f);
-              }}
-            />
+    <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
+      <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-[28px] border border-book-border/55 bg-book-bg-paper/70 shadow-surface backdrop-blur-xl">
+          <div className="grid h-full min-h-0 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+            <aside className="min-h-0 flex flex-col border-b border-book-border/45 lg:border-b-0 lg:border-r lg:border-book-border/45">
+              <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+                      <Palette size={16} className="text-book-primary" />
+                      主题库
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <BookButton variant="ghost" size="sm" onClick={fetchList} disabled={loading}>
+                        <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+                        刷新
+                      </BookButton>
+                      <BookButton variant="ghost" size="sm" onClick={handleSyncCurrent}>
+                        <RefreshCw size={14} className="mr-1" />
+                        同步
+                      </BookButton>
+                      <Dropdown
+                        label="备份"
+                        items={[
+                          {
+                            label: exporting ? '导出中…' : '导出全部',
+                            icon: <Download size={14} />,
+                            onClick: () => {
+                              if (exporting) return;
+                              void handleExportAll();
+                            },
+                          },
+                          {
+                            label: importing ? '导入中…' : '导入…',
+                            icon: <Upload size={14} />,
+                            onClick: handleImportClick,
+                          },
+                        ]}
+                      />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="application/json"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleImportFile(f);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setModeView('light')}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                          modeView === 'light'
+                            ? 'bg-book-primary text-white shadow-lg'
+                            : 'text-book-text-muted hover:text-book-text-main'
+                        }`}
+                      >
+                        亮色
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModeView('dark')}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                          modeView === 'dark'
+                            ? 'bg-book-primary text-white shadow-lg'
+                            : 'text-book-text-muted hover:text-book-text-main'
+                        }`}
+                      >
+                        深色
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-book-text-muted">
+                      当前界面：<span className="font-mono">{currentMode === 'light' ? 'LIGHT' : 'DARK'}</span>
+                      {' · '}
+                      共 <span className="font-mono">{modeList.length}</span> 条
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <BookInput
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="搜索主题…"
+                      className="py-2 pl-9 text-xs"
+                    />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-book-text-muted" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-3 pr-1 custom-scrollbar">
+                {loading ? (
+                  <div className="py-10 text-center text-book-text-muted text-sm">加载中…</div>
+                ) : filteredList.length === 0 ? (
+                  <div className="py-10 text-center text-book-text-muted text-sm">
+                    {query.trim() ? '未找到匹配主题' : '暂无主题配置'}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredList.map((cfg) => {
+                      const isSelected = cfg.id === selectedId;
+                      const isBusy = activatingId === cfg.id || busyId === cfg.id;
+                      return (
+                        <button
+                          key={cfg.id}
+                          type="button"
+                          onClick={() => setSelectedId(cfg.id)}
+                          className={`group w-full rounded-[22px] border px-3 py-2 text-left transition-all ${
+                            isSelected
+                              ? 'border-book-primary/30 bg-book-primary/10'
+                              : 'border-book-border/40 bg-book-bg-paper/40 hover:border-book-primary/20 hover:bg-book-bg-paper/55'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                {cfg.is_active ? (
+                                  <CheckCircle2 size={16} className="text-book-primary" />
+                                ) : (
+                                  <Circle size={16} className="text-book-text-muted" />
+                                )}
+                                <div className="min-w-0 flex-1 truncate text-xs font-bold text-book-text-main">
+                                  {cfg.config_name}
+                                </div>
+                                {cfg.is_active ? (
+                                  <span className="shrink-0 text-[10px] rounded-full border border-book-primary/25 bg-book-primary/10 px-2 py-0.5 font-bold text-book-primary">
+                                    已激活
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-[10px] text-book-text-muted">
+                                更新：{formatDate(cfg.updated_at)} · ID {cfg.id}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 flex items-center gap-2">
+                              <Dropdown items={getThemeMenuItems(cfg)} />
+                            </div>
+                          </div>
+
+                          {isBusy ? (
+                            <div className="mt-2 text-[10px] text-book-text-muted">处理中…</div>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </aside>
+
+            <section className="min-h-0 flex flex-col">
+              <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
+                {!selectedItem ? (
+                  <div className="text-sm text-book-text-muted">请选择一个主题配置</div>
+                ) : (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="max-w-full truncate text-sm font-bold text-book-text-main">
+                          {selectedItem.config_name}
+                        </div>
+                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-2.5 py-1 text-[10px] font-bold text-book-text-muted">
+                          {selectedItem.parent_mode === 'dark' ? '深色' : '亮色'}
+                        </span>
+                        {selectedItem.is_active ? (
+                          <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
+                            当前已激活
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 text-[11px] text-book-text-muted">
+                        创建：{formatDate(selectedItem.created_at)} · 更新：{formatDate(selectedItem.updated_at)}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {!selectedItem.is_active ? (
+                        <BookButton
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleActivate(selectedItem.id)}
+                          disabled={activatingId === selectedItem.id || busyId === selectedItem.id}
+                        >
+                          {activatingId === selectedItem.id ? '切换中…' : '激活'}
+                        </BookButton>
+                      ) : null}
+                      <BookButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEditor(selectedItem.id)}
+                        disabled={busyId === selectedItem.id}
+                      >
+                        <Edit3 size={14} className="mr-1" />
+                        编辑
+                      </BookButton>
+                      <Dropdown items={getThemeMenuItems(selectedItem)} label="更多" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 pr-1 custom-scrollbar">
+                {!selectedItem ? (
+                  <div className="h-full flex items-center justify-center text-book-text-muted">从左侧选择一个主题</div>
+                ) : selectedLoading ? (
+                  <div className="py-10 text-center text-book-text-muted text-sm">加载主题详情…</div>
+                ) : selectedUnified ? (
+                  <div className="space-y-4">
+                    <div className="rounded-[24px] border border-book-border/45 bg-book-bg-paper/50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-bold text-book-text-sub">概览</div>
+                        <div className="text-[10px] text-book-text-muted">V{selectedUnified.config_version || 1}</div>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/50 px-4 py-3">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                            Mode
+                          </div>
+                          <div className="mt-2 text-sm font-bold text-book-text-main">
+                            {selectedUnified.parent_mode === 'dark' ? 'Dark' : 'Light'}
+                          </div>
+                          <div className="mt-1 text-[11px] text-book-text-muted">
+                            影响 {selectedUnified.parent_mode === 'dark' ? '深色' : '亮色'} 外观
+                          </div>
+                        </div>
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/50 px-4 py-3">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                            Version
+                          </div>
+                          <div className="mt-2 text-sm font-bold text-book-text-main">V{selectedUnified.config_version || 1}</div>
+                          <div className="mt-1 text-[11px] text-book-text-muted">
+                            {Number(selectedUnified.config_version || 1) === 2 ? '组件/令牌结构' : '传统字段结构'}
+                          </div>
+                        </div>
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/50 px-4 py-3">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                            Created
+                          </div>
+                          <div className="mt-2 text-sm font-bold text-book-text-main">{formatDate(selectedUnified.created_at)}</div>
+                          <div className="mt-1 text-[11px] text-book-text-muted">{formatTime(selectedUnified.created_at)}</div>
+                        </div>
+                        <div className="rounded-[22px] border border-book-border/45 bg-book-bg/50 px-4 py-3">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                            Updated
+                          </div>
+                          <div className="mt-2 text-sm font-bold text-book-text-main">{formatDate(selectedUnified.updated_at)}</div>
+                          <div className="mt-1 text-[11px] text-book-text-muted">{formatTime(selectedUnified.updated_at)}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-[24px] border border-book-border/45 bg-book-bg-paper/50 p-4 ${
+                        selectedUnified.parent_mode === 'dark' ? 'dark' : ''
+                      }`}
+                      style={previewStyle}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-bold text-book-text-sub">预览（局部）</div>
+                        <div className="text-[10px] text-book-text-muted">不会影响整体界面</div>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <BookCard variant="glass" className="p-4">
+                          <div className="text-xs font-bold text-book-text-main">玻璃卡片</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-book-text-sub">
+                            检查在当前主题下的对比度与层次。
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <BookButton size="sm" variant="primary">
+                              主按钮
+                            </BookButton>
+                            <BookButton size="sm" variant="secondary">
+                              次按钮
+                            </BookButton>
+                          </div>
+                        </BookCard>
+                        <div className="rounded-[24px] border border-book-border/45 bg-book-bg/55 p-4">
+                          <div className="text-xs font-bold text-book-text-main">控件</div>
+                          <div className="mt-3 space-y-3">
+                            <BookInput placeholder="输入框预览…" className="py-2 text-xs" />
+                            <div className="flex flex-wrap gap-2">
+                              <span className="inline-flex items-center rounded-full border border-book-border/55 bg-book-bg-paper/70 px-3 py-1 text-[10px] font-semibold text-book-text-muted">
+                                tag
+                              </span>
+                              <span className="inline-flex items-center rounded-full border border-book-primary/25 bg-book-primary/10 px-3 py-1 text-[10px] font-bold text-book-primary">
+                                active
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-book-border/45 bg-book-bg-paper/50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs font-bold text-book-text-sub">背景与玻璃效果</div>
+                          {appearanceDirty ? (
+                            <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
+                              未应用
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 text-[10px] font-semibold text-book-text-muted">
+                              已应用
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-book-text-muted">应用按钮在右下角</div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <label className="flex items-center gap-2 text-xs font-bold text-book-text-sub">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(appearance.enabled)}
+                            onChange={(e) => setAppearance((prev) => ({ ...prev, enabled: e.target.checked }))}
+                            className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
+                          />
+                          启用背景图
+                        </label>
+
+                        <div className="sm:col-span-2">
+                          <div className="text-[11px] font-bold text-book-text-sub">背景图 URL</div>
+                          <input
+                            type="text"
+                            value={appearance.backgroundImageUrl || ''}
+                            onChange={(e) => setAppearance((prev) => ({ ...prev, backgroundImageUrl: e.target.value }))}
+                            placeholder="https://..."
+                            className="book-control mt-1 w-full rounded-2xl border px-4 py-2 text-xs text-book-text-main outline-none focus:border-book-primary/50"
+                          />
+                        </div>
+
+                        <BookSlider
+                          label="模糊（px）"
+                          min={0}
+                          max={48}
+                          step={1}
+                          value={Number(appearance.blurPx) || 0}
+                          onChange={(next) => setAppearance((prev) => ({ ...prev, blurPx: next }))}
+                          formatValue={(v) => `${Math.round(v)}px`}
+                          numberInputWidthClassName="w-20"
+                        />
+
+                        <BookSlider
+                          label="遮罩不透明度（0~1）"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={Number(appearance.overlayOpacity) || 0}
+                          onChange={(next) => setAppearance((prev) => ({ ...prev, overlayOpacity: next }))}
+                          formatValue={(v) => v.toFixed(2)}
+                          numberInputWidthClassName="w-20"
+                        />
+                      </div>
+
+                      {appearance.enabled && (appearance.backgroundImageUrl || '').trim() ? (
+                        <div className="mt-4">
+                          <div className="text-[11px] text-book-text-muted mb-1">预览</div>
+                          <div className="h-28 rounded-2xl overflow-hidden border border-book-border/40 bg-book-bg relative">
+                            <div
+                              className="absolute inset-0 bg-center bg-cover"
+                              style={{
+                                backgroundImage: `url(${String(appearance.backgroundImageUrl || '').trim()})`,
+                                filter:
+                                  (Number(appearance.blurPx) || 0) > 0
+                                    ? `blur(${Math.max(0, Math.min(48, Number(appearance.blurPx) || 0))}px)`
+                                    : undefined,
+                                transform: (Number(appearance.blurPx) || 0) > 0 ? 'scale(1.05)' : undefined,
+                              }}
+                            />
+                            <div
+                              className="absolute inset-0 bg-book-bg"
+                              style={{ opacity: Math.max(0, Math.min(1, Number(appearance.overlayOpacity) || 0)) }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-10 text-center text-book-text-muted text-sm">无法加载该主题详情</div>
+                )}
+              </div>
+            </section>
           </div>
-        }
-      />
-
-      <SettingsInfoBox>
-        说明：主题配置来自后端主题系统。激活后会立即应用到当前 WebUI（仅对对应模式生效）。
-      </SettingsInfoBox>
-
-      <BookCard className="p-4">
-        <div className="text-xs font-bold text-book-text-muted flex items-center gap-2">
-          <Palette size={14} className="text-book-accent" />
-          Web 外观（本地）
         </div>
-        <div className="mt-1 text-[11px] text-book-text-muted leading-relaxed">
-          仅写入浏览器 localStorage，不影响后端/桌面端。可用于模拟桌面端“背景图/透明/玻璃态”等效果（浏览器只能做 CSS 级近似）。
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <label className="text-xs font-bold text-book-text-sub flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={Boolean(appearance.enabled)}
-              onChange={(e) => setAppearance((prev) => ({ ...prev, enabled: e.target.checked }))}
-              className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
-            />
-            启用背景图
-          </label>
-
-          <label className="text-xs font-bold text-book-text-sub">
-            背景图 URL
-            <input
-              type="text"
-              value={appearance.backgroundImageUrl || ''}
-              onChange={(e) => setAppearance((prev) => ({ ...prev, backgroundImageUrl: e.target.value }))}
-              placeholder="https://..."
-              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
-            />
-          </label>
-
-          <label className="text-xs font-bold text-book-text-sub">
-            模糊（px）
-            <input
-              type="number"
-              min={0}
-              max={48}
-              value={Number(appearance.blurPx) || 0}
-              onChange={(e) => setAppearance((prev) => ({ ...prev, blurPx: Math.max(0, Math.min(48, Number(e.target.value) || 0)) }))}
-              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
-            />
-          </label>
-
-          <label className="text-xs font-bold text-book-text-sub">
-            遮罩不透明度（0~1）
-            <input
-              type="number"
-              step={0.05}
-              min={0}
-              max={1}
-              value={Number(appearance.overlayOpacity) || 0}
-              onChange={(e) => setAppearance((prev) => ({ ...prev, overlayOpacity: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
-              className="book-control mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main outline-none focus:border-book-primary/50"
-            />
-          </label>
-        </div>
-
-        {appearance.enabled && (appearance.backgroundImageUrl || '').trim() ? (
-          <div className="mt-4">
-            <div className="text-[11px] text-book-text-muted mb-1">预览</div>
-            <div className="h-28 rounded-lg overflow-hidden border border-book-border/40 bg-book-bg relative">
-              <div
-                className="absolute inset-0 bg-center bg-cover"
-                style={{
-                  backgroundImage: `url(${String(appearance.backgroundImageUrl || '').trim()})`,
-                  filter: (Number(appearance.blurPx) || 0) > 0 ? `blur(${Math.max(0, Math.min(48, Number(appearance.blurPx) || 0))}px)` : undefined,
-                  transform: (Number(appearance.blurPx) || 0) > 0 ? 'scale(1.05)' : undefined,
-                }}
-              />
-              <div className="absolute inset-0 bg-book-bg" style={{ opacity: Math.max(0, Math.min(1, Number(appearance.overlayOpacity) || 0)) }} />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="mt-4 flex justify-end gap-2">
-          <BookButton variant="ghost" size="sm" onClick={resetAppearance}>
-            重置
-          </BookButton>
-          <BookButton variant="primary" size="sm" onClick={applyAppearance}>
-            应用
-          </BookButton>
-        </div>
-      </BookCard>
-
-      <div className="grid grid-cols-2 gap-4">
-        {renderSection('light', byMode.light)}
-        {renderSection('dark', byMode.dark)}
       </div>
 
       <Modal
@@ -840,6 +1178,6 @@ export const ThemeTab: React.FC = () => {
           <NovelDialogSurface className="text-sm text-book-text-muted">无法加载该配置</NovelDialogSurface>
         )}
       </Modal>
-    </div>
+    </SettingsTabPanel>
   );
 };

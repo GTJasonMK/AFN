@@ -14,6 +14,10 @@ const FRONTEND_DIR = path.resolve(__dirname, '..');
 const ROOT_DIR = path.resolve(FRONTEND_DIR, '..');
 const IS_DEV_MODE = !app.isPackaged && process.argv.includes('--dev');
 
+// Electron/Windows 默认可能启用 overlay scrollbars（滚动条仅在滚动时短暂出现）。
+// 桌面端设置面板需要“可见且可拖拽”的滚动条以保证可操作性。
+app.commandLine.appendSwitch('disable-features', 'OverlayScrollbar,OverlayScrollbars');
+
 const runtime = {
   backendPort: DEFAULT_BACKEND_PORT,
   frontendPort: DEFAULT_FRONTEND_PORT,

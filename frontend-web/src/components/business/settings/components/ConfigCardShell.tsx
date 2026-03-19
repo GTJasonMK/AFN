@@ -24,12 +24,18 @@ export const ConfigCardShell: React.FC<ConfigCardShellProps> = ({
   onDelete,
 }) => {
   return (
-    <BookCard className="p-4">
+    <BookCard
+      variant="flat"
+      className="p-4"
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {children}
           {testMessage ? (
-            <div className="mt-2 text-xs text-book-text-tertiary bg-book-bg p-2 rounded border border-book-border/40">
+            <div
+              className="mt-2 text-xs text-book-text-muted bg-book-bg-paper/70 p-2 rounded-2xl border border-book-border/40 line-clamp-3"
+              title={testMessage}
+            >
               {testMessage}
             </div>
           ) : null}
@@ -47,4 +53,3 @@ export const ConfigCardShell: React.FC<ConfigCardShellProps> = ({
     </BookCard>
   );
 };
-

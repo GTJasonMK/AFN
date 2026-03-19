@@ -14,7 +14,7 @@ export const BookButton: React.FC<BookButtonProps> = ({
   ...props
 }) => {
   const base =
-    'relative inline-flex items-center justify-center gap-2 rounded-full border font-sans font-semibold tracking-[0.02em] transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-book-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-book-bg disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none';
+    'relative inline-flex items-center justify-center gap-2 rounded-full border font-sans font-semibold tracking-[0.02em] whitespace-nowrap transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-book-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-book-bg disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none';
 
   const variants = {
     primary:
