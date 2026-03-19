@@ -10,7 +10,7 @@ export const BookInput = forwardRef<HTMLInputElement, BookInputProps>(
     return (
       <div className="w-full">
         {label && (
-          <label className="mb-2 ml-1 block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+          <label className="mb-2 ml-1 block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub">
             {label}
           </label>
         )}
@@ -45,7 +45,7 @@ export const BookTextarea = forwardRef<HTMLTextAreaElement, BookTextareaProps>(
     return (
       <div className="w-full">
         {label && (
-          <label className="mb-2 ml-1 block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+          <label className="mb-2 ml-1 block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub">
             {label}
           </label>
         )}

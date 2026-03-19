@@ -38,8 +38,11 @@ export const AppViewportFrame: React.FC<{
 export const AppViewportScrollArea: React.FC<{
   children: React.ReactNode;
   className?: string;
-}> = ({ children, className }) => (
-  <div className={cx('perf-scroll-region custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain', className)}>
+} & React.HTMLAttributes<HTMLDivElement>> = ({ children, className, ...props }) => (
+  <div
+    {...props}
+    className={cx('perf-scroll-region custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain', className)}
+  >
     {children}
   </div>
 );

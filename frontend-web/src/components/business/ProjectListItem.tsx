@@ -2,8 +2,8 @@ import React, { useRef } from 'react';
 import { Clock, Trash2, ChevronRight, Book, Code } from 'lucide-react';
 import { getStatusText } from '../../utils/constants';
 import {
-  getProjectPrimaryLabel,
-  getProjectWorkspaceLabel,
+  getProjectHomeEntryLabel,
+  getProjectSecondaryEntryLabel,
 } from '../../utils/projectRouting';
 
 export interface ProjectListItemModel {
@@ -57,9 +57,9 @@ const ProjectListItemInner: React.FC<ProjectListItemProps> = ({
   const kindLabel = isDense
     ? (project.kind === 'coding' ? 'Prompt' : '小说')
     : (project.kind === 'coding' ? 'Prompt 工程' : '小说项目');
-  const primaryLabel = getProjectPrimaryLabel(project);
-  const workspaceLabel = getProjectWorkspaceLabel(project);
-  const showWorkspaceEntry = Boolean(workspaceLabel && onOpenWorkspace);
+  const primaryLabel = getProjectHomeEntryLabel(project);
+  const secondaryLabel = getProjectSecondaryEntryLabel(project);
+  const showWorkspaceEntry = Boolean(secondaryLabel && onOpenWorkspace);
   const denseTitleClampStyle: React.CSSProperties | undefined = isDense
     ? {
         display: '-webkit-box',
@@ -194,9 +194,9 @@ const ProjectListItemInner: React.FC<ProjectListItemProps> = ({
                   onOpenWorkspace?.(project);
                 }}
                 className={secondaryActionClassName}
-                aria-label={workspaceLabel || undefined}
+                aria-label={secondaryLabel || undefined}
               >
-                {workspaceLabel}
+                {secondaryLabel}
               </button>
             ) : null}
             {onDelete ? (

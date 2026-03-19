@@ -1,4 +1,5 @@
-import { apiClient } from './client';
+import { apiClient, LONG_TASK_TIMEOUT_MS } from './client';
+import type { AxiosRequestConfig } from 'axios';
 
 export interface Novel {
   id: string;
@@ -142,8 +143,8 @@ export const novelsApi = {
     return response.data;
   },
 
-  get: async (id: string) => {
-    const response = await apiClient.get<NovelProjectDetail>(`/novels/${id}`);
+  get: async (id: string, reqConfig?: AxiosRequestConfig) => {
+    const response = await apiClient.get<NovelProjectDetail>(`/novels/${id}`, reqConfig);
     return response.data;
   },
 
@@ -177,6 +178,7 @@ export const novelsApi = {
           force_regenerate: opts?.forceRegenerate ? true : undefined,
           allow_incomplete: opts?.allowIncomplete ? true : undefined,
         },
+        timeout: LONG_TASK_TIMEOUT_MS,
       }
     );
     return response.data;
@@ -187,7 +189,7 @@ export const novelsApi = {
     const response = await apiClient.post<BlueprintGenerationResponse>(
       `/novels/${id}/blueprint/refine`,
       { refinement_instruction: refinementInstruction },
-      { params: { force } }
+      { params: { force }, timeout: LONG_TASK_TIMEOUT_MS }
     );
     return response.data;
   },

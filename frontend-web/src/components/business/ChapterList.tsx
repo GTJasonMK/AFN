@@ -1,8 +1,9 @@
-import React, { useDeferredValue, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Chapter } from '../../api/writer';
 import { Plus, Search, FileText, CheckCircle2, CircleDashed, Edit3, Trash2, RefreshCw, Sparkles } from 'lucide-react';
 import { BlueprintCard } from './BlueprintCard';
 import { Dropdown } from '../ui/Dropdown';
+import { BookCard } from '../ui/BookCard';
 import { novelsApi } from '../../api/novels';
 import { protagonistApi } from '../../api/protagonist';
 import { API_BASE_URL } from '../../api/client';
@@ -28,6 +29,10 @@ interface ChapterListProps {
   onResetChapter: (chapter: Chapter) => void;
   onDeleteChapter: (chapter: Chapter) => void;
   onBatchGenerate: () => void;
+  canBatchGenerate?: boolean;
+  batchGenerateDisabledReason?: string | null;
+  canCreateChapter?: boolean;
+  createChapterDisabledReason?: string | null;
 }
 
 const INITIAL_CHAPTER_RENDER_LIMIT = 80;
@@ -69,15 +74,47 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onResetChapter,
   onDeleteChapter,
   onBatchGenerate,
+  canBatchGenerate = true,
+  batchGenerateDisabledReason,
+  canCreateChapter = true,
+  createChapterDisabledReason,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [blueprintPortrait, setBlueprintPortrait] = useState<{ name: string | null; url: string } | null>(null);
+  const [profilePeekOpen, setProfilePeekOpen] = useState(false);
+  const peekContainerRef = useRef<HTMLDivElement | null>(null);
   const [renderLimit, setRenderLimit] = useState(INITIAL_CHAPTER_RENDER_LIMIT);
   const [draftState, setDraftState] = useState<{ projectId: string | null; chapters: Set<number> }>({
     projectId: projectId || null,
     chapters: EMPTY_DRAFT_SET,
   });
+
+  useEffect(() => {
+    setProfilePeekOpen(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!profilePeekOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfilePeekOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [profilePeekOpen]);
+
+  useEffect(() => {
+    if (!profilePeekOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const root = peekContainerRef.current;
+      if (!root) return;
+      const target = e.target as Node | null;
+      if (target && root.contains(target)) return;
+      setProfilePeekOpen(false);
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, [profilePeekOpen]);
 
   const sortedChapters = useMemo(() => {
     return [...chapters].sort((a, b) => a.chapter_number - b.chapter_number);
@@ -229,6 +266,16 @@ export const ChapterList: React.FC<ChapterListProps> = ({
     return chapters.filter((chapter) => chapter.generation_status === 'successful' || chapter.generation_status === 'completed').length;
   }, [chapters]);
 
+  const peekProjectTitle = String(projectInfo?.title || '').trim() || '未命名项目';
+  const peekProjectStyle = String(projectInfo?.style || '').trim() || '自由创作';
+  const peekProjectSummary = String(projectInfo?.summary || '').trim() || '暂无概要';
+  const peekPortraitName = String(blueprintPortrait?.name || '').trim();
+
+  const handleOpenProfiles = useCallback(() => {
+    setProfilePeekOpen(false);
+    onOpenProtagonistProfiles?.();
+  }, [onOpenProtagonistProfiles]);
+
   return (
     <div
       className={`h-full flex flex-col bg-book-bg-paper w-full transition-colors duration-300 shadow-sm relative z-20 ${
@@ -236,11 +283,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
       }`}
     >
       <div className="p-4 space-y-4 bg-gradient-to-b from-book-bg-paper to-book-bg-paper/95">
-        <div
-          className="transform transition-transform hover:scale-[1.02] duration-300"
-          onClick={() => onOpenProtagonistProfiles && onOpenProtagonistProfiles()}
-          title="主角档案"
-        >
+        <div ref={peekContainerRef} className="relative">
           <BlueprintCard
             title={projectInfo?.title}
             summary={projectInfo?.summary}
@@ -248,7 +291,75 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             progress={{ current: completedCount, total: Math.max(chapters.length, 10) }}
             portraitUrl={blueprintPortrait?.url || null}
             portraitName={blueprintPortrait?.name || null}
+            onClick={handleOpenProfiles}
+            ariaLabel="打开角色档案"
+            peekOpen={profilePeekOpen}
+            onTogglePeek={() => setProfilePeekOpen((prev) => !prev)}
           />
+
+          {profilePeekOpen ? (
+            <div className="absolute left-0 right-0 top-full z-40 mt-3">
+              <BookCard variant="glass" className="p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    项目概览
+                  </div>
+                  <span className="story-pill-compact">Esc</span>
+                </div>
+
+                <div className="mt-3 rounded-[18px] border border-book-border/45 bg-book-bg/60 px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    项目
+                  </div>
+                  <div className="mt-1 max-h-14 overflow-auto custom-scrollbar pr-1 whitespace-pre-wrap break-words text-xs font-semibold text-book-text-main">
+                    {peekProjectTitle}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-[18px] border border-book-border/45 bg-book-bg/60 px-3 py-2.5">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      风格
+                    </div>
+                    <div className="mt-1 truncate text-xs font-semibold text-book-text-main" title={peekProjectStyle}>
+                      {peekProjectStyle}
+                    </div>
+                  </div>
+                  <div className="rounded-[18px] border border-book-border/45 bg-book-bg/60 px-3 py-2.5">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      进度
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs font-semibold text-book-text-main">
+                      <span>章节</span>
+                      <span className="font-mono">
+                        {completedCount}/{Math.max(chapters.length, 10)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {peekPortraitName ? (
+                  <div className="mt-3 rounded-[18px] border border-book-border/45 bg-book-bg/60 px-3 py-2.5">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                      立绘角色
+                    </div>
+                    <div className="mt-1 truncate text-xs font-semibold text-book-text-main" title={peekPortraitName}>
+                      {peekPortraitName}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 rounded-[18px] border border-book-border/45 bg-book-bg/60 px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    概要
+                  </div>
+                  <div className="mt-2 max-h-32 overflow-auto custom-scrollbar pr-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-book-text-main">
+                    {peekProjectSummary}
+                  </div>
+                </div>
+              </BookCard>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-3">
@@ -260,15 +371,25 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             <div className="flex gap-1">
               <button
                 onClick={onBatchGenerate}
-                className="p-1.5 rounded-md hover:bg-book-bg text-book-text-sub hover:text-book-primary transition-all duration-200"
-                title="批量生成大纲"
+                disabled={!canBatchGenerate}
+                className={`p-1.5 rounded-md text-book-text-sub transition-all duration-200 ${
+                  canBatchGenerate
+                    ? 'hover:bg-book-bg hover:text-book-primary'
+                    : 'cursor-not-allowed opacity-40'
+                }`}
+                title={canBatchGenerate ? '批量生成章节大纲' : (batchGenerateDisabledReason || '当前不可生成章节大纲')}
               >
                 <RefreshCw size={16} />
               </button>
               <button
                 onClick={onCreateChapter}
-                className="p-1.5 rounded-md hover:bg-book-bg text-book-text-sub hover:text-book-primary transition-all duration-200"
-                title="新增章节"
+                disabled={!canCreateChapter}
+                className={`p-1.5 rounded-md text-book-text-sub transition-all duration-200 ${
+                  canCreateChapter
+                    ? 'hover:bg-book-bg hover:text-book-primary'
+                    : 'cursor-not-allowed opacity-40'
+                }`}
+                title={canCreateChapter ? '生成下一章章节大纲' : (createChapterDisabledReason || '当前不可生成下一章大纲')}
               >
                 <Plus size={16} />
               </button>

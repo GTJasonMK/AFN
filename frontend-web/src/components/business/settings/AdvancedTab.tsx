@@ -21,6 +21,25 @@ type AdvancedTabProps = {
   onClose: () => void;
 };
 
+const clampIntFromText = (
+  raw: string,
+  {
+    min = 0,
+    max,
+  }: {
+    min?: number;
+    max?: number;
+  } = {},
+): number | null => {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  const asInt = Math.floor(parsed);
+  const clampedMin = Number.isFinite(min) ? min : 0;
+  const clampedMax = Number.isFinite(max as any) ? (max as number) : undefined;
+  const clamped = Math.max(clampedMin, clampedMax !== undefined ? Math.min(clampedMax, asInt) : asInt);
+  return Number.isFinite(clamped) ? clamped : null;
+};
+
 export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -68,10 +87,14 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
     setConfig(baseline);
   }, [baseline]);
 
-  const setNumberField = <K extends keyof AdvancedConfig>(key: K, raw: string, fallback: number) => {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return;
-    const next = Math.max(0, Math.floor(parsed));
+  const setIntField = <K extends keyof AdvancedConfig>(
+    key: K,
+    raw: string,
+    fallback: number,
+    opts?: { min?: number; max?: number },
+  ) => {
+    const next = clampIntFromText(raw, opts);
+    if (next === null) return;
     setConfig((prev) => ({ ...prev, [key]: (Number.isFinite(next) ? next : fallback) as AdvancedConfig[K] }));
   };
 
@@ -122,69 +145,76 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
 
   return (
     <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="shrink-0">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-bold text-book-text-main">
-                <Settings2 size={16} className="text-book-primary" />
-                高级策略
-              </div>
-              <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                <span className="font-semibold text-book-text-main">全局策略</span> 会写入 `storage/config.json` 并尽量热更新。
-              </div>
+      <div className="flex min-h-0 flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+              <Settings2 size={16} className="text-book-primary" />
+              高级策略
             </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <BookButton variant="ghost" size="sm" onClick={fetchConfig} disabled={loading}>
-                <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-                刷新
-              </BookButton>
+            <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+              全局策略写入 <span className="font-mono text-book-text-main">storage/config.json</span>，并尽量热更新。
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-3 py-1 text-xs font-semibold text-book-text-muted">
-              {authEnabled ? '登录模式' : '单用户模式'}
-            </span>
-            <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
-                canEditGlobal
-                  ? 'border-book-primary/25 bg-book-primary/10 text-book-primary'
-                  : 'border-book-border/55 bg-book-bg-paper/80 text-book-text-muted'
-              }`}
-            >
-              {canEditGlobal ? '可写' : '只读'}
-            </span>
-            {authEnabled ? (
-              <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-3 py-1 text-xs font-semibold text-book-text-muted">
-                {isAdmin ? '管理员' : '普通用户'}
-              </span>
-            ) : null}
-            {isDirty ? (
-              <span className="inline-flex rounded-full border border-book-primary/30 bg-book-primary/10 px-3 py-1 text-xs font-bold text-book-primary">
-                未应用
-              </span>
-            ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <BookButton variant="ghost" size="sm" onClick={fetchConfig} disabled={loading}>
+              <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
+              刷新
+            </BookButton>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 px-1 text-xs font-bold text-book-text-muted">
-                <Settings2 size={14} className="text-book-primary" />
-                运行与生成
-              </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-3 py-1 text-xs font-semibold text-book-text-sub">
+            {authEnabled ? '登录模式' : '单用户模式'}
+          </span>
+          <span
+            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+              canEditGlobal
+                ? 'border-book-primary/25 bg-book-primary/10 text-book-primary'
+                : 'border-book-border/55 bg-book-bg-paper/80 text-book-text-sub'
+            }`}
+          >
+            {canEditGlobal ? '可写' : '只读'}
+          </span>
+          {authEnabled ? (
+            <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-3 py-1 text-xs font-semibold text-book-text-sub">
+              {isAdmin ? '管理员' : '普通用户'}
+            </span>
+          ) : null}
+          {!baseline && !loading ? (
+            <span className="inline-flex rounded-full border border-book-accent/30 bg-book-accent/10 px-3 py-1 text-xs font-bold text-book-accent">
+              读取失败
+            </span>
+          ) : isDirty ? (
+            <span className="inline-flex rounded-full border border-book-primary/30 bg-book-primary/10 px-3 py-1 text-xs font-bold text-book-primary">
+              未应用
+            </span>
+          ) : (
+            <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-3 py-1 text-xs font-semibold text-book-text-muted">
+              已同步
+            </span>
+          )}
+        </div>
+
+        {!baseline && !loading ? (
+          <div className="rounded-2xl border border-book-accent/20 bg-book-accent/5 px-4 py-3 text-xs leading-relaxed text-book-text-sub">
+            读取失败：请确认后端已启动，或稍后点击右上角“刷新”重试。
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-1 text-xs font-bold text-book-text-sub">
+              <Settings2 size={14} className="text-book-primary" />
+              运行与生成
+            </div>
 
             <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-book-text-main">功能开关</div>
-                  <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                    关闭后首页隐藏 Prompt 工程入口，聚焦小说工作流。
-                  </div>
-                </div>
+              <div className="text-sm font-bold text-book-text-main">功能开关</div>
+              <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+                这些开关影响首页入口与后台生成策略；改动后点击右下角“应用”生效。
               </div>
 
               <label className="mt-4 flex cursor-pointer items-start gap-3">
@@ -192,26 +222,38 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
                   type="checkbox"
                   className="mt-1 h-4 w-4 rounded border-book-border text-book-primary focus:ring-book-primary"
                   checked={config.coding_project_enabled}
-                  disabled={!canEditGlobal || saving}
+                  disabled={!canEditGlobal || saving || loading}
                   onChange={(e) => setConfig((prev) => ({ ...prev, coding_project_enabled: e.target.checked }))}
                 />
                 <div className="min-w-0">
                   <div className="font-semibold text-book-text-main">启用编程项目功能</div>
-                  <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                    面向 Vibe Coding / Prompt 工程用户，开启后首页显示编程工作台相关入口。
+                  <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+                    面向 Vibe Coding / Prompt 工程用户，开启后首页显示编程工作台入口。
+                  </div>
+                </div>
+              </label>
+
+              <label className="mt-4 flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-book-border text-book-primary focus:ring-book-primary"
+                  checked={config.writer_parallel_generation}
+                  disabled={!canEditGlobal || saving || loading}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, writer_parallel_generation: e.target.checked }))}
+                />
+                <div className="min-w-0">
+                  <div className="font-semibold text-book-text-main">启用并行生成</div>
+                  <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+                    允许后台并发推进章节生成（适合资源充足的部署环境）。
                   </div>
                 </div>
               </label>
             </div>
 
             <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-book-text-main">生成参数</div>
-                  <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                    这些参数影响章节生成候选数、分部阈值与 Agent 上下文大小。
-                  </div>
-                </div>
+              <div className="text-sm font-bold text-book-text-main">生成参数</div>
+              <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+                影响章节候选数、长篇分部阈值与 Agent 上下文上限。数值过大可能降低响应速度。
               </div>
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -221,10 +263,10 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
                   min={1}
                   max={5}
                   value={config.writer_chapter_version_count}
-                  disabled={!canEditGlobal || saving}
+                  disabled={!canEditGlobal || saving || loading}
                   onChange={(e) => {
-                    const v = Math.max(1, Math.min(5, Math.floor(Number(e.target.value || 1))));
-                    if (!Number.isFinite(v)) return;
+                    const v = clampIntFromText(e.target.value, { min: 1, max: 5 });
+                    if (v === null) return;
                     setConfig((prev) => ({ ...prev, writer_chapter_version_count: v }));
                   }}
                 />
@@ -234,8 +276,8 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
                   type="number"
                   min={1}
                   value={config.part_outline_threshold}
-                  disabled={!canEditGlobal || saving}
-                  onChange={(e) => setNumberField('part_outline_threshold', e.target.value, 50)}
+                  disabled={!canEditGlobal || saving || loading}
+                  onChange={(e) => setIntField('part_outline_threshold', e.target.value, 50, { min: 1 })}
                 />
 
                 <BookInput
@@ -244,55 +286,45 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
                   min={10000}
                   step={1000}
                   value={config.agent_context_max_chars}
-                  disabled={!canEditGlobal || saving}
-                  onChange={(e) => setNumberField('agent_context_max_chars', e.target.value, 100000)}
+                  disabled={!canEditGlobal || saving || loading}
+                  onChange={(e) => setIntField('agent_context_max_chars', e.target.value, 100000, { min: 10000 })}
                 />
 
-                <div className="flex flex-col justify-end">
-                  <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-book-border/50 bg-book-bg-paper/70 px-4 py-3 text-sm">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-book-border text-book-primary focus:ring-book-primary"
-                      checked={config.writer_parallel_generation}
-                      disabled={!canEditGlobal || saving}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, writer_parallel_generation: e.target.checked }))}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-semibold text-book-text-main">启用并行生成</div>
-                      <div className="mt-1 text-xs text-book-text-muted">允许后台并发推进章节生成。</div>
+                <div className="flex items-end">
+                  {!canEditGlobal ? (
+                    <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/70 px-4 py-3 text-xs leading-relaxed text-book-text-muted">
+                      当前账号无管理员权限：参数只读。如需修改，请使用管理员账号登录。
                     </div>
-                  </label>
+                  ) : (
+                    <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/70 px-4 py-3 text-xs leading-relaxed text-book-text-muted">
+                      提示：更改后需要点“应用”。已应用状态会自动同步为“已同步”。
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {!canEditGlobal ? (
-                <div className="mt-4 text-xs text-book-text-muted">
-                  当前账号无管理员权限：参数只读。如需修改，请使用管理员账号登录。
-                </div>
-              ) : null}
             </div>
           </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 px-1 text-xs font-bold text-book-text-muted">
-                <ShieldCheck size={14} className="text-book-primary" />
-                账号与权限
-              </div>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-1 text-xs font-bold text-book-text-sub">
+              <ShieldCheck size={14} className="text-book-primary" />
+              账号与权限
+            </div>
 
             <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
-              <div className="mt-1 space-y-2 text-sm text-book-text-sub">
+              <div className="text-sm font-bold text-book-text-main">当前账号</div>
+              <div className="mt-2 space-y-2 text-sm text-book-text-sub">
                 {authEnabled ? (
                   <>
                     <div>
-                      当前账号：
-                      <span className="ml-2 font-mono text-book-text-main">{user?.username || '未知'}</span>
+                      用户名：<span className="ml-2 font-mono text-book-text-main">{user?.username || '未知'}</span>
                     </div>
                     <div className="text-xs text-book-text-muted">
                       内置管理员账号通常为 <span className="font-mono">desktop_user</span>（以服务端配置为准）。
                     </div>
                   </>
                 ) : (
-                  <div className="text-xs text-book-text-muted">
+                  <div className="text-xs leading-relaxed text-book-text-sub">
                     当前处于单用户模式，无需登录；部署期权限由服务端配置决定。
                   </div>
                 )}
@@ -335,64 +367,71 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({ onClose }) => {
 
             {authEnabled ? (
               <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
-                <div className="flex items-center gap-2 text-book-text-main">
-                  <KeyRound size={16} className="text-book-primary" />
-                  <div className="font-semibold">修改当前账号密码</div>
-                </div>
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-book-text-main">
+                    <div className="flex items-center gap-2">
+                      <KeyRound size={16} className="text-book-primary" />
+                      <div className="text-sm font-bold">修改当前账号密码</div>
+                    </div>
+                    <span className="text-xs font-semibold text-book-text-muted group-open:hidden">展开</span>
+                    <span className="text-xs font-semibold text-book-text-muted hidden group-open:inline">收起</span>
+                  </summary>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <BookInput
-                    label="旧密码"
-                    type="password"
-                    value={oldPassword}
-                    onChange={(e) => setOldPassword(e.target.value)}
-                    autoComplete="current-password"
-                    disabled={changingPassword}
-                  />
-                  <BookInput
-                    label="新密码"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={changingPassword}
-                  />
-                </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <BookInput
+                        label="旧密码"
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={changingPassword}
+                      />
+                      <BookInput
+                        label="新密码"
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={changingPassword}
+                      />
+                    </div>
 
-                <div className="mt-4 flex justify-end">
-                  <BookButton
-                    variant="secondary"
-                    size="sm"
-                    disabled={changingPassword}
-                    onClick={async () => {
-                      if (!oldPassword || !newPassword) {
-                        addToast('请输入旧密码和新密码', 'error');
-                        return;
-                      }
+                    <div className="flex justify-end">
+                      <BookButton
+                        variant="secondary"
+                        size="sm"
+                        disabled={changingPassword}
+                        onClick={async () => {
+                          if (!oldPassword || !newPassword) {
+                            addToast('请输入旧密码和新密码', 'error');
+                            return;
+                          }
 
-                      setChangingPassword(true);
-                      try {
-                        await changePassword(oldPassword, newPassword);
-                        setOldPassword('');
-                        setNewPassword('');
-                        addToast('密码已更新', 'success');
-                      } catch (error) {
-                        console.error(error);
-                        addToast('修改密码失败', 'error');
-                      } finally {
-                        setChangingPassword(false);
-                      }
-                    }}
-                  >
-                    {changingPassword ? '处理中…' : '修改密码'}
-                  </BookButton>
-                </div>
+                          setChangingPassword(true);
+                          try {
+                            await changePassword(oldPassword, newPassword);
+                            setOldPassword('');
+                            setNewPassword('');
+                            addToast('密码已更新', 'success');
+                          } catch (error) {
+                            console.error(error);
+                            addToast('修改密码失败', 'error');
+                          } finally {
+                            setChangingPassword(false);
+                          }
+                        }}
+                      >
+                        {changingPassword ? '处理中…' : '修改密码'}
+                      </BookButton>
+                    </div>
+                  </div>
+                </details>
               </div>
             ) : null}
           </div>
         </div>
       </div>
-      </div>
-    </SettingsTabPanel>
+      </SettingsTabPanel>
   );
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BookCard } from '../ui/BookCard';
-import { User } from 'lucide-react';
+import { ChevronDown, ChevronUp, User } from 'lucide-react';
 
 interface BlueprintCardProps {
   title?: string;
@@ -9,86 +9,127 @@ interface BlueprintCardProps {
   progress?: { current: number; total: number };
   portraitUrl?: string | null;
   portraitName?: string | null;
+  onClick?: () => void;
+  ariaLabel?: string;
+  peekOpen?: boolean;
+  onTogglePeek?: () => void;
 }
 
-export const BlueprintCard: React.FC<BlueprintCardProps> = ({ 
-  title = "小说项目", 
-  summary = "暂无概要", 
-  style = "未设定",
+export const BlueprintCard: React.FC<BlueprintCardProps> = ({
+  title = '小说项目',
+  summary = '点击打开角色档案，查看角色设定与章节快照。',
+  style = '未设定',
   progress,
   portraitUrl,
   portraitName,
+  onClick,
+  ariaLabel = '打开角色档案',
+  peekOpen = false,
+  onTogglePeek,
 }) => {
+  const progressPercent =
+    progress && typeof progress.current === 'number' && typeof progress.total === 'number' && progress.total > 0
+      ? Math.min(100, Math.max(0, (progress.current / progress.total) * 100))
+      : null;
+
   return (
-    <div className="relative group perspective-1000 h-40 w-full cursor-pointer">
-      <div className="relative w-full h-full transition-all duration-500 transform-style-3d group-hover:rotate-y-180">
-        {/* Front Face */}
-        <div className="absolute inset-0 backface-hidden">
-          <BookCard className="h-full flex flex-col justify-between bg-gradient-to-br from-book-primary/10 to-book-bg-paper border-book-primary/20">
-            <div>
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-bold text-book-text-main truncate max-w-[140px]">
-                  {title}
-                </span>
-                <span className="text-xs font-bold text-book-primary px-2 py-0.5 rounded-full bg-book-primary/10 border border-book-primary/20">
-                  {style}
-                </span>
+    <BookCard
+      hover
+      variant="flat"
+      className="h-40 w-full p-4"
+      title={ariaLabel}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={ariaLabel}
+      onKeyDown={(e) => {
+        if (!onClick) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <div className="flex h-full flex-col gap-2.5">
+        <div className="grid grid-cols-[1fr_auto] items-start gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="min-w-0 truncate text-[0.72rem] font-bold tracking-[0.18em] text-book-text-muted" title="角色档案">
+                角色档案
               </div>
-              <p className="text-xs text-book-text-sub line-clamp-3 leading-relaxed">
-                {summary}
-              </p>
+              {onTogglePeek ? (
+                <button
+                  type="button"
+                  className={`story-pill-compact inline-flex shrink-0 items-center gap-1.5 border-book-border/55 bg-book-bg/70 text-book-text-sub transition-colors hover:border-book-primary/35 hover:text-book-primary ${
+                    peekOpen ? 'border-book-primary/35 bg-book-primary/10 text-book-primary' : ''
+                  }`}
+                  title={peekOpen ? '收起概览' : '展开概览'}
+                  aria-label={peekOpen ? '收起项目概览' : '展开项目概览'}
+                  aria-expanded={peekOpen}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePeek();
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-[11px] font-semibold">概览</span>
+                  {peekOpen ? <ChevronUp size={14} className="opacity-80" /> : <ChevronDown size={14} className="opacity-80" />}
+                </button>
+              ) : null}
             </div>
-            
-            {progress && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-book-text-muted">
-                  <span>创作进度</span>
-                  <span>{progress.current}/{progress.total} 章</span>
-                </div>
-                <div className="h-1.5 w-full bg-book-border/30 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-book-primary transition-all duration-500"
-                    style={{ width: `${(progress.current / Math.max(progress.total, 1)) * 100}%` }}
-                  />
-                </div>
+            <div className="mt-1 line-clamp-1 font-serif text-sm font-bold text-book-text-main" title={title}>
+              {title}
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            {portraitUrl ? (
+              <img
+                src={portraitUrl}
+                alt={portraitName || '角色立绘'}
+                className="h-11 w-11 rounded-2xl border border-book-border/50 object-cover shadow-sm"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-book-border/50 bg-book-bg/60 text-book-text-sub">
+                <User size={18} />
               </div>
             )}
-          </BookCard>
+          </div>
         </div>
 
-        {/* Back Face */}
-        <div className="absolute inset-0 h-full w-full backface-hidden rotate-y-180">
-          <BookCard className="h-full bg-book-bg-paper border-book-border text-center overflow-hidden relative">
-            {portraitUrl ? (
-              <>
-                <img
-                  src={portraitUrl}
-                  alt={portraitName || '主角立绘'}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-                <div className="absolute bottom-0 left-0 right-0 p-3 text-left">
-                  <div className="text-sm font-bold text-white drop-shadow">
-                    {portraitName ? `主角：${portraitName}` : '主角立绘'}
-                  </div>
-                  <div className="text-xs text-white/80 mt-0.5 drop-shadow">
-                    点击打开主角档案
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-book-bg flex items-center justify-center mb-2 text-book-text-sub">
-                  <User size={24} />
-                </div>
-                <span className="text-sm font-bold text-book-text-main">主角档案</span>
-                <span className="text-xs text-book-text-muted mt-1">点击查看详情</span>
-              </div>
-            )}
-          </BookCard>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="inline-flex max-w-full items-center truncate rounded-full border border-book-primary/20 bg-book-primary/10 px-2 py-0.5 text-xs font-bold text-book-primary"
+            title={style}
+          >
+            {style}
+          </span>
         </div>
+
+        <p className="line-clamp-2 text-xs leading-relaxed text-book-text-sub" title={summary}>
+          {summary}
+        </p>
+
+        {progress ? (
+          <div className="mt-auto space-y-1">
+            <div className="flex items-center justify-between text-[10px] text-book-text-muted">
+              <span>创作进度</span>
+              <span className="font-mono">
+                {progress.current}/{progress.total}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-book-border/30">
+              <div
+                className="h-full bg-book-primary transition-all duration-300"
+                style={{ width: `${progressPercent ?? 0}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-auto text-[10px] text-book-text-muted">点击打开角色档案</div>
+        )}
       </div>
-    </div>
+    </BookCard>
   );
 };

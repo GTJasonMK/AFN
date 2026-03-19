@@ -36,26 +36,28 @@ export const NovelDetailTabContent: React.FC<NovelDetailTabContentProps> = ({
   const activeTabMeta = NOVEL_DETAIL_TAB_ITEMS.find((item) => item.id === activeTab) || NOVEL_DETAIL_TAB_ITEMS[0];
 
   return (
-    <AppViewportScrollArea>
-      <div className="mx-auto w-full max-w-6xl px-5 py-6 sm:px-7 sm:py-7">
-        <div className="rounded-[28px] border border-book-border/55 bg-book-bg-paper/76 px-5 py-5 shadow-[0_24px_50px_-36px_rgba(36,18,6,0.92)]">
-          <div className="eyebrow">Current Section</div>
-          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h2 className="font-serif text-3xl font-bold text-book-text-main sm:text-4xl">
+    <AppViewportScrollArea className="h-full" data-novel-detail-scroll-body="1">
+      <div className="mx-auto w-full max-w-6xl px-5 sm:px-7">
+        <div className="sticky top-0 z-20 -mx-5 border-b border-book-border/45 bg-book-bg-paper/92 px-5 py-4 shadow-sm backdrop-blur-md sm:-mx-7 sm:px-7">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                当前模块
+              </div>
+              <h2 className="mt-2 font-serif text-2xl font-bold leading-tight text-book-text-main sm:text-3xl">
                 {activeTabMeta.label}
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-book-text-sub sm:text-base">
                 {activeTabMeta.description}
               </p>
             </div>
-            <div className="rounded-[22px] border border-book-border/50 bg-book-bg/72 px-4 py-3 text-sm text-book-text-sub">
-              当前工作区只展示与本节相关的内容和动作，减少在大页面里来回跳找信息的成本。
+            <div className="hidden rounded-[18px] border border-book-border/50 bg-book-bg/72 px-4 py-3 text-sm text-book-text-sub lg:block">
+              左侧切换分区，右侧只保留当前分区需要的内容与动作。
             </div>
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="py-6">
           {activeTab === 'overview' && (
             <OverviewTab {...overviewTabProps} />
           )}

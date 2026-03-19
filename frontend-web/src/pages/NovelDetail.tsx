@@ -30,6 +30,7 @@ import { buildNovelDetailPageLayoutProps } from './novel-detail/buildNovelDetail
 import { buildNovelDetailModalInputParams } from './novel-detail/buildNovelDetailModalInputParams';
 import { buildNovelDetailTabInput } from './novel-detail/buildNovelDetailTabInput';
 import { buildNovelDetailTabSources } from './novel-detail/buildNovelDetailTabSources';
+import { clearBlueprintGenerationPending } from '../utils/blueprintPending';
 
 const NOVEL_DETAIL_TABS: readonly NovelDetailTab[] = ['overview', 'world', 'characters', 'relationships', 'outlines', 'chapters'];
 
@@ -51,6 +52,21 @@ const NovelDetailPage: React.FC<NovelDetailPageProps> = ({ projectId }) => {
   const [activeTab, setActiveTab] = usePersistedTab(activeTabStorageKey, 'overview', NOVEL_DETAIL_TABS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  React.useEffect(() => {
+    if (!projectId) return;
+    if (!project || typeof project !== 'object') return;
+
+    const status = String((project as any)?.status || '').trim().toLowerCase();
+    const hasBlueprint = Boolean((project as any)?.blueprint && typeof (project as any).blueprint === 'object');
+
+    if (status === 'draft' || status === 'inspiration' || !hasBlueprint) {
+      navigate(`/inspiration/${projectId}`, { replace: true });
+      return;
+    }
+
+    clearBlueprintGenerationPending('novel', projectId);
+  }, [navigate, project, projectId]);
 
   // Form states
   const [blueprintData, setBlueprintData] = useState<any>({});

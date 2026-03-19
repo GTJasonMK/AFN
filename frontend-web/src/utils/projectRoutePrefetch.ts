@@ -1,4 +1,5 @@
 import { RoutedProject, isDraftLikeProject } from './projectRouting';
+import { resolveWorkflowStage } from './projectWorkflow';
 
 export interface RoutePrefetchProjectInfo extends RoutedProject {}
 
@@ -57,6 +58,14 @@ const resolveProjectPrefetchTarget = (project: RoutePrefetchProjectInfo): { key:
     return {
       key: 'page:coding-detail',
       load: () => import('../pages/CodingDetail'),
+    };
+  }
+
+  const stage = resolveWorkflowStage(project.status);
+  if (stage === 'writing' || stage === 'completed') {
+    return {
+      key: 'page:writing-desk',
+      load: () => import('../pages/WritingDesk'),
     };
   }
 

@@ -35,7 +35,7 @@ export const SettingsFixedCard: React.FC<SettingsFixedCardProps> = ({
       <div className="shrink-0">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-xs font-bold text-book-text-muted">
+            <div className="flex items-center gap-2 text-xs font-bold text-book-text-sub/90">
               {icon}
               <span className="truncate">{title}</span>
             </div>

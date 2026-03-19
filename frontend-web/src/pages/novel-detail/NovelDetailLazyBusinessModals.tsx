@@ -27,6 +27,10 @@ type NovelDetailLazyBusinessModalsProps = {
   batchModal: {
     isOpen: boolean;
     setOpen: (open: boolean) => void;
+    latestOutlineChapterNumber?: number;
+    needsPartOutlines?: boolean;
+    partOutlineCount?: number;
+    partOutlineMaxCoveredChapter?: number | null;
   };
   protagonistModal: {
     isOpen: boolean;
@@ -66,6 +70,10 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
   const {
     isOpen: isBatchModalOpen,
     setOpen: setBatchModalOpen,
+    latestOutlineChapterNumber,
+    needsPartOutlines,
+    partOutlineCount,
+    partOutlineMaxCoveredChapter,
   } = batchModal;
   const {
     isOpen: isProtagonistModalOpen,
@@ -106,6 +114,10 @@ export const NovelDetailLazyBusinessModals: React.FC<NovelDetailLazyBusinessModa
             isOpen={isBatchModalOpen}
             onClose={() => setBatchModalOpen(false)}
             projectId={projectId}
+            latestOutlineChapterNumber={latestOutlineChapterNumber}
+            needsPartOutlines={needsPartOutlines}
+            partOutlineCount={partOutlineCount}
+            partOutlineMaxCoveredChapter={partOutlineMaxCoveredChapter}
             onSuccess={() => {
               onProjectRefresh();
             }}

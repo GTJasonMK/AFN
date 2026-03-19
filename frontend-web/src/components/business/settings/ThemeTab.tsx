@@ -637,10 +637,9 @@ export const ThemeTab: React.FC = () => {
 
   return (
     <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[28px] border border-book-border/55 bg-book-bg-paper/70 shadow-surface backdrop-blur-xl">
-          <div className="grid h-full min-h-0 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
-            <aside className="min-h-0 flex flex-col border-b border-book-border/45 lg:border-b-0 lg:border-r lg:border-book-border/45">
+      <div className="h-full min-h-0 overflow-hidden">
+        <div className="grid h-full min-h-0 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+          <aside className="min-h-0 flex flex-col border-b border-book-border/45 lg:border-b-0 lg:border-r lg:border-book-border/45">
               <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-3">
@@ -791,66 +790,66 @@ export const ThemeTab: React.FC = () => {
                   </div>
                 )}
               </div>
-            </aside>
+          </aside>
 
-            <section className="min-h-0 flex flex-col">
-              <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
-                {!selectedItem ? (
-                  <div className="text-sm text-book-text-muted">请选择一个主题配置</div>
-                ) : (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="max-w-full truncate text-sm font-bold text-book-text-main">
-                          {selectedItem.config_name}
-                        </div>
-                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-2.5 py-1 text-[10px] font-bold text-book-text-muted">
-                          {selectedItem.parent_mode === 'dark' ? '深色' : '亮色'}
+          <section className="min-h-0 flex flex-col">
+            <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
+              {!selectedItem ? (
+                <div className="text-sm text-book-text-muted">请选择一个主题配置</div>
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="max-w-full truncate text-sm font-bold text-book-text-main">
+                        {selectedItem.config_name}
+                      </div>
+                      <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/80 px-2.5 py-1 text-[10px] font-bold text-book-text-muted">
+                        {selectedItem.parent_mode === 'dark' ? '深色' : '亮色'}
+                      </span>
+                      {selectedItem.is_active ? (
+                        <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
+                          当前已激活
                         </span>
-                        {selectedItem.is_active ? (
-                          <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
-                            当前已激活
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 text-[11px] text-book-text-muted">
-                        创建：{formatDate(selectedItem.created_at)} · 更新：{formatDate(selectedItem.updated_at)}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {!selectedItem.is_active ? (
-                        <BookButton
-                          variant="primary"
-                          size="sm"
-                          onClick={() => handleActivate(selectedItem.id)}
-                          disabled={activatingId === selectedItem.id || busyId === selectedItem.id}
-                        >
-                          {activatingId === selectedItem.id ? '切换中…' : '激活'}
-                        </BookButton>
                       ) : null}
-                      <BookButton
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openEditor(selectedItem.id)}
-                        disabled={busyId === selectedItem.id}
-                      >
-                        <Edit3 size={14} className="mr-1" />
-                        编辑
-                      </BookButton>
-                      <Dropdown items={getThemeMenuItems(selectedItem)} label="更多" />
+                    </div>
+                    <div className="mt-1 text-[11px] text-book-text-muted">
+                      创建：{formatDate(selectedItem.created_at)} · 更新：{formatDate(selectedItem.updated_at)}
                     </div>
                   </div>
-                )}
-              </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 pr-1 custom-scrollbar">
-                {!selectedItem ? (
-                  <div className="h-full flex items-center justify-center text-book-text-muted">从左侧选择一个主题</div>
-                ) : selectedLoading ? (
-                  <div className="py-10 text-center text-book-text-muted text-sm">加载主题详情…</div>
-                ) : selectedUnified ? (
-                  <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!selectedItem.is_active ? (
+                      <BookButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleActivate(selectedItem.id)}
+                        disabled={activatingId === selectedItem.id || busyId === selectedItem.id}
+                      >
+                        {activatingId === selectedItem.id ? '切换中…' : '激活'}
+                      </BookButton>
+                    ) : null}
+                    <BookButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => openEditor(selectedItem.id)}
+                      disabled={busyId === selectedItem.id}
+                    >
+                      <Edit3 size={14} className="mr-1" />
+                      编辑
+                    </BookButton>
+                    <Dropdown items={getThemeMenuItems(selectedItem)} label="更多" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 pr-1 custom-scrollbar">
+              {!selectedItem ? (
+                <div className="h-full flex items-center justify-center text-book-text-muted">从左侧选择一个主题</div>
+              ) : selectedLoading ? (
+                <div className="py-10 text-center text-book-text-muted text-sm">加载主题详情…</div>
+              ) : selectedUnified ? (
+                <div className="space-y-4">
                     <div className="rounded-[24px] border border-book-border/45 bg-book-bg-paper/50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-bold text-book-text-sub">概览</div>
@@ -1025,9 +1024,8 @@ export const ThemeTab: React.FC = () => {
                 ) : (
                   <div className="py-10 text-center text-book-text-muted text-sm">无法加载该主题详情</div>
                 )}
-              </div>
-            </section>
-          </div>
+            </div>
+          </section>
         </div>
       </div>
 

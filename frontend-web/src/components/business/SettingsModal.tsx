@@ -108,6 +108,10 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<SettingsTabId>('advanced');
   const [tabFooter, setTabFooter] = useState<React.ReactNode | null>(null);
+  const reservedFooter = useMemo(
+    () => tabFooter ?? <span className="block h-9 w-px opacity-0" aria-hidden="true" />,
+    [tabFooter],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -140,7 +144,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       maxWidthClassName="max-w-5xl"
       className="!h-[calc(100dvh-0.5rem)] !min-h-[calc(100dvh-0.5rem)] !max-h-[calc(100dvh-0.5rem)] sm:!h-[min(100dvh-2rem,52rem)] sm:!min-h-[min(100dvh-2rem,52rem)] sm:!max-h-[min(100dvh-2rem,52rem)]"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-5 sm:px-7 sm:py-6"
-      footer={tabFooter}
+      footer={reservedFooter}
     >
       <SettingsModalFooterProvider setFooter={setTabFooter}>
         <div className="flex h-full min-h-0 flex-col gap-5">

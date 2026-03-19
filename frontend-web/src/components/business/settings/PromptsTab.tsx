@@ -337,10 +337,9 @@ export const PromptsTab: React.FC = () => {
 
   return (
     <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[28px] border border-book-border/55 bg-book-bg-paper/70 shadow-surface backdrop-blur-xl">
-          <div className="grid h-full min-h-0 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
-            <aside className="min-h-0 flex flex-col border-b border-book-border/45 lg:border-b-0 lg:border-r lg:border-book-border/45">
+      <div className="h-full min-h-0 overflow-hidden">
+        <div className="grid h-full min-h-0 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+          <aside className="min-h-0 flex flex-col border-b border-book-border/45 lg:border-b-0 lg:border-r lg:border-book-border/45">
               <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-3">
@@ -481,107 +480,106 @@ export const PromptsTab: React.FC = () => {
                   </div>
                 )}
               </div>
-            </aside>
+          </aside>
 
-            <section className="min-h-0 flex flex-col">
-              <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="max-w-full truncate text-sm font-bold text-book-text-main">
-                        {selected ? (selected.title || selected.name) : '提示词编辑器'}
-                      </div>
-                      {!isAdmin ? (
-                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 text-[10px] font-bold text-book-text-muted">
-                          只读
-                        </span>
-                      ) : null}
-                      {selected?.is_modified ? (
-                        <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
-                          已修改
-                        </span>
-                      ) : null}
-                      {isDirty ? (
-                        <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
-                          未应用
-                        </span>
-                      ) : null}
-                      {selected && isAdmin ? (
-                        <span className="inline-flex items-center rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 text-[10px] font-semibold text-book-text-muted">
-                          Ctrl/⌘ + S
-                        </span>
-                      ) : null}
+          <section className="min-h-0 flex flex-col">
+            <div className="shrink-0 border-b border-book-border/45 bg-book-bg/40 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="max-w-full truncate text-sm font-bold text-book-text-main">
+                      {selected ? (selected.title || selected.name) : '提示词编辑器'}
                     </div>
-
-                    {selected?.description ? (
-                      <div className="mt-1 text-[11px] leading-relaxed text-book-text-muted line-clamp-2">
-                        {selected.description}
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-[11px] text-book-text-muted">从左侧选择一个提示词后开始编辑。</div>
-                    )}
-
-                    {selectedHiddenByFilter ? (
-                      <div className="mt-2 text-[11px] text-book-accent">
-                        当前提示词不在筛选结果中，
-                        <button type="button" className="ml-1 font-bold hover:underline" onClick={clearFilters}>
-                          清除筛选
-                        </button>
-                      </div>
+                    {!isAdmin ? (
+                      <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 text-[10px] font-bold text-book-text-muted">
+                        只读
+                      </span>
                     ) : null}
-
-                    {selected ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-book-text-muted">
-                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
-                          {formatLabel(PROJECT_TYPE_LABELS, normalizeKey(selected.project_type))}
-                        </span>
-                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
-                          {formatLabel(CATEGORY_LABELS, normalizeKey(selected.category))}
-                        </span>
-                        <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
-                          <span className="font-mono text-book-text-main">{selected.status || '—'}</span>
-                        </span>
-                      </div>
+                    {selected?.is_modified ? (
+                      <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
+                        已修改
+                      </span>
+                    ) : null}
+                    {isDirty ? (
+                      <span className="inline-flex rounded-full border border-book-primary/25 bg-book-primary/10 px-2.5 py-1 text-[10px] font-bold text-book-primary">
+                        未应用
+                      </span>
+                    ) : null}
+                    {selected && isAdmin ? (
+                      <span className="inline-flex items-center rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 text-[10px] font-semibold text-book-text-muted">
+                        Ctrl/⌘ + S
+                      </span>
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <BookButton variant="ghost" size="sm" onClick={refreshSelected} disabled={!selectedName}>
-                      <RefreshCw size={14} className="mr-1" />
-                      重新加载
-                    </BookButton>
-                    <BookButton variant="ghost" size="sm" onClick={handleReset} disabled={resetting || !isAdmin || !selected}>
-                      <RotateCcw size={14} className="mr-1" />
-                      恢复默认
-                    </BookButton>
-                  </div>
+                  {selected?.description ? (
+                    <div className="mt-1 text-[11px] leading-relaxed text-book-text-muted line-clamp-2">
+                      {selected.description}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-[11px] text-book-text-muted">从左侧选择一个提示词后开始编辑。</div>
+                  )}
+
+                  {selectedHiddenByFilter ? (
+                    <div className="mt-2 text-[11px] text-book-accent">
+                      当前提示词不在筛选结果中，
+                      <button type="button" className="ml-1 font-bold hover:underline" onClick={clearFilters}>
+                        清除筛选
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {selected ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-book-text-muted">
+                      <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
+                        {formatLabel(PROJECT_TYPE_LABELS, normalizeKey(selected.project_type))}
+                      </span>
+                      <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
+                        {formatLabel(CATEGORY_LABELS, normalizeKey(selected.category))}
+                      </span>
+                      <span className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 px-2.5 py-1 font-semibold">
+                        <span className="font-mono text-book-text-main">{selected.status || '—'}</span>
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <BookButton variant="ghost" size="sm" onClick={refreshSelected} disabled={!selectedName}>
+                    <RefreshCw size={14} className="mr-1" />
+                    重新加载
+                  </BookButton>
+                  <BookButton variant="ghost" size="sm" onClick={handleReset} disabled={resetting || !isAdmin || !selected}>
+                    <RotateCcw size={14} className="mr-1" />
+                    恢复默认
+                  </BookButton>
                 </div>
               </div>
+            </div>
 
-              <div className="min-h-0 flex-1 overflow-hidden p-4">
-                {!selected ? (
-                  <div className="h-full flex items-center justify-center text-book-text-muted">请选择一个提示词</div>
-                ) : (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <textarea
-                      value={contentDraft}
-                      onChange={(e) => setContentDraft(e.target.value)}
-                      readOnly={!isAdmin}
-                      placeholder="在此编辑提示词内容…"
-                      onKeyDown={(e) => {
-                        if (!(e.ctrlKey || e.metaKey)) return;
-                        if (e.key !== 's' && e.key !== 'S') return;
-                        e.preventDefault();
-                        if (!isAdmin || saving || !isDirty) return;
-                        void handleSave();
-                      }}
-                      className="book-control custom-scrollbar flex-1 min-h-0 w-full rounded-[24px] border px-4 py-3 text-xs font-mono leading-relaxed text-book-text-main outline-none focus:border-book-primary/45 focus:ring-2 focus:ring-book-primary/18 transition-all duration-200 resize-none"
-                    />
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
+            <div className="min-h-0 flex-1 overflow-hidden p-4">
+              {!selected ? (
+                <div className="h-full flex items-center justify-center text-book-text-muted">请选择一个提示词</div>
+              ) : (
+                <div className="flex h-full min-h-0 flex-col">
+                  <textarea
+                    value={contentDraft}
+                    onChange={(e) => setContentDraft(e.target.value)}
+                    readOnly={!isAdmin}
+                    placeholder="在此编辑提示词内容…"
+                    onKeyDown={(e) => {
+                      if (!(e.ctrlKey || e.metaKey)) return;
+                      if (e.key !== 's' && e.key !== 'S') return;
+                      e.preventDefault();
+                      if (!isAdmin || saving || !isDirty) return;
+                      void handleSave();
+                    }}
+                    className="book-control custom-scrollbar flex-1 min-h-0 w-full rounded-[24px] border px-4 py-3 text-xs font-mono leading-relaxed text-book-text-main outline-none focus:border-book-primary/45 focus:ring-2 focus:ring-book-primary/18 transition-all duration-200 resize-none"
+                  />
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </SettingsTabPanel>

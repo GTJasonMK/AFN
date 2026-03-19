@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, LONG_TASK_TIMEOUT_MS } from './client';
 
 export interface CodingProject {
   id: string;
@@ -292,9 +292,15 @@ export const codingApi = {
   
   // Blueprint generation
   generateBlueprint: async (projectId: string) => {
-    const response = await apiClient.post(`/coding/${projectId}/blueprint/generate`, {
-        allow_incomplete: true // Allow for demo purposes
-    });
+    const response = await apiClient.post(
+      `/coding/${projectId}/blueprint/generate`,
+      {
+        allow_incomplete: true, // Allow for demo purposes
+      },
+      {
+        timeout: LONG_TASK_TIMEOUT_MS,
+      },
+    );
     return response.data;
   },
 

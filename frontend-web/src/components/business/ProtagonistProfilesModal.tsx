@@ -27,8 +27,11 @@ import {
   ImplicitStatsResponse,
   ImplicitCheckResponse,
 } from '../../api/protagonist';
+import { novelsApi } from '../../api/novels';
 import {
   User,
+  ChevronDown,
+  ChevronUp,
   RefreshCw,
   Plus,
   Trash2,
@@ -59,7 +62,7 @@ const DETAIL_TABS: Array<{
   {
     id: 'attributes',
     label: '属性',
-    description: '查看主角当前的显性、隐性和社会属性快照。',
+    description: '查看角色当前的显性、隐性和社会属性快照。',
     icon: User,
   },
   {
@@ -118,6 +121,21 @@ const formatDateTime = (value: string) => {
   return Number.isNaN(time.getTime()) ? value : time.toLocaleString();
 };
 
+const normalizeCharacterName = (value: any) => String(value ?? '').trim();
+
+const extractIdentityFromAttributes = (attrs: Record<string, any> | null | undefined): string | null => {
+  if (!attrs || typeof attrs !== 'object') return null;
+  const candidates = ['identity', '身份', '角色身份', '角色定位', '定位', 'role'];
+  for (const key of candidates) {
+    const raw = (attrs as any)[key];
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return null;
+};
+
 export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> = ({
   isOpen,
   onClose,
@@ -128,6 +146,8 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
 
   const [profiles, setProfiles] = useState<ProtagonistProfileSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [characterIdentityByName, setCharacterIdentityByName] = useState<Record<string, string>>({});
+  const [identityExpanded, setIdentityExpanded] = useState(false);
 
   const [selectedName, setSelectedName] = useState<string>('');
   const [detail, setDetail] = useState<ProtagonistProfileResponse | null>(null);
@@ -192,6 +212,43 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     setDiffTo(currentChapterNumber || 1);
     setRollbackTarget(Math.max(1, (currentChapterNumber || 1) - 1));
   }, [currentChapterNumber, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIdentityExpanded(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    setIdentityExpanded(false);
+  }, [selectedName]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+
+    const loadCharacterIdentity = async () => {
+      try {
+        const project = await novelsApi.get(projectId);
+        const chars = Array.isArray(project?.blueprint?.characters) ? project.blueprint.characters : [];
+        const next: Record<string, string> = {};
+        for (const c of chars) {
+          const name = normalizeCharacterName((c as any)?.name);
+          const identity = normalizeCharacterName((c as any)?.identity);
+          if (name && identity) next[name] = identity;
+        }
+        if (!cancelled) setCharacterIdentityByName(next);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setCharacterIdentityByName({});
+      }
+    };
+
+    void loadCharacterIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, projectId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -415,7 +472,7 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     const target = Math.max(1, Number(rollbackTarget) || 1);
     const ok = await confirmDialog({
       title: '回滚确认',
-      message: `确认回滚主角档案到第 ${target} 章？\n注意：会删除该章节之后的所有快照。`,
+      message: `确认回滚角色档案到第 ${target} 章？\n注意：会删除该章节之后的所有快照。`,
       confirmText: '回滚',
       dialogType: 'danger',
     });
@@ -499,7 +556,7 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     setCreating(true);
     try {
       await protagonistApi.createProfile(projectId, name);
-      addToast('主角档案已创建', 'success');
+      addToast('角色档案已创建', 'success');
       setCreateName('');
       setSelectedName(name);
       await loadList();
@@ -516,8 +573,8 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     const name = selectedName.trim();
     if (!name) return;
     const ok = await confirmDialog({
-      title: '删除主角档案',
-      message: `确定要删除主角档案「${name}」吗？`,
+      title: '删除角色档案',
+      message: `确定要删除角色档案「${name}」吗？`,
       confirmText: '删除',
       dialogType: 'danger',
     });
@@ -567,12 +624,26 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
     };
   }, [detail, selectedSummary]);
   const selectedLastSyncedChapter = selectedSummary?.last_synced_chapter ?? detail?.last_synced_chapter ?? 0;
+  const selectedIdentity = useMemo(() => {
+    const name = selectedName.trim();
+    if (!name) return null;
+    const fromBlueprint = normalizeCharacterName(characterIdentityByName[name]);
+    if (fromBlueprint) return fromBlueprint;
+    const fromAttributes = extractIdentityFromAttributes(detail?.explicit_attributes);
+    return fromAttributes;
+  }, [characterIdentityByName, detail?.explicit_attributes, selectedName]);
+
+  useEffect(() => {
+    if (!selectedIdentity) {
+      setIdentityExpanded(false);
+    }
+  }, [selectedIdentity]);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="主角档案"
+      title="角色档案"
       maxWidthClassName="max-w-6xl"
       className="max-h-[90vh]"
       footer={
@@ -584,18 +655,23 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
       <NovelDialogStack className="h-[75vh]">
         <NovelDialogIntro
           eyebrow="Profile Workspace"
-          title="主角档案工作台"
-          description="这里集中管理主角的属性、行为、快照与回滚链路。建议按“同步章节 -> 检查属性 -> 审核异常”这条路径进行日常维护。"
+          title="角色档案工作台"
+          description="这里集中管理角色的属性、行为、快照与回滚链路。建议按“同步章节 -> 检查属性 -> 审核异常”这条路径进行日常维护。"
         >
           <div className="flex flex-wrap gap-2">
             <span className="story-pill">档案数 {profiles.length}</span>
             <span className="story-pill">{selectedName ? `当前档案：${selectedName}` : '待选择档案'}</span>
+            {selectedName && selectedIdentity ? (
+              <span className="story-pill max-w-[14rem] overflow-hidden" title={selectedIdentity}>
+                <span className="truncate">{`身份：${selectedIdentity}`}</span>
+              </span>
+            ) : null}
             <span className="story-pill">同步目标 第 {Math.max(1, Number(syncChapter) || 1)} 章</span>
           </div>
         </NovelDialogIntro>
 
         <NovelDialogMetricGrid className="xl:grid-cols-4">
-          <NovelDialogMetric label="档案总数" value={profiles.length} note="左侧列表管理当前项目的所有主角档案。" />
+          <NovelDialogMetric label="档案总数" value={profiles.length} note="左侧列表管理当前项目的所有角色档案。" />
           <NovelDialogMetric label="当前档案" value={selectedName || '未选择'} note="右侧工作区只显示当前选中角色的数据。" />
           <NovelDialogMetric label="最后同步" value={selectedLastSyncedChapter} note="表示这份档案最后一次与正文对齐到的章节。" />
           <NovelDialogMetric
@@ -645,6 +721,8 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
 
                 {profiles.map((profile) => {
                   const active = profile.character_name === selectedName;
+                  const nameKey = normalizeCharacterName(profile.character_name);
+                  const identity = normalizeCharacterName(characterIdentityByName[nameKey]);
                   return (
                     <button
                       key={profile.id}
@@ -655,8 +733,15 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
                           : 'border-book-border/45 bg-book-bg/70 hover:border-book-primary/25 hover:bg-book-bg-paper/72'
                       }`}
                     >
-                      <div className="truncate text-sm font-semibold text-book-text-main">
-                        {profile.character_name}
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="min-w-0 truncate text-sm font-semibold text-book-text-main">
+                          {profile.character_name}
+                        </div>
+                        {identity ? (
+                          <span className="story-pill-compact shrink-0 max-w-[8rem] overflow-hidden" title={identity}>
+                            <span className="truncate">{identity}</span>
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-2 text-[11px] leading-relaxed text-book-text-muted">
                         synced={profile.last_synced_chapter} · exp={profile.attribute_counts?.explicit ?? 0} · imp={profile.attribute_counts?.implicit ?? 0} · soc={profile.attribute_counts?.social ?? 0}
@@ -672,7 +757,7 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
             {!selectedName ? (
               <NovelDialogIntro
                 eyebrow="Profile Detail"
-                title="先选择一个主角档案"
+                title="先选择一个角色档案"
                 description="右侧工作区会展示当前角色的属性、变更历史、行为记录和快照信息。若当前还没有角色，可先在左侧创建。"
               />
             ) : (
@@ -683,6 +768,49 @@ export const ProtagonistProfilesModal: React.FC<ProtagonistProfilesModalProps> =
                   description={`最后同步章节：${selectedLastSyncedChapter}。同步会分析指定章节正文，更新属性、行为与删除候选。`}
                   actions={(
                     <>
+                      {selectedIdentity ? (
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setIdentityExpanded((prev) => !prev)}
+                            className={`story-pill-compact inline-flex max-w-[12rem] items-center gap-2 overflow-hidden transition-colors ${
+                              identityExpanded ? 'border-book-primary/35 bg-book-primary/10 text-book-primary' : ''
+                            }`}
+                            title={identityExpanded ? '收起身份' : '展开身份'}
+                            aria-expanded={identityExpanded}
+                            aria-label={identityExpanded ? '收起角色身份' : '展开角色身份'}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{selectedIdentity}</span>
+                            {identityExpanded ? (
+                              <ChevronUp size={14} className="shrink-0 opacity-80" />
+                            ) : (
+                              <ChevronDown size={14} className="shrink-0 opacity-80" />
+                            )}
+                          </button>
+
+                          {identityExpanded ? (
+                            <div className="absolute right-0 top-full z-20 mt-2 w-[min(56vw,28rem)] rounded-[22px] border border-book-border/55 bg-book-bg-paper/92 p-3 shadow-[0_24px_58px_-48px_rgba(34,17,7,0.94)] backdrop-blur-xl">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[0.7rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                                  角色身份
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setIdentityExpanded(false)}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-book-border/55 bg-book-bg/70 text-book-text-muted transition-colors hover:border-book-primary/35 hover:text-book-primary"
+                                  title="收起"
+                                  aria-label="收起角色身份"
+                                >
+                                  <ChevronUp size={14} />
+                                </button>
+                              </div>
+                              <div className="mt-2 max-h-28 overflow-auto custom-scrollbar whitespace-pre-wrap break-words text-xs leading-relaxed text-book-text-main">
+                                {selectedIdentity}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <BookButton variant="ghost" size="sm" onClick={handleDelete}>
                         <Trash2 size={14} className="mr-1" />
                         删除

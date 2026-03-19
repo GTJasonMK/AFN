@@ -35,7 +35,7 @@ export const NovelDialogIntro: React.FC<{
     className={`rounded-[26px] border px-4 py-4 shadow-[0_24px_58px_-48px_rgba(33,16,6,0.94)] backdrop-blur-xl sm:px-5 sm:py-5 ${toneClassMap[tone]} ${className}`}
   >
     <div className="space-y-3">
-      <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+      <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub/90">
         {eyebrow}
       </div>
       <div>
@@ -71,7 +71,7 @@ export const NovelDialogSection: React.FC<{
   >
     <div className="flex flex-col gap-3 border-b border-book-border/45 pb-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+        <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub/90">
           {eyebrow}
         </div>
         <h4 className="mt-2 font-serif text-xl font-bold text-book-text-main sm:text-2xl">{title}</h4>
@@ -98,7 +98,7 @@ export const NovelDialogMetric: React.FC<{
   note: React.ReactNode;
 }> = ({ label, value, note }) => (
   <div className="rounded-[22px] border border-book-border/50 bg-book-bg/74 px-4 py-4 shadow-[0_20px_46px_-42px_rgba(30,14,5,0.94)]">
-    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub/90">
       {label}
     </div>
     <div className="mt-3 font-serif text-2xl font-bold text-book-text-main">{value}</div>

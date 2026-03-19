@@ -18,8 +18,10 @@ import { usePersistedState } from '../../hooks/usePersistedState';
 
 // 只保留两种模式，照抄桌面端
 export type AssistantMode = 'rag' | 'optimize';
+type RagPane = 'query' | 'ingest';
 
 const ASSISTANT_MODE_STORAGE_KEY = (projectId: string) => `afn:assistant_mode:${projectId}`;
+const ASSISTANT_RAG_PANE_STORAGE_KEY = (projectId: string) => `afn:assistant_rag_pane:${projectId}`;
 
 interface AssistantPanelProps {
   projectId: string;
@@ -50,6 +52,18 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       parse: (raw) => {
         if (raw === 'optimize' || raw === 'rag') return raw;
         return 'rag';
+      },
+      serialize: (value) => value,
+    },
+  );
+
+  const [ragPane, setRagPane] = usePersistedState<RagPane>(
+    ASSISTANT_RAG_PANE_STORAGE_KEY(projectId),
+    'query',
+    {
+      parse: (raw) => {
+        if (raw === 'query' || raw === 'ingest') return raw;
+        return 'query';
       },
       serialize: (value) => value,
     },
@@ -90,6 +104,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const switchMode = (mode: AssistantMode) => {
     if (mode === currentMode) return;
     setCurrentMode(mode);
+  };
+
+  const switchRagPane = (next: RagPane) => {
+    if (next === ragPane) return;
+    setRagPane(next);
   };
 
   // RAG 诊断
@@ -214,213 +233,289 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {/* RAG查询模式 */}
         {currentMode === 'rag' && (
-          <div className="p-4 space-y-4 animate-in fade-in duration-300">
-            {/* RAG 头部：top_k 选择器 */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs text-book-text-muted">
-                <Database size={14} className="text-book-primary" />
-                <span>
-                  向量库：{ragDiagnoseLoading ? '检测中...' : (ragDiagnose?.vector_store_enabled ? '已启用' : '不可用')}
-                </span>
+            <div className="p-4 space-y-4 animate-in fade-in duration-300">
+            {/* RAG 子标签：查询 / 入库 */}
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="inline-flex w-fit shrink-0 rounded-full border border-book-border/55 bg-book-bg/78 p-1">
+                <button
+                  type="button"
+                  onClick={() => switchRagPane('query')}
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                    ragPane === 'query'
+                      ? 'bg-book-primary text-white shadow-[0_18px_38px_-24px_rgba(87,44,17,0.96)]'
+                      : 'text-book-text-sub hover:text-book-text-main'
+                  }`}
+                >
+                  查询
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchRagPane('ingest')}
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                    ragPane === 'ingest'
+                      ? 'bg-book-primary text-white shadow-[0_18px_38px_-24px_rgba(87,44,17,0.96)]'
+                      : 'text-book-text-sub hover:text-book-text-main'
+                  }`}
+                >
+                  入库
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 text-[11px] text-book-text-muted">
-                  <span className="font-bold">返回数量:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={ragTopK}
-                    onChange={(e) => setRagTopK(Math.max(1, Math.min(30, Number(e.target.value) || 10)))}
-                    className="book-control w-14 rounded border px-2 py-1 text-[11px] outline-none focus:border-book-primary/60"
-                    disabled={!vectorStoreReady}
+
+              <div className="ml-auto flex min-w-0 items-center gap-2">
+                <span
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-book-border/55 bg-book-bg/70 px-2 py-1 text-[11px] font-semibold text-book-text-muted"
+                  title={`向量库：${ragDiagnoseLoading ? '检测中…' : (ragDiagnose?.vector_store_enabled ? '已启用' : '不可用')}`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      ragDiagnoseLoading
+                        ? 'bg-amber-400/80'
+                        : ragDiagnose?.vector_store_enabled
+                        ? 'bg-emerald-400/80'
+                        : 'bg-red-400/80'
+                    }`}
                   />
-                </div>
+                  <Database size={12} className="text-book-primary" />
+                  <span className="whitespace-nowrap">
+                    {ragDiagnoseLoading ? '检测中' : (ragDiagnose?.vector_store_enabled ? '库已启用' : '库不可用')}
+                  </span>
+                </span>
+
+                {ragPane === 'query' ? (
+                  <div className="flex shrink-0 items-center gap-1 text-[11px] text-book-text-muted">
+                    <span className="font-semibold">TopK</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={ragTopK}
+                      onChange={(e) => setRagTopK(Math.max(1, Math.min(30, Number(e.target.value) || 10)))}
+                      className="book-control w-11 rounded border px-2 py-1 text-[11px] outline-none focus:border-book-primary/60"
+                      disabled={!vectorStoreReady}
+                    />
+                  </div>
+                ) : null}
+
                 <BookButton
                   variant="ghost"
                   size="sm"
                   onClick={fetchRagDiagnose}
                   disabled={ragDiagnoseLoading}
+                  title="刷新向量库状态"
                 >
                   <RefreshCw size={14} className={ragDiagnoseLoading ? 'animate-spin' : ''} />
                 </BookButton>
               </div>
             </div>
 
-            {/* 入库按钮 */}
-            <div className="flex gap-2">
-              <BookButton
-                variant="primary"
-                size="sm"
-                onClick={() => handleIngestAll(false)}
-                disabled={!ingestReady || ragIngesting}
-                className="flex-1"
-              >
-                {ragIngesting ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Database size={14} className="mr-2" />}
-                智能入库
-              </BookButton>
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={() => handleIngestAll(true)}
-                disabled={!ingestReady || ragIngesting}
-                className="flex-1"
-              >
-                强制重建
-              </BookButton>
-            </div>
+            {ragPane === 'query' ? (
+              <>
+                {/* 不可用提示（查询优先，但给出快速入口到入库页） */}
+                {!vectorStoreReady ? (
+                  <BookCard className="p-3 text-xs bg-book-bg/50 border-book-border/50">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 text-book-text-muted leading-relaxed">
+                        <div className="font-bold text-book-text-main">RAG 当前不可用</div>
+                        <div className="mt-1">向量库未启用或初始化失败。你可以切到「入库」页检查配置与完整性。</div>
+                      </div>
+                      <BookButton variant="ghost" size="sm" onClick={() => switchRagPane('ingest')}>
+                        去入库页
+                      </BookButton>
+                    </div>
+                  </BookCard>
+                ) : null}
 
-            {/* 入库结果 */}
-            {ragIngestResult && (
-              <BookCard className="p-3 text-xs bg-book-bg/50 border-book-border/50">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-bold text-book-text-main">入库结果</div>
-                  <div className={`font-bold ${ragIngestResult.success ? 'text-book-primary' : 'text-book-accent'}`}>
-                    {ragIngestResult.success ? '成功' : '失败'}
+                {/* 查询输入 */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 group">
+                    <input
+                      type="text"
+                      placeholder="输入查询内容，检索项目相关上下文…"
+                      value={ragQuery}
+                      onChange={(e) => setRagQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
+                      className="book-control w-full rounded-lg border py-2.5 pl-10 pr-3 text-sm focus:border-book-primary/60 outline-none transition-all"
+                      disabled={!vectorStoreReady}
+                    />
+                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-book-text-muted" />
                   </div>
-                </div>
-                <div className="text-book-text-muted">
-                  新增 {ragIngestResult.total_added}，更新 {ragIngestResult.total_updated}，跳过 {ragIngestResult.total_skipped}
-                </div>
-              </BookCard>
-            )}
-
-            {/* 向量库完整性 */}
-            {vectorStoreReady && ragDiagnose?.completeness && (
-              <BookCard className="p-3 text-xs bg-book-bg/50 border-book-border/50 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-bold text-book-text-main">向量库完整性</div>
-                  <div className={`font-bold ${ragDiagnose.completeness.complete ? 'text-book-primary' : 'text-book-accent'}`}>
-                    {ragDiagnose.completeness.complete ? '已完成' : '未完成'}
-                  </div>
-                </div>
-                <div className="text-book-text-muted leading-relaxed">
-                  DB：{ragDiagnose.completeness.total_db_count} · 向量：{ragDiagnose.completeness.total_vector_count}
-                  · 新增：{ragDiagnose.completeness.total_new}
-                  · 修改：{ragDiagnose.completeness.total_modified}
-                  · 删除：{ragDiagnose.completeness.total_deleted}
+                  <BookButton
+                    variant="primary"
+                    size="sm"
+                    onClick={handleRagSearch}
+                    disabled={!vectorStoreReady || isRagLoading || !ragQuery.trim()}
+                    className="shrink-0"
+                    title="执行 RAG 查询"
+                  >
+                    {isRagLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                    查询
+                  </BookButton>
                 </div>
 
-                {ragTypeRows.length > 0 && (
-                  <div className="grid grid-cols-1 gap-2 pt-1">
-                    {ragTypeRows.map(({ info, completeness, ingest }) => {
-                      const complete = Boolean(completeness?.complete);
-                      const title = info.display_name || info.value;
-                      return (
-                        <div
-                          key={`rag-type-${info.value}`}
-                          className="rounded-lg border border-book-border/40 bg-book-bg p-2"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-bold text-book-text-main truncate">{title}</div>
-                            <div className={`text-[11px] font-bold ${complete ? 'text-book-primary' : 'text-book-text-muted'}`}>
-                              {complete ? '完成' : '待入库'}
+                {/* 查询结果 */}
+                <div className="space-y-3">
+                  {ragResults?.message && (
+                    <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
+                      {ragResults.message}
+                    </div>
+                  )}
+
+                  {ragResults?.summaries?.map((s: any, i: number) => (
+                    <BookCard
+                      key={`summary-${s.chapter_number ?? 'unknown'}-${i}`}
+                      className={`p-3 text-sm bg-book-bg/50 border-book-border/50 hover:border-book-primary/20 transition-all ${
+                        onJumpToChapter && s?.chapter_number ? 'cursor-pointer' : ''
+                      }`}
+                      onClick={() => {
+                        const n = Number(s?.chapter_number || 0);
+                        if (onJumpToChapter && n) onJumpToChapter(n);
+                      }}
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-book-primary uppercase">
+                          摘要 · 第 {s.chapter_number} 章
+                        </span>
+                        <span className="text-[10px] text-book-text-muted">{Math.round((1 - s.score) * 100)}% 相关</span>
+                      </div>
+                      <div className="text-xs font-bold text-book-text-main mb-1">{s.title}</div>
+                      <p className="text-book-text-main text-xs leading-relaxed line-clamp-4">{s.summary}</p>
+                    </BookCard>
+                  ))}
+
+                  {ragResults?.chunks?.map((chunk: any, i: number) => (
+                    <BookCard
+                      key={`chunk-${chunk.chapter_number ?? 'unknown'}-${i}`}
+                      className={`p-3 text-sm bg-book-bg/50 border-book-primary/10 hover:border-book-primary/30 transition-all ${
+                        onJumpToChapter && chunk?.chapter_number ? 'cursor-pointer' : ''
+                      }`}
+                      onClick={async () => {
+                        const n = Number(chunk?.chapter_number || 0);
+                        if (onJumpToChapter && n) {
+                          await onJumpToChapter(n);
+                          if (onLocateText && chunk?.content) {
+                            onLocateText(String(chunk.content));
+                          }
+                        }
+                      }}
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-book-primary uppercase">第 {chunk.chapter_number} 章</span>
+                        <span className="text-[10px] text-book-text-muted">{Math.round((1 - chunk.score) * 100)}% 相关</span>
+                      </div>
+                      <p className="text-book-text-main text-xs leading-relaxed line-clamp-4">{chunk.content}</p>
+                    </BookCard>
+                  ))}
+
+                  {!ragResults && !isRagLoading && (
+                    <div className="py-12 text-center text-book-text-muted opacity-60">
+                      <Database size={32} className="mx-auto mb-3 opacity-40" />
+                      <p className="text-xs">输入查询内容，检索项目相关上下文</p>
+                      <p className="text-[11px] mt-2 opacity-70">
+                        可查询内容包括：世界观、角色设定、剧情伏笔等
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* 入库按钮 */}
+                <div className="flex gap-2">
+                  <BookButton
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleIngestAll(false)}
+                    disabled={!ingestReady || ragIngesting}
+                    className="flex-1"
+                  >
+                    {ragIngesting ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Database size={14} className="mr-2" />}
+                    智能入库
+                  </BookButton>
+                  <BookButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleIngestAll(true)}
+                    disabled={!ingestReady || ragIngesting}
+                    className="flex-1"
+                  >
+                    强制重建
+                  </BookButton>
+                </div>
+
+                {/* 入库结果 */}
+                {ragIngestResult && (
+                  <BookCard className="p-3 text-xs bg-book-bg/50 border-book-border/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-bold text-book-text-main">入库结果</div>
+                      <div className={`font-bold ${ragIngestResult.success ? 'text-book-primary' : 'text-book-accent'}`}>
+                        {ragIngestResult.success ? '成功' : '失败'}
+                      </div>
+                    </div>
+                    <div className="text-book-text-muted">
+                      新增 {ragIngestResult.total_added}，更新 {ragIngestResult.total_updated}，跳过 {ragIngestResult.total_skipped}
+                    </div>
+                  </BookCard>
+                )}
+
+                {/* 向量库完整性 */}
+                {vectorStoreReady && ragDiagnose?.completeness ? (
+                  <BookCard className="p-3 text-xs bg-book-bg/50 border-book-border/50 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-bold text-book-text-main">向量库完整性</div>
+                      <div className={`font-bold ${ragDiagnose.completeness.complete ? 'text-book-primary' : 'text-book-accent'}`}>
+                        {ragDiagnose.completeness.complete ? '已完成' : '未完成'}
+                      </div>
+                    </div>
+                    <div className="text-book-text-muted leading-relaxed">
+                      DB：{ragDiagnose.completeness.total_db_count} · 向量：{ragDiagnose.completeness.total_vector_count}
+                      · 新增：{ragDiagnose.completeness.total_new}
+                      · 修改：{ragDiagnose.completeness.total_modified}
+                      · 删除：{ragDiagnose.completeness.total_deleted}
+                    </div>
+
+                    {ragTypeRows.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-2 pt-1">
+                        {ragTypeRows.map(({ info, completeness, ingest }) => {
+                          const complete = Boolean(completeness?.complete);
+                          const title = info.display_name || info.value;
+                          return (
+                            <div
+                              key={`rag-type-${info.value}`}
+                              className="rounded-lg border border-book-border/40 bg-book-bg p-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-bold text-book-text-main truncate">{title}</div>
+                                <div className={`text-[11px] font-bold ${complete ? 'text-book-primary' : 'text-book-text-muted'}`}>
+                                  {complete ? '完成' : '待入库'}
+                                </div>
+                              </div>
+                              <div className="mt-1 text-[11px] text-book-text-muted font-mono">
+                                db={completeness?.db_count ?? '-'} · vec={completeness?.vector_count ?? '-'}
+                              </div>
+                              {ingest ? (
+                                <div className="mt-1 text-[11px] text-book-text-muted">
+                                  入库：<span className={ingest.success ? 'text-book-primary font-bold' : 'text-book-accent font-bold'}>
+                                    {ingest.success ? '成功' : '失败'}
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
-                          </div>
-                          <div className="mt-1 text-[11px] text-book-text-muted font-mono">
-                            db={completeness?.db_count ?? '-'} · vec={completeness?.vector_count ?? '-'}
-                          </div>
-                          {ingest && (
-                            <div className="mt-1 text-[11px] text-book-text-muted">
-                              入库：<span className={ingest.success ? 'text-book-primary font-bold' : 'text-book-accent font-bold'}>
-                                {ingest.success ? '成功' : '失败'}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </BookCard>
+                ) : (
+                  <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
+                    向量库当前不可用：请先启用向量库与 embedding 服务，再执行入库。
                   </div>
                 )}
-              </BookCard>
-            )}
 
-            {/* 不可用提示 */}
-            {!vectorStoreReady && (
-              <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50 leading-relaxed">
-                RAG 目前不可用：向量库未启用或初始化失败。
-              </div>
-            )}
-
-            {/* 查询输入框 */}
-            <div className="relative group">
-              <input
-                type="text"
-                placeholder="输入查询内容，检索项目相关上下文..."
-                value={ragQuery}
-                onChange={(e) => setRagQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
-                className="book-control w-full rounded-lg border py-3 pl-10 pr-10 text-sm focus:border-book-primary/60 outline-none transition-all"
-                disabled={!vectorStoreReady}
-              />
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-book-text-muted" />
-              {isRagLoading && <Loader2 size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-book-primary animate-spin" />}
-            </div>
-
-            {/* 查询结果 */}
-            <div className="space-y-3">
-              {ragResults?.message && (
-                <div className="text-xs text-book-text-muted bg-book-bg p-3 rounded-lg border border-book-border/50">
-                  {ragResults.message}
+                <div className="rounded-lg border border-book-border/45 bg-book-bg-paper/62 px-3 py-2 text-[11px] text-book-text-muted leading-relaxed">
+                  入库用于把世界观、角色、章节摘要等写入向量库，提升 RAG 检索质量。完成后切回「查询」即可检索。
                 </div>
-              )}
-
-              {ragResults?.summaries?.map((s: any, i: number) => (
-                <BookCard
-                  key={`summary-${s.chapter_number ?? 'unknown'}-${i}`}
-                  className={`p-3 text-sm bg-book-bg/50 border-book-border/50 hover:border-book-primary/20 transition-all ${
-                    onJumpToChapter && s?.chapter_number ? 'cursor-pointer' : ''
-                  }`}
-                  onClick={() => {
-                    const n = Number(s?.chapter_number || 0);
-                    if (onJumpToChapter && n) onJumpToChapter(n);
-                  }}
-                >
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-bold text-book-primary uppercase">
-                      摘要 · 第 {s.chapter_number} 章
-                    </span>
-                    <span className="text-[10px] text-book-text-muted">{Math.round((1 - s.score) * 100)}% 相关</span>
-                  </div>
-                  <div className="text-xs font-bold text-book-text-main mb-1">{s.title}</div>
-                  <p className="text-book-text-main text-xs leading-relaxed line-clamp-4">{s.summary}</p>
-                </BookCard>
-              ))}
-
-              {ragResults?.chunks?.map((chunk: any, i: number) => (
-                <BookCard
-                  key={`chunk-${chunk.chapter_number ?? 'unknown'}-${i}`}
-                  className={`p-3 text-sm bg-book-bg/50 border-book-primary/10 hover:border-book-primary/30 transition-all ${
-                    onJumpToChapter && chunk?.chapter_number ? 'cursor-pointer' : ''
-                  }`}
-                  onClick={async () => {
-                    const n = Number(chunk?.chapter_number || 0);
-                    if (onJumpToChapter && n) {
-                      await onJumpToChapter(n);
-                      if (onLocateText && chunk?.content) {
-                        onLocateText(String(chunk.content));
-                      }
-                    }
-                  }}
-                >
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-bold text-book-primary uppercase">第 {chunk.chapter_number} 章</span>
-                    <span className="text-[10px] text-book-text-muted">{Math.round((1 - chunk.score) * 100)}% 相关</span>
-                  </div>
-                  <p className="text-book-text-main text-xs leading-relaxed line-clamp-4">{chunk.content}</p>
-                </BookCard>
-              ))}
-
-              {!ragResults && !isRagLoading && (
-                <div className="py-12 text-center text-book-text-muted opacity-60">
-                  <Database size={32} className="mx-auto mb-3 opacity-40" />
-                  <p className="text-xs">输入查询内容，检索项目相关上下文</p>
-                  <p className="text-[11px] mt-2 opacity-70">
-                    可查询内容包括：世界观、角色设定、剧情伏笔等
-                  </p>
-                </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         )}
 

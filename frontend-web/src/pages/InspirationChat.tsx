@@ -11,6 +11,11 @@ import { BookCard } from '../components/ui/BookCard';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import {
+  clearBlueprintGenerationPending,
+  hasRecentBlueprintGenerationPending,
+  markBlueprintGenerationPending,
+} from '../utils/blueprintPending';
+import {
   NovelDialogIntro,
   NovelDialogMetric,
   NovelDialogMetricGrid,
@@ -35,11 +40,169 @@ type InspirationChatBootstrapSnapshot = {
   messages: Array<Pick<Message, 'id' | 'role' | 'content'>>;
   showBlueprintBtn: boolean;
   conversationState: any;
+  options?: any[];
 };
 
 const INSPIRATION_CHAT_BOOTSTRAP_TTL_MS = 10 * 60 * 1000;
+const INSPIRATION_CHAT_PERSIST_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 const getInspirationChatBootstrapKey = (mode: 'novel' | 'coding', projectId: string) =>
   `afn:web:inspiration-chat:${mode}:${projectId}:bootstrap:v1`;
+const getInspirationChatPersistKey = (mode: 'novel' | 'coding', projectId: string) =>
+  `afn:web:inspiration-chat:${mode}:${projectId}:state:v1`;
+
+type InspirationChatPersistEnvelope = {
+  ts: number;
+  conversationState: any;
+  showBlueprintBtn: boolean;
+};
+
+type MaybeStructuredJson = Record<string, unknown> | unknown[] | null;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const canUseLocalStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
+const normalizeTextNewlines = (raw: string): string => {
+  const text = String(raw ?? '');
+  let normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 某些模型会把换行“二次转义”为字面量 "\\n"/"\\r\\n"，导致前端渲染看起来“不换行”。
+  // 这里做一次温和解码：仅对明确包含转义序列的文本进行替换。
+  if (normalized.includes('\\n') || normalized.includes('\\r')) {
+    normalized = normalized
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n');
+  }
+
+  return normalized;
+};
+
+const readPersistedInspirationChatState = (
+  key: string,
+  maxAgeMs: number = INSPIRATION_CHAT_PERSIST_TTL_MS,
+): InspirationChatPersistEnvelope | null => {
+  if (!canUseLocalStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as InspirationChatPersistEnvelope;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!Number.isFinite(parsed.ts)) return null;
+    if (Date.now() - parsed.ts > Math.max(0, maxAgeMs)) return null;
+    if (!parsed.conversationState || typeof parsed.conversationState !== 'object') return null;
+    return {
+      ts: parsed.ts,
+      conversationState: parsed.conversationState,
+      showBlueprintBtn: Boolean(parsed.showBlueprintBtn),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedInspirationChatState = (key: string, payload: Omit<InspirationChatPersistEnvelope, 'ts'>) => {
+  if (!canUseLocalStorage()) return;
+  try {
+    const envelope: InspirationChatPersistEnvelope = {
+      ts: Date.now(),
+      conversationState: payload.conversationState,
+      showBlueprintBtn: Boolean(payload.showBlueprintBtn),
+    };
+    window.localStorage.setItem(key, JSON.stringify(envelope));
+  } catch {
+    // ignore
+  }
+};
+
+const tryParseJsonFromText = (raw: string): MaybeStructuredJson => {
+  const trimmed = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!trimmed) return null;
+
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidate = (fenceMatch ? fenceMatch[1] : trimmed).trim();
+
+  const startsLikeJson =
+    (candidate.startsWith('{') && candidate.endsWith('}')) ||
+    (candidate.startsWith('[') && candidate.endsWith(']'));
+  if (!startsLikeJson) return null;
+
+  try {
+    return JSON.parse(candidate) as any;
+  } catch {
+    return null;
+  }
+};
+
+const pickFirstNonEmptyString = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text ? text : null;
+};
+
+const deriveDisplayTextFromStructuredPayload = (
+  payload: MaybeStructuredJson,
+  role: Message['role'],
+  depth: number = 0,
+): string | null => {
+  if (!payload) return null;
+  if (depth >= 2) return null;
+
+  // history 的 user 记录通常是 {"text": "..."}
+  if (role === 'user' && isPlainObject(payload)) {
+    const userText =
+      pickFirstNonEmptyString(payload.text) ??
+      (isPlainObject(payload.user_input) ? pickFirstNonEmptyString(payload.user_input.text) : null);
+    return userText;
+  }
+
+  if (Array.isArray(payload)) {
+    const asStrings = payload
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+    if (asStrings.length > 0) return asStrings.join('\n');
+    return null;
+  }
+
+  if (!isPlainObject(payload)) return null;
+
+  const primaryKeys = [
+    'ai_message',
+    'message',
+    'text',
+    'answer',
+    'content',
+    'reply',
+    'final_answer',
+    'final',
+    'output',
+  ];
+
+  for (const key of primaryKeys) {
+    const picked = pickFirstNonEmptyString(payload[key]);
+    if (picked) {
+      // 某些模型会把 ai_message 再包一层 JSON 字符串，这里做一次递归解包
+      const nested = tryParseJsonFromText(picked);
+      return nested
+        ? (deriveDisplayTextFromStructuredPayload(nested, role, depth + 1) ?? normalizeTextNewlines(picked))
+        : normalizeTextNewlines(picked);
+    }
+  }
+
+  // 兜底：如果缺少主文案，至少把 progress_summary 当可读内容展示（避免用户看到整段 JSON）
+  const progressSummary = pickFirstNonEmptyString(payload.progress_summary);
+  if (progressSummary) return normalizeTextNewlines(progressSummary);
+
+  return null;
+};
+
+const normalizeMessageContentForDisplay = (role: Message['role'], rawContent: unknown): string => {
+  const text = String(rawContent ?? '');
+  const parsed = tryParseJsonFromText(text);
+  const derived = deriveDisplayTextFromStructuredPayload(parsed, role);
+  return derived ?? text;
+};
 
 export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel' }) => {
   const { id } = useParams<{ id: string }>();
@@ -68,6 +231,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const chunkFlushTimerRef = useRef<number | null>(null);
   const isStreamingRef = useRef(false);
   const messageIdSeqRef = useRef(0);
+  const blueprintResumeCheckedRef = useRef(false);
 
   useEffect(() => {
     completionHintShownRef.current = false;
@@ -91,6 +255,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       return;
     }
 
+    const persisted = readPersistedInspirationChatState(getInspirationChatPersistKey(mode, id));
     const cached = readBootstrapCache<InspirationChatBootstrapSnapshot>(
       getInspirationChatBootstrapKey(mode, id),
       INSPIRATION_CHAT_BOOTSTRAP_TTL_MS,
@@ -98,8 +263,8 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 
     if (!cached) {
       setMessages([]);
-      setShowBlueprintBtn(false);
-      setConversationState({});
+      setShowBlueprintBtn(Boolean(persisted?.showBlueprintBtn));
+      setConversationState(persisted?.conversationState && typeof persisted.conversationState === 'object' ? persisted.conversationState : {});
       return;
     }
 
@@ -109,13 +274,16 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
           .map((item, idx) => ({
             id: Number(item.id) || (Date.now() + idx),
             role: item.role,
-            content: String(item.content || ''),
+            content: normalizeMessageContentForDisplay(item.role, item.content),
           }))
       : [];
 
     setMessages(safeMessages);
-    setShowBlueprintBtn(Boolean(cached.showBlueprintBtn));
-    setConversationState(cached.conversationState && typeof cached.conversationState === 'object' ? cached.conversationState : {});
+    setShowBlueprintBtn(Boolean(cached.showBlueprintBtn ?? persisted?.showBlueprintBtn));
+    const cachedState = cached.conversationState && typeof cached.conversationState === 'object' ? cached.conversationState : {};
+    const persistedState = persisted?.conversationState && typeof persisted.conversationState === 'object' ? persisted.conversationState : {};
+    setConversationState({ ...persistedState, ...cachedState });
+    setOptions(Array.isArray(cached.options) ? cached.options : []);
   }, [id, mode]);
 
   const nextMessageId = useCallback(() => {
@@ -176,8 +344,14 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
       messages: compactMessages,
       showBlueprintBtn: Boolean(showBlueprintBtn),
       conversationState: conversationState && typeof conversationState === 'object' ? conversationState : {},
+      options: Array.isArray(options) ? options : [],
     });
-  }, [conversationState, id, isTyping, messages, mode, showBlueprintBtn]);
+
+    writePersistedInspirationChatState(getInspirationChatPersistKey(mode, id), {
+      showBlueprintBtn: Boolean(showBlueprintBtn),
+      conversationState: conversationState && typeof conversationState === 'object' ? conversationState : {},
+    });
+  }, [conversationState, id, isTyping, messages, mode, options, showBlueprintBtn]);
   
   // Load chat history
   useEffect(() => {
@@ -190,7 +364,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         const mapped: Message[] = history.map((msg: any) => ({
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
-          content: msg.content,
+          content: normalizeMessageContentForDisplay(msg.role, msg.content),
         }));
 
         // 对齐桌面端：首次进入时也显示一条欢迎语（作为对话气泡，而不是空态占位）
@@ -199,6 +373,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
             mode === 'novel'
               ? "你好！我是AFN AI助手。\n\n请告诉我你的创意想法，我会帮你创建一个完整的小说蓝图。"
               : "你好！我是AFN需求分析助手。\n\n请告诉我你想要构建什么样的系统，我会帮你分析需求并设计项目架构。";
+          setOptions([]);
           setMessages([
             {
               id: nextMessageId(),
@@ -207,11 +382,51 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
             },
           ]);
         } else {
+          setOptions([]);
           setMessages(mapped);
         }
 
-        // 避免路由切换后遗留旧状态
-        setShowBlueprintBtn(history.length > 2);
+        // 基于最后一条 assistant 的结构化记录，恢复 conversation_state / ready_for_blueprint / progress_summary
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+          const record = history[i];
+          if (!record || record.role !== 'assistant') continue;
+          const parsed = tryParseJsonFromText(String(record.content || ''));
+          if (!isPlainObject(parsed)) continue;
+
+          const nextState: Record<string, unknown> = isPlainObject(parsed.conversation_state)
+            ? { ...parsed.conversation_state }
+            : {};
+
+          if (pickFirstNonEmptyString(parsed.next_question) && !pickFirstNonEmptyString(nextState.next_question)) {
+            nextState.next_question = parsed.next_question;
+          }
+          if (Array.isArray(parsed.next_question_points) && !Array.isArray(nextState.next_question_points)) {
+            nextState.next_question_points = parsed.next_question_points;
+          }
+          if (pickFirstNonEmptyString(parsed.progress_summary) && !pickFirstNonEmptyString(nextState.progress_summary)) {
+            nextState.progress_summary = parsed.progress_summary;
+          }
+
+          if (Object.keys(nextState).length > 0) {
+            setConversationState(nextState);
+          }
+
+          const uiControl = isPlainObject(parsed.ui_control) ? parsed.ui_control : null;
+          const uiOptions = uiControl && Array.isArray(uiControl.options) ? uiControl.options : [];
+          setOptions(uiOptions);
+
+          const ready = parsed.ready_for_blueprint;
+          const complete = parsed.is_complete;
+          if (typeof ready === 'boolean') {
+            setShowBlueprintBtn(ready);
+          } else if (typeof complete === 'boolean') {
+            setShowBlueprintBtn(complete);
+          } else {
+            // 如果拿不到明确状态，尽量沿用已有状态；最后再兜底使用条数阈值
+            setShowBlueprintBtn((prev) => prev || history.length > 2);
+          }
+          break;
+        }
       };
       loadHistory().catch((e) => console.error(e));
     }
@@ -262,7 +477,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     }
 
     if (event === 'option') {
-      setOptions((prev) => [...prev, data.option]);
+      const optionPayload = data?.option ?? data;
+      if (optionPayload !== null && optionPayload !== undefined) {
+        setOptions((prev) => [...prev, optionPayload]);
+      }
       return;
     }
 
@@ -275,6 +493,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 
       isStreamingRef.current = false;
       setIsTyping(false);
+      const finalAiMessage = typeof data?.ai_message === 'string' ? String(data.ai_message) : null;
+      if (Array.isArray(data?.options)) {
+        setOptions(data.options);
+      }
       if (data?.conversation_state && typeof data.conversation_state === 'object') {
         const nextState = { ...(data.conversation_state || {}) } as any;
         if (data?.next_question && !nextState.next_question) {
@@ -299,8 +521,13 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         let next = prev;
 
         if (lastIdx >= 0 && prev[lastIdx]?.isStreaming) {
+          const resolvedContent = finalAiMessage ?? prev[lastIdx].content;
           next = [...prev];
-          next[lastIdx] = { ...prev[lastIdx], isStreaming: false };
+          next[lastIdx] = {
+            ...prev[lastIdx],
+            isStreaming: false,
+            content: normalizeMessageContentForDisplay(prev[lastIdx].role, resolvedContent),
+          };
         }
 
         if (shouldAddHint) {
@@ -341,6 +568,35 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   }, [flushPendingChunks, mode, nextMessageId, scheduleChunkFlush]);
 
   const { connect } = useSSE(handleEvent);
+
+  useEffect(() => {
+    if (!id) return;
+    if (blueprintResumeCheckedRef.current) return;
+    if (!hasRecentBlueprintGenerationPending(mode, id)) return;
+    blueprintResumeCheckedRef.current = true;
+
+    void (async () => {
+      try {
+        if (mode !== 'novel') return;
+
+        const project = await novelsApi.get(id, { silent: true });
+        const status = String(project?.status || '').trim().toLowerCase();
+        const blueprint = project?.blueprint;
+        const hasBlueprint = Boolean(blueprint && typeof blueprint === 'object');
+
+        if (status === 'draft' || status === 'inspiration' || !hasBlueprint) {
+          return;
+        }
+
+        clearBlueprintGenerationPending(mode, id);
+        setBlueprintPreview(blueprint);
+        setBlueprintTip('检测到上次蓝图生成可能已完成（自动恢复）。');
+        setIsBlueprintConfirmOpen(true);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [id, mode]);
 
   const sendText = async (text: string) => {
     if (!id) return;
@@ -385,6 +641,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 
   const generateBlueprint = async (opts?: { allowIncomplete?: boolean }) => {
     if (!id) return;
+    markBlueprintGenerationPending(mode, id);
     try {
       setIsGeneratingBlueprint(true);
       setBlueprintTip(null);
@@ -399,10 +656,26 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         setBlueprintTip('架构蓝图已生成');
       }
 
+      clearBlueprintGenerationPending(mode, id);
       setIsBlueprintConfirmOpen(true);
     } catch (e: any) {
       console.error(e);
-      setBlueprintTip(String(e?.response?.data?.detail || '生成蓝图失败'));
+      const msg = String(e?.response?.data?.detail || e?.message || '生成蓝图失败').trim() || '生成蓝图失败';
+      const status = Number(e?.response?.status || 0);
+      const isTimeout =
+        String(e?.code || '') === 'ECONNABORTED' ||
+        msg.toLowerCase().includes('timeout') ||
+        msg.includes('超时');
+      const isNetworkLike = !status;
+      const shouldKeepPending = isTimeout || isNetworkLike || status >= 500;
+      if (!shouldKeepPending) {
+        clearBlueprintGenerationPending(mode, id);
+      }
+      setBlueprintTip(
+        isTimeout
+          ? '蓝图生成耗时较长，前端等待已结束。\n后端可能仍在继续生成：建议稍后从项目列表重新进入。\n如果你重新进入后直接进入工作台/项目详情，说明蓝图其实已经生成成功（只是本次前端超时/断连未收到响应）。'
+          : msg,
+      );
       setIsBlueprintConfirmOpen(true);
     } finally {
       setIsGeneratingBlueprint(false);
@@ -432,15 +705,21 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 
   const confirmBlueprintAndContinue = () => {
     if (!id) return;
+    if (!blueprintPreview || typeof blueprintPreview !== 'object') {
+      setIsBlueprintConfirmOpen(false);
+      return;
+    }
     setIsBlueprintConfirmOpen(false);
     setBlueprintPreview(null);
     setBlueprintTip(null);
+    clearBlueprintGenerationPending(mode, id);
     if (mode === 'novel') navigate(`/novel/${id}`);
     else navigate(`/coding/detail/${id}`);
   };
 
   const regenerateBlueprint = async () => {
     if (!id) return;
+    markBlueprintGenerationPending(mode, id);
     setIsGeneratingBlueprint(true);
     setBlueprintTip(null);
     try {
@@ -459,7 +738,10 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 	              confirmText: '强制重生成',
 	              dialogType: 'danger',
 	            });
-	            if (!ok) return;
+	            if (!ok) {
+                clearBlueprintGenerationPending(mode, id);
+                return;
+              }
 	            const res = await novelsApi.generateBlueprint(id, { forceRegenerate: true });
 	            setBlueprintPreview(res?.blueprint || null);
 	            setBlueprintTip(String(res?.ai_message || '蓝图已强制重新生成'));
@@ -472,9 +754,25 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
         setBlueprintPreview(res?.blueprint || null);
         setBlueprintTip('架构蓝图已重新生成');
       }
+      clearBlueprintGenerationPending(mode, id);
     } catch (e: any) {
       console.error(e);
-      setBlueprintTip(String(e?.response?.data?.detail || '重新生成失败'));
+      const msg = String(e?.response?.data?.detail || e?.message || '重新生成失败').trim() || '重新生成失败';
+      const status = Number(e?.response?.status || 0);
+      const isTimeout =
+        String(e?.code || '') === 'ECONNABORTED' ||
+        msg.toLowerCase().includes('timeout') ||
+        msg.includes('超时');
+      const isNetworkLike = !status;
+      const shouldKeepPending = isTimeout || isNetworkLike || status >= 500;
+      if (!shouldKeepPending) {
+        clearBlueprintGenerationPending(mode, id);
+      }
+      setBlueprintTip(
+        isTimeout
+          ? '重新生成耗时较长，前端等待已结束。\n后端可能仍在继续生成：建议稍后从项目列表重新进入。\n如果你重新进入后直接进入工作台/项目详情，说明蓝图其实已经生成成功（只是本次前端超时/断连未收到响应）。'
+          : String(e?.response?.data?.detail || msg || '重新生成失败'),
+      );
     } finally {
       setIsGeneratingBlueprint(false);
     }
@@ -490,14 +788,13 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
     if (!state || typeof state !== 'object') return null;
     const raw = state.progress_summary ?? state.progressSummary ?? state.collected_summary ?? state.collectedSummary;
     if (raw === null || raw === undefined) return null;
-    const text = String(raw).trim();
+    const text = normalizeTextNewlines(String(raw)).trim();
     return text ? text : null;
   };
 
   const progressSummary = isTyping ? null : extractProgressSummary(safeConversationState);
   const progressSummaryLines = progressSummary
     ? progressSummary
-        .replace(/\r\n/g, '\n')
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
@@ -607,9 +904,11 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
             <BookButton variant="secondary" onClick={regenerateBlueprint} disabled={isGeneratingBlueprint}>
               {isGeneratingBlueprint ? '重新生成中…' : '重新生成'}
             </BookButton>
-            <BookButton variant="primary" onClick={confirmBlueprintAndContinue}>
-              确认并继续
-            </BookButton>
+            {blueprintPreview && typeof blueprintPreview === 'object' ? (
+              <BookButton variant="primary" onClick={confirmBlueprintAndContinue}>
+                确认并继续
+              </BookButton>
+            ) : null}
           </>
         }
       >

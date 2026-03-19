@@ -12,6 +12,10 @@ export const WritingDeskSidebar: React.FC<{
   width: number;
   compact?: boolean;
   compactMode?: 'overlay' | 'pane';
+  canCreateChapter?: boolean;
+  createChapterDisabledReason?: string | null;
+  canBatchGenerate?: boolean;
+  batchGenerateDisabledReason?: string | null;
   onClose?: () => void;
   onResizeMouseDown: (e: React.MouseEvent) => void;
   onSelectChapter: (chapterNumber: number) => void | Promise<void>;
@@ -31,6 +35,10 @@ export const WritingDeskSidebar: React.FC<{
   width,
   compact = false,
   compactMode = 'overlay',
+  canCreateChapter,
+  createChapterDisabledReason,
+  canBatchGenerate,
+  batchGenerateDisabledReason,
   onClose,
   onResizeMouseDown,
   onSelectChapter,
@@ -85,6 +93,10 @@ export const WritingDeskSidebar: React.FC<{
                 onResetChapter={onResetChapter}
                 onDeleteChapter={onDeleteChapter}
                 onBatchGenerate={onBatchGenerate}
+                canBatchGenerate={canBatchGenerate}
+                batchGenerateDisabledReason={batchGenerateDisabledReason}
+                canCreateChapter={canCreateChapter}
+                createChapterDisabledReason={createChapterDisabledReason}
                 onOpenProtagonistProfiles={onOpenProtagonistProfiles}
               />
             </div>
@@ -101,20 +113,24 @@ export const WritingDeskSidebar: React.FC<{
           chapters={chapters}
           projectId={projectId}
           draftRevision={draftRevision}
-          panelMode="pane"
-          currentChapterNumber={currentChapterNumber}
-          projectInfo={projectInfo}
-          onSelectChapter={onSelectChapter}
-          onCreateChapter={onCreateChapter}
-          onEditOutline={onEditOutline}
-          onRegenerateOutline={onRegenerateOutline}
-          onResetChapter={onResetChapter}
-          onDeleteChapter={onDeleteChapter}
-          onBatchGenerate={onBatchGenerate}
-          onOpenProtagonistProfiles={onOpenProtagonistProfiles}
-        />
-      </div>
-    );
+        panelMode="pane"
+        currentChapterNumber={currentChapterNumber}
+        projectInfo={projectInfo}
+        onSelectChapter={onSelectChapter}
+        onCreateChapter={onCreateChapter}
+        onEditOutline={onEditOutline}
+        onRegenerateOutline={onRegenerateOutline}
+        onResetChapter={onResetChapter}
+        onDeleteChapter={onDeleteChapter}
+        onBatchGenerate={onBatchGenerate}
+        canBatchGenerate={canBatchGenerate}
+        batchGenerateDisabledReason={batchGenerateDisabledReason}
+        canCreateChapter={canCreateChapter}
+        createChapterDisabledReason={createChapterDisabledReason}
+        onOpenProtagonistProfiles={onOpenProtagonistProfiles}
+      />
+    </div>
+  );
   }
 
   return (
@@ -124,19 +140,23 @@ export const WritingDeskSidebar: React.FC<{
           chapters={chapters}
           projectId={projectId}
           draftRevision={draftRevision}
-          panelMode="rail"
-          currentChapterNumber={currentChapterNumber}
-          projectInfo={projectInfo}
-          onSelectChapter={onSelectChapter}
-          onCreateChapter={onCreateChapter}
-          onEditOutline={onEditOutline}
-          onRegenerateOutline={onRegenerateOutline}
-          onResetChapter={onResetChapter}
-          onDeleteChapter={onDeleteChapter}
-          onBatchGenerate={onBatchGenerate}
-          onOpenProtagonistProfiles={onOpenProtagonistProfiles}
-        />
-      </div>
+        panelMode="rail"
+        currentChapterNumber={currentChapterNumber}
+        projectInfo={projectInfo}
+        onSelectChapter={onSelectChapter}
+        onCreateChapter={onCreateChapter}
+        onEditOutline={onEditOutline}
+        onRegenerateOutline={onRegenerateOutline}
+        onResetChapter={onResetChapter}
+        onDeleteChapter={onDeleteChapter}
+        onBatchGenerate={onBatchGenerate}
+        canBatchGenerate={canBatchGenerate}
+        batchGenerateDisabledReason={batchGenerateDisabledReason}
+        canCreateChapter={canCreateChapter}
+        createChapterDisabledReason={createChapterDisabledReason}
+        onOpenProtagonistProfiles={onOpenProtagonistProfiles}
+      />
+    </div>
 
       <div
         className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-book-primary/20 transition-colors"

@@ -80,7 +80,7 @@ export const BookSlider: React.FC<BookSliderProps> = ({
       <div className="mb-2 ml-1 flex items-center justify-between gap-3">
         <label
           htmlFor={sliderId}
-          className="block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted"
+          className="block text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-sub"
         >
           {label}
         </label>

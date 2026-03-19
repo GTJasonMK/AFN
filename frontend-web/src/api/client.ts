@@ -4,6 +4,9 @@ import { useToast } from '../components/feedback/Toast';
 // 使用相对路径以利用 Vite 代理
 export const API_BASE_URL = '/api';
 export const AUTH_UNAUTHORIZED_EVENT = 'afn-auth-unauthorized';
+// 长耗时操作（蓝图/大纲/章节等）建议用更长的请求超时。
+// 后端通常会有自己的超时保护（例如蓝图 8 分钟），前端不应过早超时导致“看起来失败但后台已成功”的错觉。
+export const LONG_TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10分钟
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

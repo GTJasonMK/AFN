@@ -187,68 +187,117 @@ export const ImportExportTab: React.FC = () => {
 
   return (
     <SettingsTabPanel className="h-full min-h-0" bodyClassName="h-full min-h-0">
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="shrink-0">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-bold text-book-text-main">
-                <Upload size={16} className="text-book-primary" />
-                备份与恢复
-              </div>
-              <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                将当前配置导出为 JSON 备份；或导入备份文件覆盖本机配置。
-              </div>
-            </div>
+      <div className="flex min-h-0 flex-col gap-4">
+        <input
+          ref={fileInputRef}
+          className="hidden"
+          type="file"
+          accept=".json,application/json"
+          onChange={handleFileChange}
+        />
 
-            <div className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 p-1">
-              <button
-                type="button"
-                aria-pressed={mode === 'backup'}
-                onClick={() => setMode('backup')}
-                className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
-                  mode === 'backup'
-                    ? 'bg-book-primary text-white shadow'
-                    : 'text-book-text-sub hover:text-book-text-main'
-                }`}
-              >
-                <Download size={14} />
-                备份
-              </button>
-              <button
-                type="button"
-                aria-pressed={mode === 'restore'}
-                onClick={() => setMode('restore')}
-                className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
-                  mode === 'restore'
-                    ? 'bg-book-primary text-white shadow'
-                    : 'text-book-text-sub hover:text-book-text-main'
-                }`}
-              >
-                <Upload size={14} />
-                恢复
-              </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-bold text-book-text-main">
+              <Upload size={16} className="text-book-primary" />
+              备份与恢复
             </div>
+            <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+              导出当前配置为 JSON 备份；或导入备份文件覆盖本机配置。按钮固定在右下角，避免页面跳动。
+            </div>
+          </div>
+
+          <div className="inline-flex rounded-full border border-book-border/55 bg-book-bg-paper/70 p-1">
+            <button
+              type="button"
+              aria-pressed={mode === 'backup'}
+              onClick={() => setMode('backup')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
+                mode === 'backup'
+                  ? 'bg-book-primary text-white shadow'
+                  : 'text-book-text-sub hover:text-book-text-main'
+              }`}
+            >
+              <Download size={14} />
+              备份
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === 'restore'}
+              onClick={() => setMode('restore')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
+                mode === 'restore'
+                  ? 'bg-book-primary text-white shadow'
+                  : 'text-book-text-sub hover:text-book-text-main'
+              }`}
+            >
+              <Upload size={14} />
+              恢复
+            </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-          <div className="space-y-4 pb-1">
-            <input
-              ref={fileInputRef}
-              className="hidden"
-              type="file"
-              accept=".json,application/json"
-              onChange={handleFileChange}
-            />
+        <div className="grid gap-4 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+          <aside className="space-y-4">
+            <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-bold text-book-text-sub">当前状态</div>
+                <div className="text-[11px] text-book-text-muted">
+                  {mode === 'backup' ? '备份模式' : '恢复模式'}
+                </div>
+              </div>
 
+              <div className="mt-3 grid gap-2 text-xs">
+                <div className="rounded-xl border border-book-border/45 bg-book-bg-paper/70 px-3 py-2">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    最近导出
+                  </div>
+                  <div className="mt-1 font-mono text-book-text-main">
+                    {lastExport?.export_time ? lastExport.export_time : '—'}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-book-border/45 bg-book-bg-paper/70 px-3 py-2">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-book-text-muted">
+                    已选择文件
+                  </div>
+                  <div className="mt-1 font-mono text-book-text-main">
+                    {importPreview?.fileName ? importPreview.fileName : '—'}
+                  </div>
+                  {importPreview?.fileName ? (
+                    <div className="mt-1 text-[11px] text-book-text-muted leading-relaxed">
+                      {canImport ? '文件类型匹配，可导入。' : 'export_type 不匹配：仅支持“导出全部配置”的文件。'}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/55 p-4 text-xs leading-relaxed text-book-text-sub">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="mt-0.5 flex-none text-book-accent" />
+                <div>
+                  <div className="font-semibold text-book-text-main">重要提示</div>
+                  <div className="mt-1">
+                    恢复会覆盖当前配置（含提示词/主题/模型列表等）。建议在恢复前先做一次备份。
+                    如果 UI 未立即刷新，可关闭并重新打开设置弹窗。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section className="space-y-4">
             {mode === 'backup' ? (
               <>
                 <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-book-text-main">导出范围</div>
-                    <div className="mt-1 text-xs leading-relaxed text-book-text-muted">
-                      导出文件包含模型配置、提示词、主题、队列与高级策略等。用于迁移/备份。
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-book-text-main">导出范围</div>
+                      <div className="mt-1 text-xs leading-relaxed text-book-text-sub">
+                        导出文件包含模型配置、提示词、主题、队列与高级策略等，适用于迁移/备份。
+                      </div>
                     </div>
+                    <div className="text-[11px] text-book-text-muted">操作按钮在右下角</div>
                   </div>
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 text-xs text-book-text-sub">
@@ -272,21 +321,10 @@ export const ImportExportTab: React.FC = () => {
                       </div>
                     ))}
                   </div>
-
-                  <div className="mt-4 text-[11px] text-book-text-muted">
-                    {lastExport?.export_time ? (
-                      <>
-                        最近导出时间：<span className="font-mono">{lastExport.export_time}</span>
-                      </>
-                    ) : (
-                      <>尚未导出过配置。</>
-                    )}
-                  </div>
                 </div>
 
-                <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/55 p-4 text-xs text-book-text-muted leading-relaxed">
-                  <span className="font-semibold text-book-text-main">建议：</span>
-                  恢复前先做一次备份。导出后会自动下载文件；文件名包含时间戳，便于版本管理。
+                <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/55 p-4 text-xs leading-relaxed text-book-text-muted">
+                  导出后会自动下载文件；文件名包含时间戳，便于版本管理与回滚。
                 </div>
               </>
             ) : (
@@ -334,29 +372,20 @@ export const ImportExportTab: React.FC = () => {
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-book-text-main">拖拽配置文件到这里</div>
-                      <div className="mt-1 text-xs text-book-text-muted">
+                      <div className="mt-1 text-xs text-book-text-sub">
                         或点击选择由“导出全部配置”生成的 JSON 文件（.json）。
                       </div>
                     </div>
                   </div>
 
                   {importPreview ? (
-                    <div className="mt-4 text-xs text-book-text-muted">
+                    <div className="mt-4 text-xs text-book-text-sub">
                       已选择：<span className="font-mono text-book-text-main">{importPreview.fileName}</span>
                       {canImport ? null : (
                         <span className="ml-2 font-semibold text-book-accent">（export_type 不匹配）</span>
                       )}
                     </div>
                   ) : null}
-                </div>
-
-                <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/60 p-4 text-xs text-book-text-sub leading-relaxed">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle size={16} className="mt-0.5 flex-none text-book-accent" />
-                    <div>
-                      恢复会覆盖当前配置（含提示词/主题/模型列表等）。建议先备份；恢复后如 UI 未立即刷新，可重新打开设置弹窗。
-                    </div>
-                  </div>
                 </div>
 
                 {importPreview ? (
@@ -417,23 +446,23 @@ export const ImportExportTab: React.FC = () => {
                   </div>
                 )}
 
-                {importResult && (
+                {importResult ? (
                   <div className="rounded-2xl border border-book-border/50 bg-book-bg-paper/55 p-4">
                     <div className={`text-sm font-bold ${importResult.success ? 'text-book-primary' : 'text-book-accent'}`}>
                       {importResult.success ? '导入成功' : '导入失败'}：{importResult.message}
                     </div>
-                    {Array.isArray(importResult.details) && importResult.details.length > 0 && (
-                      <ul className="mt-3 list-disc list-inside text-xs text-book-text-main space-y-1">
+                    {Array.isArray(importResult.details) && importResult.details.length > 0 ? (
+                      <ul className="mt-3 list-disc list-inside space-y-1 text-xs text-book-text-main">
                         {importResult.details.map((d, idx) => (
                           <li key={`detail-${idx}`}>{d}</li>
                         ))}
                       </ul>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </>
             )}
-          </div>
+          </section>
         </div>
       </div>
     </SettingsTabPanel>

@@ -5,6 +5,8 @@ import { BookCard } from '../components/ui/BookCard';
 import { BookButton } from '../components/ui/BookButton';
 import { ArrowLeft, Map, Users, ScrollText, Play } from 'lucide-react';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
+import { clearBlueprintGenerationPending } from '../utils/blueprintPending';
+import { resolveWorkflowStage } from '../utils/projectWorkflow';
 import {
   AppViewportFrame,
   AppViewportScrollArea,
@@ -77,7 +79,13 @@ export const BlueprintPreview: React.FC = () => {
       .get(id)
       .then((project: any) => {
         if (cancelled) return;
+        const stage = resolveWorkflowStage(project?.status);
         const nextData = project?.blueprint ? project.blueprint : null;
+        if (stage === 'draft' || !nextData || typeof nextData !== 'object') {
+          navigate(`/inspiration/${id}`, { replace: true });
+          return;
+        }
+        clearBlueprintGenerationPending('novel', id);
         setData(nextData);
         hasBootstrapRef.current = true;
         writeBootstrapCache<BlueprintPreviewBootstrapSnapshot>(getBlueprintPreviewBootstrapKey(id), {
@@ -98,7 +106,7 @@ export const BlueprintPreview: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, navigate]);
 
   const handleStartWriting = () => {
     navigate(`/write/${id}`);

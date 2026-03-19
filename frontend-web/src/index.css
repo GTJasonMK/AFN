@@ -238,6 +238,24 @@ body::before {
   color: rgb(var(--color-text-primary) / 0.88);
 }
 
+.story-pill-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.52);
+  background: rgb(var(--color-bg-secondary) / 0.72);
+  padding: 0.38rem 0.72rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgb(var(--color-text-secondary));
+  backdrop-filter: blur(18px);
+}
+
+.dark .story-pill-compact {
+  color: rgb(var(--color-text-primary) / 0.88);
+}
+
 .eyebrow {
   display: inline-flex;
   align-items: center;

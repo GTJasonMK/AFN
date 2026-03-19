@@ -42,6 +42,12 @@ export const NovelDetailPageLayout: React.FC<NovelDetailPageLayoutProps> = ({
   latestChapterOutlineModalProps,
 }) => {
   const [workspacePane, setWorkspacePane] = React.useState<'sections' | 'workspace'>('workspace');
+  const [isElectronRuntime] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const runtime = typeof document !== 'undefined' ? document.documentElement.dataset?.runtime : undefined;
+    if (runtime === 'electron') return true;
+    return Boolean((window as any)?.electronAPI?.isElectron);
+  });
   const paneItems = [
     {
       id: 'workspace',
@@ -60,7 +66,7 @@ export const NovelDetailPageLayout: React.FC<NovelDetailPageLayoutProps> = ({
       <div className="ambient-orb -left-16 top-0 h-72 w-72 bg-book-primary/14" />
       <div className="ambient-orb right-[-5rem] top-28 h-64 w-64 bg-book-primary-light/12" />
 
-      <AppViewportFrame>
+      <AppViewportFrame size={isElectronRuntime ? 'wide' : 'default'}>
         <NovelDetailHeader {...headerProps} />
 
         <div className="xl:hidden">
@@ -81,7 +87,7 @@ export const NovelDetailPageLayout: React.FC<NovelDetailPageLayoutProps> = ({
           </div>
 
           <div className={`${workspacePane === 'workspace' ? 'min-h-0' : 'hidden'} xl:block`}>
-            <div className="dramatic-surface min-h-[32rem] h-full rounded-[32px]">
+            <div className="dramatic-surface min-h-0 h-full rounded-[32px] flex flex-col">
               <NovelDetailTabContent activeTab={activeTab} tabProps={tabProps} />
             </div>
           </div>
