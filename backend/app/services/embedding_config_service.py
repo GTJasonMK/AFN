@@ -11,7 +11,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..exceptions import ResourceNotFoundError, ConflictError, InvalidParameterError
+from ..exceptions import ResourceNotFoundError, ConflictError
 from ..models import EmbeddingConfig
 from ..repositories.embedding_config_repository import EmbeddingConfigRepository
 from ..schemas.embedding_config import (

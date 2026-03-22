@@ -74,7 +74,7 @@ class PagePlanner:
         # 如果事件太少，使用简单规划
         if len(chapter_info.events) < 3:
             logger.info("事件数量少于3，使用简单规划")
-            return self._simple_plan(chapter_info, min_pages)
+            return self._simple_plan(chapter_info)
 
         # 构建提示词
         prompt = await self._build_prompt(chapter_info, min_pages, max_pages)
@@ -265,7 +265,6 @@ class PagePlanner:
     def _simple_plan(
         self,
         chapter_info: ChapterInfo,
-        min_pages: int,
     ) -> PagePlanResult:
         """简单规划（事件很少时使用）
 

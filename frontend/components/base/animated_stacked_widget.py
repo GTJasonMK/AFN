@@ -2,8 +2,8 @@
 动画堆叠窗口 - 支持淡入淡出切换效果
 """
 
-from PyQt6.QtWidgets import QStackedWidget, QWidget, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QParallelAnimationGroup
+from PyQt6.QtWidgets import QStackedWidget, QGraphicsOpacityEffect
+from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 
 
 class AnimatedStackedWidget(QStackedWidget):

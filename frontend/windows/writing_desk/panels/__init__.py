@@ -9,7 +9,6 @@
 - *PanelBuilder: 具体的面板构建器实现
 """
 
-from .base import BasePanelBuilder
 from .analysis_panel import AnalysisPanelBuilder
 from .version_panel import VersionPanelBuilder
 from .review_panel import ReviewPanelBuilder
@@ -17,7 +16,6 @@ from .summary_panel import SummaryPanelBuilder
 from .content_panel import ContentPanelBuilder
 
 __all__ = [
-    'BasePanelBuilder',
     'AnalysisPanelBuilder',
     'VersionPanelBuilder',
     'ReviewPanelBuilder',

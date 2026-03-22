@@ -6,12 +6,12 @@ Max Tokens配置界面 - 书籍风格
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QPushButton, QGroupBox, QFormLayout, QScrollArea, QFrame,
+    QGroupBox, QFormLayout, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
-from utils.dpi_utils import dp, sp
+from utils.dpi_utils import dp
 from utils.message_service import MessageService
 from utils.error_handler import handle_errors
 from .config_io_helper import export_config_json, import_config_json

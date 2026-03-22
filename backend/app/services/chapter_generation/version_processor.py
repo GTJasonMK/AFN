@@ -132,19 +132,6 @@ class ChapterVersionProcessor:
         return json.dumps(variant, ensure_ascii=False, indent=2)
 
 
-# 模块级单例
-_default_processor: ChapterVersionProcessor = None
-
-
-def get_version_processor() -> ChapterVersionProcessor:
-    """获取默认的版本处理器实例"""
-    global _default_processor
-    if _default_processor is None:
-        _default_processor = ChapterVersionProcessor()
-    return _default_processor
-
-
 __all__ = [
     "ChapterVersionProcessor",
-    "get_version_processor",
 ]

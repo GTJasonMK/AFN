@@ -13,21 +13,15 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
-from ..core.constants import LLMConstants
-from ..models.novel import Chapter, ChapterEvaluation, ChapterOutline, NovelProject
+from ..models.novel import Chapter, ChapterEvaluation, NovelProject
 from ..utils.json_utils import remove_think_tags, unwrap_markdown_json
 from ..utils.rag_helpers import build_query_text, get_query_embedding
 from .evaluation_workflow_base import EvaluationPromptContext, EvaluationWorkflowBase
 from .llm_wrappers import call_llm, LLMProfile
-
-if TYPE_CHECKING:
-    from .llm_service import LLMService
-    from .vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 

@@ -4,13 +4,11 @@ Coding项目序列化器
 负责将Coding ORM模型转换为Pydantic Schema，分离序列化逻辑和业务逻辑。
 """
 
-import json
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from ..models.coding import (
     CodingProject,
-    CodingBlueprint as CodingBlueprintModel,
     CodingSystem as CodingSystemModel,
     CodingModule as CodingModuleModel,
 )

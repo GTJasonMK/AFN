@@ -8,7 +8,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import InvalidRequestError
@@ -18,7 +18,7 @@ from ...core.config import settings
 from ...core.constants import LLMConstants
 from ...models.novel import ChapterOutline, NovelProject
 from ...schemas.novel import ChapterAnalysisData
-from ...utils.json_utils import remove_think_tags, unwrap_markdown_json, parse_llm_json_safe
+from ...utils.json_utils import remove_think_tags, parse_llm_json_safe
 from ...utils.content_fields import CONTENT_FIELD_NAMES
 from ...utils.exception_helpers import log_exception
 from ...utils.blueprint_utils import prepare_blueprint_for_generation
@@ -29,11 +29,6 @@ from ..llm_service import LLMService
 from .context import ChapterGenerationContext
 from .prompt_builder import ChapterPromptBuilder
 from .version_processor import ChapterVersionProcessor
-
-if TYPE_CHECKING:
-    from ..chapter_context_service import EnhancedRAGContext, ChapterRAGContext
-    from ..rag.context_builder import BlueprintInfo
-    from ..vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 

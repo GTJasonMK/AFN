@@ -157,41 +157,6 @@ class CodingBlueprint(BaseModel):
     needs_phased_design: bool = Field(default=False, description="是否需要分阶段设计")
 
 
-# ==================== 对话相关 ====================
-
-class CodingChoiceOption(BaseModel):
-    """对话选择项"""
-    id: str
-    label: str
-    description: Optional[str] = None
-    key_elements: Optional[List[str]] = None
-
-
-class CodingUIControl(BaseModel):
-    """对话UI控件"""
-    type: str = Field(..., description="控件类型")
-    options: Optional[List[CodingChoiceOption]] = None
-    placeholder: Optional[str] = None
-
-
-class CodingConverseResponse(BaseModel):
-    """需求分析对话接口的统一返回体"""
-    ai_message: str
-    next_question: Optional[str] = None
-    next_question_points: Optional[List[str]] = None
-    progress_summary: Optional[str] = None
-    ui_control: CodingUIControl
-    conversation_state: Dict[str, Any]
-    is_complete: bool = False
-    ready_for_blueprint: Optional[bool] = None
-
-
-class CodingConverseRequest(BaseModel):
-    """需求分析对话接口的请求体"""
-    user_input: Dict[str, Any]
-    conversation_state: Dict[str, Any]
-
-
 # ==================== 项目相关 ====================
 
 class CodingProjectCreate(BaseModel):
@@ -239,22 +204,6 @@ class GenerateBlueprintRequest(BaseModel):
     preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，用于调整生成方向")
 
 
-class CodingBlueprintGenerationResponse(BaseModel):
-    """架构设计生成响应"""
-    blueprint: CodingBlueprint
-    ai_message: str
-
-
-class CodingBlueprintRefineRequest(BaseModel):
-    """蓝图优化请求"""
-    refinement_instruction: str = Field(
-        ...,
-        description="用户的优化指令",
-        min_length=1,
-        max_length=2000
-    )
-
-
 class CodingBlueprintPatch(BaseModel):
     """蓝图部分更新"""
     title: Optional[str] = None
@@ -266,15 +215,3 @@ class CodingBlueprintPatch(BaseModel):
 
 
 # ==================== 系统/模块生成相关 ====================
-
-class GenerateCodingSystemsRequest(BaseModel):
-    """生成系统列表请求"""
-    count: Optional[int] = Field(default=None, description="要生成的系统数量")
-    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：更细粒度划分、合并某些系统等")
-
-
-class GenerateCodingModulesRequest(BaseModel):
-    """生成模块列表请求"""
-    system_number: int = Field(..., description="目标系统编号")
-    count: Optional[int] = Field(default=None, description="要生成的模块数量")
-    preference: Optional[str] = Field(default=None, description="重新生成时的偏好指导，如：更关注某类功能、增加某种模块等")

@@ -1,7 +1,6 @@
-from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, Field
 
 from .config_runtime_status import ConfigRuntimeStatus
 from .schema_utils import mask_api_key
@@ -64,12 +63,6 @@ class LLMConfigRead(ConfigRuntimeStatus):
         )
 
 
-class LLMConfigTestRequest(BaseModel):
-    """测试LLM配置的请求模型。"""
-
-    config_id: int = Field(..., description="要测试的配置ID")
-
-
 class LLMConfigTestResponse(BaseModel):
     """测试LLM配置的响应模型。"""
 
@@ -95,12 +88,6 @@ class LLMConfigExportData(BaseModel):
     export_time: str = Field(..., description="导出时间（ISO 8601格式）")
     export_type: str = Field(..., description="导出类型：single 或 batch")
     configs: list[LLMConfigExport] = Field(..., description="配置列表")
-
-
-class LLMConfigImportRequest(BaseModel):
-    """导入LLM配置的请求模型。"""
-
-    data: LLMConfigExportData = Field(..., description="导入的配置数据")
 
 
 class LLMConfigImportResult(BaseModel):

@@ -24,17 +24,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/novels/{project_id}/character-states", tags=["character-state"])
 
 
-# ==================== 响应模型 ====================
-
-class CharacterStateResponse(BaseModel):
-    """单个角色状态"""
-    character_name: str = Field(..., description="角色名")
-    location: Optional[str] = Field(default=None, description="位置")
-    status: Optional[str] = Field(default=None, description="状态描述")
-    changes: List[str] = Field(default_factory=list, description="本章变化")
-    emotional_state: Optional[str] = Field(default=None, description="情绪状态")
-
-
 class ChapterCharacterStatesResponse(BaseModel):
     """章节角色状态响应"""
     project_id: str

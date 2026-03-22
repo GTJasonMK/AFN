@@ -6,7 +6,7 @@
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel, QPushButton,
-    QWidget, QScrollArea
+    QWidget
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from components.base import ThemeAwareWidget

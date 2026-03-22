@@ -7,7 +7,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Dict, Iterable, List, Optional
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +23,6 @@ from ..repositories.chapter_repository import (
 )
 from ..schemas.novel import ChapterGenerationStatus
 from ..utils.content_normalizer import count_chinese_characters
-
-if TYPE_CHECKING:
-    from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +122,7 @@ class ChapterVersionService:
         """
         # 准备版本数据
         # contents 已经是 version_processor._extract_content_from_dict 提取的纯文本
-        # 不需要再通过 normalize_version_content 处理
+        # 这里直接按纯文本写入版本记录
         versions_data = []
         for index, content in enumerate(contents):
             # 确保 content 是字符串

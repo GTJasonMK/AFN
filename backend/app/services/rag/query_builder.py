@@ -11,7 +11,6 @@ from typing import List, Optional, Dict, Any
 
 from ...schemas.novel import (
     ChapterAnalysisData,
-    ForeshadowingItem,
 )
 from .utils import extract_involved_characters, build_outline_text
 
@@ -340,56 +339,3 @@ class EnhancedQueryBuilder:
                 hints["items"].extend(prev_chapter_analysis.metadata.items)
 
         return hints
-
-
-class EntityAwareQueryEnhancer:
-    """基于实体的查询增强器
-
-    使用蓝图信息增强查询，添加实体标注以提高检索精度
-
-    注意: 此类是RAG优化计划的一部分（见RAG_OPTIMIZATION_PLAN.md Phase 2），
-    目前尚未集成到主流程中，保留用于后续优化。
-    """
-
-    def enhance_query(
-        self,
-        base_query: str,
-        blueprint_characters: List[Dict[str, Any]],
-        world_setting: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """
-        使用蓝图信息增强查询
-
-        Args:
-            base_query: 基础查询文本
-            blueprint_characters: 蓝图角色列表
-            world_setting: 世界观设定
-
-        Returns:
-            增强后的查询文本
-        """
-        enhancements = []
-
-        # 提取查询中提到的角色并添加身份标注
-        for char in blueprint_characters:
-            char_name = char.get("name", "")
-            if char_name and char_name in base_query:
-                identity = char.get("identity", "")
-                if identity:
-                    enhancements.append(f"[角色:{char_name}|{identity}]")
-                else:
-                    enhancements.append(f"[角色:{char_name}]")
-
-        # 提取地点标注
-        if world_setting:
-            key_locations = world_setting.get("key_locations", [])
-            for loc in key_locations:
-                loc_name = loc.get("name", "") if isinstance(loc, dict) else str(loc)
-                if loc_name and loc_name in base_query:
-                    enhancements.append(f"[地点:{loc_name}]")
-
-        # 合并增强信息
-        if enhancements:
-            return f"{base_query}\n关联实体: {' '.join(enhancements)}"
-
-        return base_query

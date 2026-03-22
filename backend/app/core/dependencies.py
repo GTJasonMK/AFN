@@ -79,7 +79,7 @@ async def get_default_user(
         )
 
     try:
-        from jose import JWTError, jwt
+        from jose import jwt
 
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
         sub = payload.get("sub")
@@ -294,118 +294,6 @@ async def get_inspiration_service(
     """
     from ..services.inspiration_service import InspirationService
     return InspirationService(session, llm_service, prompt_service)
-
-
-async def get_vector_ingestion_service(
-    llm_service: "LLMService" = Depends(get_llm_service),
-    vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
-) -> Optional["ChapterIngestionService"]:
-    """
-    获取向量入库服务实例（依赖注入）
-
-    统一向量库初始化逻辑，自动处理初始化失败的情况，避免代码重复。
-    如果向量库未启用或初始化失败，返回None。
-
-    Returns:
-        ChapterIngestionService实例，如果未启用或初始化失败则返回None
-
-    Example:
-        ```python
-        @router.post("/chapters/generate")
-        async def generate_chapter(
-            ingestion_service: Optional[ChapterIngestionService] = Depends(get_vector_ingestion_service)
-        ):
-            if ingestion_service:
-                # 向量化章节内容
-                await ingestion_service.ingest_chapter(...)
-        ```
-    """
-    from ..services.chapter_ingest_service import ChapterIngestionService
-
-    # 依赖get_vector_store，避免重复初始化逻辑
-    if vector_store is None:
-        return None
-
-    return ChapterIngestionService(
-        llm_service=llm_service,
-        vector_store=vector_store
-    )
-
-
-async def get_part_outline_service(
-    session: AsyncSession = Depends(get_session),
-    llm_service: "LLMService" = Depends(get_llm_service),
-    prompt_service: "PromptService" = Depends(get_prompt_service),
-    novel_service: "NovelService" = Depends(get_novel_service),
-    vector_store: Optional["VectorStoreService"] = Depends(get_vector_store),
-) -> "PartOutlineService":
-    """
-    获取PartOutlineService实例（依赖注入）
-
-    统一Service获取方式，所有依赖通过参数注入，便于测试和解耦。
-
-    Returns:
-        PartOutlineService实例
-
-    Example:
-        ```python
-        @router.post("/parts/generate")
-        async def generate_parts(
-            part_service: PartOutlineService = Depends(get_part_outline_service),
-        ):
-            return await part_service.generate_part_outlines(...)
-        ```
-    """
-    from ..services.part_outline import PartOutlineService
-    return PartOutlineService(
-        session=session,
-        llm_service=llm_service,
-        prompt_service=prompt_service,
-        novel_service=novel_service,
-        vector_store=vector_store,
-    )
-
-
-async def get_chapter_generation_service(
-    session: AsyncSession = Depends(get_session),
-    llm_service: "LLMService" = Depends(get_llm_service),
-) -> "ChapterGenerationService":
-    """
-    获取ChapterGenerationService实例（依赖注入）
-
-    统一Service获取方式，所有依赖通过参数注入。
-
-    Returns:
-        ChapterGenerationService实例
-    """
-    from ..services.chapter_generation import ChapterGenerationService
-    return ChapterGenerationService(session, llm_service)
-
-
-async def get_avatar_service(
-    session: AsyncSession = Depends(get_session),
-    llm_service: "LLMService" = Depends(get_llm_service),
-    prompt_service: "PromptService" = Depends(get_prompt_service),
-) -> "AvatarService":
-    """
-    获取AvatarService实例（依赖注入）
-
-    统一Service获取方式，所有依赖通过参数注入。
-
-    Returns:
-        AvatarService实例
-
-    Example:
-        ```python
-        @router.post("/avatar/generate")
-        async def generate_avatar(
-            avatar_service: AvatarService = Depends(get_avatar_service),
-        ):
-            return await avatar_service.generate_avatar(...)
-        ```
-    """
-    from ..services.avatar_service import AvatarService
-    return AvatarService(session, llm_service, prompt_service)
 
 
 # ============================================================================

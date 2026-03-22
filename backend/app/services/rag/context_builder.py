@@ -11,10 +11,8 @@ from typing import Any, Dict, List, Optional
 from ..vector_store_service import RetrievedChunk, RetrievedSummary
 from ...schemas.novel import (
     ChapterAnalysisData,
-    CharacterState,
-    ForeshadowingData,
 )
-from .utils import extract_involved_characters, truncate_text, build_outline_text
+from .utils import extract_involved_characters, truncate_text
 
 
 @dataclass
@@ -399,4 +397,3 @@ class SmartContextBuilder:
     def _truncate(self, text: str, max_length: int) -> str:
         """截断文本到指定长度"""
         return truncate_text(text, max_length)
-

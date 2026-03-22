@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.dependencies import get_default_user, get_novel_service
 from ...db.session import get_session
-from ...exceptions import ResourceNotFoundError
 from ...schemas.character_portrait import (
     GeneratePortraitRequest,
     RegeneratePortraitRequest,

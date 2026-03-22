@@ -15,9 +15,7 @@ AFN API 客户端模块
 """
 
 from .core import AFNAPIClient
-from .constants import TimeoutConfig
 
 __all__ = [
     'AFNAPIClient',
-    'TimeoutConfig',
 ]

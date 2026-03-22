@@ -5,7 +5,6 @@
 将信息按优先级组织为高密度的上下文。
 """
 
-import json
 from typing import Any, Dict, List, Optional
 
 from ...models.novel import ChapterOutline
@@ -466,19 +465,6 @@ class ChapterPromptBuilder:
         )
 
 
-# 模块级单例（可选）
-_default_builder: Optional[ChapterPromptBuilder] = None
-
-
-def get_chapter_prompt_builder() -> ChapterPromptBuilder:
-    """获取默认的章节提示词构建器实例"""
-    global _default_builder
-    if _default_builder is None:
-        _default_builder = ChapterPromptBuilder()
-    return _default_builder
-
-
 __all__ = [
     "ChapterPromptBuilder",
-    "get_chapter_prompt_builder",
 ]

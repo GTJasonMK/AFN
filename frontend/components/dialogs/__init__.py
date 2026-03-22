@@ -37,7 +37,6 @@ from .common import (
     LoadingDialog,
     SaveDiscardDialog,
     SaveDiscardResult,
-    RegenerateDialog,
     get_regenerate_preference,
 )
 
@@ -66,7 +65,6 @@ __all__ = [
     'LoadingDialog',
     'SaveDiscardDialog',
     'SaveDiscardResult',
-    'RegenerateDialog',
     'get_regenerate_preference',
     # 配置对话框
     'PartOutlineConfigDialog',

@@ -10,7 +10,7 @@ PDF导出服务
 import asyncio
 import logging
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime
 
 from sqlalchemy import select
@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .schemas import PDFExportRequest, PDFExportResult, ChapterMangaPDFRequest, ChapterMangaPDFResponse
 from ...models.image_config import GeneratedImage
-from ...models.novel import ChapterMangaPrompt
 from .fs_utils import (
     async_exists,
     async_glob,
@@ -381,7 +380,6 @@ class PDFExportService:
             try:
                 from reportlab.lib.units import cm, mm
                 from reportlab.pdfgen import canvas
-                from reportlab.lib.utils import ImageReader
                 from PIL import Image as PILImage
             except ImportError:
                 return ChapterMangaPDFResponse(

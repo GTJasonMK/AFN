@@ -16,7 +16,7 @@ from ....core.dependencies import (
     get_import_analysis_service,
 )
 from ....db.session import get_session
-from ....exceptions import ResourceNotFoundError, InvalidParameterError
+from ....exceptions import InvalidParameterError
 from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
 from ....services.import_analysis import ImportAnalysisService
@@ -132,7 +132,7 @@ async def start_analysis(
         from ....db.session import AsyncSessionLocal
         from ....services.llm_service import LLMService
         from ....services.prompt_service import PromptService
-        from sqlalchemy import select, update
+        from sqlalchemy import update
         from ....models.novel import NovelProject
 
         async with AsyncSessionLocal() as bg_session:

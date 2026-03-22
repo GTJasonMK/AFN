@@ -29,12 +29,10 @@
 """
 
 import logging
-from typing import TypeVar, Generic, List, Callable, Optional, Any
+from typing import TypeVar, Generic, List, Callable, Optional
 from weakref import WeakSet
 
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import QObject, pyqtSignal
-
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=QWidget)
@@ -238,79 +236,6 @@ class ComponentPool(Generic[T]):
         }
 
 
-class PoolManager:
-    """组件池管理器（单例）
-
-    集中管理所有组件池，提供全局访问和统计。
-    """
-
-    _instance: Optional['PoolManager'] = None
-
-    def __init__(self):
-        self._pools: dict[str, ComponentPool] = {}
-
-    @classmethod
-    def instance(cls) -> 'PoolManager':
-        """获取单例实例"""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def get_pool(
-        self,
-        name: str,
-        component_class: type = None,
-        max_size: int = 50,
-        **kwargs
-    ) -> ComponentPool:
-        """获取或创建命名池
-
-        Args:
-            name: 池名称
-            component_class: 组件类（首次创建时必须提供）
-            max_size: 池的最大容量
-            **kwargs: 传递给ComponentPool的其他参数
-
-        Returns:
-            组件池实例
-        """
-        if name not in self._pools:
-            if component_class is None:
-                raise ValueError(f"首次创建池 '{name}' 时必须提供 component_class")
-            self._pools[name] = ComponentPool(
-                component_class,
-                max_size=max_size,
-                **kwargs
-            )
-        return self._pools[name]
-
-    def clear_all(self):
-        """清空所有池"""
-        for pool in self._pools.values():
-            pool.clear()
-        self._pools.clear()
-
-    def get_all_stats(self) -> dict:
-        """获取所有池的统计信息"""
-        return {name: pool.stats for name, pool in self._pools.items()}
-
-    def log_stats(self):
-        """记录所有池的统计信息"""
-        for name, stats in self.get_all_stats().items():
-            logger.info(
-                f"组件池 [{name}]: "
-                f"可用{stats['available']}/{stats['max_size']}, "
-                f"使用中{stats['in_use']}, "
-                f"复用率{stats['reuse_rate']:.1%}"
-            )
-
-
-# 便捷函数
-def get_pool(name: str, component_class: type = None, **kwargs) -> ComponentPool:
-    """获取或创建命名池（便捷函数）"""
-    return PoolManager.instance().get_pool(name, component_class, **kwargs)
-
-
 def reset_chapter_card(card):
     """ChapterCard重置回调"""
     card.is_selected = False
@@ -339,8 +264,6 @@ def reset_outline_row(row):
 
 __all__ = [
     'ComponentPool',
-    'PoolManager',
-    'get_pool',
     'reset_chapter_card',
     'reset_character_row',
     'reset_relationship_row',

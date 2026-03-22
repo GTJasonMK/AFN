@@ -18,28 +18,16 @@ from .models import (
     PageStoryboard,
     StoryboardResult,
 )
-from .prompts import (
-    PROMPT_NAME,
-    STORYBOARD_DESIGN_PROMPT,
-    STORYBOARD_SYSTEM_PROMPT,
-)
 from .designer import StoryboardDesigner
 
 __all__ = [
-    # 枚举类型
     "ShotType",
     "PanelShape",
     "WidthRatio",
     "AspectRatio",
-    # 数据类
     "DialogueBubble",
     "PanelDesign",
     "PageStoryboard",
     "StoryboardResult",
-    # 设计器
     "StoryboardDesigner",
-    # 提示词
-    "PROMPT_NAME",
-    "STORYBOARD_DESIGN_PROMPT",
-    "STORYBOARD_SYSTEM_PROMPT",
 ]

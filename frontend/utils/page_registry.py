@@ -5,16 +5,9 @@
 遵循开闭原则（OCP）：新增页面只需注册，无需修改MainWindow。
 
 使用方法：
-1. 简单页面（只需parent参数）：使用 @register_page 装饰器
-2. 复杂页面（需要额外参数）：使用 @register_page_factory 装饰器
+使用 @register_page_factory 装饰器注册页面工厂函数。
 
 示例：
-    # 简单页面
-    @register_page('HOME')
-    class HomePage(BasePage):
-        pass
-
-    # 复杂页面
     @register_page_factory('DETAIL')
     def create_detail_page(parent, **kwargs):
         project_id = kwargs.get('project_id')
@@ -22,40 +15,14 @@
 """
 
 import logging
-from typing import Callable, Dict, Optional, Type
+from typing import Callable, Dict, Optional
 
 from PyQt6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
-
-# 页面类注册表
-_page_registry: Dict[str, Type[QWidget]] = {}
-
 # 页面工厂函数注册表
 _page_factory_registry: Dict[str, Callable[..., Optional[QWidget]]] = {}
-
-
-def register_page(page_type: str):
-    """
-    页面注册装饰器
-
-    用于注册简单页面类，构造函数只接受 parent 参数。
-
-    Args:
-        page_type: 页面类型标识符（如 'HOME', 'SETTINGS'）
-
-    Example:
-        @register_page('HOME')
-        class HomePage(BasePage):
-            def __init__(self, parent=None):
-                super().__init__(parent)
-    """
-    def decorator(cls: Type[QWidget]) -> Type[QWidget]:
-        _page_registry[page_type] = cls
-        logger.debug("注册页面类: %s -> %s", page_type, cls.__name__)
-        return cls
-    return decorator
 
 
 def register_page_factory(page_type: str):
@@ -86,8 +53,6 @@ def create_page(page_type: str, parent: QWidget, **kwargs) -> Optional[QWidget]:
     """
     创建页面实例
 
-    优先使用工厂函数，其次使用注册的类。
-
     Args:
         page_type: 页面类型标识符
         parent: 父组件
@@ -105,22 +70,13 @@ def create_page(page_type: str, parent: QWidget, **kwargs) -> Optional[QWidget]:
             logger.error("创建页面 %s 失败: %s", page_type, e)
             return None
 
-    # 使用注册的类
-    if page_type in _page_registry:
-        cls = _page_registry[page_type]
-        try:
-            return cls(parent)
-        except Exception as e:
-            logger.error("创建页面 %s 失败: %s", page_type, e)
-            return None
-
     # 未注册
     return None
 
 
 def is_page_registered(page_type: str) -> bool:
     """检查页面类型是否已注册"""
-    return page_type in _page_registry or page_type in _page_factory_registry
+    return page_type in _page_factory_registry
 
 
 # ------------------------------------------------------------------

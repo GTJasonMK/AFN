@@ -11,7 +11,6 @@
 """
 
 import re
-import math
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -834,28 +833,8 @@ class SemanticChunker:
         )]
 
 
-# 全局默认实例
-_default_chunker: Optional[SemanticChunker] = None
-
-
-def get_semantic_chunker() -> SemanticChunker:
-    """获取全局语义分块器实例"""
-    global _default_chunker
-    if _default_chunker is None:
-        _default_chunker = SemanticChunker()
-    return _default_chunker
-
-
-def set_semantic_chunker(chunker: SemanticChunker):
-    """设置全局语义分块器实例"""
-    global _default_chunker
-    _default_chunker = chunker
-
-
 __all__ = [
     "SemanticChunkConfig",
     "ChunkResult",
     "SemanticChunker",
-    "get_semantic_chunker",
-    "set_semantic_chunker",
 ]

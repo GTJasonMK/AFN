@@ -7,12 +7,9 @@
 import asyncio
 import uuid
 import logging
-import hashlib
-import base64
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
@@ -21,14 +18,12 @@ from ..repositories.character_portrait_repository import CharacterPortraitReposi
 from ..schemas.character_portrait import (
     GeneratePortraitRequest,
     RegeneratePortraitRequest,
-    CharacterPortraitResponse,
     get_style_prompt_prefix,
 )
 from .image_generation.schemas import ImageGenerationRequest
 
 if TYPE_CHECKING:
     from .image_generation.service import ImageGenerationService
-    from .image_generation.config_service import ImageConfigService
 
 logger = logging.getLogger(__name__)
 

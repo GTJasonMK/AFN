@@ -2,10 +2,9 @@
 
 包含主角档案、属性变更、行为记录、删除标记的数据访问类。
 """
-from typing import Any, Iterable, List, Optional
+from typing import Iterable, List, Optional
 
 from sqlalchemy import and_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.protagonist import (
     ProtagonistProfile,

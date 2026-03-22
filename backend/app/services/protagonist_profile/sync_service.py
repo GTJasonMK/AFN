@@ -2,9 +2,8 @@
 
 负责协调各子服务，实现章节同步的完整流程。
 """
-import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -7,7 +7,7 @@ Temperature值影响生成内容的创造性：值越高越有创造力，值越
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
-    QPushButton, QGroupBox, QFormLayout, QScrollArea, QFrame,
+    QGroupBox, QFormLayout, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt
 from api.manager import APIClientManager

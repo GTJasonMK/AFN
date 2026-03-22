@@ -9,24 +9,6 @@
 
 from .schemas import (
     ArchitecturePattern,
-    ProjectProfile,
-    ArchitectureDecision,
-    QualityMetrics,
-    LayerDefinition,
-    ModulePlacement,
-    SystemSummary,
-    ModuleSummary,
-    DependencyGraph,
-    SharedModuleStrategy,
-    IssueType,
-    IssueSeverity,
-    StructureIssue,
-)
-from .patterns import (
-    PatternTemplate,
-    PATTERN_TEMPLATES,
-    get_pattern_template,
-    recommend_pattern,
 )
 from .profiler import ProjectProfiler
 from .decision_maker import ArchitectureDecisionMaker
@@ -35,26 +17,7 @@ from .quality_evaluator import QualityEvaluator
 from .refiner import RefinementAgent
 
 __all__ = [
-    # 数据模型
     "ArchitecturePattern",
-    "ProjectProfile",
-    "ArchitectureDecision",
-    "QualityMetrics",
-    "LayerDefinition",
-    "ModulePlacement",
-    "SystemSummary",
-    "ModuleSummary",
-    "DependencyGraph",
-    "SharedModuleStrategy",
-    "IssueType",
-    "IssueSeverity",
-    "StructureIssue",
-    # 模式模板
-    "PatternTemplate",
-    "PATTERN_TEMPLATES",
-    "get_pattern_template",
-    "recommend_pattern",
-    # 核心类
     "ProjectProfiler",
     "ArchitectureDecisionMaker",
     "ArchitectureBasedGenerator",

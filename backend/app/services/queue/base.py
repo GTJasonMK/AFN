@@ -183,8 +183,3 @@ class ConfigurableRequestQueue(RequestQueue):
             label = cls.log_label or cls.queue_name
             logger.info("%s请求队列已创建: max_concurrent=%d", label, max_concurrent)
         return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """重置单例（仅用于测试）"""
-        cls._instance = None

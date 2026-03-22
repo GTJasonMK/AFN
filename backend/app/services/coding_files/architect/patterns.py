@@ -7,7 +7,7 @@
 3. SIMPLE - 简单架构
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .schemas import ArchitecturePattern, LayerDefinition, SharedModuleStrategy

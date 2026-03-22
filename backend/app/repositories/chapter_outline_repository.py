@@ -2,7 +2,7 @@
 
 from typing import Iterable, List, Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 
 from .base import BaseRepository
 from ..models.novel import ChapterOutline

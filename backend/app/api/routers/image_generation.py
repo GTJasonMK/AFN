@@ -7,7 +7,6 @@
 
 import re
 from typing import List, Optional
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse

@@ -95,36 +95,6 @@ def build_outline_text(outline: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def format_chapter_reference(
-    chapter_number: int,
-    title: Optional[str] = None,
-    content: Optional[str] = None,
-    max_content_length: int = 200,
-) -> str:
-    """
-    格式化章节引用文本
-
-    Args:
-        chapter_number: 章节号
-        title: 章节标题（可选）
-        content: 章节内容（可选）
-        max_content_length: 内容最大长度
-
-    Returns:
-        格式化的章节引用
-    """
-    if title:
-        header = f"[第{chapter_number}章《{title}》]"
-    else:
-        header = f"[第{chapter_number}章]"
-
-    if content:
-        truncated = truncate_text(content, max_content_length)
-        return f"{header} {truncated}"
-
-    return header
-
-
 def format_rag_chunk_line(
     chapter_number: Any,
     title: Optional[str],
@@ -143,26 +113,6 @@ def format_rag_chunk_line(
     display_title = title or f"第{chapter_number}章"
     truncated = truncate_text(content, max_content_length)
     return f"[{display_title}] {truncated}"
-
-
-def format_rag_summary_line(
-    chapter_number: Any,
-    title: Optional[str],
-    summary: str,
-    max_summary_length: int = 100,
-) -> str:
-    """
-    格式化RAG摘要行
-
-    Args:
-        chapter_number: 章节号
-        title: 章节标题（可选）
-        summary: 摘要文本
-        max_summary_length: 摘要最大长度
-    """
-    display_title = title or f"第{chapter_number}章"
-    truncated = truncate_text(summary, max_summary_length)
-    return f"[{display_title}摘要] {truncated}"
 
 
 def format_foreshadowing_lines(
@@ -328,9 +278,7 @@ __all__ = [
     "extract_involved_characters",
     "truncate_text",
     "build_outline_text",
-    "format_chapter_reference",
     "format_rag_chunk_line",
-    "format_rag_summary_line",
     "format_foreshadowing_lines",
     "format_character_lines",
     "format_character_state_lines",

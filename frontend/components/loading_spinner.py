@@ -11,14 +11,13 @@
 - LoadingStateManager: 上下文管理器（确保加载状态正确关闭）
 """
 
-from contextlib import contextmanager
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 import logging
 
 from PyQt6.QtWidgets import (
-    QLabel, QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy, QFrame
+    QLabel, QVBoxLayout, QHBoxLayout, QWidget
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QLinearGradient
 
 from components.base.theme_aware_widget import ThemeAwareWidget
@@ -797,31 +796,3 @@ class LoadingStateManager:
                     QTimer.singleShot(100, manager.stop)
             return wrapper
         return decorator
-
-
-@contextmanager
-def loading_context(
-    widget: QWidget,
-    text: str = "加载中...",
-    overlay: Optional[LoadingOverlay] = None
-):
-    """加载状态上下文管理器（函数版本）
-
-    使用方式：
-        with loading_context(self, "保存中..."):
-            do_something()
-
-    Args:
-        widget: 显示加载状态的组件
-        text: 加载文字
-        overlay: 可选的已有overlay
-
-    Yields:
-        LoadingStateManager实例
-    """
-    manager = LoadingStateManager(widget, text, overlay)
-    try:
-        manager.start()
-        yield manager
-    finally:
-        manager.stop()

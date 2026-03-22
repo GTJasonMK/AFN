@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QTabWidget, QWidget, QTextEdit, QScrollArea, QFrame, QSplitter
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 from components.dialogs import BookStyleDialog
 from themes.theme_manager import theme_manager

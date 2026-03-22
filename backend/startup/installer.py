@@ -14,9 +14,8 @@ import re
 import subprocess
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
-from .config import BACKEND_DIR, FRONTEND_DIR
 from .logging_setup import logger
 from .uv_manager import check_uv_available
 

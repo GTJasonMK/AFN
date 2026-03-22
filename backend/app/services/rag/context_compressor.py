@@ -6,7 +6,6 @@
 """
 
 import json
-import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .context_builder import GenerationContext
@@ -491,50 +490,3 @@ class ContextCompressor:
             ))
 
         return "\n".join(lines)
-
-
-class AdaptiveCompressor:
-    """自适应压缩器
-
-    根据章节复杂度动态调整压缩策略
-    """
-
-    def __init__(self, base_compressor: ContextCompressor):
-        self.base_compressor = base_compressor
-
-    def compress_with_complexity(
-        self,
-        context: GenerationContext,
-        chapter_complexity: str = "medium",  # low, medium, high
-        token_counter: Optional[Callable[[str], int]] = None,
-    ) -> str:
-        """根据章节复杂度调整压缩
-
-        复杂章节（如大战、多线叙事）需要更多上下文
-        简单章节（如过渡、对话）可以减少上下文
-
-        Args:
-            context: 生成上下文
-            chapter_complexity: 章节复杂度
-            token_counter: token计数函数
-
-        Returns:
-            压缩后的上下文
-        """
-        # 根据复杂度调整token上限
-        complexity_multipliers = {
-            "low": 0.7,
-            "medium": 1.0,
-            "high": 1.3,
-        }
-        multiplier = complexity_multipliers.get(chapter_complexity, 1.0)
-
-        # 临时调整最大token数
-        original_max = self.base_compressor.max_context_tokens
-        self.base_compressor.max_context_tokens = int(original_max * multiplier)
-
-        try:
-            return self.base_compressor.compress_context(context, token_counter)
-        finally:
-            # 恢复原始设置
-            self.base_compressor.max_context_tokens = original_max

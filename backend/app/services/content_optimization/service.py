@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .schemas import OptimizeContentRequest, OptimizationMode
+from .schemas import OptimizeContentRequest
 from .workflow import ContentOptimizationWorkflow
 from .session_manager import get_session_manager, OptimizationSession
 

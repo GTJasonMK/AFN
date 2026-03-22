@@ -31,15 +31,12 @@
     virtual_list.item_clicked.connect(on_item_clicked)
 """
 
-import logging
-from typing import TypeVar, Generic, List, Callable, Optional, Any
+from typing import TypeVar, List, Callable, Any
 
 from PyQt6.QtWidgets import (
-    QWidget, QScrollArea, QFrame, QVBoxLayout, QSizePolicy
+    QWidget, QScrollArea, QFrame, QVBoxLayout
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
-
-logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=QWidget)
 
@@ -155,9 +152,6 @@ class VirtualListWidget(QWidget):
             data: 数据列表
         """
         self._data = data
-
-        # 更新总高度
-        total_height = len(data) * self._item_height
 
         # 重置滚动位置
         self._scroll_area.verticalScrollBar().setValue(0)

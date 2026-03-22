@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton,
+    QPushButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 

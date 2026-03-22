@@ -7,29 +7,26 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from .data_types import CodingDataType, BLUEPRINT_INGESTION_TYPES
+from .data_types import CodingDataType
 from .content_splitter import ContentSplitter, IngestionRecord
 from .chunk_strategy import ChunkMethod, get_strategy_manager
 from ..rag_common.ingestion_base import (
     BaseProjectIngestionService,
     IngestionResult,
-    CompletenessReport,
 )
 
 # 导入ORM模型 - 使用编程项目的模型
 from ...models.coding import (
-    CodingProject,
     CodingBlueprint,
     CodingConversation,
     CodingSystem,
     CodingModule,
 )
-from ...models.coding_files import CodingSourceFile, CodingFileVersion
+from ...models.coding_files import CodingSourceFile
 
 logger = logging.getLogger(__name__)
 
@@ -1241,5 +1238,4 @@ class CodingProjectIngestionService(BaseProjectIngestionService):
 __all__ = [
     "CodingProjectIngestionService",
     "IngestionResult",
-    "CompletenessReport",
 ]

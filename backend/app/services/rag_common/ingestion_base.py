@@ -6,7 +6,7 @@ RAG入库通用基础实现
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 logger = logging.getLogger(__name__)
 

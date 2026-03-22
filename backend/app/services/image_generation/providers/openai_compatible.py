@@ -8,9 +8,7 @@ OpenAI兼容图片生成供应商
 
 import re
 import logging
-from typing import List, Dict, Any
-
-import httpx
+from typing import List, Dict
 
 from .base import BaseImageProvider, ProviderTestResult, ProviderGenerateResult, ReferenceImageInfo
 from .factory import ImageProviderFactory

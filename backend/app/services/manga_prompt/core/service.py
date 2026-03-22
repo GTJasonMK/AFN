@@ -1464,51 +1464,6 @@ class MangaPromptServiceV2:
         await self.session.commit()
         return True
 
-
-# 便捷函数
-async def generate_manga_prompts(
-    session: AsyncSession,
-    llm_service: LLMService,
-    project_id: str,
-    chapter_number: int,
-    chapter_content: str,
-    style: str = MangaStyle.MANGA,
-    min_pages: int = 8,
-    max_pages: int = 15,
-    user_id: Optional[int] = None,
-    prompt_service: Optional[PromptService] = None,
-) -> MangaPromptResult:
-    """
-    便捷函数：生成漫画分镜
-
-    Args:
-        session: 数据库会话
-        llm_service: LLM服务
-        project_id: 项目ID
-        chapter_number: 章节号
-        chapter_content: 章节内容
-        style: 漫画风格
-        min_pages: 最少页数
-        max_pages: 最多页数
-        user_id: 用户ID
-        prompt_service: 提示词服务
-
-    Returns:
-        MangaPromptResult: 漫画提示词结果
-    """
-    service = MangaPromptServiceV2(session, llm_service, prompt_service)
-    return await service.generate(
-        project_id=project_id,
-        chapter_number=chapter_number,
-        chapter_content=chapter_content,
-        style=style,
-        min_pages=min_pages,
-        max_pages=max_pages,
-        user_id=user_id,
-    )
-
-
 __all__ = [
     "MangaPromptServiceV2",
-    "generate_manga_prompts",
 ]

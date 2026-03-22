@@ -129,20 +129,6 @@ class PartOutlineStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class PartKeyEvent(BaseModel):
-    """部分大纲关键事件（详细格式）"""
-    chapter: Optional[str] = Field(default=None, description="章节范围，如 '1-3'")
-    event: str = Field(..., description="事件名称")
-    description: Optional[str] = Field(default=None, description="事件描述")
-
-
-class PartConflict(BaseModel):
-    """部分大纲冲突（详细格式）"""
-    type: Optional[str] = Field(default=None, description="冲突类型，如 '主要冲突'、'内心冲突'")
-    description: str = Field(..., description="冲突描述")
-    characters: Optional[List[str]] = Field(default=None, description="涉及角色")
-
-
 class PartOutline(BaseModel):
     """部分大纲（用于长篇小说的分层结构）
 
@@ -258,11 +244,6 @@ class BlueprintRefineRequest(BaseModel):
     )
 
 
-class ChapterGenerationResponse(BaseModel):
-    ai_message: str
-    chapter_versions: List[Dict[str, Any]]
-
-
 class NovelSectionType(str, Enum):
     OVERVIEW = "overview"
     WORLD_SETTING = "world_setting"
@@ -337,11 +318,6 @@ class PromptPreviewResponse(BaseModel):
     prompt_sections: Dict[str, str] = Field(default_factory=dict, description="提示词各部分内容")
     total_length: int = Field(default=0, description="总提示词长度(字符)")
     estimated_tokens: int = Field(default=0, description="估算token数量")
-
-
-class GenerateOutlineRequest(BaseModel):
-    start_chapter: int
-    num_chapters: int
 
 
 class BlueprintPatch(BaseModel):

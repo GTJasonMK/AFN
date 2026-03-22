@@ -4,8 +4,7 @@
 显示编程项目的基本信息，包括技术栈、统计数据等。
 """
 
-import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,8 +15,6 @@ from PyQt6.QtCore import Qt
 from components.base import ThemeAwareFrame
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
-
-logger = logging.getLogger(__name__)
 
 
 class TechStackTag(QLabel):

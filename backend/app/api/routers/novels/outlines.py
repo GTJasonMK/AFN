@@ -24,7 +24,6 @@ from ....core.dependencies import (
 )
 from ....db.session import get_session
 from ....exceptions import (
-    PromptTemplateNotFoundError,
     BlueprintNotReadyError,
     InvalidParameterError,
     ConflictError,
@@ -238,7 +237,6 @@ async def generate_chapter_outlines_stream(
     - complete: 完成 {"message", "total_chapters"}
     - error: 错误 {"message"}
     """
-    from fastapi.responses import StreamingResponse
     from ....utils.sse_helpers import sse_event, create_sse_response
     from ....utils.exception_helpers import get_safe_error_message
     import math

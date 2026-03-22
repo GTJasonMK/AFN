@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,6 @@ from ...schemas.coding_files import (
     DirectoryNodeResponse,
     DirectoryTreeResponse,
     LLMDirectoryStructureOutput,
-    SourceFileResponse,
 )
 from ...serializers.coding_files_serializer import build_directory_node_response
 from ...serializers.coding_files_serializer import build_source_file_response

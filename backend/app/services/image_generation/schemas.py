@@ -18,20 +18,6 @@ class ProviderType(str, Enum):
     COMFYUI = "comfyui"  # 本地ComfyUI
 
 
-class ImageStyle(str, Enum):
-    """图片风格"""
-    NONE = "none"  # 无风格
-    ANIME = "anime"  # 动漫卡通
-    REALISTIC = "realistic"  # 写实摄影
-    OIL_PAINTING = "oil_painting"  # 油画艺术
-    WATERCOLOR = "watercolor"  # 水彩插画
-    RENDER_3D = "render_3d"  # 3D渲染
-    PIXEL = "pixel"  # 像素艺术
-    CYBERPUNK = "cyberpunk"  # 赛博朋克
-    MINIMALIST = "minimalist"  # 极简主义
-    MANGA = "manga"  # 日式漫画
-
-
 class AspectRatio(str, Enum):
     """宽高比"""
     RATIO_1_1 = "1:1"
@@ -88,13 +74,6 @@ def get_size_for_ratio(ratio: str, base_resolution: str = "1K") -> tuple:
         size = (size[0] * 2, size[1] * 2)
 
     return size
-
-
-class QualityPreset(str, Enum):
-    """质量预设"""
-    DRAFT = "draft"  # 草稿
-    STANDARD = "standard"  # 标准
-    HIGH = "high"  # 高质量
 
 
 # ==================== 配置相关 ====================
@@ -323,32 +302,6 @@ STYLE_SUFFIXES = {
     "webtoon": "webtoon style, clean digital lines, soft cel shading, minimal rendering",
 }
 
-# 风格检测关键词：用于判断提示词是否已经包含风格描述
-# 如果提示词包含这些关键词之一，则跳过风格后缀添加（LLM优先）
-STYLE_DETECTION_KEYWORDS = [
-    "manga style", "anime style", "comic style", "webtoon style",
-    "clean line art", "cel shading", "ink drawing", "screentone",
-    "realistic photography", "oil painting", "watercolor illustration",
-    "3d render", "pixel art", "cyberpunk style", "minimalist style",
-]
-
-
-def has_style_keywords(prompt: str) -> bool:
-    """
-    检测提示词是否已包含风格关键词
-
-    如果返回True，表示提示词是由LLM智能生成的，已包含风格信息，
-    不需要再添加STYLE_SUFFIXES中的后缀。
-
-    Args:
-        prompt: 提示词文本
-
-    Returns:
-        bool: 是否包含风格关键词
-    """
-    prompt_lower = prompt.lower()
-    return any(kw in prompt_lower for kw in STYLE_DETECTION_KEYWORDS)
-
 # 漫画专用默认负面提示词（中文，自然语言）
 DEFAULT_MANGA_NEGATIVE_PROMPT = (
     "禁止出现以下问题："
@@ -373,25 +326,6 @@ RESOLUTION_SUFFIXES = {
     "1K": ", high resolution 1K",
     "2K": ", high resolution 2K, detailed",
 }
-
-# 支持的模型列表
-SUPPORTED_MODELS = {
-    ProviderType.OPENAI_COMPATIBLE: [
-        "nano-banana-pro",
-        "dall-e-3",
-        "dall-e-2",
-        "gemini-2.5-flash",
-        "gemini-3-pro-image-preview",
-    ],
-    ProviderType.STABILITY: [
-        "stable-diffusion-xl-1024-v1-0",
-        "stable-diffusion-v1-6",
-    ],
-    ProviderType.COMFYUI: [
-        "custom",
-    ],
-}
-
 
 # ==================== 导入导出相关 ====================
 

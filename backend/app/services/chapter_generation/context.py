@@ -5,11 +5,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..chapter_context_service import EnhancedRAGContext, ChapterRAGContext
-    from ..rag.context_builder import BlueprintInfo
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

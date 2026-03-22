@@ -7,7 +7,7 @@
 import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,17 +39,13 @@ from ..novel_service import NovelService
 from ..prompt_builder import PromptBuilder
 from ..vector_store_service import VectorStoreService
 
-from .parser import PartOutlineParser, get_part_outline_parser
-from .model_factory import PartOutlineModelFactory, get_part_outline_factory
+from .parser import get_part_outline_parser
+from .model_factory import get_part_outline_factory
 from .context_retriever import PartOutlineContextRetriever
 from .chapter_outline_workflow import (
-    ChapterOutlineWorkflow,
     GenerationCancelledException,
     get_chapter_outline_workflow,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +61,7 @@ class PartOutlineService:
 
     依赖注入说明：
     - 所有外部服务通过构造函数注入，便于测试和解耦
-    - 使用 dependencies.get_part_outline_service() 获取实例
+    - 推荐通过统一依赖工厂或显式构造传入所需服务
     """
 
     def __init__(

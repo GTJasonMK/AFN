@@ -6,17 +6,13 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 
 from .context import ChapterGenerationResult
 from .prompt_builder import ChapterPromptBuilder
 from ...schemas.novel import ChapterGenerationStatus
 from ...utils.exception_helpers import get_safe_error_message
 from ..workflow_base import GenerationWorkflowBase
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from ..llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 

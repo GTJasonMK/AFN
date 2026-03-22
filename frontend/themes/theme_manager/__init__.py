@@ -18,21 +18,10 @@
     - V2ConfigMixin: V2配置访问Mixin
 """
 
-from .core import ThemeManager, theme_manager
-from .themes import ThemeMode, BookPalette, LightTheme, DarkTheme
-from .constants import DesignSystemConstants
-from .v2_config_mixin import V2ConfigMixin
+from .core import theme_manager
+from .themes import ThemeMode
 
 __all__ = [
-    # 核心导出
     'theme_manager',
-    'ThemeManager',
     'ThemeMode',
-    'BookPalette',
-    # 主题类（可选使用）
-    'LightTheme',
-    'DarkTheme',
-    'DesignSystemConstants',
-    # V2配置访问
-    'V2ConfigMixin',
 ]

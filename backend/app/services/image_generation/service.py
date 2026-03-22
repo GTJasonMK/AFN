@@ -11,7 +11,6 @@ import uuid
 import base64
 import hashlib
 import logging
-import shutil
 from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING, Any
 

@@ -169,7 +169,6 @@ def _find_local_model_path(model_name: str) -> Optional[str]:
         本地模型路径，如果未找到返回 None
     """
     import os
-    from pathlib import Path
 
     # 优先检查 SENTENCE_TRANSFORMERS_HOME；若未设置，则回退到项目默认目录 storage/models（与 run_app.py 保持一致）
     st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME")

@@ -4,7 +4,7 @@
 实现自动换行的标签/按钮布局，当一行放不下时自动换到下一行。
 """
 
-from PyQt6.QtWidgets import QLayout, QWidgetItem, QSizePolicy
+from PyQt6.QtWidgets import QLayout
 from PyQt6.QtCore import Qt, QRect, QSize, QPoint
 
 

@@ -13,8 +13,6 @@ import time
 import socket
 import subprocess
 
-from .logging_setup import logger
-
 
 def is_port_in_use(port: int) -> bool:
     """检查端口是否被占用"""

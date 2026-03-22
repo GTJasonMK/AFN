@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QLabel,
     QStackedWidget,
-    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer
 

@@ -5,8 +5,6 @@
 
 模块包含：
 - WorkerTimeouts: Worker线程超时配置
-- UIConstants: UI布局相关常量
-- PageConstants: 页面相关常量
 - VersionConstants: 版本管理相关常量
 """
 
@@ -26,72 +24,6 @@ class WorkerTimeouts:
     LONG_OPERATION_MS = 3000
 
 
-class UIConstants:
-    """UI布局相关常量
-
-    集中管理UI布局中的魔术数字，使代码更易读和维护。
-    """
-    # ==================== 间距 ====================
-    # 容器边距
-    MARGIN_NONE = 0
-    MARGIN_XS = 4
-    MARGIN_SM = 8
-    MARGIN_MD = 12
-    MARGIN_LG = 16
-    MARGIN_XL = 24
-    MARGIN_XXL = 32
-
-    # 组件间距
-    SPACING_NONE = 0
-    SPACING_XS = 4
-    SPACING_SM = 8
-    SPACING_MD = 12
-    SPACING_LG = 16
-    SPACING_XL = 24
-
-    # ==================== 尺寸 ====================
-    # 头部高度
-    HEADER_HEIGHT = 64
-    HEADER_HEIGHT_SM = 48
-
-    # 侧边栏宽度
-    SIDEBAR_WIDTH = 280
-    SIDEBAR_WIDTH_SM = 240
-
-    # 卡片最小高度
-    CARD_MIN_HEIGHT = 80
-    CARD_MIN_HEIGHT_SM = 60
-
-    # 按钮尺寸
-    BUTTON_HEIGHT_SM = 28
-    BUTTON_HEIGHT_MD = 36
-    BUTTON_HEIGHT_LG = 44
-
-    # ==================== 圆角 ====================
-    RADIUS_XS = 2
-    RADIUS_SM = 4
-    RADIUS_MD = 6
-    RADIUS_LG = 8
-    RADIUS_XL = 12
-
-    # ==================== 动画 ====================
-    ANIMATION_DURATION_FAST = 150
-    ANIMATION_DURATION_NORMAL = 250
-    ANIMATION_DURATION_SLOW = 400
-
-
-class PageConstants:
-    """页面相关常量"""
-    # 页面缓存限制
-    MAX_CACHED_PAGES = 10
-
-    # 导航历史最大深度
-    MAX_NAVIGATION_HISTORY = 50
-
-    # 滚动延迟（毫秒）
-    SCROLL_DELAY_MS = 100
-
-
 class VersionConstants:
     """版本管理相关常量"""
     # 最大版本卡片数量（workspace.py中使用）
@@ -102,18 +34,6 @@ class VersionConstants:
 
     # 版本标题最大长度
     VERSION_TITLE_MAX_LENGTH = 50
-
-
-class ChapterConstants:
-    """章节相关常量"""
-    # 章节内容最小长度
-    MIN_CHAPTER_LENGTH = 100
-
-    # 章节内容建议长度
-    RECOMMENDED_CHAPTER_LENGTH = 2000
-
-    # 章节标题最大长度
-    CHAPTER_TITLE_MAX_LENGTH = 100
 
 
 class NovelConstants:

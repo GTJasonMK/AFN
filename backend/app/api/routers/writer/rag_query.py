@@ -15,7 +15,7 @@ from ....core.dependencies import get_default_user, get_vector_store
 from ....db.session import get_session
 from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService
-from ....services.vector_store_service import VectorStoreService, RetrievedChunk, RetrievedSummary
+from ....services.vector_store_service import VectorStoreService
 from ....services.embedding_service import EmbeddingService
 from ....exceptions import LLMConfigurationError
 

@@ -8,7 +8,7 @@
 import logging
 import re
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from ..directory_generator.schemas import (
     BruteForceOutput,

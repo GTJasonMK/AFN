@@ -29,7 +29,7 @@ import json
 import logging
 import random
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import httpx
 

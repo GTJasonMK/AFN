@@ -13,20 +13,9 @@ from .architecture import ArchitectureSection
 from .directory import DirectorySection
 from .generation import GenerationSection
 
-# 保留旧组件供复用
-from .systems import SystemNode, ModuleNode
-from .dependencies import GroupedDependencyCard
-from .generated import GeneratedItemCard
-
 __all__ = [
-    # 主要Section
     "CodingOverviewSection",
     "ArchitectureSection",
     "DirectorySection",
     "GenerationSection",
-    # 可复用组件
-    "SystemNode",
-    "ModuleNode",
-    "GroupedDependencyCard",
-    "GeneratedItemCard",
 ]

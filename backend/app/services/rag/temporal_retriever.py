@@ -6,8 +6,8 @@
 """
 
 import math
-from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import List, Sequence, Tuple
 
 from ..vector_store_service import RetrievedChunk, RetrievedSummary, VectorStoreService
 
@@ -326,93 +326,3 @@ class TemporalAwareRetriever:
             results.append(updated_summary)
 
         return results
-
-
-class NearbyChapterPrioritizer:
-    """临近章节优先器
-
-    独立的优先器类，可以在任何检索结果上应用临近章节优先策略。
-    适用于需要单独调整临近章节权重的场景。
-
-    注意：当前版本中此类未被使用，TemporalAwareRetriever已内置临近章节优先逻辑。
-    保留此类的原因：
-    1. 提供独立的优先器接口，便于在不同检索场景中复用
-    2. 支持自定义的nearby_bonus和nearby_range参数
-    3. 作为扩展点，未来可用于更精细的检索策略调优
-    """
-
-    def __init__(
-        self,
-        nearby_bonus: float = 0.2,
-        nearby_range: int = 5,
-    ):
-        """
-        Args:
-            nearby_bonus: 临近章节的额外加分
-            nearby_range: 定义"临近"的章节范围
-        """
-        self.nearby_bonus = nearby_bonus
-        self.nearby_range = nearby_range
-
-    def prioritize_chunks(
-        self,
-        chunks: List[RetrievedChunk],
-        target_chapter: int,
-    ) -> List[RetrievedChunk]:
-        """为临近章节的检索结果加分并重排序
-
-        Args:
-            chunks: 检索结果列表
-            target_chapter: 目标章节号
-
-        Returns:
-            重排序后的结果列表
-        """
-        boosted = []
-        for chunk in chunks:
-            distance = abs(chunk.chapter_number - target_chapter)
-            new_score = chunk.score
-
-            if 0 < distance <= self.nearby_range:
-                # 计算加分：距离越近加分越多
-                bonus = self.nearby_bonus * (1 - (distance - 1) / self.nearby_range)
-                # 注意：这里假设score越高越好
-                # 如果原始score是距离（越小越好），需要调整逻辑
-                new_score = chunk.score + bonus
-
-            boosted.append(RetrievedChunk(
-                content=chunk.content,
-                chapter_number=chunk.chapter_number,
-                chapter_title=chunk.chapter_title,
-                score=new_score,
-                metadata=chunk.metadata,
-            ))
-
-        # 按分数降序排序
-        boosted.sort(key=lambda x: x.score, reverse=True)
-        return boosted
-
-    def prioritize_summaries(
-        self,
-        summaries: List[RetrievedSummary],
-        target_chapter: int,
-    ) -> List[RetrievedSummary]:
-        """为临近章节的摘要加分并重排序"""
-        boosted = []
-        for summary in summaries:
-            distance = abs(summary.chapter_number - target_chapter)
-            new_score = summary.score
-
-            if 0 < distance <= self.nearby_range:
-                bonus = self.nearby_bonus * (1 - (distance - 1) / self.nearby_range)
-                new_score = summary.score + bonus
-
-            boosted.append(RetrievedSummary(
-                chapter_number=summary.chapter_number,
-                title=summary.title,
-                summary=summary.summary,
-                score=new_score,
-            ))
-
-        boosted.sort(key=lambda x: x.score, reverse=True)
-        return boosted

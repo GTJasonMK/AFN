@@ -5,7 +5,7 @@ Coding 文件相关路由：目录生成 API（三阶段架构）
 """
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -562,4 +562,3 @@ async def _three_phase_pipeline(
 
 
 __all__ = ["router"]
-

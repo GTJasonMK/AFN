@@ -302,15 +302,6 @@ def confirm(
     return MessageService.confirm(parent, message, title, confirm_text, cancel_text)
 
 
-def confirm_danger(
-    parent: Optional[QWidget],
-    message: str,
-    title: str = "确认删除"
-) -> bool:
-    """便捷函数：危险操作确认对话框"""
-    return MessageService.confirm_danger(parent, message, title)
-
-
 def show_exception_error(
     parent: Optional[QWidget],
     exception: Exception,

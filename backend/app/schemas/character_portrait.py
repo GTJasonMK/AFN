@@ -14,15 +14,6 @@ from pydantic import BaseModel, Field
 PortraitStyle = Literal["anime", "manga", "realistic"]
 
 
-class CharacterPortraitBase(BaseModel):
-    """角色立绘基础模型"""
-
-    character_name: str = Field(..., description="角色名称", max_length=100)
-    character_description: Optional[str] = Field(default=None, description="角色外貌描述")
-    style: PortraitStyle = Field(default="anime", description="立绘风格: anime/manga/realistic")
-    custom_prompt: Optional[str] = Field(default=None, description="用户自定义提示词")
-
-
 class GeneratePortraitRequest(BaseModel):
     """生成角色立绘请求"""
 

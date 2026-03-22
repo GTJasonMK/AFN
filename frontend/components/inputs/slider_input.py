@@ -7,7 +7,7 @@
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QFrame
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSlider
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 

@@ -10,7 +10,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.config import settings
 from ....core.constants import LLMConstants
 from ....core.dependencies import (
     get_default_user,
@@ -41,7 +40,6 @@ from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
-from ....utils.json_utils import remove_think_tags
 from ....utils.prompt_helpers import ensure_prompt
 from ....utils.content_normalizer import count_chinese_characters
 from ..chapter_rag_helpers import (
@@ -842,5 +840,4 @@ async def update_chapter(
 # ------------------------------------------------------------------
 # 章节大纲灵活管理接口（增量生成、删除、重新生成）
 # ------------------------------------------------------------------
-
 

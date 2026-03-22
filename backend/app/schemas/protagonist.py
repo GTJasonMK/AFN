@@ -23,12 +23,6 @@ class AttributeOperation(str, Enum):
     DELETE = "delete"
 
 
-class ClassificationResult(str, Enum):
-    """行为分类结果枚举"""
-    CONFORM = "conform"        # 符合
-    NON_CONFORM = "non-conform"  # 不符合
-
-
 # ============== 档案相关 Schemas ==============
 
 class ProtagonistProfileBase(BaseModel):
@@ -121,13 +115,6 @@ class AttributeChangeResponse(BaseModel):
         from_attributes = True
 
 
-class ChangeHistoryQuery(BaseModel):
-    """变更历史查询参数"""
-    start_chapter: Optional[int] = Field(default=None, description="起始章节", ge=1)
-    end_chapter: Optional[int] = Field(default=None, description="结束章节", ge=1)
-    category: Optional[AttributeCategory] = Field(default=None, description="属性类别")
-
-
 # ============== 行为记录相关 Schemas ==============
 
 class BehaviorRecordResponse(BaseModel):
@@ -143,12 +130,6 @@ class BehaviorRecordResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class BehaviorRecordQuery(BaseModel):
-    """行为记录查询参数"""
-    chapter: Optional[int] = Field(default=None, description="指定章节", ge=1)
-    limit: Optional[int] = Field(default=20, description="返回数量限制", ge=1, le=100)
 
 
 # ============== 删除标记相关 Schemas ==============
@@ -172,11 +153,6 @@ class DeletionMarkResponse(BaseModel):
         from_attributes = True
 
 
-class DeletionMarkQuery(BaseModel):
-    """删除标记查询参数"""
-    category: Optional[AttributeCategory] = Field(default=None, description="属性类别")
-
-
 # ============== 同步相关 Schemas ==============
 
 class SyncRequest(BaseModel):
@@ -193,12 +169,6 @@ class SyncResult(BaseModel):
 
 
 # ============== 隐性属性分析相关 Schemas ==============
-
-class ImplicitStatsQuery(BaseModel):
-    """隐性属性统计查询参数"""
-    attribute_key: str = Field(..., description="属性键名")
-    window: int = Field(default=10, description="统计窗口大小（章节数）", ge=1, le=50)
-
 
 class ImplicitStatsResponse(BaseModel):
     """隐性属性统计响应"""

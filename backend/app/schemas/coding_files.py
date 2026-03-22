@@ -27,22 +27,6 @@ class FileType(str, Enum):
     DOC = "doc"
 
 
-class FileGenerationStatus(str, Enum):
-    """文件Prompt生成状态"""
-    NOT_GENERATED = "not_generated"
-    GENERATING = "generating"
-    GENERATED = "generated"
-    FAILED = "failed"
-
-
-class DirectoryGenerationStatus(str, Enum):
-    """目录结构生成状态"""
-    PENDING = "pending"
-    GENERATING = "generating"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 class FilePriority(str, Enum):
     """文件优先级"""
     HIGH = "high"
@@ -51,15 +35,6 @@ class FilePriority(str, Enum):
 
 
 # ==================== 目录节点相关 ====================
-
-class DirectoryNodeBase(BaseModel):
-    """目录节点基础字段"""
-    name: str = Field(..., description="目录名称")
-    path: str = Field(..., description="完整路径，如 src/services/user")
-    node_type: DirectoryNodeType = Field(default=DirectoryNodeType.DIRECTORY, description="节点类型")
-    description: Optional[str] = Field(default=None, description="目录说明")
-    sort_order: int = Field(default=0, description="排序顺序")
-
 
 class DirectoryNodeCreate(BaseModel):
     """创建目录节点请求"""
@@ -106,17 +81,6 @@ class DirectoryTreeResponse(BaseModel):
 
 
 # ==================== 源文件相关 ====================
-
-class SourceFileBase(BaseModel):
-    """源文件基础字段"""
-    filename: str = Field(..., description="文件名，如 user_service.py")
-    file_path: str = Field(..., description="完整文件路径")
-    file_type: FileType = Field(default=FileType.SOURCE)
-    language: Optional[str] = Field(default=None, description="编程语言：python/typescript/go等")
-    description: Optional[str] = Field(default=None, description="文件描述")
-    purpose: Optional[str] = Field(default=None, description="文件用途说明")
-    priority: FilePriority = Field(default=FilePriority.MEDIUM)
-
 
 class SourceFileCreate(BaseModel):
     """创建源文件请求"""
@@ -219,25 +183,11 @@ class GenerateDirectoryStructureResponse(BaseModel):
     ai_message: str
 
 
-class BatchGenerateDirectoryRequest(BaseModel):
-    """批量生成目录结构请求"""
-    module_numbers: List[int] = Field(..., description="要生成目录结构的模块编号列表")
-    preference: Optional[str] = Field(default=None, description="生成偏好指导")
-
-
 # ==================== 文件Prompt生成相关 ====================
 
 class GenerateFilePromptRequest(BaseModel):
     """生成文件Prompt请求"""
     writing_notes: Optional[str] = Field(default=None, description="额外的实现指令")
-
-
-class GenerateFilePromptResponse(BaseModel):
-    """生成文件Prompt响应（非流式）"""
-    file_id: int
-    version_id: int
-    content: str
-    ai_message: str
 
 
 class SaveFilePromptRequest(BaseModel):
@@ -256,12 +206,6 @@ class SelectFileVersionRequest(BaseModel):
 class GenerateReviewPromptRequest(BaseModel):
     """生成审查Prompt请求"""
     writing_notes: Optional[str] = Field(default=None, description="额外的审查指令")
-
-
-class GenerateReviewPromptResponse(BaseModel):
-    """生成审查Prompt响应"""
-    file_id: int
-    content: str
 
 
 class SaveReviewPromptRequest(BaseModel):

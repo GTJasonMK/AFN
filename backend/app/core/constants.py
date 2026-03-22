@@ -78,18 +78,6 @@ class LLMConstants:
     MAX_RETRIES = 2  # LLM调用最大重试次数
 
 
-class VectorConstants:
-    """向量检索相关常量"""
-
-    # 检索配置
-    TOP_K_CHUNKS = 5  # RAG检索返回的chunk数量
-    TOP_K_SUMMARIES = 3  # RAG检索返回的摘要数量
-
-    # 文本处理
-    CHUNK_MAX_LENGTH = 1000  # 单个chunk最大长度（字符）
-    TAIL_EXCERPT_LENGTH = 1000  # 章节结尾摘录长度（字符）
-
-
 class ContextConstants:
     """上下文构建相关常量"""
 
@@ -107,31 +95,6 @@ class ContextConstants:
     CHARACTER_RETRIEVAL_TOP_K = 3  # 角色检索的top_k
     MAX_ADDITIONAL_CHUNKS = 3  # 最大额外检索chunk数量
     CONTENT_DEDUP_PREFIX_LENGTH = 100  # 内容去重前缀长度
-
-
-class ChapterConstants:
-    """章节相关常量"""
-
-    # 版本配置
-    DEFAULT_VERSION_COUNT = 3  # 默认生成的章节版本数量
-    MAX_VERSIONS_PER_CHAPTER = 10  # 单章最大版本数
-
-    # 上下文配置
-    CONTEXT_PREVIOUS_CHAPTERS = 3  # 生成时参考的前文章节数
-    SUMMARY_RECENT_CHAPTERS = 10  # 分层摘要中完整摘要的最近章节数
-
-
-class HTTPConstants:
-    """HTTP相关常量"""
-
-    # 状态码
-    HTTP_OK = 200
-    HTTP_CREATED = 201
-    HTTP_BAD_REQUEST = 400
-    HTTP_NOT_FOUND = 404
-    HTTP_CONFLICT = 409
-    HTTP_SERVER_ERROR = 500
-    HTTP_SERVICE_UNAVAILABLE = 503
 
 
 class AvatarConstants:

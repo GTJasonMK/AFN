@@ -323,27 +323,6 @@ def get_novel_strategy_manager() -> NovelChunkStrategyManager:
     return _novel_default_manager
 
 
-def set_novel_strategy_manager(manager: NovelChunkStrategyManager):
-    """
-    设置全局小说策略管理器实例
-
-    Args:
-        manager: 策略管理器实例
-    """
-    global _novel_default_manager
-    _novel_default_manager = manager
-
-
-def switch_novel_global_preset(preset: str):
-    """
-    切换全局小说预设策略
-
-    Args:
-        preset: 预设策略名称
-    """
-    get_novel_strategy_manager().switch_preset(preset)
-
-
 __all__ = [
     "NovelChunkMethod",
     "NovelChunkConfig",
@@ -351,6 +330,4 @@ __all__ = [
     "DEFAULT_NOVEL_STRATEGIES",
     "OPTIMIZED_NOVEL_STRATEGIES",
     "get_novel_strategy_manager",
-    "set_novel_strategy_manager",
-    "switch_novel_global_preset",
 ]

@@ -7,7 +7,6 @@ Coding项目目录结构和文件Repository
 from typing import List, Optional, Tuple
 
 from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .base import BaseRepository

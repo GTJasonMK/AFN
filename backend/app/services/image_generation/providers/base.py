@@ -622,7 +622,7 @@ class BaseImageProvider(ABC):
         Returns:
             构建后的提示词
         """
-        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES, ASPECT_RATIO_TO_SIZE, has_style_keywords
+        from ..schemas import STYLE_SUFFIXES, RESOLUTION_SUFFIXES, ASPECT_RATIO_TO_SIZE
 
         # 动态生成场景感知的上下文前缀
         if add_context:

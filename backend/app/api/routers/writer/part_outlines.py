@@ -4,7 +4,6 @@
 处理长篇小说的部分大纲生成、批量生成和进度查询。
 """
 
-import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -18,7 +17,6 @@ from ....core.dependencies import (
     get_vector_store,
     get_llm_service,
 )
-from ....core.state_machine import ProjectStatus
 from ....db.session import get_session
 from ....exceptions import (
     BlueprintNotReadyError,

@@ -4,7 +4,7 @@
 为整页图片生成构建提示词，整合页面内所有画格的信息。
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 from ..prompt_builder.builder import build_layout_template, build_panel_summaries
 

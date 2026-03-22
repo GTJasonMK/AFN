@@ -26,7 +26,6 @@ from ....services.vector_store_service import VectorStoreService
 from ....services.coding_rag import (
     CodingProjectIngestionService,
     CodingDataType,
-    CompletenessReport,
 )
 from ..rag_helpers import run_completeness_check
 from ..rag_schemas import CompletenessResponseBase, TypeDetailBase

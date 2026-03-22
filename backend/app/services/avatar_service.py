@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -7,7 +7,7 @@
 import json
 import logging
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -34,7 +34,6 @@ from ....exceptions import (
     InvalidParameterError,
     InvalidStateTransitionError,
     LLMServiceError,
-    PromptTemplateNotFoundError,
     ResourceNotFoundError,
 )
 from ....schemas.novel import (
@@ -56,9 +55,6 @@ from ....utils.prompt_helpers import ensure_prompt
 from ....utils.sse_helpers import (
     sse_event,
     create_sse_response,
-    sse_error_event,
-    sse_complete_event,
-    track_saved_items,
 )
 from ....utils.exception_helpers import get_safe_error_message
 
@@ -713,5 +709,4 @@ async def regenerate_chapter_outline(
         }
 
     return result
-
 

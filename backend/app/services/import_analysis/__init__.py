@@ -16,7 +16,7 @@ TXT解析器支持自定义：
     - TxtParser: DefaultTxtParser的别名（向后兼容）
 
 使用自定义解析器：
-    from app.services.import_analysis import BaseTxtParser, ParsedChapter
+    from app.services.import_analysis.txt_parser import BaseTxtParser, ParsedChapter
 
     class MyParser(BaseTxtParser):
         def parse_chapters(self, content: str):
@@ -29,35 +29,7 @@ TXT解析器支持自定义：
 """
 
 from .service import ImportAnalysisService
-from .txt_parser import (
-    BaseTxtParser,
-    DefaultTxtParser,
-    SimpleSplitParser,
-    TxtParser,  # 向后兼容别名
-    ParsedChapter,
-    ParseResult,
-    count_chinese_characters,
-    cn_to_arabic,
-)
-from .progress_tracker import ProgressTracker
-from .models import ChapterSummary, ImportResult
 
 __all__ = [
-    # 主服务
     "ImportAnalysisService",
-    # 解析器类
-    "BaseTxtParser",
-    "DefaultTxtParser",
-    "SimpleSplitParser",
-    "TxtParser",
-    # 数据类
-    "ParsedChapter",
-    "ParseResult",
-    "ChapterSummary",
-    "ImportResult",
-    # 工具函数
-    "count_chinese_characters",
-    "cn_to_arabic",
-    # 进度追踪
-    "ProgressTracker",
 ]

@@ -5,7 +5,7 @@
 """
 
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QWidget, QMenu, QFrame, QGraphicsDropShadowEffect
+    QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QMenu, QFrame, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor

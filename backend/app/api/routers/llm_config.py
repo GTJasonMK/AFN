@@ -1,16 +1,13 @@
 import logging
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.dependencies import get_default_user, get_llm_config_service
-from ...db.session import get_session
 from ...exceptions import ResourceNotFoundError
 from ...schemas.llm_config import (
     LLMConfigCreate,
     LLMConfigRead,
     LLMConfigUpdate,
-    LLMConfigTestRequest,
     LLMConfigTestResponse,
 )
 from ...schemas.user import UserInDB
@@ -161,4 +158,3 @@ async def import_llm_configs(
     logger.info("用户 %s 导入 LLM 配置", desktop_user.id)
     result = await service.import_configs(desktop_user.id, import_data)
     return result
-

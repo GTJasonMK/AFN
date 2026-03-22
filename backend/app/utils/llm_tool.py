@@ -22,11 +22,10 @@ import httpx
 from openai import AsyncOpenAI
 
 # 从拆分后的模块导入
-from .llm_request_logger import LLMRequestLogger, get_request_logger
+from .llm_request_logger import get_request_logger
 from .api_format_utils import (
     APIFormat,
     detect_api_format,
-    fix_base_url,
     build_anthropic_endpoint,
     build_openai_endpoint,
     get_browser_headers,

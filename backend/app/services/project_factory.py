@@ -6,7 +6,7 @@
 """
 
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict
 
 
 class ProjectStage(str, Enum):

@@ -19,11 +19,6 @@ from .models import (
     PageStoryboard,
     PanelDesign,
     StoryboardResult,
-    DialogueBubble,
-    PanelShape,
-    ShotType,
-    WidthRatio,
-    AspectRatio,
 )
 from .prompts import PROMPT_NAME, STORYBOARD_DESIGN_PROMPT, STORYBOARD_SYSTEM_PROMPT
 

@@ -264,24 +264,3 @@ class WorkerPool:
     def active_count(self) -> int:
         """当前活跃的线程数"""
         return len([t for t in threading.enumerate() if t.name.startswith("AFN-Worker")])
-
-
-def submit_task(func: Callable, *args, **kwargs) -> PooledTask:
-    """便捷函数：提交任务到全局线程池
-
-    Args:
-        func: 要执行的函数
-        *args: 函数位置参数
-        **kwargs: 函数关键字参数
-
-    Returns:
-        PooledTask对象
-
-    Usage:
-        from utils.worker_pool import submit_task
-
-        task = submit_task(api_client.get_novels)
-        task.success.connect(self.on_success)
-        task.error.connect(self.on_error)
-    """
-    return WorkerPool.instance().submit(func, *args, **kwargs)

@@ -13,13 +13,12 @@ from .chat_bubble import ChatBubble
 from .conversation_input import ConversationInput
 from .blueprint_display import BlueprintDisplay
 from .blueprint_confirmation import BlueprintConfirmation
-from .inspired_option_card import InspiredOptionCard, InspiredOptionsContainer
+from .inspired_option_card import InspiredOptionsContainer
 
 __all__ = [
     "ChatBubble",
     "ConversationInput",
     "BlueprintDisplay",
     "BlueprintConfirmation",
-    "InspiredOptionCard",
     "InspiredOptionsContainer",
 ]

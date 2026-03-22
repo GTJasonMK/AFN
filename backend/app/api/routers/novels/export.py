@@ -12,13 +12,11 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.dependencies import (
     get_default_user,
     get_novel_service,
 )
-from ....db.session import get_session
 from ....exceptions import ResourceNotFoundError
 from ....schemas.user import UserInDB
 from ....services.novel_service import NovelService

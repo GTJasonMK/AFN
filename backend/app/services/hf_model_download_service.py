@@ -13,7 +13,6 @@ HuggingFace 模型下载服务
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import shutil

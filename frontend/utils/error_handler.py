@@ -135,21 +135,3 @@ def _get_parent_widget(args: tuple):
         return first_arg
 
     return None
-
-
-def handle_api_errors(operation: str, **kwargs):
-    """专门处理API错误的装饰器
-
-    这是 handle_errors 的特化版本，只处理 APIError，
-    其他异常会被重新抛出。
-
-    Args:
-        operation: 操作名称
-        **kwargs: 传递给 handle_errors 的其他参数
-
-    Example:
-        @handle_api_errors("获取项目列表")
-        def fetchProjects(self):
-            return self.api_client.get_novels()
-    """
-    return handle_errors(operation, reraise_unknown=True, **kwargs)

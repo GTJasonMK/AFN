@@ -16,7 +16,6 @@ from .data_types import (
     PART_OUTLINE_INGESTION_TYPES,
     CHAPTER_OUTLINE_INGESTION_TYPES,
     CHAPTER_VERSION_INGESTION_TYPES,
-    PROTAGONIST_INGESTION_TYPES,
 )
 from .ingestion_service import NovelProjectIngestionService
 from ..rag_common.auto_ingestion import (
@@ -27,7 +26,7 @@ from ..rag_common.auto_ingestion import (
 logger = logging.getLogger(__name__)
 
 
-trigger_async_ingestion, schedule_ingestion = build_default_auto_ingestion_hooks(
+_, schedule_ingestion = build_default_auto_ingestion_hooks(
     logger=logger,
     ingestion_service_cls=NovelProjectIngestionService,
     task_name_prefix="novel_ingestion_",
@@ -162,28 +161,7 @@ async def trigger_chapter_version_ingestion(
     schedule_multiple_ingestions(project_id, user_id, CHAPTER_VERSION_INGESTION_TYPES, vector_store, llm_service)
 
 
-async def trigger_protagonist_ingestion(
-    project_id: str,
-    user_id: int,
-    vector_store: Optional[Any] = None,
-    llm_service: Optional[Any] = None,
-) -> None:
-    """
-    触发主角档案入库
-
-    主角档案更新后调用。
-
-    Args:
-        project_id: 项目ID
-        user_id: 用户ID
-        vector_store: 向量库服务
-        llm_service: LLM服务
-    """
-    schedule_multiple_ingestions(project_id, user_id, PROTAGONIST_INGESTION_TYPES, vector_store, llm_service)
-
-
 __all__ = [
-    "trigger_async_ingestion",
     "schedule_ingestion",
     "schedule_multiple_ingestions",
     "trigger_blueprint_ingestion",
@@ -191,5 +169,4 @@ __all__ = [
     "trigger_part_outline_ingestion",
     "trigger_chapter_outline_ingestion",
     "trigger_chapter_version_ingestion",
-    "trigger_protagonist_ingestion",
 ]

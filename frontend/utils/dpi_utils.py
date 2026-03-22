@@ -302,22 +302,3 @@ def sp(pixels: Union[int, float]) -> int:
     """
     return dpi_helper.sp(pixels)
 
-
-def responsive(*args, **kwargs) -> int:
-    """便捷函数：响应式值
-
-    示例：
-        width = responsive(xs=300, md=400, lg=500)
-        padding = responsive(8, 12, 16, 20)  # xs, sm, md, lg
-
-    Returns:
-        当前断点的值
-    """
-    if args:
-        # 位置参数模式
-        breakpoints = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl']
-        kwargs = {}
-        for i, value in enumerate(args[:len(breakpoints)]):
-            kwargs[breakpoints[i]] = value
-
-    return dpi_helper.responsive_value(**kwargs)

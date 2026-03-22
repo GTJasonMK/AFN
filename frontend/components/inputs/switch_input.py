@@ -7,9 +7,9 @@
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QPropertyAnimation, QEasingCurve, QRect, QSize, pyqtProperty
+from PyQt6.QtCore import pyqtSignal, Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPainterPath
 
 from themes.theme_manager import theme_manager

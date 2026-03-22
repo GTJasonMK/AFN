@@ -7,7 +7,7 @@
 """
 
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Set
 
 from ....utils.json_utils import parse_llm_json_safe
 from ..directory_generator.schemas import (
@@ -17,7 +17,6 @@ from ..directory_generator.schemas import (
 )
 from .schemas import (
     ArchitectureDecision,
-    ArchitecturePattern,
     ModulePlacement,
     ProjectProfile,
 )
@@ -687,4 +686,3 @@ class ArchitectureBasedGenerator:
                 "enhanced_count": enhanced_count,
             }
         }
-

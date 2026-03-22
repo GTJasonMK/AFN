@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,4 +121,3 @@ def register_inspiration_routes(
 
 
 __all__ = ["register_inspiration_routes"]
-

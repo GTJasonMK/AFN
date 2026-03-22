@@ -6,29 +6,25 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from .data_types import NovelDataType, BLUEPRINT_INGESTION_TYPES
+from .data_types import NovelDataType
 from .content_splitter import NovelContentSplitter, NovelIngestionRecord
 from .chunk_strategy import NovelChunkMethod, get_novel_strategy_manager
 from ..rag_common.ingestion_base import (
     BaseProjectIngestionService,
     IngestionResult,
-    CompletenessReport,
 )
 
 # 导入ORM模型
 from ...models.novel import (
-    NovelProject,
     NovelBlueprint,
     NovelConversation,
     Chapter,
-    ChapterVersion,
     ChapterOutline,
     BlueprintCharacter,
     BlueprintRelationship,
@@ -1168,5 +1164,4 @@ class NovelProjectIngestionService(BaseProjectIngestionService):
 __all__ = [
     "NovelProjectIngestionService",
     "IngestionResult",
-    "CompletenessReport",
 ]

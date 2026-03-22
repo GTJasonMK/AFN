@@ -6,7 +6,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Any
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,10 +31,6 @@ from ..schemas.theme_config import (
 
 # 从拆分后的模块导入主题默认值
 from .theme_defaults import (
-    LIGHT_THEME_DEFAULTS,
-    DARK_THEME_DEFAULTS,
-    LIGHT_THEME_V2_DEFAULTS,
-    DARK_THEME_V2_DEFAULTS,
     get_theme_defaults,
     get_theme_v2_defaults,
 )

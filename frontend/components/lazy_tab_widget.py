@@ -18,7 +18,7 @@
 """
 
 import logging
-from typing import Callable, Optional, Set, Dict
+from typing import Callable, Set, Dict
 
 from PyQt6.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QLabel, QSizePolicy

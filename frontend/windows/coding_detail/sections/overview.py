@@ -7,8 +7,7 @@
 - 技术栈信息
 """
 
-import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget,
@@ -19,9 +18,6 @@ from PyQt6.QtCore import Qt
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp
-
-logger = logging.getLogger(__name__)
-
 
 # 工作流程步骤定义（两层结构：系统 -> 模块）
 WORKFLOW_STEPS = [

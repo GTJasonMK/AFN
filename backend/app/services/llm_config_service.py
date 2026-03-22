@@ -5,7 +5,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..exceptions import ResourceNotFoundError, ConflictError, InvalidParameterError
+from ..exceptions import ResourceNotFoundError, ConflictError
 from ..models import LLMConfig
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..schemas.llm_config import LLMConfigCreate, LLMConfigRead, LLMConfigUpdate, LLMConfigTestResponse
@@ -434,4 +434,3 @@ class LLMConfigService(BaseConfigService):
             failed_count=loop_result.failed_count,
             details=loop_result.details,
         ).model_dump()
-

@@ -7,7 +7,6 @@ Coding项目Repository
 from typing import Iterable, Optional, List, Tuple
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .base import BaseRepository, RelationOptionsMixin, SequenceRepositoryMixin
@@ -159,4 +158,3 @@ class CodingModuleRepository(SequenceRepositoryMixin, BaseRepository[CodingModul
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
-

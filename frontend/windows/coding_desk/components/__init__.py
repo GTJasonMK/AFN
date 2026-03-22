@@ -4,12 +4,10 @@
 包含目录树、项目信息卡片等组件。
 """
 
-from .directory_tree import DirectoryTree, TreeNodeItem
-from .project_info_card import ProjectInfoCard, TechStackTag
+from .directory_tree import DirectoryTree
+from .project_info_card import ProjectInfoCard
 
 __all__ = [
     "DirectoryTree",
-    "TreeNodeItem",
     "ProjectInfoCard",
-    "TechStackTag",
 ]

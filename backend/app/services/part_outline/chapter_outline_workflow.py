@@ -15,7 +15,6 @@ from ...models.novel import NovelProject
 from ...repositories.part_outline_repository import PartOutlineRepository
 from ...repositories.chapter_repository import ChapterOutlineRepository
 from ...schemas.novel import ChapterOutline as ChapterOutlineSchema
-from ...utils.exception_helpers import log_exception
 from ..llm_service import LLMService
 from ..llm_wrappers import call_llm_json, LLMProfile
 from ..prompt_service import PromptService

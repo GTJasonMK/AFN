@@ -1,6 +1,6 @@
 """蓝图相关数据访问层"""
 
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import delete
 

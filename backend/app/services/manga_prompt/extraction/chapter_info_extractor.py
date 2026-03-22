@@ -26,18 +26,12 @@ from .models import (
     SceneInfo,
     EventInfo,
     ItemInfo,
-    CharacterRole,
-    ImportanceLevel,
-    EmotionType,
-    EventType,
 )
 from .prompts import (
-    PROMPT_NAME,
     PROMPT_NAME_STEP1,
     PROMPT_NAME_STEP2,
     PROMPT_NAME_STEP3,
     PROMPT_NAME_STEP4,
-    EXTRACTION_SYSTEM_PROMPT,
     STEP_EXTRACTION_SYSTEM_PROMPT,
 )
 
@@ -671,94 +665,6 @@ class ChapterInfoExtractor:
         for scene in scenes:
             scene.event_indices.sort()
 
-    async def _build_prompt(self, content: str) -> str:
-        """
-        构建提取提示词
-
-        Args:
-            content: 章节内容
-
-        Returns:
-            格式化后的提示词
-
-        Raises:
-            ValueError: 如果无法加载提示词
-        """
-        if not self.prompt_service:
-            raise ValueError("PromptService未配置，无法加载提示词")
-
-        prompt_template = await self.prompt_service.get_prompt(PROMPT_NAME)
-        if not prompt_template:
-            raise ValueError(f"提示词模板 '{PROMPT_NAME}' 不存在")
-
-        return prompt_template.format(content=content)
-
-    async def _get_system_prompt(self) -> str:
-        """
-        获取系统提示词
-
-        Returns:
-            系统提示词
-        """
-        # 暂时使用内置系统提示词
-        # 未来可扩展为从PromptService加载
-        return EXTRACTION_SYSTEM_PROMPT
-
-    def _parse_chapter_info(self, data: dict) -> ChapterInfo:
-        """
-        将LLM返回的字典解析为ChapterInfo对象
-
-        Args:
-            data: LLM返回的原始字典
-
-        Returns:
-            ChapterInfo对象
-        """
-        # 解析角色信息
-        characters = {}
-        raw_characters = data.get("characters", {})
-        for name, char_data in raw_characters.items():
-            if isinstance(char_data, dict):
-                characters[name] = CharacterInfo.from_dict(char_data)
-            elif isinstance(char_data, str):
-                # 兼容简单格式：只有外观描述
-                characters[name] = CharacterInfo(name=name, appearance=char_data)
-
-        # 解析对话信息
-        dialogues = []
-        for d in data.get("dialogues", []):
-            if isinstance(d, dict):
-                dialogues.append(DialogueInfo.from_dict(d))
-
-        # 解析场景信息
-        scenes = []
-        for s in data.get("scenes", []):
-            if isinstance(s, dict):
-                scenes.append(SceneInfo.from_dict(s))
-
-        # 解析事件信息
-        events = []
-        for e in data.get("events", []):
-            if isinstance(e, dict):
-                events.append(EventInfo.from_dict(e))
-
-        # 解析物品信息
-        items = []
-        for i in data.get("items", []):
-            if isinstance(i, dict):
-                items.append(ItemInfo.from_dict(i))
-
-        return ChapterInfo(
-            characters=characters,
-            dialogues=dialogues,
-            scenes=scenes,
-            events=events,
-            items=items,
-            chapter_summary=data.get("chapter_summary", ""),
-            mood_progression=data.get("mood_progression", []),
-            climax_event_indices=data.get("climax_event_indices", []),
-            total_estimated_pages=data.get("total_estimated_pages", 0),
-        )
 
 
 __all__ = [

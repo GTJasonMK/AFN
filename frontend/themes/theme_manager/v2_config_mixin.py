@@ -10,7 +10,7 @@ V2 主题配置 Mixin
 """
 
 from typing import Any, Optional
-from themes.transparency_tokens import OpacityTokens, TransparencyPresets, get_component_meta
+from themes.transparency_tokens import OpacityTokens, TransparencyPresets
 
 
 class V2ConfigMixin:

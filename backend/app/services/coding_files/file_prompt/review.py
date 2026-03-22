@@ -5,10 +5,9 @@
 """
 
 import logging
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Dict, Optional
 
 from ....exceptions import InvalidParameterError, ResourceNotFoundError
-from ....models.coding_files import CodingSourceFile
 from .workflows import FileReviewWorkflow
 
 logger = logging.getLogger(__name__)
@@ -125,4 +124,3 @@ class ReviewMixin:
 
 
 __all__ = ["ReviewMixin"]
-

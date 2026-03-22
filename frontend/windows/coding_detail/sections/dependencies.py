@@ -8,8 +8,7 @@ import logging
 from typing import Dict, Any, List, Tuple
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QGridLayout
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 

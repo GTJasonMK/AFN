@@ -8,7 +8,7 @@ import logging
 from PyQt6.QtWidgets import QWidget, QGraphicsOpacityEffect
 from PyQt6.QtCore import (
     Qt, QPropertyAnimation, QEasingCurve,
-    pyqtSignal, QTimer, QParallelAnimationGroup
+    pyqtSignal, QTimer
 )
 from PyQt6.QtGui import QPainter, QColor
 

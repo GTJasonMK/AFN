@@ -5,14 +5,12 @@
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QScrollArea, QSizePolicy, QMenu
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction
 
 from windows.base.sections import BaseSection, toggle_expand_state
 from themes.theme_manager import theme_manager

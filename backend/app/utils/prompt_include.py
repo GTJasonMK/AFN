@@ -16,17 +16,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-
-
-@dataclass(frozen=True)
-class PromptFrontmatter:
-    title: Optional[str] = None
-    description: Optional[str] = None
-    tags: Optional[str] = None
 
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -136,4 +128,3 @@ def resolve_prompt_includes(
         return include_body.rstrip("\n")
 
     return _INCLUDE_RE.sub(_replace, body)
-

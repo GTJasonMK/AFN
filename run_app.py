@@ -19,20 +19,16 @@ import time
 import subprocess
 import threading
 import shutil
-from pathlib import Path
 
 # 导入环境检查模块
 from setup_env import (
     # 配置
     BACKEND_PORT,
     BASE_DIR,
-    WORK_DIR,
     IS_FROZEN,
     BACKEND_DIR,
     FRONTEND_DIR,
     STORAGE_DIR,
-    BACKEND_VENV,
-    FRONTEND_VENV,
     BACKEND_PYTHON,
     FRONTEND_PYTHON,
     # 日志
@@ -42,7 +38,6 @@ from setup_env import (
     safe_input,
     ensure_port_available,
     # 环境设置
-    print_banner,
     setup_environment,
     # 进度管理
     startup_progress,

@@ -6,10 +6,9 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QCheckBox, QPushButton, QFrame, QFormLayout, QGroupBox,
+    QCheckBox, QFormLayout, QGroupBox,
     QFileDialog
 )
-from PyQt6.QtCore import Qt
 from api.manager import APIClientManager
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp, sp

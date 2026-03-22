@@ -203,20 +203,7 @@ class SceneStateExtractor:
         return text
 
 
-# 模块级单例
-_default_extractor: Optional[SceneStateExtractor] = None
-
-
-def get_scene_extractor() -> SceneStateExtractor:
-    """获取默认的场景状态提取器实例"""
-    global _default_extractor
-    if _default_extractor is None:
-        _default_extractor = SceneStateExtractor()
-    return _default_extractor
-
-
 __all__ = [
     "SceneState",
     "SceneStateExtractor",
-    "get_scene_extractor",
 ]

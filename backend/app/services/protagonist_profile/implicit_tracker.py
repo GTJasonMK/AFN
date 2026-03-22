@@ -3,7 +3,7 @@
 负责记录主角行为、分类行为与隐性属性的符合度、检测更新阈值。
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

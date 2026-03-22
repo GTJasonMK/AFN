@@ -200,27 +200,6 @@ def get_strategy_manager() -> ChunkStrategyManager:
     return _default_manager
 
 
-def set_strategy_manager(manager: ChunkStrategyManager):
-    """
-    设置全局策略管理器实例
-
-    Args:
-        manager: 策略管理器实例
-    """
-    global _default_manager
-    _default_manager = manager
-
-
-def switch_global_preset(preset: str):
-    """
-    切换全局预设策略
-
-    Args:
-        preset: 预设策略名称
-    """
-    get_strategy_manager().switch_preset(preset)
-
-
 __all__ = [
     "ChunkMethod",
     "ChunkConfig",
@@ -228,6 +207,4 @@ __all__ = [
     "DEFAULT_STRATEGIES",
     "OPTIMIZED_STRATEGIES",
     "get_strategy_manager",
-    "set_strategy_manager",
-    "switch_global_preset",
 ]

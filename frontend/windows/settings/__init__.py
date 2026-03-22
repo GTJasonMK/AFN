@@ -33,19 +33,6 @@ settings/
 
 from .view import SettingsView
 
-# 对话框（从 dialogs/ 子目录导入，保持向后兼容）
-from .dialogs import (
-    TestResultDialog,
-    LLMConfigDialog,
-    EmbeddingConfigDialog,
-    PromptEditDialog,
-)
-
 __all__ = [
     'SettingsView',
-    # Dialogs
-    'TestResultDialog',
-    'LLMConfigDialog',
-    'EmbeddingConfigDialog',
-    'PromptEditDialog',
 ]

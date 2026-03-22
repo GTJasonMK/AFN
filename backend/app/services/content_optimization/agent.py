@@ -5,14 +5,12 @@
 Agent根据当前状态和观察结果自主决定下一步行动。
 """
 
-import json
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 from ...core.constants import LLMConstants
 from .tools import (
     ToolName,
-    ToolCall,
     ToolResult,
     get_tools_prompt,
     parse_tool_call,
@@ -645,7 +643,6 @@ class ContentOptimizationAgent:
     def _parse_response(self, response: str) -> tuple[str, "ToolCallParseResult"]:
         """解析Agent响应，提取思考过程和工具调用"""
         import re
-        from .tools import ToolCallParseResult
 
         thinking = ""
 

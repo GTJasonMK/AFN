@@ -7,7 +7,7 @@
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget, QMenu
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QPoint
+from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QCursor, QAction
 from components.base.theme_aware_widget import ThemeAwareWidget
 from themes.theme_manager import theme_manager

@@ -31,46 +31,6 @@ writing_desk/
 # 主类
 from .main import WritingDesk
 
-# Mixins（从 mixins/ 子目录导入，保持向后兼容）
-from .mixins import (
-    ChapterGenerationMixin,
-    ContentManagementMixin,
-    VersionManagementMixin,
-    EvaluationMixin,
-)
-
-# Dialogs（从 dialogs/ 子目录导入，保持向后兼容）
-from .dialogs import (
-    OutlineEditDialog,
-    PromptPreviewDialog,
-    ProtagonistProfileDialog,
-)
-
-# Components（从 components/ 子目录导入，保持向后兼容）
-from .components import (
-    ChapterCard,
-    FlippableBlueprintCard,
-    ThinkingStreamView,
-    SuggestionCard,
-    ParagraphSelector,
-)
-
 __all__ = [
-    # 主类
     'WritingDesk',
-    # Mixins
-    'ChapterGenerationMixin',
-    'ContentManagementMixin',
-    'VersionManagementMixin',
-    'EvaluationMixin',
-    # Dialogs
-    'OutlineEditDialog',
-    'PromptPreviewDialog',
-    'ProtagonistProfileDialog',
-    # Components
-    'ChapterCard',
-    'FlippableBlueprintCard',
-    'ThinkingStreamView',
-    'SuggestionCard',
-    'ParagraphSelector',
 ]

@@ -6,18 +6,15 @@ Agent根据环境自主决定调用哪些工具、执行哪些检查。
 """
 
 import logging
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .schemas import (
     AnalysisScope,
-    CheckDimension,
     OptimizationContext,
     OptimizationEventType,
-    OptimizationMode,
     OptimizeContentRequest,
-    RAGContext,
 )
 from .paragraph_analyzer import ParagraphAnalyzer
 from .agent import ContentOptimizationAgent

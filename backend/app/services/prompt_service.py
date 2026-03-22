@@ -8,9 +8,8 @@
 import asyncio
 import logging
 import os
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -932,5 +931,4 @@ class PromptService:
             if name in self._registry.get_dependencies(prompt_name):
                 reverse_deps.append(prompt_name)
         return reverse_deps
-
 

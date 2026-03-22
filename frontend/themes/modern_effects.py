@@ -9,8 +9,7 @@
 透明度效果使用 OpacityTokens 提供标准默认值。
 """
 
-from typing import Tuple, Optional
-from PyQt6.QtGui import QLinearGradient, QRadialGradient, QConicalGradient
+from typing import Optional
 
 # 导入透明度Token系统
 from themes.transparency_tokens import OpacityTokens
@@ -808,47 +807,3 @@ class ModernEffects:
             return f"background-color: rgba(0, 0, 0, {opacity});"
         else:
             return f"background-color: rgba(255, 255, 255, {opacity});"
-
-
-# 导出便捷函数
-def gradient(gradient_name: str, theme: str = "light") -> str:
-    """
-    获取预定义渐变
-
-    Args:
-        gradient_name: 渐变名称
-        theme: 主题（light或dark）
-
-    Returns:
-        CSS渐变样式
-    """
-    colors = ModernEffects.GRADIENTS.get(gradient_name, {}).get(theme, [])
-    if colors:
-        return ModernEffects.linear_gradient(colors)
-    return ""
-
-
-def shadow(size: str = "md") -> str:
-    """
-    获取阴影样式
-
-    Args:
-        size: 阴影大小
-
-    Returns:
-        CSS阴影样式
-    """
-    return ModernEffects.SHADOWS.get(size, ModernEffects.SHADOWS["md"])
-
-
-def transition(type: str = "base") -> str:
-    """
-    获取过渡动画
-
-    Args:
-        type: 过渡类型
-
-    Returns:
-        CSS过渡样式
-    """
-    return ModernEffects.TRANSITIONS.get(type, ModernEffects.TRANSITIONS["base"])

@@ -29,7 +29,7 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from time import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -356,16 +356,7 @@ def get_chapter_cache() -> ChapterCache:
     return _chapter_cache
 
 
-def reset_chapter_cache():
-    """重置全局缓存（用于测试）"""
-    global _chapter_cache
-    if _chapter_cache:
-        _chapter_cache.invalidate_all()
-    _chapter_cache = None
-
-
 __all__ = [
     'ChapterCache',
     'get_chapter_cache',
-    'reset_chapter_cache',
 ]

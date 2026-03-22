@@ -22,7 +22,6 @@ from ....exceptions import ResourceNotFoundError, AFNException
 from ....schemas.user import UserInDB
 from ....services.manga_prompt import (
     MangaPromptServiceV2,
-    MangaStyle,
     MangaPromptResult,
 )
 from ....services.llm_service import LLMService

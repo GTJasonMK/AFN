@@ -8,7 +8,7 @@
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, List
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,

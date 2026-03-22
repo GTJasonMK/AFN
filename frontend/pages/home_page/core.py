@@ -18,7 +18,7 @@ from pages.base_page import BasePage
 from themes.theme_manager import theme_manager
 from api.manager import APIClientManager
 from utils.dpi_utils import dp
-from components.dialogs import CreateModeDialog, CodingModeDialog, InputDialog, ImportProgressDialog
+from components.dialogs import CreateModeDialog, CodingModeDialog, InputDialog
 from components.loading_spinner import ListLoadingState
 
 from .constants import CREATIVE_QUOTES, get_title_sort_key
@@ -276,8 +276,6 @@ class HomePage(BasePage):
         logger.info(f"text_secondary: {text_secondary}, border_color: {border_color}")
 
         # 检查透明效果是否启用
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QWidget
         from themes.modern_effects import ModernEffects
         transparency_config = theme_manager.get_transparency_config()
         transparency_enabled = transparency_config.get("enabled", False)

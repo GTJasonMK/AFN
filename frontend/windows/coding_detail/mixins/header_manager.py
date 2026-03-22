@@ -5,12 +5,10 @@ Header管理Mixin
 增强版：64x64图标、项目统计、进度指示、更多操作按钮
 """
 
-import logging
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QWidget,
-    QProgressBar
+    QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QWidget
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -21,8 +19,6 @@ from utils.dpi_utils import dp, sp
 
 if TYPE_CHECKING:
     from ..main import CodingDetail
-
-logger = logging.getLogger(__name__)
 
 
 class HeaderManagerMixin:

@@ -1,7 +1,7 @@
 from typing import Iterable, Optional, Tuple
 
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload
 
 from .base import BaseRepository, RelationOptionsMixin
 from ..models import Chapter, ChapterOutline, NovelProject

@@ -115,16 +115,6 @@ class SuggestionPriority(str, Enum):
     LOW = "low"
 
 
-class SuggestionCategory(str, Enum):
-    """建议类别"""
-    COHERENCE = "coherence"      # 连贯性问题
-    CHARACTER = "character"      # 角色问题
-    FORESHADOW = "foreshadow"    # 伏笔问题
-    TIMELINE = "timeline"        # 时间线问题
-    STYLE = "style"              # 风格问题
-    SCENE = "scene"              # 场景问题
-
-
 # ====== 请求模型 ======
 
 class OptimizeContentRequest(BaseModel):
@@ -153,54 +143,6 @@ class OptimizeContentRequest(BaseModel):
 
 
 # ====== 事件数据模型 ======
-
-class WorkflowStartEvent(BaseModel):
-    """工作流开始事件"""
-    session_id: str = Field(..., description="会话ID，用于暂停/继续控制")
-    total_paragraphs: int = Field(..., description="总段落数")
-    dimensions: List[str] = Field(..., description="检查维度")
-    mode: str = Field(default="auto", description="优化模式")
-
-
-class WorkflowCompleteEvent(BaseModel):
-    """工作流完成事件"""
-    total_suggestions: int = Field(..., description="总建议数")
-    high_priority_count: int = Field(default=0, description="高优先级建议数")
-    summary: str = Field(default="分析完成", description="汇总信息")
-
-
-class WorkflowPausedEvent(BaseModel):
-    """工作流暂停事件"""
-    session_id: str = Field(..., description="会话ID")
-    message: str = Field(default="等待用户确认", description="暂停原因")
-
-
-class PlanReadyEvent(BaseModel):
-    """PLAN模式分析完成事件，包含所有建议供用户选择"""
-    session_id: str = Field(..., description="会话ID")
-    total_paragraphs: int = Field(..., description="分析的段落总数")
-    suggestions: List[dict] = Field(default_factory=list, description="所有建议列表")
-    suggestions_by_priority: Dict[str, int] = Field(
-        default_factory=dict,
-        description="按优先级分组的建议数量 {high: n, medium: n, low: n}"
-    )
-    suggestions_by_category: Dict[str, int] = Field(
-        default_factory=dict,
-        description="按类别分组的建议数量"
-    )
-    message: str = Field(default="分析完成，请选择要应用的建议", description="提示信息")
-
-
-class ParagraphStartEvent(BaseModel):
-    """段落开始处理事件"""
-    index: int = Field(..., description="段落索引")
-    text_preview: str = Field(..., description="段落预览（前100字符）")
-
-
-class ParagraphCompleteEvent(BaseModel):
-    """段落处理完成事件"""
-    index: int = Field(..., description="段落索引")
-    suggestion_count: int = Field(default=0, description="该段落的建议数")
 
 
 class ThinkingStepType(str, Enum):
@@ -327,36 +269,6 @@ class StructuredThinking(BaseModel):
         )
 
 
-class ThinkingEvent(BaseModel):
-    """
-    思考过程事件
-
-    P2-3优化: 支持结构化思考步骤展示
-    """
-    paragraph_index: int = Field(..., description="段落索引")
-    content: str = Field(..., description="思考内容（原始文本）")
-    step: str = Field(..., description="当前步骤标识")
-    # P2-3: 新增结构化字段
-    structured: Optional[StructuredThinking] = Field(default=None, description="结构化思考过程")
-    step_count: int = Field(default=0, description="思考步骤数")
-    primary_dimension: Optional[str] = Field(default=None, description="主要关注维度")
-
-
-class ActionEvent(BaseModel):
-    """执行动作事件"""
-    paragraph_index: int = Field(..., description="段落索引")
-    action: str = Field(..., description="动作类型")
-    description: str = Field(..., description="动作描述")
-
-
-class ObservationEvent(BaseModel):
-    """观察结果事件"""
-    paragraph_index: int = Field(..., description="段落索引")
-    action: str = Field(..., description="对应的动作类型")
-    result: str = Field(..., description="观察结果")
-    relevance: Optional[float] = Field(default=None, description="相关度分数")
-
-
 class SuggestionEvent(BaseModel):
     """修改建议事件"""
     paragraph_index: int = Field(..., description="段落索引")
@@ -365,12 +277,6 @@ class SuggestionEvent(BaseModel):
     reason: str = Field(..., description="修改理由")
     category: str = Field(..., description="建议类别")
     priority: str = Field(default="medium", description="优先级")
-
-
-class ErrorEvent(BaseModel):
-    """错误事件"""
-    message: str = Field(..., description="错误信息")
-    paragraph_index: Optional[int] = Field(default=None, description="相关段落索引")
 
 
 # ====== 内部数据模型 ======

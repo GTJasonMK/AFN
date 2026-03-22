@@ -7,10 +7,9 @@
 
 import logging
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .schemas import (
-    ArchitecturePattern,
     DependencyGraph,
     ModuleSummary,
     ProjectProfile,

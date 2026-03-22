@@ -4,17 +4,14 @@ SSE (Server-Sent Events) 辅助工具
 提供SSE事件格式化和流式响应生成功能。
 """
 
+import asyncio
 import json
 import logging
-from functools import wraps
-import asyncio
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 from .exception_helpers import get_safe_error_message
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar('T')
 
 
 def sse_event(event_type: str, data: Any) -> str:
@@ -204,151 +201,3 @@ def sse_complete_event(
 
     return sse_event("complete", complete_data)
 
-
-def sse_generator_error_handler(operation_name: str):
-    """
-    SSE生成器错误处理装饰器
-
-    为异步生成器函数添加统一的错误处理，自动捕获异常并生成标准化的错误事件。
-    支持追踪已保存的项目，在错误发生时返回已保存的内容。
-
-    Args:
-        operation_name: 操作名称（如"章节大纲生成"、"章节生成"）
-
-    Returns:
-        装饰器函数
-
-    使用方法一（简单模式）:
-        @sse_generator_error_handler("章节大纲生成")
-        async def generate_outlines():
-            yield sse_event("progress", {"status": "starting"})
-            # 业务逻辑...
-            yield sse_event("complete", {"message": "完成"})
-
-    使用方法二（带进度追踪）:
-        async def generate_with_tracking():
-            tracker = SSEProgressTracker()
-
-            @sse_generator_error_handler("章节生成")
-            async def _inner():
-                for chapter in chapters:
-                    result = await generate_chapter(chapter)
-                    tracker.add_saved_item(chapter.number)
-                    yield sse_event("progress", {...})
-                yield sse_event("complete", {...})
-
-            async for event in _inner():
-                yield event
-
-    注意:
-        - 装饰器会自动记录异常日志
-        - 错误消息会经过安全过滤，不会泄露敏感信息
-    """
-    def decorator(gen_func: Callable[..., AsyncGenerator[str, None]]):
-        @wraps(gen_func)
-        async def wrapper(*args, **kwargs) -> AsyncGenerator[str, None]:
-            saved_items: List[Any] = []
-
-            try:
-                async for event in gen_func(*args, **kwargs):
-                    # 检查是否是进度追踪标记
-                    if isinstance(event, tuple) and len(event) == 2 and event[0] == "__track_saved__":
-                        # 追踪已保存的项目
-                        saved_items.extend(event[1] if isinstance(event[1], list) else [event[1]])
-                        continue
-                    yield event
-            except Exception as exc:
-                yield sse_error_event(
-                    exc=exc,
-                    operation_name=operation_name,
-                    saved_items=saved_items if saved_items else None,
-                )
-
-        return wrapper
-    return decorator
-
-
-def track_saved_items(items: Any):
-    """
-    生成进度追踪标记（与sse_generator_error_handler配合使用）
-
-    在SSE生成器中使用此函数来追踪已成功保存的项目。
-    当发生错误时，装饰器会在错误事件中包含这些已保存的项目。
-
-    Args:
-        items: 要追踪的项目（单个或列表）
-
-    Returns:
-        追踪标记元组
-
-    示例:
-        @sse_generator_error_handler("章节生成")
-        async def generate_chapters():
-            for chapter_num in chapter_numbers:
-                await generate_and_save_chapter(chapter_num)
-                yield track_saved_items(chapter_num)  # 追踪已保存的章节号
-                yield sse_event("progress", {...})
-    """
-    return ("__track_saved__", items)
-
-
-class SSEProgressTracker:
-    """
-    SSE进度追踪器
-
-    用于在复杂的生成流程中追踪进度和已保存的项目。
-
-    示例:
-        tracker = SSEProgressTracker()
-
-        async def generate():
-            for item in items:
-                result = await process(item)
-                tracker.add_saved_item(item.id)
-                yield sse_event("progress", {
-                    "current": tracker.current,
-                    "total": tracker.total,
-                })
-
-            yield sse_complete_event(
-                f"完成{tracker.saved_count}项",
-                extra_data={"saved_items": tracker.saved_items}
-            )
-    """
-
-    def __init__(self, total: int = 0):
-        self.total = total
-        self.current = 0
-        self.saved_items: List[Any] = []
-
-    def add_saved_item(self, item: Any) -> None:
-        """添加已保存的项目"""
-        self.saved_items.append(item)
-        self.current += 1
-
-    def add_saved_items(self, items: List[Any]) -> None:
-        """批量添加已保存的项目"""
-        self.saved_items.extend(items)
-        self.current += len(items)
-
-    @property
-    def saved_count(self) -> int:
-        """已保存的项目数量"""
-        return len(self.saved_items)
-
-    @property
-    def progress_percent(self) -> float:
-        """进度百分比（0-100）"""
-        if self.total <= 0:
-            return 0.0
-        return (self.current / self.total) * 100
-
-    def to_progress_data(self, status: str = "generating") -> Dict[str, Any]:
-        """生成进度数据字典"""
-        return {
-            "current": self.current,
-            "total": self.total,
-            "saved_count": self.saved_count,
-            "progress_percent": round(self.progress_percent, 1),
-            "status": status,
-        }

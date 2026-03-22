@@ -5,10 +5,9 @@
 """
 
 import logging
-from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLabel, QFrame, QPushButton,
+    QHBoxLayout, QLabel, QFrame, QPushButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 

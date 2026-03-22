@@ -15,7 +15,6 @@ import random
 import threading
 from pathlib import Path
 
-from .config import BASE_DIR
 from .logging_setup import logger
 from .animation_config import AnimationConfig
 

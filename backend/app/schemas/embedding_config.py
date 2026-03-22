@@ -4,7 +4,6 @@
 定义嵌入模型配置的请求和响应模型。
 """
 
-from datetime import datetime
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field

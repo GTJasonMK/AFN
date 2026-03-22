@@ -11,7 +11,6 @@ import sys
 import subprocess
 
 from .config import USE_UV
-from .logging_setup import logger
 
 # 全局变量：是否uv可用（缓存检查结果）
 _uv_available = None

@@ -16,12 +16,10 @@ from ..directory_generator.schemas import (
 )
 from .schemas import (
     ArchitectureDecision,
-    ArchitecturePattern,
     IssueType,
     IssueSeverity,
     ProjectProfile,
     QualityMetrics,
-    StructureIssue,
 )
 from .quality_evaluator import QualityEvaluator
 

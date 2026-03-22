@@ -27,40 +27,25 @@ import time
 # 从 backend.startup 包导入所有公共接口
 from backend.startup import (
     # 配置常量
-    Colors,
     BASE_DIR,
-    WORK_DIR,
     IS_FROZEN,
     BACKEND_DIR,
     FRONTEND_DIR,
-    STORAGE_DIR,
     BACKEND_VENV,
     FRONTEND_VENV,
     BACKEND_PYTHON,
     FRONTEND_PYTHON,
-    BACKEND_PORT,
     USE_UV,
     # 日志
     logger,
-    setup_logging,
-    _load_logging_config,
     # 端口工具
-    is_port_in_use,
-    get_pid_using_port,
-    kill_process_on_port,
-    ensure_port_available,
     # UV包管理器
-    check_uv_available,
-    install_uv,
     ensure_uv,
     # 启动动画
     print_banner,
-    StartupProgress,
-    startup_progress,
     # 依赖安装
     check_python_version,
     create_venv,
-    check_dependencies_installed,
     install_dependencies,
 )
 

@@ -56,18 +56,6 @@ class FileEvaluation:
     is_acceptable: bool         # 是否达标
 
 
-@dataclass
-class OverallEvaluation:
-    """整体评估结果"""
-    total_files: int
-    evaluated_files: int
-    average_score: float
-    dimension_scores: Dict[str, float]  # 各维度平均分
-    critical_issues: List[str]          # 关键问题
-    can_finish: bool                    # 是否可以完成
-    finish_reasoning: str               # 完成决策的理由
-
-
 class PlanningEvaluator:
     """
     规划质量评估器

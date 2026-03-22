@@ -7,14 +7,12 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.constants import NovelConstants, LLMConstants
-from ..models.novel import NovelConversation
-from ..models.coding import CodingConversation
 from ..services.conversation_service import ConversationService, ConversationRecord
 from ..services.llm_service import LLMService
 from ..services.llm_wrappers import call_llm, LLMProfile

@@ -127,17 +127,6 @@ class LLMConfigurationError(AFNException):
         )
 
 
-class VectorStoreError(AFNException):
-    """向量库错误（503）"""
-
-    def __init__(self, message: str):
-        super().__init__(
-            message="向量检索服务暂时不可用",
-            status_code=503,
-            detail=f"向量库错误: {message}"
-        )
-
-
 class DatabaseError(AFNException):
     """数据库错误（500）"""
 
@@ -176,21 +165,6 @@ class GenerationCancelledError(AFNException):
             message=f"{task_name}已取消",
             status_code=400,
             detail=detail
-        )
-
-
-class DailyLimitExceededError(AFNException):
-    """超出每日限额（429）
-
-    注意：此异常在桌面版中未使用（桌面版无每日限额功能）。
-    保留此定义是为了与Web版代码保持一致，便于未来可能的功能扩展。
-    """
-
-    def __init__(self, limit: int, used: int):
-        super().__init__(
-            message=f"已达到每日LLM调用限额（{used}/{limit}）",
-            status_code=429,
-            detail=f"每日限额: {limit}, 已使用: {used}"
         )
 
 

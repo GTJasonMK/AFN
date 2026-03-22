@@ -373,19 +373,3 @@ class BookThemeStyler:
             }}
         """
         return icon_style, title_style
-
-
-# 全局单例（可选使用）
-_global_styler = None
-
-
-def get_book_styler() -> BookThemeStyler:
-    """获取全局BookThemeStyler单例
-
-    注意：使用全局单例时，需要在主题切换时调用 refresh()。
-    建议在组件中创建自己的实例，或在 _apply_theme 中调用 get_book_styler().refresh()。
-    """
-    global _global_styler
-    if _global_styler is None:
-        _global_styler = BookThemeStyler()
-    return _global_styler

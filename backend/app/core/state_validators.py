@@ -5,7 +5,7 @@
 用于确保项目在正确的状态下执行特定操作。
 """
 
-from typing import List, Optional, Set, Union
+from typing import List, Set, Union
 
 from .state_machine import ProjectStatus
 from ..exceptions import InvalidStateTransitionError
@@ -31,20 +31,10 @@ CHAPTER_GENERATION_STATES: Set[ProjectStatus] = {
     ProjectStatus.COMPLETED,  # 允许在完成状态下继续编辑
 }
 
-# 允许生成分部大纲的状态
-PART_OUTLINE_STATES: Set[ProjectStatus] = {
-    ProjectStatus.BLUEPRINT_READY,
-}
-
 # 允许编辑蓝图的状态
 BLUEPRINT_EDIT_STATES: Set[ProjectStatus] = {
     ProjectStatus.DRAFT,
     ProjectStatus.BLUEPRINT_READY,
-}
-
-# 写作中状态（用于连贯性检查）
-WRITING_STATES: Set[ProjectStatus] = {
-    ProjectStatus.WRITING,
 }
 
 
@@ -133,50 +123,3 @@ def get_max_generated_chapter(chapters: list) -> int:
             max_chapter = max(max_chapter, chapter_num)
     return max_chapter
 
-
-# ============================================================================
-# 便捷校验函数
-# ============================================================================
-
-def require_outline_generation_status(project_status: str) -> None:
-    """要求项目处于可生成章节大纲的状态"""
-    validate_project_status(project_status, OUTLINE_GENERATION_STATES, "生成章节大纲")
-
-
-def require_chapter_generation_status(project_status: str) -> None:
-    """要求项目处于可生成章节内容的状态"""
-    validate_project_status(project_status, CHAPTER_GENERATION_STATES, "生成章节内容")
-
-
-def require_part_outline_status(project_status: str) -> None:
-    """要求项目处于可生成分部大纲的状态"""
-    validate_project_status(project_status, PART_OUTLINE_STATES, "生成分部大纲")
-
-
-def require_blueprint_edit_status(project_status: str) -> None:
-    """要求项目处于可编辑蓝图的状态"""
-    validate_project_status(project_status, BLUEPRINT_EDIT_STATES, "编辑蓝图")
-
-
-# ============================================================================
-# 状态检查辅助函数
-# ============================================================================
-
-def is_in_writing_phase(project_status: str) -> bool:
-    """检查项目是否处于写作阶段"""
-    return project_status == ProjectStatus.WRITING.value
-
-
-def is_completed(project_status: str) -> bool:
-    """检查项目是否已完成"""
-    return project_status == ProjectStatus.COMPLETED.value
-
-
-def can_generate_outlines(project_status: str) -> bool:
-    """检查是否可以生成大纲"""
-    return project_status in {s.value for s in OUTLINE_GENERATION_STATES}
-
-
-def can_generate_chapters(project_status: str) -> bool:
-    """检查是否可以生成章节"""
-    return project_status in {s.value for s in CHAPTER_GENERATION_STATES}

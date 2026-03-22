@@ -18,14 +18,6 @@ from .builder import build_layout_template, build_panel_summaries
 
 logger = logging.getLogger(__name__)
 
-# 镜头类型映射（中文）
-SHOT_TYPE_CHINESE = {
-    "long": "远景，全身，建立镜头",
-    "medium": "中景，上半身",
-    "close_up": "特写，面部聚焦",
-    "extreme_close_up": "超特写，局部放大",
-}
-
 # 默认负面提示词（中文，自然语言描述）
 DEFAULT_NEGATIVE_PROMPT = (
     "禁止出现以下内容：模糊低质量的图像、变形扭曲的人体、多余的手指或肢体、"

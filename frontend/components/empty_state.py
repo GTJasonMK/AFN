@@ -11,7 +11,7 @@
 - 可自定义内容
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
 from components.base.theme_aware_widget import ThemeAwareWidget
 from themes.theme_manager import theme_manager

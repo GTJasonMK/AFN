@@ -6,12 +6,12 @@ Agent规划功能仅在工作台中可用。
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QHeaderView, QDialog, QLineEdit,
-    QTextEdit, QComboBox, QFormLayout, QDialogButtonBox, QSizePolicy
+    QVBoxLayout, QHBoxLayout, QLabel, QWidget, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QDialog, QLineEdit,
+    QTextEdit, QComboBox, QFormLayout, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 

@@ -1,4 +1,4 @@
-from typing import Any, Generic, Iterable, List, Optional, TypeVar, Union, Tuple
+from typing import Any, Generic, Iterable, List, Optional, TypeVar, Tuple
 
 from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession

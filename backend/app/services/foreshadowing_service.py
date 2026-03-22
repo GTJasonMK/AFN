@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.novel import ForeshadowingIndex, Chapter
+from ..models.novel import ForeshadowingIndex
 
 logger = logging.getLogger(__name__)
 

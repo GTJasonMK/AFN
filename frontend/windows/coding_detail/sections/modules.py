@@ -4,20 +4,16 @@
 显示编程项目的模块信息。
 """
 
-import logging
 from typing import Dict, Any, List
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton,
-    QScrollArea, QSizePolicy
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from windows.base.sections import BaseSection
 from themes.theme_manager import theme_manager
 from utils.dpi_utils import dp
-
-logger = logging.getLogger(__name__)
 
 
 class ModuleCard(QFrame):

@@ -6,7 +6,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,15 +27,12 @@ from ....core.dependencies import (
 from ....core.config import settings
 from ....db.session import get_session
 from ....exceptions import (
-    PromptTemplateNotFoundError,
     ConflictError,
     InvalidParameterError,
     JSONParseError,
     DatabaseError,
     BlueprintNotReadyError,
 )
-from ....models.part_outline import PartOutline
-from ....models.novel import ChapterOutline
 from ....schemas.novel import (
     Blueprint,
     BlueprintGenerationResponse,
@@ -45,7 +42,6 @@ from ....schemas.novel import (
     NovelProject as NovelProjectSchema,
 )
 from ....schemas.user import UserInDB
-from ....repositories.part_outline_repository import PartOutlineRepository
 from ....repositories.chapter_repository import ChapterOutlineRepository
 from ....services.llm_service import LLMService
 from ....services.novel_service import NovelService
@@ -53,7 +49,6 @@ from ....services.conversation_service import ConversationService
 from ....services.blueprint_service import BlueprintService
 from ....services.prompt_service import PromptService
 from ....services.vector_store_service import VectorStoreService
-from ....services.chapter_ingest_service import ChapterIngestionService
 from ....services.avatar_service import AvatarService
 from ....utils.json_utils import (
     parse_llm_json_or_fail,

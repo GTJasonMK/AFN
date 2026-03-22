@@ -5,7 +5,7 @@
 提供预设方案和组件默认透明度映射。
 """
 
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 
 
@@ -306,22 +306,6 @@ COMPONENT_CONFIG_META: List[Dict] = [
         ]
     },
 ]
-
-
-def get_component_meta(component_id: str) -> Optional[Dict]:
-    """获取组件配置元数据
-
-    Args:
-        component_id: 组件标识符
-
-    Returns:
-        组件元数据，如果不存在则返回 None
-    """
-    for group in COMPONENT_CONFIG_META:
-        for comp in group["components"]:
-            if comp["id"] == component_id:
-                return comp
-    return None
 
 
 def get_all_component_ids() -> List[str]:

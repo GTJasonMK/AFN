@@ -16,11 +16,11 @@
 
 from typing import Iterable, List, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from .base import BaseRepository
-from ..models.novel import Chapter, ChapterVersion, ChapterEvaluation, ChapterOutline
+from ..models.novel import Chapter
 
 # 向后兼容导出（新代码建议直接从各自模块导入）
 from .chapter_version_repository import ChapterVersionRepository
