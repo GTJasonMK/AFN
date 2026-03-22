@@ -646,18 +646,3 @@ class LLMService:
             model=model,
             max_retries=max_retries,
         )
-
-    def get_embedding_dimension(self, model: Optional[str] = None) -> Optional[int]:
-        """
-        获取嵌入向量维度（委托给 EmbeddingService）
-
-        .. deprecated::
-            此方法已废弃，请直接使用 EmbeddingService.get_dimension()。
-            保留此方法仅为向后兼容，将在未来版本中移除。
-        """
-        warnings.warn(
-            "LLMService.get_embedding_dimension() 已废弃，请直接使用 EmbeddingService.get_dimension()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.embedding_service.get_dimension(model)

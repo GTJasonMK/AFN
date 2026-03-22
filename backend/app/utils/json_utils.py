@@ -632,32 +632,3 @@ def format_number_western(number: int) -> str:
     """将数字格式化为西方格式（千分位逗号）"""
     return f"{number:,}"
 
-
-def normalize_number_display(text: str, prefer_chinese: bool = True) -> str:
-    """规范化文本中的数字显示"""
-    return fix_number_format(text, use_chinese_units=prefer_chinese)
-
-
-# ==================== 兼容性别名（已废弃，保留以避免导入错误） ====================
-
-def repair_truncated_json(text: str) -> str:
-    """
-    已废弃：不再尝试修复截断的JSON
-
-    保留此函数是为了向后兼容，直接返回原文本。
-    截断的JSON即使被修复成可解析格式，内容也是不完整的，
-    强行解析会导致数据丢失。应该通过增加max_tokens或使用更强模型来解决。
-    """
-    logger.warning("repair_truncated_json 已废弃，不再尝试修复JSON")
-    return text
-
-
-def escape_inner_quotes(text: str) -> str:
-    """
-    已废弃：不再尝试转义内部引号
-
-    保留此函数是为了向后兼容，直接返回原文本。
-    如果JSON格式错误，应该通过完善提示词来解决，而不是猜测修复。
-    """
-    logger.warning("escape_inner_quotes 已废弃，不再尝试修复JSON")
-    return text

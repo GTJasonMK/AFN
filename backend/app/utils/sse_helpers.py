@@ -40,32 +40,6 @@ def sse_event(event_type: str, data: Any) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
-def sse_message(message: str) -> str:
-    """
-    发送简单文本消息（无事件类型）
-
-    Args:
-        message: 文本消息
-
-    Returns:
-        格式化的SSE消息字符串
-    """
-    return f"data: {message}\n\n"
-
-
-def sse_comment(comment: str) -> str:
-    """
-    发送SSE注释（用于保持连接活跃）
-
-    Args:
-        comment: 注释内容
-
-    Returns:
-        格式化的SSE注释字符串
-    """
-    return f": {comment}\n\n"
-
-
 # SSE响应标准头部
 SSE_HEADERS = {
     "Cache-Control": "no-cache",

@@ -11,10 +11,11 @@ import {
   EmbeddingProvider,
   EmbeddingProviderInfo,
 } from '../../../api/embeddingConfigs';
-import { CheckCircle2, Circle, Plus, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Circle, Download, Plus, RefreshCw } from 'lucide-react';
 import { ConfigsCardsList } from './components/ConfigsCardsList';
 import { SettingsEditorModal } from './components/SettingsEditorModal';
 import { SettingsTabPanel } from './components/SettingsTabPanel';
+import { LocalEmbeddingModelDownloadModal } from './components/LocalEmbeddingModelDownloadModal';
 
 type EditorMode = 'create' | 'edit';
 
@@ -34,6 +35,7 @@ export const EmbeddingConfigsTab: React.FC = () => {
   const [providers, setProviders] = useState<EmbeddingProviderInfo[]>([]);
   const [configs, setConfigs] = useState<EmbeddingConfigRead[]>([]);
   const [loading, setLoading] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -49,6 +51,10 @@ export const EmbeddingConfigsTab: React.FC = () => {
   const providerInfo = useMemo(() => {
     return providers.find((p) => p.provider === formProvider);
   }, [providers, formProvider]);
+
+  const defaultLocalModel = useMemo(() => {
+    return providers.find((p) => p.provider === 'local')?.default_model || 'BAAI/bge-base-zh-v1.5';
+  }, [providers]);
 
   const sorted = useMemo(() => {
     return [...configs].sort((a, b) => Number(b.is_active) - Number(a.is_active));
@@ -243,6 +249,10 @@ export const EmbeddingConfigsTab: React.FC = () => {
                 <RefreshCw size={14} className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
                 刷新
               </BookButton>
+              <BookButton variant="secondary" size="sm" onClick={() => setDownloadOpen(true)}>
+                <Download size={14} className="mr-1" />
+                下载默认模型
+              </BookButton>
               <BookButton variant="primary" size="sm" onClick={openCreate}>
                 <Plus size={14} className="mr-1" />
                 新增
@@ -293,6 +303,14 @@ export const EmbeddingConfigsTab: React.FC = () => {
           />
         </div>
       </div>
+
+      <LocalEmbeddingModelDownloadModal
+        isOpen={downloadOpen}
+        onClose={() => setDownloadOpen(false)}
+        repoId={defaultLocalModel}
+        activateAfterDownload
+        onDownloaded={() => fetchList()}
+      />
 
       <SettingsEditorModal
         isOpen={Boolean(editor)}

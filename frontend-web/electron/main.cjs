@@ -826,6 +826,9 @@ async function startStaticServer(frontendPort, backendPort) {
     serveStaticFile(req, res, distDir);
   });
 
+  // 长连接/下载（SSE、模型下载等）可能超过 Node 默认 5 分钟请求超时，显式禁用以避免中途断流。
+  server.requestTimeout = 0;
+
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(frontendPort, HOST, () => resolve());

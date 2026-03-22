@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: `http://${backendHost}:${backendPort}`,
           changeOrigin: true,
+          // SSE/下载等长连接：避免代理默认超时导致中途断流
+          timeout: 0,
+          proxyTimeout: 0,
         },
       },
     },

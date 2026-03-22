@@ -198,11 +198,18 @@ class PartOutlineWorkflow(GenerationWorkflowBase):
 
     async def _update_project_status(self) -> None:
         """更新项目状态为PART_OUTLINES_READY"""
-        if self._project:
-            await self._part_service.novel_service.transition_project_status(
-                self._project, ProjectStatus.PART_OUTLINES_READY.value
-            )
-            await self.session.commit()
+        if not self._project:
+            return
+
+        # 幂等：允许重复调用（例如前端重试/重复点击）
+        if self._project.status == ProjectStatus.PART_OUTLINES_READY.value:
+            return
+
+        await self._part_service.novel_service.transition_project_status(
+            self._project,
+            ProjectStatus.PART_OUTLINES_READY.value,
+        )
+        await self.session.commit()
 
     async def _run_generation(self, streaming: bool):
         """执行生成流程（同步/流式共用）"""

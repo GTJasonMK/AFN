@@ -123,11 +123,6 @@ def is_page_registered(page_type: str) -> bool:
     return page_type in _page_registry or page_type in _page_factory_registry
 
 
-def get_registered_page_types() -> list:
-    """获取所有已注册的页面类型"""
-    return list(set(_page_registry.keys()) | set(_page_factory_registry.keys()))
-
-
 # ------------------------------------------------------------------
 # 页面注册（使用工厂函数注册需要参数的页面）
 # ------------------------------------------------------------------

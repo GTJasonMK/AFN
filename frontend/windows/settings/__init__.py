@@ -10,7 +10,6 @@ settings/
 ├── queue_settings_widget.py    # 队列配置
 ├── prompt_settings_widget.py   # 提示词管理
 ├── advanced_settings_widget.py # 高级设置
-├── theme_settings_widget.py    # 主题设置入口（兼容层）
 ├── theme_settings/             # 主题设置子模块
 │   ├── widget.py               # V1主题编辑器（经典模式，含透明度配置）
 │   ├── config_editor.py        # V1配置编辑器Mixin

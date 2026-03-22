@@ -147,29 +147,3 @@ def mask_sensitive(
     mask_length = text_len - visible_prefix - visible_suffix
     return text[:visible_prefix] + mask_char * mask_length + text[-visible_suffix:]
 
-
-def safe_slice(
-    text: Optional[str],
-    start: int = 0,
-    end: Optional[int] = None,
-) -> str:
-    """
-    安全的字符串切片
-
-    避免 None 值和边界问题。
-
-    Args:
-        text: 原始文本
-        start: 起始位置
-        end: 结束位置（不含）
-
-    Returns:
-        切片结果
-    """
-    if not text:
-        return ""
-
-    if end is None:
-        return text[start:]
-
-    return text[start:end]

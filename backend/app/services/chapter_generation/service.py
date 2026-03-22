@@ -23,6 +23,7 @@ from ...utils.content_fields import CONTENT_FIELD_NAMES
 from ...utils.exception_helpers import log_exception
 from ...utils.blueprint_utils import prepare_blueprint_for_generation
 from ...utils.writer_helpers import extract_tail_excerpt
+from ...exceptions import LLMConfigurationError
 from ..llm_service import LLMService
 
 from .context import ChapterGenerationContext
@@ -242,6 +243,7 @@ class ChapterGenerationService:
             logger.debug(f"获取主角档案失败（可选功能）: {e}")
 
         # 4. 执行增强型RAG检索
+        ui_warnings: List[str] = []
         enhanced_rag_context = None
         if vector_store is not None:
             enhanced_context_service = EnhancedChapterContextService(
@@ -249,31 +251,58 @@ class ChapterGenerationService:
                 vector_store=vector_store,
             )
 
-            enhanced_rag_context = await enhanced_context_service.retrieve_enhanced_context(
-                project_id=project.id,
-                chapter_number=chapter_number,
-                total_chapters=total_chapters,
-                outline=outline_dict,
-                user_id=user_id,
-                blueprint_info=blueprint_info,
-                prev_chapter_analysis=prev_chapter_analysis,
-                pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
-                protagonist_profiles=protagonist_profiles,
-                writing_notes=writing_notes,
-            )
+            try:
+                enhanced_rag_context = await enhanced_context_service.retrieve_enhanced_context(
+                    project_id=project.id,
+                    chapter_number=chapter_number,
+                    total_chapters=total_chapters,
+                    outline=outline_dict,
+                    user_id=user_id,
+                    blueprint_info=blueprint_info,
+                    prev_chapter_analysis=prev_chapter_analysis,
+                    pending_foreshadowing=pending_foreshadowing if pending_foreshadowing else None,
+                    protagonist_profiles=protagonist_profiles,
+                    writing_notes=writing_notes,
+                )
 
-            # 获取RAG统计信息
-            rag_context = enhanced_rag_context.get_legacy_context()
-            chunk_count = len(rag_context.chunks) if rag_context and rag_context.chunks else 0
-            summary_count = len(rag_context.summaries) if rag_context and rag_context.summaries else 0
-            logger.info(
-                "项目 %s 第 %s 章增强RAG检索完成: chunks=%d summaries=%d context_len=%d",
-                project.id,
-                chapter_number,
-                chunk_count,
-                summary_count,
-                len(enhanced_rag_context.compressed_context),
-            )
+                # 获取RAG统计信息
+                rag_context = enhanced_rag_context.get_legacy_context()
+                chunk_count = len(rag_context.chunks) if rag_context and rag_context.chunks else 0
+                summary_count = len(rag_context.summaries) if rag_context and rag_context.summaries else 0
+                logger.info(
+                    "项目 %s 第 %s 章增强RAG检索完成: chunks=%d summaries=%d context_len=%d",
+                    project.id,
+                    chapter_number,
+                    chunk_count,
+                    summary_count,
+                    len(enhanced_rag_context.compressed_context),
+                )
+            except LLMConfigurationError as exc:
+                # RAG 是可选增强：缺少 embedding 配置时不应中断章节生成
+                logger.warning(
+                    "项目 %s 第 %s 章增强RAG检索跳过（LLM配置缺失）: %s",
+                    project.id,
+                    chapter_number,
+                    getattr(exc, "detail", str(exc)),
+                )
+                ui_warnings.append(
+                    "RAG 已自动降级：未配置嵌入模型，已跳过向量检索（设置 → 嵌入模型）。"
+                )
+                enhanced_rag_context = None
+            except Exception as exc:
+                # RAG 是可选增强：检索失败时降级为无RAG上下文
+                log_exception(
+                    exc,
+                    "增强RAG检索（可选功能）",
+                    level="warning",
+                    project_id=project.id,
+                    chapter_number=chapter_number,
+                    user_id=user_id,
+                )
+                ui_warnings.append(
+                    "RAG 已自动降级：向量检索暂不可用，已跳过向量检索。"
+                )
+                enhanced_rag_context = None
 
         return ChapterGenerationContext(
             outline_dict=outline_dict,
@@ -283,6 +312,7 @@ class ChapterGenerationService:
             total_chapters=total_chapters,
             enhanced_rag_context=enhanced_rag_context,
             protagonist_profiles=protagonist_profiles,
+            ui_warnings=ui_warnings,
         )
 
     def resolve_version_count(self) -> int:

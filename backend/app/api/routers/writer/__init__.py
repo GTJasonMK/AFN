@@ -18,6 +18,7 @@ from .chapter_generation import router as chapter_generation_router
 from .chapter_management import router as chapter_management_router
 from .chapter_outlines import router as chapter_outlines_router
 from .part_outlines import router as part_outlines_router
+from .project_workflow import router as project_workflow_router
 from .rag_query import router as rag_query_router
 from .content_optimization import router as content_optimization_router
 from .manga_prompt_v2 import router as manga_prompt_router
@@ -31,6 +32,7 @@ router.include_router(chapter_generation_router)
 router.include_router(chapter_management_router)
 router.include_router(chapter_outlines_router)
 router.include_router(part_outlines_router)
+router.include_router(project_workflow_router)
 router.include_router(rag_query_router)
 router.include_router(content_optimization_router)
 router.include_router(manga_prompt_router)

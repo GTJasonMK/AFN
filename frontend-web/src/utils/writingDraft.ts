@@ -96,16 +96,3 @@ export const removeWritingDraft = (key: string): void => {
     // ignore
   }
 };
-
-export const hasWritingDraft = (key: string): boolean => {
-  const parsed = parseWritingDraftKey(key);
-  if (parsed) {
-    const cached = projectDraftIndex.get(parsed.projectId);
-    if (cached) return cached.has(parsed.chapterNumber);
-  }
-  try {
-    return localStorage.getItem(key) !== null;
-  } catch {
-    return false;
-  }
-};

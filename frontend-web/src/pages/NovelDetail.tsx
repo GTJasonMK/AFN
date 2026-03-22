@@ -303,6 +303,7 @@ const NovelDetailPage: React.FC<NovelDetailPageProps> = ({ projectId }) => {
     handleGeneratePartChapters,
   } = useNovelDetailOutlineActions({
     projectId,
+    projectStatus: project?.status,
     chapterOutlines,
     partOutlines,
     partProgress,

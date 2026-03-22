@@ -116,22 +116,6 @@ class ChapterConstants:
     CHAPTER_TITLE_MAX_LENGTH = 100
 
 
-class APIConstants:
-    """API相关常量"""
-    # 默认端口
-    DEFAULT_PORT = 8123
-
-    # 请求超时（秒）
-    CONNECT_TIMEOUT = 10
-    READ_TIMEOUT_DEFAULT = 60
-    READ_TIMEOUT_GENERATION = 300
-    READ_TIMEOUT_LONG = 600
-
-    # 重试次数
-    MAX_RETRIES = 3
-    RETRY_DELAY_BASE = 1.0  # 基础重试延迟（秒）
-
-
 class NovelConstants:
     """小说创作相关常量（与后端保持一致）"""
 
@@ -142,13 +126,6 @@ class NovelConstants:
     # 章节数范围验证
     MIN_TOTAL_CHAPTERS = 5  # 最小章节数
     MAX_TOTAL_CHAPTERS = 10000  # 最大章节数
-
-
-class ConversationConstants:
-    """对话相关常量（与后端保持一致）"""
-
-    # 灵感对话轮数阈值
-    TURNS_THRESHOLD = 5  # 对话轮数达到此值后可生成蓝图
 
 
 class SSEConstants:
@@ -165,4 +142,3 @@ class SSEConstants:
     # 错误响应文本最大长度
     # 超过此长度的错误文本将被截断，避免显示过长的错误信息
     ERROR_TEXT_MAX_LENGTH = 200
-

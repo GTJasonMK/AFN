@@ -4,7 +4,7 @@
 封装章节生成所需的所有数据结构。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,6 +25,7 @@ class ChapterGenerationContext:
         total_chapters: 总章节数
         enhanced_rag_context: 增强型RAG上下文
         protagonist_profiles: 主角档案列表（用于生成时约束角色行为）
+        ui_warnings: 需要提示给前端的降级/告警信息（可选）
     """
     outline_dict: Dict[str, Any]
     blueprint_info: "BlueprintInfo"
@@ -33,6 +34,7 @@ class ChapterGenerationContext:
     total_chapters: int
     enhanced_rag_context: Optional["EnhancedRAGContext"] = None
     protagonist_profiles: Optional[List[Dict[str, Any]]] = None
+    ui_warnings: List[str] = field(default_factory=list)
 
     @property
     def rag_context(self) -> Optional["ChapterRAGContext"]:

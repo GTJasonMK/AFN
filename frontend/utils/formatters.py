@@ -4,9 +4,6 @@
 提供项目中常用的数据格式化方法，避免代码重复
 """
 
-from themes.theme_manager import theme_manager
-
-
 def get_project_status_text(status: str) -> str:
     """
     获取项目状态的中文文本
@@ -26,60 +23,6 @@ def get_project_status_text(status: str) -> str:
         'completed': '已完成'
     }
     return status_map.get(status, '未知状态')
-
-
-def get_chapter_status_text(status: str) -> str:
-    """
-    获取章节生成状态的中文文本
-
-    支持后端ChapterGenerationStatus枚举的所有状态值
-
-    Args:
-        status: 章节状态代码
-
-    Returns:
-        状态的中文文本，如果状态未知则返回原状态值
-    """
-    status_map = {
-        'not_generated': '未生成',
-        'generating': '生成中',
-        'evaluating': '评审中',
-        'selecting': '选择中',
-        'successful': '已完成',
-        'failed': '失败',
-        'evaluation_failed': '评审失败',
-        'waiting_for_confirm': '等待确认',
-        # 向后兼容旧的状态值
-        'in_progress': '生成中',
-        'completed': '已完成'
-    }
-    return status_map.get(status, status)
-
-
-def get_status_badge_style(status: str) -> str:
-    """
-    获取状态标签的CSS样式
-
-    支持章节生成的所有状态，返回对应的主题颜色
-
-    Args:
-        status: 状态代码（支持章节状态）
-
-    Returns:
-        包含background-color和color的CSS样式字符串
-    """
-    # 成功状态
-    if status in ('completed', 'successful'):
-        return f"background-color: {theme_manager.SUCCESS_BG}; color: {theme_manager.SUCCESS};"
-    # 进行中状态
-    elif status in ('in_progress', 'generating', 'evaluating', 'selecting', 'waiting_for_confirm'):
-        return f"background-color: {theme_manager.ACCENT_PALE}; color: {theme_manager.ACCENT_PRIMARY};"
-    # 失败状态
-    elif status in ('failed', 'evaluation_failed'):
-        return f"background-color: {theme_manager.ERROR_BG}; color: {theme_manager.ERROR};"
-    # 默认状态（未生成等）
-    else:
-        return f"background-color: {theme_manager.BG_TERTIARY}; color: {theme_manager.TEXT_SECONDARY};"
 
 
 def count_chinese_characters(text: str) -> int:

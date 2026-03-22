@@ -12,38 +12,9 @@
 
 import sys
 import logging
-from typing import Optional, Callable
+from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-# 标记是否有待处理的 DWM 操作
-_pending_dwm_operation = False
-
-
-def _safe_dwm_call(func: Callable, *args, **kwargs):
-    """安全地执行 DWM API 调用
-
-    捕获 COM 相关错误并优雅降级。
-    """
-    global _pending_dwm_operation
-
-    if _pending_dwm_operation:
-        logger.debug("跳过 DWM 调用：有待处理的操作")
-        return False
-
-    try:
-        _pending_dwm_operation = True
-        return func(*args, **kwargs)
-    except OSError as e:
-        # 处理 Windows COM 错误
-        error_code = getattr(e, 'winerror', None)
-        if error_code == 0x8001010d:  # RPC_E_CANTCALLOUT_ININPUTSYNCCALL
-            logger.warning("DWM 调用被跳过：COM 线程冲突")
-            return False
-        raise
-    finally:
-        _pending_dwm_operation = False
-
 
 class WindowBlurManager:
     """窗口透明/模糊效果管理器"""

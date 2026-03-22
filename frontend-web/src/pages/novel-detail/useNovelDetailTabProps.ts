@@ -17,7 +17,6 @@ import type {
 
 export type {
   NovelDetailTabProps,
-  NovelDetailTabSources,
   UseNovelDetailTabPropsParams,
 } from './tab-props/types';
 

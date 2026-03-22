@@ -359,25 +359,3 @@ async def call_llm_json(
         )
         raise
 
-
-def build_conversation_history(
-    user_content: str,
-    previous_messages: Optional[List[Dict[str, str]]] = None,
-) -> List[Dict[str, str]]:
-    """
-    构建对话历史
-
-    辅助方法，用于需要手动构建对话历史的场景。
-
-    Args:
-        user_content: 当前用户消息
-        previous_messages: 之前的对话消息列表
-
-    Returns:
-        List[Dict[str, str]]: 完整的对话历史
-    """
-    history = []
-    if previous_messages:
-        history.extend(previous_messages)
-    history.append({"role": "user", "content": user_content})
-    return history

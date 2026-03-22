@@ -112,10 +112,3 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// 定义通用的响应类型
-export interface ApiResponse<T> {
-  data: T;
-  message?: string;
-  success?: boolean;
-}

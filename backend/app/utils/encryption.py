@@ -84,7 +84,3 @@ def decrypt_api_key(encrypted_key: Optional[str], secret_key: str) -> Optional[s
         logger.error("API Key解密失败: %s", exc)
         return None
 
-
-def is_encrypted(value: Optional[str]) -> bool:
-    """检查值是否已加密"""
-    return bool(value and value.startswith(ENCRYPTED_PREFIX))

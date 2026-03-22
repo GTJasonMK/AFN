@@ -507,6 +507,8 @@ async def generate_chapter_stream(
 
     def _map_stage(progress):
         stage = progress.get("stage", "unknown")
+        if stage == "warning":
+            return "warning", progress
         if stage == "complete":
             return "complete", progress
         if stage == "error":

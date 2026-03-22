@@ -277,6 +277,31 @@ export const writerApi = {
   },
 
   // === 长篇部分大纲 (Part Outlines) ===
+  rollbackProjectWorkflow: async (
+    projectId: string,
+    targetStatus: 'blueprint_ready' | 'part_outlines_ready' | 'chapter_outlines_ready',
+    reqConfig?: AxiosRequestConfig
+  ) => {
+    const response = await apiClient.post(
+      `${WRITER_PREFIX}/novels/${projectId}/workflow/rollback`,
+      { target_status: targetStatus, confirm: true },
+      reqConfig
+    );
+    return response.data;
+  },
+
+  previewRollbackProjectWorkflow: async (
+    projectId: string,
+    targetStatus: 'blueprint_ready' | 'part_outlines_ready' | 'chapter_outlines_ready',
+    reqConfig?: AxiosRequestConfig
+  ) => {
+    const response = await apiClient.get(`${WRITER_PREFIX}/novels/${projectId}/workflow/rollback-preview`, {
+      params: { target_status: targetStatus },
+      ...(reqConfig || {}),
+    });
+    return response.data;
+  },
+
   getPartOutlines: async (projectId: string) => {
     // 获取部分大纲进度/列表
     const response = await apiClient.get(`${WRITER_PREFIX}/novels/${projectId}/parts/progress`);

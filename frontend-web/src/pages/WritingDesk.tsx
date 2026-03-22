@@ -729,20 +729,24 @@ export const WritingDesk: React.FC = () => {
 	    }
 	  };
 
-		  const { connect, disconnect } = useSSE((event, data) => {
-	    if (event === 'progress') {
-	      setGenProgress({
-	        stage: data?.stage,
-	        message: data?.message,
-	        current: typeof data?.current === 'number' ? data.current : undefined,
-	        total: typeof data?.total === 'number' ? data.total : undefined,
-	      });
-	      return;
-	    }
-	    if (event === 'cancelled') {
-	      setIsGenerating(false);
-	      setGenProgress(null);
-	      addToast('生成已取消', 'info');
+			  const { connect, disconnect } = useSSE((event, data) => {
+		    if (event === 'progress') {
+		      setGenProgress({
+		        stage: data?.stage,
+		        message: data?.message,
+		        current: typeof data?.current === 'number' ? data.current : undefined,
+		        total: typeof data?.total === 'number' ? data.total : undefined,
+		      });
+		      return;
+		    }
+        if (event === 'warning') {
+          addToast(data?.message || '生成过程中出现可恢复的降级处理', 'info');
+          return;
+        }
+		    if (event === 'cancelled') {
+		      setIsGenerating(false);
+		      setGenProgress(null);
+		      addToast('生成已取消', 'info');
         const chapter = currentChapterRef.current;
         const dirty = isDirtyRef.current;
         if (id && chapter) {

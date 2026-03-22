@@ -2,9 +2,11 @@ import { useCallback, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { writerApi } from '../../api/writer';
 import { confirmDialog } from '../../components/feedback/ConfirmDialog';
+import { buildWorkflowRollbackConfirmMessage, inferWorkflowRollbackDialogType } from '../../utils/workflowRollback';
 
 type UseNovelDetailLatestPartOutlineActionsParams = {
   id: string | undefined;
+  projectStatus: string | undefined;
   partOutlines: any[];
   maxDeletablePartCount: number;
   fetchProject: () => Promise<void>;
@@ -16,6 +18,7 @@ type UseNovelDetailLatestPartOutlineActionsParams = {
 
 export const useNovelDetailLatestPartOutlineActions = ({
   id,
+  projectStatus,
   partOutlines,
   maxDeletablePartCount,
   fetchProject,
@@ -30,6 +33,46 @@ export const useNovelDetailLatestPartOutlineActions = ({
   const [regenerateLatestPartsPrompt, setRegenerateLatestPartsPrompt] = useState('');
   const [regeneratingLatestParts, setRegeneratingLatestParts] = useState(false);
 
+  const getRollbackPreviewIfNeeded = useCallback(async () => {
+    const statusRaw = String(projectStatus || '').trim();
+    const needsRollback =
+      statusRaw === 'writing' ||
+      statusRaw === 'completed' ||
+      statusRaw === 'chapter_outlines_ready';
+    if (!needsRollback || !id) {
+      return { needsRollback: false as const, message: '', dialogType: 'warning' as const };
+    }
+
+    try {
+      const preview = await writerApi.previewRollbackProjectWorkflow(id, 'part_outlines_ready', { timeout: 15_000 });
+      return {
+        needsRollback: true as const,
+        message: buildWorkflowRollbackConfirmMessage(preview),
+        dialogType: inferWorkflowRollbackDialogType(preview),
+      };
+    } catch (e) {
+      console.warn('[workflow] rollback preview failed', e);
+      return {
+        needsRollback: true as const,
+        message: '',
+        dialogType: statusRaw === 'writing' || statusRaw === 'completed' ? ('danger' as const) : ('warning' as const),
+      };
+    }
+  }, [id, projectStatus]);
+
+  const rollbackToPartOutlinesReady = useCallback(async () => {
+    if (!id) return false;
+    try {
+      await writerApi.rollbackProjectWorkflow(id, 'part_outlines_ready', { timeout: 0 });
+      await Promise.allSettled([fetchProject(), fetchPartProgress()]);
+      return true;
+    } catch (e) {
+      console.error(e);
+      addToast('回退失败（无法操作部分大纲）', 'error');
+      return false;
+    }
+  }, [addToast, fetchPartProgress, fetchProject, id]);
+
   const handleDeleteLatestPartOutlines = useCallback(async () => {
     if (!id) return;
     if (maxDeletablePartCount <= 0) {
@@ -38,19 +81,30 @@ export const useNovelDetailLatestPartOutlineActions = ({
     }
 
     const count = Math.max(1, Math.min(Number(deleteLatestPartsCount) || 1, maxDeletablePartCount));
+    const rollbackInfo = await getRollbackPreviewIfNeeded();
     const ok = await confirmDialog({
       title: '删除最新部分大纲',
       message:
+        (rollbackInfo.needsRollback
+          ? (
+              '该操作需要先回退到「部分大纲就绪」阶段。\n\n' +
+              (rollbackInfo.message ? `${rollbackInfo.message}\n\n` : '')
+            )
+          : '') +
         `确定要删除最后 ${count} 个部分大纲吗？\n\n` +
         `这些部分对应的章节大纲也会被一起删除。\n` +
         `此操作不可恢复。`,
       confirmText: '删除',
-      dialogType: 'danger',
+      dialogType: rollbackInfo.needsRollback ? rollbackInfo.dialogType : 'danger',
     });
     if (!ok) return;
 
     setDeletingLatestParts(true);
     try {
+      if (rollbackInfo.needsRollback) {
+        const rolledBack = await rollbackToPartOutlinesReady();
+        if (!rolledBack) return;
+      }
       const result = await writerApi.deleteLatestPartOutlines(id, count);
       addToast(result?.message || `已删除最后 ${count} 个部分大纲`, 'success');
       setIsDeleteLatestPartsModalOpen(false);
@@ -67,8 +121,10 @@ export const useNovelDetailLatestPartOutlineActions = ({
     deleteLatestPartsCount,
     fetchPartProgress,
     fetchProject,
+    getRollbackPreviewIfNeeded,
     id,
     maxDeletablePartCount,
+    rollbackToPartOutlinesReady,
     setIsDeleteLatestPartsModalOpen,
   ]);
 
@@ -89,19 +145,30 @@ export const useNovelDetailLatestPartOutlineActions = ({
       return;
     }
 
+    const rollbackInfo = await getRollbackPreviewIfNeeded();
     const ok = await confirmDialog({
       title: '重生成最新部分大纲',
       message:
+        (rollbackInfo.needsRollback
+          ? (
+              '该操作需要先回退到「部分大纲就绪」阶段。\n\n' +
+              (rollbackInfo.message ? `${rollbackInfo.message}\n\n` : '')
+            )
+          : '') +
         `将重生成最后 ${count} 个部分大纲（第${start}-${end}部分）。\n\n` +
         `串行生成原则：会级联删除第${start + 1}-${end}部分的大纲，以及对应章节大纲/内容/向量数据。\n\n` +
         `确定继续？`,
       confirmText: '继续',
-      dialogType: 'danger',
+      dialogType: rollbackInfo.needsRollback ? rollbackInfo.dialogType : 'danger',
     });
     if (!ok) return;
 
     setRegeneratingLatestParts(true);
     try {
+      if (rollbackInfo.needsRollback) {
+        const rolledBack = await rollbackToPartOutlinesReady();
+        if (!rolledBack) return;
+      }
       const promptText = regenerateLatestPartsPrompt.trim() || undefined;
       const result = await writerApi.regeneratePartOutline(
         id,
@@ -124,10 +191,12 @@ export const useNovelDetailLatestPartOutlineActions = ({
     addToast,
     fetchPartProgress,
     fetchProject,
+    getRollbackPreviewIfNeeded,
     id,
     partOutlines,
     regenerateLatestPartsCount,
     regenerateLatestPartsPrompt,
+    rollbackToPartOutlinesReady,
     setIsRegenerateLatestPartsModalOpen,
   ]);
 

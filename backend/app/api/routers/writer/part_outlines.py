@@ -89,6 +89,9 @@ async def regenerate_part_outlines(
     if total_chapters == 0:
         raise InvalidParameterError("项目总章节数未设置")
 
+    # 状态门禁：禁止在写作/章节阶段直接修改部分大纲（必须显式回退并清理依赖数据）
+    await part_service._validate_part_outline_request(project_id, desktop_user.id, total_chapters)
+
     # 串行生成原则：删除所有章节大纲
     # 因为部分大纲变更，基于旧部分大纲生成的章节大纲已经过时
     logger.info("根据串行生成原则，删除项目 %s 的所有章节大纲", project_id)
@@ -147,6 +150,12 @@ async def regenerate_last_part_outline(
     _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
     blueprint = project_schema.blueprint
 
+    # 状态门禁：禁止在写作/章节阶段直接修改部分大纲（必须显式回退并清理依赖数据）
+    total_chapters = blueprint.total_chapters or 0
+    if total_chapters == 0:
+        raise InvalidParameterError("项目总章节数未设置")
+    await part_service._validate_part_outline_request(project_id, desktop_user.id, total_chapters)
+
     # 获取所有部分大纲
     all_parts = await part_service.repo.get_by_project_id(project_id)
     if not all_parts:
@@ -175,7 +184,6 @@ async def regenerate_last_part_outline(
     previous_parts = [p for p in all_parts if p.part_number < last_part_number]
 
     # 使用Service方法重新生成
-    total_chapters = blueprint.total_chapters or 0
     chapters_per_part = blueprint.chapters_per_part or 25
 
     await part_service.regenerate_single_part_outline(
@@ -239,6 +247,12 @@ async def regenerate_specific_part_outline(
     _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
     blueprint = project_schema.blueprint
 
+    # 状态门禁：禁止在写作/章节阶段直接修改部分大纲（必须显式回退并清理依赖数据）
+    total_chapters = blueprint.total_chapters or 0
+    if total_chapters == 0:
+        raise InvalidParameterError("项目总章节数未设置")
+    await part_service._validate_part_outline_request(project_id, desktop_user.id, total_chapters)
+
     # 获取所有部分大纲
     all_parts = await part_service.repo.get_by_project_id(project_id)
     if not all_parts:
@@ -290,7 +304,6 @@ async def regenerate_specific_part_outline(
     previous_parts = [p for p in all_parts_fresh if p.part_number < part_number]
 
     # 使用Service方法重新生成
-    total_chapters = blueprint.total_chapters or 0
     chapters_per_part = blueprint.chapters_per_part or 25
 
     await part_service.regenerate_single_part_outline(
@@ -633,8 +646,13 @@ async def delete_latest_part_outlines(
     part_service = PartOutlineService(session)
     chapter_outline_repo = ChapterOutlineRepository(session)
 
-    # 验证权限
-    await novel_service.ensure_project_owner(project_id, desktop_user.id)
+    # 使用Service层统一验证蓝图和部分大纲资格（并做状态门禁）
+    _, project_schema = await novel_service.ensure_part_outline_eligible(project_id, desktop_user.id)
+    blueprint = project_schema.blueprint
+    total_chapters = blueprint.total_chapters or 0
+    if total_chapters == 0:
+        raise InvalidParameterError("项目总章节数未设置")
+    await part_service._validate_part_outline_request(project_id, desktop_user.id, total_chapters)
 
     # 获取所有部分大纲
     all_parts = await part_service.repo.get_by_project_id(project_id)

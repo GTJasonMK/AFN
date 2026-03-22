@@ -311,11 +311,16 @@ class EmbeddingConfigService(BaseConfigService):
         import asyncio
 
         try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError:
-            raise ValueError(
-                "未安装 sentence-transformers 依赖，请先安装: pip install sentence-transformers"
+            from .embedding_service import (
+                _check_sentence_transformers,
+                _get_torch_device,
+                _load_sentence_transformer,
             )
+        except Exception as exc:
+            raise ValueError("加载本地嵌入模型组件失败，请检查安装是否完整") from exc
+
+        if not _check_sentence_transformers():
+            raise ValueError("未安装 sentence-transformers 依赖，请先安装: pip install sentence-transformers")
 
         logger.info(
             "测试本地嵌入配置: config_name=%s, model=%s",
@@ -326,20 +331,9 @@ class EmbeddingConfigService(BaseConfigService):
         loop = asyncio.get_event_loop()
 
         def _load_and_test():
-            # 加载模型（首次可能需要下载）
-            logger.info("加载本地嵌入模型: %s（首次加载可能需要下载模型文件）", model_name)
-            # 显式指定设备，避免 meta tensor 兼容性问题
-            import torch
-            if torch.cuda.is_available():
-                device = 'cuda'
-                logger.info("使用 CUDA GPU: %s", torch.cuda.get_device_name(0))
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                device = 'mps'
-                logger.info("使用 Apple MPS GPU")
-            else:
-                device = 'cpu'
-                logger.info("使用 CPU")
-            model = SentenceTransformer(model_name, device=device)
+            # 与 EmbeddingService 一致：只从本地加载，不触发网络下载
+            device = _get_torch_device()
+            model = _load_sentence_transformer(model_name, device)
 
             # 生成测试嵌入
             embedding = model.encode("测试嵌入向量", normalize_embeddings=True)
@@ -349,8 +343,11 @@ class EmbeddingConfigService(BaseConfigService):
             vector_dimension = await loop.run_in_executor(None, _load_and_test)
         except Exception as exc:
             error_msg = str(exc)
-            if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
-                raise ValueError(f"模型 '{model_name}' 不存在或无法下载，请检查模型名称")
+            if isinstance(exc, FileNotFoundError):
+                raise ValueError(
+                    "本地嵌入模型未找到（当前为手动下载模式，不会自动联网下载）。\n"
+                    + error_msg
+                )
             raise ValueError(f"本地嵌入模型测试失败: {error_msg}")
 
         if vector_dimension == 0:

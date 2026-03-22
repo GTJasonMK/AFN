@@ -119,6 +119,30 @@ class NovelService(ProjectServiceBase):
             if count > 0:
                 logger.info("项目 %s 回退时删除了 %d 个章节大纲", project_id, count)
 
+            # 若回退到蓝图阶段，进一步删除部分大纲，避免蓝图调整后结构冲突
+            if new_status == ProjectStatus.BLUEPRINT_READY:
+                from ..repositories.part_outline_repository import PartOutlineRepository
+
+                part_repo = PartOutlineRepository(self.session)
+                existing_parts = await part_repo.get_by_project_id(project_id)
+                if existing_parts:
+                    await part_repo.delete_by_project_id(project_id)
+                    logger.info("项目 %s 回退到蓝图阶段时删除了 %d 个部分大纲", project_id, len(existing_parts))
+
+        # part_outlines_ready -> blueprint_ready：删除所有部分大纲（避免蓝图调整后结构冲突）
+        elif (
+            current_status == ProjectStatus.PART_OUTLINES_READY
+            and new_status == ProjectStatus.BLUEPRINT_READY
+        ):
+            logger.warning("项目 %s 从部分大纲状态回退，将删除所有部分大纲", project_id)
+            from ..repositories.part_outline_repository import PartOutlineRepository
+
+            part_repo = PartOutlineRepository(self.session)
+            existing_parts = await part_repo.get_by_project_id(project_id)
+            if existing_parts:
+                await part_repo.delete_by_project_id(project_id)
+                logger.info("项目 %s 回退时删除了 %d 个部分大纲", project_id, len(existing_parts))
+
         # blueprint_ready -> draft：由BlueprintService处理
         elif (
             current_status == ProjectStatus.BLUEPRINT_READY

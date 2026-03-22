@@ -11,12 +11,13 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.state_machine import ProjectStatus
+from ...core.state_machine import ProjectStatus, ProjectStateMachine
 from ...core.config import settings
 from ...core.constants import NovelConstants, LLMConstants, GenerationStatus
 from ...exceptions import (
     ResourceNotFoundError,
     InvalidParameterError,
+    InvalidStateTransitionError,
     BlueprintNotReadyError,
 )
 from ...models.part_outline import PartOutline
@@ -248,6 +249,29 @@ class PartOutlineService:
         if not project.blueprint:
             raise BlueprintNotReadyError(project_id)
 
+        allowed_statuses = {
+            ProjectStatus.BLUEPRINT_READY.value,
+            ProjectStatus.PART_OUTLINES_READY.value,
+        }
+        if project.status not in allowed_statuses:
+            current_desc = ProjectStateMachine.STATUS_DESCRIPTIONS.get(project.status, project.status)
+            allowed_desc = "、".join(
+                [
+                    ProjectStateMachine.STATUS_DESCRIPTIONS.get(s, s)
+                    for s in sorted(allowed_statuses)
+                ]
+            )
+            raise InvalidStateTransitionError(
+                (
+                    f"当前项目处于「{current_desc}」，不允许直接生成/重生成部分大纲。"
+                    f"允许的状态：{allowed_desc}。\n\n"
+                    "如需重新规划分部结构，请先执行回退并清理依赖数据：\n"
+                    "- 写作中/已完成 → 章节大纲就绪（会删除已生成章节正文）\n"
+                    "- 章节大纲就绪 → 部分大纲就绪（会删除章节大纲）\n"
+                    "完成回退后再生成部分大纲，避免新旧数据冲突。"
+                )
+            )
+
         return project
 
     def _prepare_blueprint_data(self, project: NovelProject) -> tuple:
@@ -363,8 +387,10 @@ class PartOutlineService:
         logger.info("串行生成完成，共 %d 个部分大纲", len(part_outlines))
 
         if not skip_status_update:
-            await self.novel_service.transition_project_status(project, ProjectStatus.PART_OUTLINES_READY.value)
-            logger.info("项目 %s 状态已更新为 %s", project_id, ProjectStatus.PART_OUTLINES_READY.value)
+            # 幂等：若已经处于部分大纲就绪，保持不变
+            if project.status != ProjectStatus.PART_OUTLINES_READY.value:
+                await self.novel_service.transition_project_status(project, ProjectStatus.PART_OUTLINES_READY.value)
+                logger.info("项目 %s 状态已更新为 %s", project_id, ProjectStatus.PART_OUTLINES_READY.value)
 
         return PartOutlineGenerationProgress(
             parts=[self._to_schema(p) for p in part_outlines],

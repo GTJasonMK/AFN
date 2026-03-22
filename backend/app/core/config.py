@@ -744,20 +744,6 @@ def get_settings() -> Settings:
     return instance
 
 
-def reload_settings() -> Settings:
-    """重新加载配置，清除缓存并返回新的配置实例。
-
-    用于热更新场景，当.env文件被修改后调用此函数可立即生效。
-    同时会更新当前模块中的全局settings变量。
-    """
-    get_settings.cache_clear()
-    new_settings = get_settings()
-
-    # 更新当前模块的全局settings变量
-    current_module = sys.modules[__name__]
-    setattr(current_module, 'settings', new_settings)
-
-    return new_settings
 
 
 settings = get_settings()

@@ -71,6 +71,7 @@ class ChapterGenerationWorkflow(GenerationWorkflowBase):
         self._chapter = None
         self._outline = None
         self._version_count = 0
+        self._ui_warnings: List[str] = []
         # Bug 7 修复: 保存重生成前的状态，用于失败时恢复
         self._previous_selected_version_id = None
         self._previous_real_summary = None
@@ -220,6 +221,7 @@ class ChapterGenerationWorkflow(GenerationWorkflowBase):
             writing_notes=self.writing_notes,
             vector_store=self.vector_store,
         )
+        self._ui_warnings = list(gen_context.ui_warnings or [])
 
         # 提取场景状态（新增）
         scene_extractor = SceneStateExtractor()
@@ -336,6 +338,14 @@ class ChapterGenerationWorkflow(GenerationWorkflowBase):
                 writer_prompt, prompt_input = await self._prepare_prompt(
                     completed_chapters, previous_summary, previous_tail
                 )
+
+                if self._ui_warnings:
+                    yield {
+                        "stage": "warning",
+                        "message": self._ui_warnings[0],
+                        "warnings": self._ui_warnings,
+                        "kind": "generation_degraded",
+                    }
 
                 yield {
                     "stage": "generating",

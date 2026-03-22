@@ -242,29 +242,6 @@ def _compute_dependency_diff(
     )
 
 
-def _load_previous_requirements(cache_file: Path) -> Set[str]:
-    """加载上次的 requirements 包名列表（用于检测删除）"""
-    if not cache_file.exists():
-        return set()
-
-    try:
-        with open(cache_file, 'r', encoding='utf-8') as f:
-            return set(line.strip() for line in f if line.strip())
-    except Exception:
-        return set()
-
-
-def _save_current_requirements(cache_file: Path, packages: Dict[str, PackageSpec]):
-    """保存当前的 requirements 包名列表"""
-    try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            for name in sorted(packages.keys()):
-                f.write(f"{name}\n")
-    except Exception as e:
-        logger.warning(f"保存 requirements 缓存失败: {e}")
-
-
 # ============================================================
 # 主要函数
 # ============================================================
