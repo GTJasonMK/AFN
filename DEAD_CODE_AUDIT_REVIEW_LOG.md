@@ -1420,3 +1420,26 @@
 - R53-03 `frontend/windows/settings/temperature_settings_widget.py` | 复读 Temperature 配置界面；确认 `QPushButton` 导入无任何实际引用，删除无效导入。
 - R53-04 `frontend/windows/writing_desk/components/chapter_card.py` | 复读章节卡片组件；确认 `QPoint` 导入无任何实际引用，删除无效导入。
 - R53-05 `frontend/windows/writing_desk/dialogs/prompt_preview_dialog.py` | 复读提示词预览对话框；确认 `QFont` 导入无任何实际引用，删除无效导入。
+
+## 第五十四轮追加复核
+
+- R54-01 `frontend-web/src/pages/CodingDetail.tsx` | 复读 Web 编程详情页；按 tab / modal / shared 职责拆分为 6 个子模块，主文件从 1972 行降到 1272 行；并修复架构页“生成模块”误用全局目标系统状态的问题；定点 ESLint 通过。
+- R54-02 `frontend-web/src/components/business/MangaPromptViewer.tsx` | 复读漫画提示词查看器；按 progress / summary / details / storyboard / shared 职责拆分为 5 个子模块，主文件从 1702 行降到 1034 行；并清理拆分后残留的 8 个零引用导入；定点 ESLint 通过。
+- R54-03 `frontend-web/src/pages/WritingDesk.tsx` | 复读 Web 写作台页面；按 body / editor-workspace / modals / shared 职责拆分为 4 个子模块，主文件从 1447 行降到 1301 行；定点 ESLint 与 `frontend-web npm run build` 均通过，确认拆分未引入类型或打包回归。
+
+## 第五十五轮追加复核
+
+- R55-01 `frontend-web/src/pages/CodingDesk.tsx` | 复读 Web 编程工作台页面；按 header / sidebar / editor-panel / assistant-panel / shared 职责拆分为 5 个子模块，主文件从 1402 行降到 822 行；定点 ESLint 与 `frontend-web npm run build` 均通过，确认拆分未引入类型或打包回归。
+
+## 第五十六轮追加复核
+
+- R56-01 `frontend-web/src/components/business/ProtagonistProfilesModal.tsx` | 复读角色档案工作台弹窗；按 sidebar / workspace / shared 职责拆分为 3 个子模块，主文件从 1394 行降到 679 行；并清理拆分后暴露的无用导入 `Camera` 与 `DETAIL_TABS` 残留；定点 ESLint 与 `frontend-web npm run build` 均通过。
+
+## 第五十七轮追加复核
+
+- R57-01 `frontend-web/src/pages/InspirationChat.tsx` | 复读灵感对话页；按 hero / guide-panel / conversation-panel / workspace / blueprint-preview-modal / shared 职责拆分为 6 个子模块，主文件从 1369 行降到 795 行；补齐 shared 中 JSON 解析辅助函数导出与 ref 类型收口后，定点 ESLint 与 `frontend-web npm run build` 均通过。
+- R57-02 `frontend-web/src/components/business/ContentOptimizationView.tsx` | 复读正文优化面板；按 status-card / inline-preview-card / controls-card / thinking-panel / suggestions-panel / preview-modal / shared 职责拆分为 7 个子模块，主文件从 1219 行降到 618 行；同时把段落替换、范围解析、差异计算等纯函数收敛到 shared，避免后续继续积累渲染层死代码；定点 ESLint 与 `frontend-web npm run build` 均通过。
+
+## 第五十八轮追加复核
+
+- R58-01 `frontend-web/src/components/business/settings/ThemeTab.tsx` | 复读主题配置页签；按 sidebar / detail-panel / editor-modal / shared 职责拆分为 4 个子模块，主文件从 1181 行降到 827 行；同时把日期格式化、文件名清洗与编辑 JSON 载荷拼装收敛到 shared，避免主文件继续累积展示层与工具层混写；定点 ESLint 与 `frontend-web npm run build` 均通过。

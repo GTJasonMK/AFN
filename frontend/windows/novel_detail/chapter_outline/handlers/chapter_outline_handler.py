@@ -138,7 +138,11 @@ class ChapterOutlineHandlerMixin:
         url = f"{self.api_client.base_url}/api/novels/{self.project_id}/chapter-outlines/generate-stream"
         payload = {}
 
-        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker = SSEWorker(
+            url,
+            payload,
+            session=self.api_client.session,
+        )
         self._sse_worker.progress_received.connect(self._on_chapter_outline_progress)
         self._sse_worker.complete.connect(self._on_chapter_outline_complete)
         self._sse_worker.error_data.connect(self._on_chapter_outline_error)
@@ -256,7 +260,11 @@ class ChapterOutlineHandlerMixin:
         url = f"{self.api_client.base_url}/api/writer/novels/{self.project_id}/chapter-outlines/generate-by-count"
         payload = {"count": count}
 
-        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker = SSEWorker(
+            url,
+            payload,
+            session=self.api_client.session,
+        )
         self._sse_worker.progress_received.connect(self._on_chapter_outline_progress)
         self._sse_worker.complete.connect(self._on_chapter_outline_complete)
         self._sse_worker.error_data.connect(self._on_chapter_outline_error)

@@ -324,8 +324,6 @@ class NovelDetail(
         try:
             logger.info("开始重新加载项目基本信息")
             self.loadProjectBasicInfo()
-            logger.info(f"重新加载section: {self.active_section}")
-            self.loadSection(self.active_section)
             logger.info("refreshProject完成")
         except Exception as e:
             logger.error(f"刷新项目数据时出错: {e}", exc_info=True)

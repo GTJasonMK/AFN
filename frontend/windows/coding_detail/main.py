@@ -235,7 +235,6 @@ class CodingDetail(
 
         # 重新加载
         self.loadProjectBasicInfo()
-        self.loadSection(self.active_section)
 
     def goBackToWorkspace(self):
         """返回首页"""

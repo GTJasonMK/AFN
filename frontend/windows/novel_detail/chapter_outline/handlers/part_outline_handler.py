@@ -78,7 +78,11 @@ class PartOutlineHandlerMixin:
             "chapters_per_part": chapters_per_part
         }
 
-        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker = SSEWorker(
+            url,
+            payload,
+            session=self.api_client.session,
+        )
         self._sse_worker.progress_received.connect(self._on_part_outline_progress)
         self._sse_worker.complete.connect(self._on_part_outline_complete)
         self._sse_worker.error_data.connect(self._on_part_outline_error)
@@ -220,7 +224,11 @@ class PartOutlineHandlerMixin:
             "chapters_per_part": chapters_per_part
         }
 
-        self._sse_worker = SSEWorker(url, payload)
+        self._sse_worker = SSEWorker(
+            url,
+            payload,
+            session=self.api_client.session,
+        )
         self._sse_worker.progress_received.connect(self._on_part_outline_progress)
         self._sse_worker.complete.connect(self._on_part_outline_complete)
         self._sse_worker.error_data.connect(self._on_part_outline_error)

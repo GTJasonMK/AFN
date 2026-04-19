@@ -112,7 +112,7 @@ class ConversationManagerMixin:
         self._prev_options_container = None
 
         # 创建SSE Worker
-        self.current_worker = SSEWorker(url, payload)
+        self.current_worker = SSEWorker(url, payload, session=self.api_client.session)
 
         # 连接结构化流式事件信号（新版）
         self.current_worker.streaming_start.connect(self._on_streaming_start)

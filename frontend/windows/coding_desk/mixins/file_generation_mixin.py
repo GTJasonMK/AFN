@@ -57,6 +57,7 @@ class FileGenerationMixin:
         self._sse_worker = start_sse_worker(
             url,
             {},
+            session=self.api_client.session,
             on_token=self._on_generation_token,
             on_progress=self._on_generation_progress,
             on_complete=self._on_generation_complete,

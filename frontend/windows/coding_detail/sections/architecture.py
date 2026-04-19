@@ -411,7 +411,11 @@ class ArchitectureSection(BaseSection):
 
         # 使用SSE流式处理
         url = self.api_client.get_generate_all_modules_stream_url(self.project_id)
-        self._all_modules_sse_worker = SSEWorker(url, {})
+        self._all_modules_sse_worker = SSEWorker(
+            url,
+            {},
+            session=self.api_client.session,
+        )
         self._all_modules_sse_worker.event_received.connect(self._on_all_modules_event)
         self._all_modules_sse_worker.error.connect(self._on_all_modules_error)
         self._all_modules_sse_worker.finished.connect(self._on_all_modules_finished)

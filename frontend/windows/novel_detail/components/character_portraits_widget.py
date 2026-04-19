@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt, QSize
 from PyQt6.QtGui import QPixmap, QImage
 
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
@@ -174,8 +174,7 @@ class PortraitCard(ThemeAwareWidget):
         self.image_label.setText("加载中...")
 
         def fetch_image():
-            import requests
-            response = requests.get(image_url, timeout=10)
+            response = APIClientManager.get_client().session.get(image_url, timeout=10)
             if response.status_code == 200:
                 return response.content
             return None
@@ -341,6 +340,7 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
 
     def __init__(self, project_id: str = "", parent=None):
         self.project_id = project_id
+        self.api_client = APIClientManager.get_client()
         self.characters: List[Dict[str, Any]] = []  # 主要角色（来自蓝图）
         self.portraits: Dict[str, Dict[str, Any]] = {}  # character_name -> portrait_data
         self.secondary_portraits: List[Dict[str, Any]] = []  # 次要角色立绘
@@ -459,8 +459,7 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         self.loading_label.setText("加载中...")
 
         def fetch():
-            with AFNAPIClient() as client:
-                return client.get_project_portraits(self.project_id)
+            return self.api_client.get_project_portraits(self.project_id)
 
         self._loading_worker = AsyncWorker(fetch)
         self._loading_worker.success.connect(self._on_data_loaded)
@@ -641,13 +640,12 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
                 break
 
         def generate():
-            with AFNAPIClient() as client:
-                return client.generate_portrait(
-                    project_id=self.project_id,
-                    character_name=character_name,
-                    style=style,
-                    character_description=description,
-                )
+            return self.api_client.generate_portrait(
+                project_id=self.project_id,
+                character_name=character_name,
+                style=style,
+                character_description=description,
+            )
 
         worker = AsyncWorker(generate)
         # 使用 lambda 捕获 character_name
@@ -708,8 +706,7 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
             return
 
         def set_active():
-            with AFNAPIClient() as client:
-                return client.set_active_portrait(self.project_id, portrait_id)
+            return self.api_client.set_active_portrait(self.project_id, portrait_id)
 
         worker = AsyncWorker(set_active)
         worker.success.connect(lambda _: self._load_data())
@@ -722,8 +719,7 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
             return
 
         def delete():
-            with AFNAPIClient() as client:
-                return client.delete_portrait(self.project_id, portrait_id)
+            return self.api_client.delete_portrait(self.project_id, portrait_id)
 
         worker = AsyncWorker(delete)
         worker.success.connect(lambda _: self._load_data())
@@ -766,13 +762,12 @@ class CharacterPortraitsWidget(ThemeAwareWidget):
         self.status_label.show()
 
         def generate():
-            with AFNAPIClient() as client:
-                return client.auto_generate_portraits(
-                    project_id=self.project_id,
-                    character_profiles=character_profiles,
-                    style="anime",
-                    exclude_existing=True,
-                )
+            return self.api_client.auto_generate_portraits(
+                project_id=self.project_id,
+                character_profiles=character_profiles,
+                style="anime",
+                exclude_existing=True,
+            )
 
         self._generate_worker = AsyncWorker(generate)
         self._generate_worker.success.connect(self._on_auto_generate_success)

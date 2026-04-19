@@ -851,8 +851,7 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         from PyQt6.QtGui import QPixmap
 
         def do_fetch():
-            import requests
-            response = requests.get(image_url, timeout=5)
+            response = self.api_client.session.get(image_url, timeout=5)
             if response.status_code == 200:
                 return response.content
             return None
@@ -884,4 +883,3 @@ class WDSidebar(TransparencyAwareMixin, ThemeAwareFrame):
         """处理查看主角档案请求"""
         logger.info("请求查看主角档案")
         self.viewProtagonistProfile.emit()
-

@@ -136,6 +136,7 @@ class ChapterGenerationMixin:
         self._sse_worker = start_sse_worker(
             url,
             payload,
+            session=self.api_client.session,
             on_token=self._on_chapter_gen_token,
             on_progress=self._on_chapter_gen_progress,
             on_complete=self._on_chapter_gen_complete,

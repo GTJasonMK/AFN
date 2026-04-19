@@ -41,11 +41,12 @@ class ImportMixin:
                 filename = os.path.basename(file_path)
                 files = {'file': (filename, f, 'text/plain; charset=utf-8')}
 
-                # 文件上传使用独立的requests.post，避免session的Content-Type干扰
-                response = requests.post(
+                # 复用统一会话，保留认证态；显式移除默认 JSON Content-Type，
+                # 让 requests 为 multipart/form-data 自动生成正确请求头。
+                response = self.session.post(
                     url,
                     files=files,
-                    proxies=self.session.proxies,
+                    headers={'Content-Type': None},
                     timeout=(10, 120),  # 上传可能需要较长时间
                 )
                 response.raise_for_status()

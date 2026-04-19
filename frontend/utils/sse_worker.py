@@ -102,7 +102,13 @@ class SSEWorker(QThread):
     # ===== 通用事件信号（用于自定义事件类型） =====
     event_received = pyqtSignal(str, dict)  # (event_type, data) - 用于未预定义的事件类型
 
-    def __init__(self, url: str, payload: dict, parent=None):
+    def __init__(
+        self,
+        url: str,
+        payload: dict,
+        parent=None,
+        session: Optional[requests.Session] = None,
+    ):
         """
         初始化SSE Worker
 
@@ -110,10 +116,13 @@ class SSEWorker(QThread):
             url: SSE端点URL
             payload: POST请求负载
             parent: 父对象
+            session: 已认证的会话模板。会复制 cookies / headers / 代理等配置，
+                避免流式请求丢失登录态。
         """
         super().__init__(parent)
         self.url = url
         self.payload = payload
+        self._session_template = session
 
         # 线程安全的停止事件
         self._stop_event = threading.Event()
@@ -139,6 +148,30 @@ class SSEWorker(QThread):
         # 线程完成后自动清理
         self.finished.connect(self._on_finished)
 
+    def _create_request_session(self) -> requests.Session:
+        """创建请求会话，必要时继承统一 API 会话的认证信息。"""
+        session = requests.Session()
+
+        if not self._session_template:
+            return session
+
+        template = self._session_template
+        session.headers.update(template.headers)
+        session.cookies.update(template.cookies)
+        session.proxies.update(template.proxies)
+        session.params.update(template.params)
+        session.auth = template.auth
+        session.verify = template.verify
+        session.cert = template.cert
+        session.trust_env = template.trust_env
+
+        # hooks 里的 value 通常是 list，拷贝一份避免共享可变对象。
+        session.hooks = {
+            name: list(callbacks)
+            for name, callbacks in template.hooks.items()
+        }
+        return session
+
     def run(self):
         """执行SSE监听"""
         # Windows 上初始化 COM，避免线程冲突错误 (0x8001010d)
@@ -149,7 +182,7 @@ class SSEWorker(QThread):
             except Exception:
                 pass
 
-        self._session = requests.Session()
+        self._session = self._create_request_session()
 
         try:
             logger.info("开始SSE连接: %s", self.url)
@@ -497,6 +530,7 @@ def start_sse_worker(
     payload: dict,
     *,
     parent=None,
+    session: Optional[requests.Session] = None,
     on_token: Optional[Callable[[str], None]] = None,
     on_progress: Optional[Callable[[dict], None]] = None,
     on_complete: Optional[Callable[[dict], None]] = None,
@@ -504,7 +538,7 @@ def start_sse_worker(
     on_cancelled: Optional[Callable[[dict], None]] = None,
 ) -> SSEWorker:
     """创建并启动SSE Worker"""
-    worker = SSEWorker(url, payload, parent)
+    worker = SSEWorker(url, payload, parent, session=session)
     if on_token:
         worker.token_received.connect(on_token)
     if on_progress:

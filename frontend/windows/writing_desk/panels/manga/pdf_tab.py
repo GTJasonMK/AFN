@@ -330,7 +330,7 @@ class PdfTabMixin:
             pdf_data = None
             if download_url:
                 try:
-                    response = requests.get(download_url, timeout=30)
+                    response = APIClientManager.get_client().session.get(download_url, timeout=30)
                     if response.status_code == 200:
                         pdf_data = response.content
                 except requests.RequestException:

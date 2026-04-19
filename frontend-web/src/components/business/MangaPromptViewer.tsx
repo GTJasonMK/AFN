@@ -1,43 +1,23 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { writerApi, MangaPromptResult, MangaPanel, MangaPagePrompt, MangaPromptProgress } from '../../api/writer';
 import { imageGenerationApi, GeneratedImageInfo, resolveAssetUrl, ChapterMangaPDFResponse } from '../../api/imageGeneration';
-import { BookCard } from '../ui/BookCard';
 import { BookButton } from '../ui/BookButton';
-import { Layers, RefreshCw, Image as ImageIcon, FileDown, Copy, Info, XCircle, Play, Trash2 } from 'lucide-react';
+import { Layers, RefreshCw } from 'lucide-react';
 import { useToast } from '../feedback/Toast';
 import { confirmDialog } from '../feedback/ConfirmDialog';
 import { usePersistedMangaGenOptions } from '../../hooks/usePersistedMangaGenOptions';
 import { usePdfPreviewUrl } from '../../hooks/usePdfPreviewUrl';
 import { MangaGenerationParams } from './manga-prompt-viewer/MangaGenerationParams';
+import { MangaProgressCard } from './manga-prompt-viewer/MangaProgressCard';
+import { MangaSummarySection } from './manga-prompt-viewer/MangaSummarySection';
+import { MangaDetailsTab } from './manga-prompt-viewer/MangaDetailsTab';
+import { MangaStoryboardTab } from './manga-prompt-viewer/MangaStoryboardTab';
+import { BatchProgressState } from './manga-prompt-viewer/shared';
 
 interface MangaPromptViewerProps {
   projectId: string;
   chapterNumber: number;
 }
-
-const safeJson = (value: any) => {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value ?? '');
-  }
-};
-
-const widthRatioToSpan = (widthRatio: any): number => {
-  const v = String(widthRatio || '').trim();
-  if (v === 'full') return 12;
-  if (v === 'two_thirds') return 8;
-  if (v === 'half') return 6;
-  if (v === 'third') return 4;
-  return 6;
-};
-
-const aspectRatioToCss = (aspectRatio: any): string | undefined => {
-  const v = String(aspectRatio || '').trim();
-  const m = v.match(/^\s*(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)\s*$/);
-  if (!m) return undefined;
-  return `${m[1]} / ${m[2]}`;
-};
 
 export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId, chapterNumber }) => {
   const { addToast } = useToast();
@@ -99,7 +79,7 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
   });
   const [batchSkipExistingImages, setBatchSkipExistingImages] = useState(true);
   const [batchGenerating, setBatchGenerating] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+  const [batchProgress, setBatchProgress] = useState<BatchProgressState>(null);
   const [batchErrors, setBatchErrors] = useState<string[]>([]);
   const batchStopRequestedRef = useRef(false);
   const batchAbortRef = useRef<AbortController | null>(null);
@@ -300,6 +280,10 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
       addToast('复制失败（可能缺少剪贴板权限）', 'error');
     }
   };
+
+  const handleSelectActiveImage = useCallback((key: string, imageId: number) => {
+    setActiveImageByPanelId((prev) => ({ ...(prev || {}), [key]: imageId }));
+  }, []);
 
   const handleGeneratePrompts = (override?: { forceRestart?: boolean }) => {
     // 参数基础校验：确保 min <= max
@@ -922,58 +906,19 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
         </div>
       </div>
 
-      {showProgress && (
-        <BookCard className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="font-bold text-book-text-main">
-                生成进度：{progress?.stage_label || (generatingPrompts ? '处理中' : '未开始')}
-                {progressStatus === 'completed' ? '（已完成）' : null}
-                {progressStatus === 'cancelled' ? '（已取消）' : null}
-              </div>
-              <div className="mt-1 text-xs text-book-text-muted whitespace-pre-wrap leading-relaxed">
-                {progress?.message || (generatingPrompts ? '生成中…（可在此查看进度）' : '')}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 flex-none">
-              {(generatingPrompts || isProgressRunning) && (
-                <BookButton
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancelPrompts}
-                  disabled={cancelingPrompts}
-                >
-                  <XCircle size={14} className="mr-1" />
-                  {cancelingPrompts ? '停止中…' : '停止生成'}
-                </BookButton>
-              )}
-              {canResumeGeneration && !generatingPrompts && (
-                <>
-                  <BookButton variant="primary" size="sm" onClick={handleResumePrompts} disabled={cancelingPrompts}>
-                    <Play size={14} className="mr-1" />
-                    继续生成
-                  </BookButton>
-                  <BookButton variant="ghost" size="sm" onClick={handleForceRestartPrompts} disabled={cancelingPrompts}>
-                    <RefreshCw size={14} className="mr-1" />
-                    强制重来
-                  </BookButton>
-                </>
-              )}
-            </div>
-          </div>
-
-          {progressPercent !== null && (
-            <div className="mt-3">
-              <div className="h-2 rounded-full bg-book-border/30 overflow-hidden">
-                <div className="h-2 bg-book-primary" style={{ width: `${progressPercent}%` }} />
-              </div>
-              <div className="mt-1 text-[11px] text-book-text-muted">
-                {progress?.current ?? 0}/{progress?.total ?? 0}（{progressPercent}%）
-              </div>
-            </div>
-          )}
-        </BookCard>
-      )}
+      <MangaProgressCard
+        showProgress={showProgress}
+        progress={progress}
+        progressStatus={progressStatus}
+        generatingPrompts={generatingPrompts}
+        isProgressRunning={isProgressRunning}
+        cancelingPrompts={cancelingPrompts}
+        canResumeGeneration={canResumeGeneration}
+        progressPercent={progressPercent}
+        onCancel={handleCancelPrompts}
+        onResume={handleResumePrompts}
+        onForceRestart={handleForceRestartPrompts}
+      />
 
       <MangaGenerationParams
         genStyle={genStyle}
@@ -1032,668 +977,55 @@ export const MangaPromptViewer: React.FC<MangaPromptViewerProps> = ({ projectId,
         </div>
       ) : (
         <div className="space-y-8">
-          {manga && (
-            <>
-              <BookCard className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="text-sm text-book-text-main">
-                    共 <span className="font-bold">{manga.total_pages}</span> 页，
-                    <span className="font-bold">{manga.total_panels}</span> 个画格
-                    <span className="ml-2 text-xs text-book-text-muted">
-                      {manga.is_complete ? '已完成' : `已完成 ${manga.completed_pages_count || 0} 页`}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleGeneratePdf('full')}
-                      disabled={pdfGeneratingLayout !== null}
-                    >
-                      <FileDown size={14} className="mr-1" />
-                      {pdfGeneratingLayout === 'full' ? '生成中…' : '导出PDF(全页)'}
-                    </BookButton>
-                    <BookButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleGeneratePdf('manga')}
-                      disabled={pdfGeneratingLayout !== null}
-                    >
-                      <FileDown size={14} className="mr-1" />
-                      {pdfGeneratingLayout === 'manga' ? '生成中…' : '导出PDF(分格)'}
-                    </BookButton>
-                    <BookButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleDeleteMangaPrompts}
-                      disabled={generatingPrompts || isProgressRunning || batchGenerating}
-                      className="text-book-accent hover:text-book-accent"
-                      title="删除本章漫画分镜数据（不删除图片）"
-                    >
-                      <Trash2 size={14} className="mr-1" />
-                      删除分镜
-                    </BookButton>
-                  </div>
-                </div>
-
-                {pdfInfo?.success && pdfInfo.download_url && (
-                  <div className="mt-3 space-y-3">
-                    <div className="text-xs text-book-text-muted flex items-center justify-between gap-2">
-                      <div className="truncate">
-                        最新PDF：{pdfInfo.file_name || 'manga.pdf'}
-                      </div>
-                      <a
-                        className="text-book-primary font-bold hover:underline"
-                        href={resolveAssetUrl(pdfInfo.download_url)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        下载
-                      </a>
-                    </div>
-
-                    <details
-                      open={pdfPreviewOpen}
-                      className="group rounded-lg border border-book-border/40 bg-book-bg-paper"
-                      onToggle={(e) => {
-                        const open = (e.currentTarget as HTMLDetailsElement).open;
-                        setPdfPreviewOpen(open);
-                      }}
-                    >
-                      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">
-                        PDF 预览
-                        <span className="ml-2 text-[11px] font-normal text-book-text-muted">点击展开（不会自动下载）</span>
-                      </summary>
-                      <div className="px-3 pb-3">
-                        {pdfPreviewOpen ? (
-                          pdfPreviewUrl ? (
-                            <iframe
-                              src={pdfPreviewUrl}
-                              className="w-full h-[70vh] rounded-md border border-book-border/40 bg-book-bg"
-                              title="manga-pdf-preview"
-                            />
-                          ) : (
-                            <div className="h-[70vh] rounded-md border border-book-border/40 bg-book-bg flex items-center justify-center text-xs text-book-text-muted">
-                              PDF 加载中…
-                            </div>
-                          )
-                        ) : null}
-                      </div>
-                    </details>
-                  </div>
-                )}
-              </BookCard>
-
-              <BookCard className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-bold text-book-text-main">批量生成图片</div>
-                    <div className="mt-1 text-xs text-book-text-muted">
-                      说明：按顺序逐个生成，避免一次性并发压垮本地模型/队列。
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-none">
-                    <label className="flex items-center gap-2 text-xs text-book-text-main">
-                      <input
-                        type="checkbox"
-                        className="rounded border-book-border text-book-primary focus:ring-book-primary"
-                        checked={batchSkipExistingImages}
-                        onChange={(e) => setBatchSkipExistingImages(e.target.checked)}
-                        disabled={batchGenerating}
-                      />
-                      跳过已有
-                    </label>
-                    {batchGenerating && (
-                      <BookButton variant="ghost" size="sm" onClick={stopBatch}>
-                        <XCircle size={14} className="mr-1" />
-                        停止
-                      </BookButton>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <BookButton
-                    variant="primary"
-                    size="sm"
-                    onClick={handleBatchGeneratePanels}
-                    disabled={batchGenerating || generatingPrompts || isProgressRunning}
-                    title="生成本章所有画格图片（按顺序）"
-                  >
-                    <ImageIcon size={14} className="mr-1" />
-                    生成所有画格
-                  </BookButton>
-                  <BookButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleBatchGeneratePages}
-                    disabled={batchGenerating || generatingPrompts || isProgressRunning}
-                    title="生成本章所有整页图片（需要 page_prompts）"
-                  >
-                    <ImageIcon size={14} className="mr-1" />
-                    生成所有整页
-                  </BookButton>
-                </div>
-
-                {batchProgress && (
-                  <div className="mt-3">
-                    <div className="text-xs text-book-text-muted truncate">
-                      {batchProgress.message}
-                    </div>
-                    <div className="mt-1 h-2 rounded-full bg-book-border/30 overflow-hidden">
-                      <div
-                        className="h-2 bg-book-primary transition-all duration-300"
-                        style={{ width: `${Math.min(100, Math.max(0, (batchProgress.current / Math.max(1, batchProgress.total)) * 100))}%` }}
-                      />
-                    </div>
-                    <div className="mt-1 text-[11px] text-book-text-muted">
-                      {batchProgress.current}/{batchProgress.total}
-                    </div>
-                  </div>
-                )}
-
-                {batchErrors.length > 0 && (
-                  <details className="mt-3 group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">
-                      失败明细（{batchErrors.length}）
-                      <span className="ml-2 text-[11px] font-normal text-book-text-muted">点击展开</span>
-                    </summary>
-                    <div className="px-3 pb-3 space-y-2">
-                      <div className="flex justify-end">
-                        <BookButton variant="ghost" size="sm" onClick={() => copyText(batchErrors.join('\n'), '批量生成失败明细')}>
-                          <Copy size={14} className="mr-1" />
-                          复制
-                        </BookButton>
-                      </div>
-                      <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg p-2 rounded border border-book-border/40 overflow-auto">
-                        {batchErrors.join('\n')}
-                      </pre>
-                    </div>
-                  </details>
-                )}
-              </BookCard>
-            </>
-          )}
+          <MangaSummarySection
+            manga={manga}
+            pdfInfo={pdfInfo}
+            pdfGeneratingLayout={pdfGeneratingLayout}
+            onGeneratePdf={handleGeneratePdf}
+            onDeleteMangaPrompts={handleDeleteMangaPrompts}
+            generatingPrompts={generatingPrompts}
+            isProgressRunning={isProgressRunning}
+            batchGenerating={batchGenerating}
+            pdfPreviewOpen={pdfPreviewOpen}
+            onPdfPreviewOpenChange={setPdfPreviewOpen}
+            pdfPreviewUrl={pdfPreviewUrl}
+            batchSkipExistingImages={batchSkipExistingImages}
+            onBatchSkipExistingImagesChange={setBatchSkipExistingImages}
+            onStopBatch={stopBatch}
+            onBatchGeneratePanels={handleBatchGeneratePanels}
+            onBatchGeneratePages={handleBatchGeneratePages}
+            batchProgress={batchProgress}
+            batchErrors={batchErrors}
+            onCopyText={copyText}
+          />
 
           {activeTab === 'details' && (
-            <div className="space-y-4">
-              {sortedCharacterProfiles.length > 0 && (
-                <BookCard className="p-4">
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="font-bold text-book-text-main">角色外观（提示词）</div>
-                    <BookButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyText(safeJson(Object.fromEntries(sortedCharacterProfiles.map((c) => [c.name, c.desc]))), '角色外观JSON')}
-                    >
-                      <Copy size={14} className="mr-1" />
-                      复制JSON
-                    </BookButton>
-                  </div>
-                  <div className="space-y-3">
-                    {sortedCharacterProfiles.map((c) => (
-                      <div key={c.name} className="border border-book-border/40 rounded-lg p-3 bg-book-bg">
-                        <div className="font-bold text-book-primary">{c.name}</div>
-                        <div className="mt-2 text-xs text-book-text-main whitespace-pre-wrap leading-relaxed font-mono">
-                          {c.desc}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </BookCard>
-              )}
-
-              {!analysisData && (
-                <BookCard className="p-4">
-                  <div className="flex items-start gap-2 text-xs text-book-text-muted leading-relaxed">
-                    <Info size={16} className="mt-0.5 flex-none" />
-                    <div>
-                      暂无详细信息（analysis_data）。生成分镜后，如果后端返回分析数据，这里会展示“信息提取/页面规划”等结构化结果。
-                    </div>
-                  </div>
-                </BookCard>
-              )}
-
-              {analysisData && (
-                <div className="space-y-3">
-                  <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-4 py-3 font-bold text-book-text-main">
-                      步骤1：信息提取
-                    </summary>
-                    <div className="px-4 pb-4 space-y-3">
-                      {chapterInfo?.chapter_summary ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-1">章节摘要</div>
-                          <div className="text-sm text-book-text-main whitespace-pre-wrap leading-relaxed">
-                            {String(chapterInfo.chapter_summary)}
-                          </div>
-                        </BookCard>
-                      ) : null}
-
-                      {chapterInfo?.characters && typeof chapterInfo.characters === 'object' && !Array.isArray(chapterInfo.characters) ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-2">角色信息</div>
-                          <div className="space-y-2">
-                            {Object.entries(chapterInfo.characters as Record<string, any>).map(([name, v]) => (
-                              <div key={name} className="border border-book-border/40 rounded-lg p-2 bg-book-bg">
-                                <div className="font-bold text-book-primary text-sm">{name}</div>
-                                <div className="mt-1 text-xs text-book-text-main whitespace-pre-wrap leading-relaxed">
-                                  {typeof v === 'string' ? v : safeJson(v)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </BookCard>
-                      ) : null}
-
-                      {Array.isArray(chapterInfo?.events) && chapterInfo.events.length > 0 ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-2">事件列表</div>
-                          <ul className="list-decimal list-inside text-xs text-book-text-main space-y-1">
-                            {chapterInfo.events.map((evt: any, idx: number) => (
-                              <li key={`evt-${idx}`} className="whitespace-pre-wrap">
-                                {typeof evt === 'string' ? evt : safeJson(evt)}
-                              </li>
-                            ))}
-                          </ul>
-                        </BookCard>
-                      ) : null}
-
-                      {Array.isArray(chapterInfo?.dialogues) && chapterInfo.dialogues.length > 0 ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-2">对话列表</div>
-                          <div className="space-y-2">
-                            {chapterInfo.dialogues.map((d: any, idx: number) => {
-                              const speaker = String(d?.speaker || d?.character || '').trim();
-                              const text = String(d?.text || d?.content || '').trim();
-                              return (
-                                <div key={`dlg-${idx}`} className="border border-book-border/40 rounded-lg p-2 bg-book-bg">
-                                  <div className="text-[11px] text-book-text-muted font-mono">
-                                    {speaker ? `speaker: ${speaker}` : 'speaker: —'}
-                                  </div>
-                                  <div className="mt-1 text-xs text-book-text-main whitespace-pre-wrap leading-relaxed">
-                                    {text || (typeof d === 'string' ? d : safeJson(d))}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </BookCard>
-                      ) : null}
-
-                      {Array.isArray(chapterInfo?.scenes) && chapterInfo.scenes.length > 0 ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-2">场景列表</div>
-                          <ul className="list-disc list-inside text-xs text-book-text-main space-y-1">
-                            {chapterInfo.scenes.map((s: any, idx: number) => (
-                              <li key={`scene-${idx}`} className="whitespace-pre-wrap">
-                                {typeof s === 'string' ? s : safeJson(s)}
-                              </li>
-                            ))}
-                          </ul>
-                        </BookCard>
-                      ) : null}
-                    </div>
-                  </details>
-
-                  <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-4 py-3 font-bold text-book-text-main">
-                      步骤2：页面规划
-                    </summary>
-                    <div className="px-4 pb-4 space-y-3">
-                      {Array.isArray(pagePlan?.pages) && pagePlan.pages.length > 0 ? (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs font-bold text-book-text-sub mb-2">页面分配</div>
-                          <div className="space-y-2">
-                            {pagePlan.pages.map((p: any, idx: number) => (
-                              <div key={`pp-${idx}`} className="border border-book-border/40 rounded-lg p-2 bg-book-bg">
-                                <div className="text-xs font-bold text-book-primary">
-                                  第 {p?.page_number ?? idx + 1} 页
-                                </div>
-                                <div className="mt-1 text-xs text-book-text-main whitespace-pre-wrap leading-relaxed">
-                                  {p?.layout_description ? String(p.layout_description) : safeJson(p)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </BookCard>
-                      ) : (
-                        <BookCard className="p-3 bg-book-bg/50 border-book-border/50">
-                          <div className="text-xs text-book-text-muted">
-                            无页面规划数据（page_plan.pages）。
-                          </div>
-                        </BookCard>
-                      )}
-                    </div>
-                  </details>
-
-                  <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-4 py-3 font-bold text-book-text-main">
-                      原始数据（JSON）
-                    </summary>
-                    <div className="px-4 pb-4 space-y-2">
-                      <div className="flex justify-end">
-                        <BookButton variant="secondary" size="sm" onClick={() => copyText(safeJson(analysisData), 'analysis_data')}>
-                          <Copy size={14} className="mr-1" />
-                          复制
-                        </BookButton>
-                      </div>
-                      <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg p-3 rounded-lg border border-book-border/40 overflow-auto">
-                        {safeJson(analysisData)}
-                      </pre>
-                    </div>
-                  </details>
-                </div>
-              )}
-            </div>
+            <MangaDetailsTab
+              sortedCharacterProfiles={sortedCharacterProfiles}
+              analysisData={analysisData}
+              chapterInfo={chapterInfo}
+              pagePlan={pagePlan}
+              onCopyText={copyText}
+            />
           )}
 
-          {activeTab === 'storyboard' && (manga?.pages || []).map((page) => {
-            const panels = panelsByPageNumber.get(page.page_number) || [];
-            const pageId = `page${page.page_number}`;
-            const pageImages = imagesByPanelId.get(pageId) || [];
-            const activePageImageId = activeImageByPanelId[pageId];
-            const pageImage = activePageImageId
-              ? (pageImages.find((i) => i.id === activePageImageId) || pageImages[0])
-              : pageImages[0];
-            const pagePrompt = pagePromptByPageNumber.get(page.page_number) || null;
-            const hasPagePrompt = Boolean(pagePrompt);
-            const panelsByRow = new Map<number, MangaPanel[]>();
-            panels.forEach((p) => {
-              const rowId = Number((p as any).row_id || 1);
-              const list = panelsByRow.get(rowId) || [];
-              list.push(p);
-              panelsByRow.set(rowId, list);
-            });
-            for (const [k, list] of panelsByRow.entries()) {
-              list.sort((a, b) => Number(a.panel_number || 0) - Number(b.panel_number || 0));
-              panelsByRow.set(k, list);
-            }
-            const rowIds = Array.from(panelsByRow.keys()).sort((a, b) => a - b);
-
-            return (
-              <div key={page.page_number} className="space-y-3">
-                <div className="flex items-center justify-between gap-2 border-b border-book-border/30 pb-1">
-                  <div className="font-bold text-book-text-sub text-sm">
-                    第 {page.page_number} 页 · {page.panel_count} 格
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleGeneratePageImage(page.page_number)}
-                      disabled={!hasPagePrompt || generatingPageNumber !== null || batchGenerating}
-                    >
-                      <ImageIcon size={14} className={`mr-1 ${generatingPageNumber === page.page_number ? 'animate-spin' : ''}`} />
-                      {generatingPageNumber === page.page_number ? '生成中…' : '生成整页'}
-                    </BookButton>
-                  </div>
-                </div>
-
-                {page.layout_description && (
-                  <div className="text-xs text-book-text-muted leading-relaxed">
-                    {page.layout_description}
-                  </div>
-                )}
-
-                {pagePrompt && (
-                  <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">
-                      整页提示词（page_prompts）
-                      <span className="ml-2 text-[11px] font-normal text-book-text-muted">
-                        点击展开
-                      </span>
-                    </summary>
-                    <div className="px-3 pb-3 space-y-2">
-                      <div className="flex items-center justify-end gap-2">
-                        <BookButton variant="ghost" size="sm" onClick={() => copyText(pagePrompt.full_page_prompt || '', `第${page.page_number}页整页提示词`)}>
-                          <Copy size={14} className="mr-1" />
-                          复制提示词
-                        </BookButton>
-                      </div>
-                      {pagePrompt.layout_description && (
-                        <div className="text-xs text-book-text-muted whitespace-pre-wrap">
-                          {pagePrompt.layout_description}
-                        </div>
-                      )}
-                      <pre className="text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed bg-book-bg p-2 rounded border border-book-border/40 overflow-auto">
-                        {pagePrompt.full_page_prompt || ''}
-                      </pre>
-                    </div>
-                  </details>
-                )}
-
-                {pageImage && (
-                  <BookCard className="p-3">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="text-xs text-book-text-muted">整页图片</div>
-                      <BookButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteImage(pageImage, `第${page.page_number}页整页图片（image_id=${pageImage.id}）`)}
-                      >
-                        <Trash2 size={14} className="mr-1" />
-                        删除
-                      </BookButton>
-                    </div>
-                    <a href={resolveAssetUrl(pageImage.url)} target="_blank" rel="noreferrer">
-                      <img
-                        src={resolveAssetUrl(pageImage.url)}
-                        alt={`page-${page.page_number}`}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full rounded-md border border-book-border/30"
-                      />
-                    </a>
-
-                    {pageImages.length > 1 && (
-                      <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar">
-                        {pageImages.map((im) => {
-                          const selected = pageImage.id === im.id;
-                          return (
-                            <button
-                              key={`page-thumb-${im.id}`}
-                              type="button"
-                              onClick={() => setActiveImageByPanelId((prev) => ({ ...(prev || {}), [pageId]: im.id }))}
-                              className={`flex-none w-16 h-16 rounded-md border overflow-hidden ${selected ? 'border-book-primary' : 'border-book-border/40 hover:border-book-primary/40'}`}
-                              title={`image_id=${im.id}`}
-                            >
-                              <img
-                                src={resolveAssetUrl(im.url)}
-                                alt={`thumb-${im.id}`}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-cover"
-                              />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </BookCard>
-                )}
-
-                {panels.length > 0 && rowIds.length > 0 && (
-                  <details className="group rounded-lg border border-book-border/40 bg-book-bg-paper">
-                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold text-book-text-main">
-                      页面排版预览
-                      <span className="ml-2 text-[11px] font-normal text-book-text-muted">基于 row_id / width_ratio</span>
-                    </summary>
-                    <div className="px-3 pb-3 space-y-3">
-                      {rowIds.map((rowId) => {
-                        const rowPanels = panelsByRow.get(rowId) || [];
-                        return (
-                          <div key={`row-${page.page_number}-${rowId}`} className="grid grid-cols-12 gap-2">
-                            {rowPanels.map((panel) => {
-                              const span = widthRatioToSpan((panel as any).width_ratio);
-                              const cssAspect = aspectRatioToCss((panel as any).aspect_ratio);
-                              const panelImages = imagesByPanelId.get(panel.panel_id) || [];
-                              const activeId = activeImageByPanelId[panel.panel_id];
-                              const img = activeId
-                                ? (panelImages.find((i) => i.id === activeId) || panelImages[0])
-                                : panelImages[0];
-                              return (
-                                <div
-                                  key={`layout-${panel.panel_id}`}
-                                  className="min-w-0"
-                                  style={{ gridColumn: `span ${span} / span ${span}` }}
-                                >
-                                  <div className="rounded-lg border border-book-border/40 bg-book-bg p-2">
-                                    <div className="flex items-center justify-between gap-2 text-[11px]">
-                                      <div className="font-bold text-book-primary truncate">
-                                        Panel {panel.panel_number}
-                                      </div>
-                                      <div className="text-book-text-muted font-mono">
-                                        {String((panel as any).width_ratio || 'half')}
-                                      </div>
-                                    </div>
-
-                                    <div
-                                      className="mt-2 rounded-md border border-book-border/30 overflow-hidden bg-book-bg-paper/50 min-h-[120px]"
-                                      style={cssAspect ? { aspectRatio: cssAspect } : undefined}
-                                    >
-                                      {img ? (
-                                        <a href={resolveAssetUrl(img.url)} target="_blank" rel="noreferrer" className="block w-full h-full">
-                                          <img
-                                            src={resolveAssetUrl(img.url)}
-                                            alt={panel.panel_id}
-                                            loading="lazy"
-                                            decoding="async"
-                                            className="w-full h-full object-cover"
-                                          />
-                                        </a>
-                                      ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-[11px] text-book-text-muted">
-                                          暂无图片
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </details>
-                )}
-
-                <div className="grid gap-4">
-                  {panels.map((panel) => {
-                    const panelImages = imagesByPanelId.get(panel.panel_id) || [];
-                    const activePanelImageId = activeImageByPanelId[panel.panel_id];
-                    const img = activePanelImageId
-                      ? (panelImages.find((i) => i.id === activePanelImageId) || panelImages[0])
-                      : panelImages[0];
-                    const firstDialogue = Array.isArray(panel.dialogues) && panel.dialogues.length > 0 ? panel.dialogues[0] : null;
-                    const dialogueSpeaker = firstDialogue ? String(firstDialogue?.speaker || firstDialogue?.character || '') : '';
-                    const dialogueText = firstDialogue ? String(firstDialogue?.text || firstDialogue?.content || '') : '';
-                    return (
-                      <BookCard key={panel.panel_id} className="p-3 text-sm">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="min-w-0">
-                            <div className="font-bold text-book-primary">
-                              Panel {panel.panel_number}
-                            </div>
-                            <div className="text-xs text-book-text-muted mt-1">
-                              {panel.shot_type} · {panel.aspect_ratio} · {panel.shape}
-                              {panel.characters?.length ? ` · 角色：${panel.characters.join(' / ')}` : ''}
-                            </div>
-                            {(dialogueSpeaker || dialogueText) && (
-                              <div className="mt-1 text-[11px] text-book-text-muted leading-relaxed">
-                                {dialogueSpeaker ? <span className="font-bold">{dialogueSpeaker}：</span> : null}
-                                {dialogueText}
-                              </div>
-                            )}
-                          </div>
-                          <BookButton
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleGeneratePanelImage(panel)}
-                            disabled={generatingPanelId !== null || batchGenerating}
-                          >
-                            <ImageIcon size={14} className={`mr-1 ${generatingPanelId === panel.panel_id ? 'animate-spin' : ''}`} />
-                            {generatingPanelId === panel.panel_id ? '生成中…' : (img ? '重绘' : '生成')}
-                          </BookButton>
-                        </div>
-
-                        {img && (
-                          <a href={resolveAssetUrl(img.url)} target="_blank" rel="noreferrer" className="block mb-2">
-                            <img
-                              src={resolveAssetUrl(img.url)}
-                              alt={panel.panel_id}
-                              loading="lazy"
-                              decoding="async"
-                              className="w-full rounded-md border border-book-border/30"
-                            />
-                          </a>
-                        )}
-
-                        {panelImages.length > 1 && (
-                          <div className="mb-2 flex gap-2 overflow-x-auto no-scrollbar">
-                            {panelImages.map((im) => {
-                              const selected = img?.id === im.id;
-                              return (
-                                <button
-                                  key={`panel-thumb-${im.id}`}
-                                  type="button"
-                                  onClick={() => setActiveImageByPanelId((prev) => ({ ...(prev || {}), [panel.panel_id]: im.id }))}
-                                  className={`flex-none w-14 h-14 rounded-md border overflow-hidden ${selected ? 'border-book-primary' : 'border-book-border/40 hover:border-book-primary/40'}`}
-                                  title={`image_id=${im.id}`}
-                                >
-                                  <img
-                                    src={resolveAssetUrl(im.url)}
-                                    alt={`thumb-${im.id}`}
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        <div className="space-y-2">
-                          <div className="flex justify-end gap-2">
-                            {img && (
-                              <BookButton
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeleteImage(img, `Panel ${panel.panel_number}（image_id=${img.id}）`)}
-                              >
-                                <Trash2 size={14} className="mr-1" />
-                                删除
-                              </BookButton>
-                            )}
-                            <BookButton variant="ghost" size="sm" onClick={() => copyText(panel.prompt || '', `Panel ${panel.panel_number} 提示词`)}>
-                              <Copy size={14} className="mr-1" />
-                              复制
-                            </BookButton>
-                          </div>
-                          <div className="bg-book-bg p-2 rounded text-xs font-mono text-book-text-tertiary whitespace-pre-wrap">
-                            {panel.prompt}
-                          </div>
-                        </div>
-                      </BookCard>
-                    );
-                  })}
-
-                  {panels.length === 0 && (
-                    <div className="py-6 text-center text-book-text-muted text-sm">
-                      本页暂无分镜（请先生成分镜）
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {activeTab === 'storyboard' && !manga && !generatingPrompts && (
-            <div className="py-8 text-center text-book-text-muted text-sm">
-              暂无分镜数据（可点击右上角“生成分镜”）
-            </div>
+          {activeTab === 'storyboard' && (
+            <MangaStoryboardTab
+              manga={manga}
+              generatingPrompts={generatingPrompts}
+              panelsByPageNumber={panelsByPageNumber}
+              pagePromptByPageNumber={pagePromptByPageNumber}
+              imagesByPanelId={imagesByPanelId}
+              activeImageByPanelId={activeImageByPanelId}
+              onSelectActiveImage={handleSelectActiveImage}
+              generatingPageNumber={generatingPageNumber}
+              generatingPanelId={generatingPanelId}
+              batchGenerating={batchGenerating}
+              onGeneratePageImage={handleGeneratePageImage}
+              onGeneratePanelImage={handleGeneratePanelImage}
+              onDeleteImage={handleDeleteImage}
+              onCopyText={copyText}
+            />
           )}
         </div>
       )}

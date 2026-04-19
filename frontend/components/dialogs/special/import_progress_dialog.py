@@ -52,7 +52,11 @@ class ImportProgressDialog(BaseDialog):
             self.api_client = api_client
             self._cancelled = False
             self._completed = False
+            self._failed = False
+            self._cancelling = False
+            self._poll_in_flight = False
             self._poll_timer = None
+            self._poll_workers = []
             self._cancel_worker = None
 
             # UI组件引用
@@ -252,8 +256,8 @@ class ImportProgressDialog(BaseDialog):
         logger.info("_start_polling 开始")
         print("DEBUG: _start_polling 开始")
 
-        # 保存 worker 引用，避免被垃圾回收
-        self._poll_workers = []
+        if self._poll_timer:
+            self._poll_timer.stop()
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_status)
@@ -277,9 +281,14 @@ class ImportProgressDialog(BaseDialog):
         logger.info("_poll_status 开始")
         print("DEBUG: _poll_status 开始")
 
-        if self._cancelled or self._completed or not self.api_client:
+        if self._cancelled or self._completed or self._failed or not self.api_client:
             logger.info(f"跳过轮询: cancelled={self._cancelled}, completed={self._completed}, api_client={self.api_client is not None}")
             print(f"DEBUG: 跳过轮询: cancelled={self._cancelled}, completed={self._completed}")
+            return
+
+        if self._poll_in_flight:
+            logger.info("跳过轮询: 上一次状态请求尚未完成")
+            print("DEBUG: 跳过轮询: 上一次状态请求尚未完成")
             return
 
         try:
@@ -294,10 +303,12 @@ class ImportProgressDialog(BaseDialog):
             worker = AsyncAPIWorker(fetch_status)
             worker.success.connect(self._on_status_received)
             worker.error.connect(self._on_status_error)
+            worker.finished.connect(self._prune_poll_workers)
 
             # 先启动 worker
             logger.info("启动轮询 worker...")
             print("DEBUG: 启动轮询 worker...")
+            self._poll_in_flight = True
             worker.start()
             logger.info("轮询 worker 已启动")
             print("DEBUG: 轮询 worker 已启动")
@@ -305,31 +316,33 @@ class ImportProgressDialog(BaseDialog):
             # 保存 worker 引用，避免被垃圾回收（在 start 之后）
             self._poll_workers.append(worker)
 
-            # 清理已完成的 worker（安全地检查，捕获已删除对象的异常）
-            if len(self._poll_workers) > 5:
-                active_workers = []
-                for w in self._poll_workers:
-                    try:
-                        if w.isRunning() or w == worker:
-                            active_workers.append(w)
-                    except RuntimeError:
-                        # C++ 对象已被删除，跳过
-                        pass
-                self._poll_workers = active_workers
-
         except Exception as e:
+            self._poll_in_flight = False
             logger.error(f"_poll_status 异常: {e}")
             logger.error(traceback.format_exc())
             print(f"DEBUG ERROR: _poll_status 异常: {e}")
             print(traceback.format_exc())
 
+    def _prune_poll_workers(self):
+        """清理已结束的轮询 worker 引用。"""
+        active_workers = []
+        for worker in self._poll_workers:
+            try:
+                if worker.isRunning():
+                    active_workers.append(worker)
+            except RuntimeError:
+                pass
+        self._poll_workers = active_workers
+
     def _on_status_received(self, data: dict):
         """处理状态响应"""
+        self._poll_in_flight = False
         status = data.get('status', 'pending')
         progress = data.get('progress', {})
 
         if status == 'completed':
             self._completed = True
+            self._cancelling = False
             self._stop_polling()
             self.stage_label.setText("分析完成")
             self.message_label.setText("分析已完成，正在关闭...")
@@ -339,19 +352,24 @@ class ImportProgressDialog(BaseDialog):
             return
 
         if status == 'failed':
+            self._failed = True
+            self._cancelling = False
             self._stop_polling()
             error = progress.get('error', '未知错误')
             self.stage_label.setText("分析失败")
             self.message_label.setText(f"错误: {error}")
             self.cancel_btn.setText("关闭")
+            self.cancel_btn.setEnabled(True)
             return
 
         if status == 'cancelled':
             self._cancelled = True
+            self._cancelling = False
             self._stop_polling()
             self.stage_label.setText("分析已取消")
             self.message_label.setText("分析任务已被取消")
             self.cancel_btn.setText("关闭")
+            self.cancel_btn.setEnabled(True)
             return
 
         # 更新进度
@@ -377,16 +395,21 @@ class ImportProgressDialog(BaseDialog):
 
     def _on_status_error(self, error_msg: str):
         """处理状态查询错误"""
+        self._poll_in_flight = False
         # 静默处理错误，继续轮询
         pass
 
     def _on_cancel(self):
         """取消按钮点击"""
-        if self._completed or self._cancelled:
+        if self._completed or self._cancelled or self._failed:
             self.reject()
             return
 
-        self._cancelled = True
+        if self._cancelling:
+            return
+
+        self._cancelling = True
+        self._stop_polling()
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText("正在取消...")
         self.message_label.setText("正在取消分析任务...")
@@ -401,6 +424,8 @@ class ImportProgressDialog(BaseDialog):
 
     def _on_cancel_success(self, data: dict):
         """取消成功"""
+        self._cancelled = True
+        self._cancelling = False
         self._stop_polling()
         self.stage_label.setText("分析已取消")
         self.message_label.setText("分析任务已被取消")
@@ -409,15 +434,38 @@ class ImportProgressDialog(BaseDialog):
 
     def _on_cancel_error(self, error_msg: str):
         """取消失败"""
+        self._cancelling = False
+        self._cancelled = False
         self.message_label.setText(f"取消失败: {error_msg}")
-        self.cancel_btn.setText("关闭")
+        self.cancel_btn.setText("重试取消")
         self.cancel_btn.setEnabled(True)
+
+        if not self._completed and not self._failed:
+            self._start_polling()
 
     def _stop_polling(self):
         """停止轮询"""
         if self._poll_timer:
             self._poll_timer.stop()
             self._poll_timer = None
+        self._poll_in_flight = False
+
+        for worker in self._poll_workers:
+            try:
+                worker.cancel()
+            except RuntimeError:
+                pass
+        self._poll_workers = []
+
+    def _stop_background_workers(self):
+        """停止后台 worker，避免对已关闭对话框继续回调。"""
+        self._stop_polling()
+
+        if self._cancel_worker:
+            try:
+                self._cancel_worker.cancel()
+            except RuntimeError:
+                pass
 
     def show(self):
         """显示对话框"""
@@ -427,21 +475,21 @@ class ImportProgressDialog(BaseDialog):
 
     def close(self):
         """关闭对话框"""
-        self._stop_polling()
+        self._stop_background_workers()
         if self.spinner:
             self.spinner.stop()
         super().close()
 
     def accept(self):
         """接受并关闭"""
-        self._stop_polling()
+        self._stop_background_workers()
         if self.spinner:
             self.spinner.stop()
         super().accept()
 
     def reject(self):
         """拒绝并关闭"""
-        self._stop_polling()
+        self._stop_background_workers()
         if self.spinner:
             self.spinner.stop()
         super().reject()

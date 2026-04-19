@@ -1,13 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Send, ArrowLeft, Bot, User, Sparkles, Wand2 } from 'lucide-react';
 import { useSSE } from '../hooks/useSSE';
 import { novelsApi } from '../api/novels';
 import { codingApi } from '../api/coding';
-import { BookButton } from '../components/ui/BookButton';
-import { BookTextarea } from '../components/ui/BookInput';
-import { Modal } from '../components/ui/Modal';
-import { BookCard } from '../components/ui/BookCard';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import {
@@ -16,193 +11,33 @@ import {
   markBlueprintGenerationPending,
 } from '../utils/blueprintPending';
 import {
-  NovelDialogIntro,
-  NovelDialogMetric,
-  NovelDialogMetricGrid,
-  NovelDialogSection,
-  NovelDialogStack,
-  NovelDialogSurface,
-} from '../components/business/novel/NovelDialogPrimitives';
-import { AppViewportFrame, AppViewportShell, SegmentPager } from '../components/layout/AppViewport';
-
-interface Message {
-  id: number;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  isStreaming?: boolean;
-}
+  AppViewportFrame,
+  AppViewportShell,
+} from '../components/layout/AppViewport';
+import { BlueprintPreviewModal } from './inspiration-chat/BlueprintPreviewModal';
+import { InspirationChatConversationPanel } from './inspiration-chat/InspirationChatConversationPanel';
+import { InspirationChatGuidePanel } from './inspiration-chat/InspirationChatGuidePanel';
+import { InspirationChatHero } from './inspiration-chat/InspirationChatHero';
+import { InspirationChatWorkspace } from './inspiration-chat/InspirationChatWorkspace';
+import {
+  getInspirationChatBootstrapKey,
+  getInspirationChatPersistKey,
+  INSPIRATION_CHAT_BOOTSTRAP_TTL_MS,
+  isPlainObject,
+  Message,
+  normalizeMessageContentForDisplay,
+  normalizeTextNewlines,
+  pickFirstNonEmptyString,
+  readPersistedInspirationChatState,
+  tryParseJsonFromText,
+  writePersistedInspirationChatState,
+  type InspirationChatBootstrapSnapshot,
+  type WorkspacePane,
+} from './inspiration-chat/shared';
 
 interface InspirationChatProps {
   mode?: 'novel' | 'coding';
 }
-
-type InspirationChatBootstrapSnapshot = {
-  messages: Array<Pick<Message, 'id' | 'role' | 'content'>>;
-  showBlueprintBtn: boolean;
-  conversationState: any;
-  options?: any[];
-};
-
-const INSPIRATION_CHAT_BOOTSTRAP_TTL_MS = 10 * 60 * 1000;
-const INSPIRATION_CHAT_PERSIST_TTL_MS = 180 * 24 * 60 * 60 * 1000;
-const getInspirationChatBootstrapKey = (mode: 'novel' | 'coding', projectId: string) =>
-  `afn:web:inspiration-chat:${mode}:${projectId}:bootstrap:v1`;
-const getInspirationChatPersistKey = (mode: 'novel' | 'coding', projectId: string) =>
-  `afn:web:inspiration-chat:${mode}:${projectId}:state:v1`;
-
-type InspirationChatPersistEnvelope = {
-  ts: number;
-  conversationState: any;
-  showBlueprintBtn: boolean;
-};
-
-type MaybeStructuredJson = Record<string, unknown> | unknown[] | null;
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
-const canUseLocalStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-const normalizeTextNewlines = (raw: string): string => {
-  const text = String(raw ?? '');
-  let normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  // 某些模型会把换行“二次转义”为字面量 "\\n"/"\\r\\n"，导致前端渲染看起来“不换行”。
-  // 这里做一次温和解码：仅对明确包含转义序列的文本进行替换。
-  if (normalized.includes('\\n') || normalized.includes('\\r')) {
-    normalized = normalized
-      .replace(/\\r\\n/g, '\n')
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\n');
-  }
-
-  return normalized;
-};
-
-const readPersistedInspirationChatState = (
-  key: string,
-  maxAgeMs: number = INSPIRATION_CHAT_PERSIST_TTL_MS,
-): InspirationChatPersistEnvelope | null => {
-  if (!canUseLocalStorage()) return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as InspirationChatPersistEnvelope;
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (!Number.isFinite(parsed.ts)) return null;
-    if (Date.now() - parsed.ts > Math.max(0, maxAgeMs)) return null;
-    if (!parsed.conversationState || typeof parsed.conversationState !== 'object') return null;
-    return {
-      ts: parsed.ts,
-      conversationState: parsed.conversationState,
-      showBlueprintBtn: Boolean(parsed.showBlueprintBtn),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writePersistedInspirationChatState = (key: string, payload: Omit<InspirationChatPersistEnvelope, 'ts'>) => {
-  if (!canUseLocalStorage()) return;
-  try {
-    const envelope: InspirationChatPersistEnvelope = {
-      ts: Date.now(),
-      conversationState: payload.conversationState,
-      showBlueprintBtn: Boolean(payload.showBlueprintBtn),
-    };
-    window.localStorage.setItem(key, JSON.stringify(envelope));
-  } catch {
-    // ignore
-  }
-};
-
-const tryParseJsonFromText = (raw: string): MaybeStructuredJson => {
-  const trimmed = String(raw || '').replace(/^\uFEFF/, '').trim();
-  if (!trimmed) return null;
-
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const candidate = (fenceMatch ? fenceMatch[1] : trimmed).trim();
-
-  const startsLikeJson =
-    (candidate.startsWith('{') && candidate.endsWith('}')) ||
-    (candidate.startsWith('[') && candidate.endsWith(']'));
-  if (!startsLikeJson) return null;
-
-  try {
-    return JSON.parse(candidate) as any;
-  } catch {
-    return null;
-  }
-};
-
-const pickFirstNonEmptyString = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
-  const text = value.trim();
-  return text ? text : null;
-};
-
-const deriveDisplayTextFromStructuredPayload = (
-  payload: MaybeStructuredJson,
-  role: Message['role'],
-  depth: number = 0,
-): string | null => {
-  if (!payload) return null;
-  if (depth >= 2) return null;
-
-  // history 的 user 记录通常是 {"text": "..."}
-  if (role === 'user' && isPlainObject(payload)) {
-    const userText =
-      pickFirstNonEmptyString(payload.text) ??
-      (isPlainObject(payload.user_input) ? pickFirstNonEmptyString(payload.user_input.text) : null);
-    return userText;
-  }
-
-  if (Array.isArray(payload)) {
-    const asStrings = payload
-      .map((item) => (typeof item === 'string' ? item.trim() : ''))
-      .filter(Boolean);
-    if (asStrings.length > 0) return asStrings.join('\n');
-    return null;
-  }
-
-  if (!isPlainObject(payload)) return null;
-
-  const primaryKeys = [
-    'ai_message',
-    'message',
-    'text',
-    'answer',
-    'content',
-    'reply',
-    'final_answer',
-    'final',
-    'output',
-  ];
-
-  for (const key of primaryKeys) {
-    const picked = pickFirstNonEmptyString(payload[key]);
-    if (picked) {
-      // 某些模型会把 ai_message 再包一层 JSON 字符串，这里做一次递归解包
-      const nested = tryParseJsonFromText(picked);
-      return nested
-        ? (deriveDisplayTextFromStructuredPayload(nested, role, depth + 1) ?? normalizeTextNewlines(picked))
-        : normalizeTextNewlines(picked);
-    }
-  }
-
-  // 兜底：如果缺少主文案，至少把 progress_summary 当可读内容展示（避免用户看到整段 JSON）
-  const progressSummary = pickFirstNonEmptyString(payload.progress_summary);
-  if (progressSummary) return normalizeTextNewlines(progressSummary);
-
-  return null;
-};
-
-const normalizeMessageContentForDisplay = (role: Message['role'], rawContent: unknown): string => {
-  const text = String(rawContent ?? '');
-  const parsed = tryParseJsonFromText(text);
-  const derived = deriveDisplayTextFromStructuredPayload(parsed, role);
-  return derived ?? text;
-};
 
 export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel' }) => {
   const { id } = useParams<{ id: string }>();
@@ -223,7 +58,7 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
   const [blueprintTip, setBlueprintTip] = useState<string | null>(null);
   const [options, setOptions] = useState<any[]>([]);
   const [conversationState, setConversationState] = useState<any>({});
-  const [workspacePane, setWorkspacePane] = useState<'conversation' | 'guide'>('conversation');
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('conversation');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const completionHintShownRef = useRef(false);
@@ -875,132 +710,19 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
 	    : showBlueprintBtn
       ? (mode === 'novel' ? '已具备生成蓝图条件' : '已具备生成架构设计条件')
       : '继续补充信息，让结构更扎实';
-  const workspacePaneItems = [
-    {
-      id: 'conversation',
-      label: '对话区',
-      hint: '继续推进灵感对话，保持上下文连续。',
-    },
-		    {
-		      id: 'guide',
-		      label: '引导区',
-		      hint: '查看当前进度与生成提示，不把它们堆到主对话下面。',
-		    },
-		  ] as const;
-
   return (
     <AppViewportShell>
-
-      <Modal
+      <BlueprintPreviewModal
         isOpen={isBlueprintConfirmOpen}
+        mode={mode}
+        showBlueprintBtn={showBlueprintBtn}
+        blueprintPreview={blueprintPreview}
+        blueprintTip={blueprintTip}
+        isGeneratingBlueprint={isGeneratingBlueprint}
         onClose={() => setIsBlueprintConfirmOpen(false)}
-        title="蓝图预览与确认"
-        maxWidthClassName="max-w-3xl"
-        footer={
-          <>
-            <BookButton variant="ghost" onClick={() => setIsBlueprintConfirmOpen(false)} disabled={isGeneratingBlueprint}>
-              返回对话
-            </BookButton>
-            <BookButton variant="secondary" onClick={regenerateBlueprint} disabled={isGeneratingBlueprint}>
-              {isGeneratingBlueprint ? '重新生成中…' : '重新生成'}
-            </BookButton>
-            {blueprintPreview && typeof blueprintPreview === 'object' ? (
-              <BookButton variant="primary" onClick={confirmBlueprintAndContinue}>
-                确认并继续
-              </BookButton>
-            ) : null}
-          </>
-        }
-      >
-        <NovelDialogStack>
-          <NovelDialogIntro
-            eyebrow={mode === 'novel' ? 'Story Blueprint' : 'System Blueprint'}
-            title={mode === 'novel' ? '确认故事蓝图' : '确认架构蓝图'}
-            description={
-              mode === 'novel'
-                ? '先快速判断作品名和一句话摘要是否对得上你的设想，再决定是否回到对话继续压实。'
-                : '先确认系统类型和一句话摘要是否准确，再决定是否回到对话继续澄清。'
-            }
-          >
-            <div className="flex flex-wrap gap-2">
-              <span className="story-pill">{mode === 'novel' ? '对话已压缩成故事蓝图' : '对话已压缩成系统方案'}</span>
-              {showBlueprintBtn ? <span className="story-pill">可继续下一阶段</span> : null}
-            </div>
-          </NovelDialogIntro>
-
-          {blueprintTip ? (
-            <NovelDialogSurface className="text-sm leading-relaxed text-book-text-sub">
-              {blueprintTip}
-            </NovelDialogSurface>
-          ) : null}
-
-          <NovelDialogMetricGrid>
-            <NovelDialogMetric
-              label={mode === 'novel' ? '标题 / 类型' : '系统类型'}
-              value={
-                mode === 'novel'
-                  ? String(blueprintPreview?.title || '（未命名）')
-                  : String(blueprintPreview?.project_type_desc || '（未设置项目类型）')
-              }
-              note={mode === 'novel' ? '先确认作品名是否贴合这轮灵感收敛结果。' : '先确认系统定位是否准确。'}
-            />
-            <NovelDialogMetric
-              label="一句话摘要"
-              value={String(
-                blueprintPreview?.one_sentence_summary || blueprintPreview?.summary || '（暂无一句话概要）'
-              )}
-              note="这是判断是否进入下一阶段的最快速参考。"
-            />
-          </NovelDialogMetricGrid>
-
-          <NovelDialogSection
-            eyebrow="Summary"
-            title="蓝图摘要"
-            description="这里展示当前蓝图的压缩摘要，适合快速决定是确认还是重生。"
-          >
-            <NovelDialogSurface>
-              {mode === 'novel' ? (
-                <div className="space-y-2 text-sm text-book-text-main">
-                  <div className="font-serif text-lg font-bold">
-                    {String(blueprintPreview?.title || '（未命名）')}
-                  </div>
-                  <div className="italic text-book-text-sub">
-                    {String(blueprintPreview?.one_sentence_summary || '（暂无一句话概要）')}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 text-sm text-book-text-main">
-                  <div className="font-serif text-lg font-bold">
-                    {String(blueprintPreview?.project_type_desc || '（未设置项目类型）')}
-                  </div>
-                  <div className="italic text-book-text-sub">
-                    {String(blueprintPreview?.one_sentence_summary || blueprintPreview?.summary || '（暂无一句话概要）')}
-                  </div>
-                </div>
-              )}
-            </NovelDialogSurface>
-          </NovelDialogSection>
-
-          <details className="rounded-xl border border-book-border/45 bg-book-bg-paper/80">
-            <summary className="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-book-text-main">
-              查看完整蓝图（JSON）
-            </summary>
-            <div className="px-5 pb-5">
-              <NovelDialogSurface className="max-h-[22rem] overflow-auto custom-scrollbar">
-                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
-                  {(() => {
-                    try {
-                      return JSON.stringify(blueprintPreview || {}, null, 2);
-                    } catch {
-                      return String(blueprintPreview ?? '');
-                    }
-                  })()}
-                </pre>
-              </NovelDialogSurface>
-            </div>
-          </details>
-        </NovelDialogStack>
-      </Modal>
+        onRegenerate={regenerateBlueprint}
+        onConfirm={confirmBlueprintAndContinue}
+      />
 
       <AppViewportFrame size={isElectronRuntime ? 'wide' : 'default'}>
         <div
@@ -1010,358 +732,62 @@ export const InspirationChat: React.FC<InspirationChatProps> = ({ mode = 'novel'
               : 'min-h-0 flex-1 flex flex-col gap-4'
           }
         >
-	          <section
-	            className={`relative overflow-hidden rounded-2xl border border-book-border/55 bg-book-bg-paper/95 shadow-surface-strong ${
-	              isElectronRuntime ? 'px-5 py-4' : 'px-5 py-5 sm:px-7 sm:py-6'
-	            }`}
-	          >
-	            <div
-	              className={
-	                isElectronRuntime
-	                  ? 'relative z-[1] flex flex-col gap-3'
-	                  : 'relative z-[1] flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between'
-	              }
-	            >
-	              <div className={`${isElectronRuntime ? 'min-w-0 space-y-2' : 'space-y-4'}`}>
-	                <div className="flex flex-wrap items-center justify-between gap-3">
-	                  <button
-	                    type="button"
-	                    onClick={() => navigate('/')}
-	                    className={`inline-flex ${isElectronRuntime ? 'h-10' : 'h-11'} items-center gap-2 rounded-full border border-book-border/55 bg-book-bg-paper/78 px-4 text-sm font-semibold text-book-text-main transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/30 hover:text-book-primary`}
-	                  >
-	                    <ArrowLeft size={16} />
-	                    返回首页
-	                  </button>
-	                  {isElectronRuntime ? (
-	                    <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-3 py-1.5 text-xs font-semibold text-book-text-main">
-	                      状态：{headerCompactStatus}
-	                    </div>
-	                  ) : (
-	                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-primary">
-	                      {mode === 'novel' ? '灵感对话' : '需求分析'}
-	                    </div>
-	                  )}
-	                </div>
+          <InspirationChatHero
+            isElectronRuntime={isElectronRuntime}
+            mode={mode}
+            stageTitle={stageTitle}
+            stageDescription={stageDescription}
+            headerCompactStatus={headerCompactStatus}
+            headerProgressLabel={headerProgressLabel}
+            headerProgressValue={headerProgressValue}
+            headerCollectedValue={headerCollectedValue}
+            conversationStatus={conversationStatus}
+            messagesCount={messages.length}
+            chapterCount={chapterCount}
+            codingRequiredProgress={codingRequiredProgress}
+            showBlueprintBtn={showBlueprintBtn}
+            isGeneratingBlueprint={isGeneratingBlueprint}
+            isTyping={isTyping}
+            onBackHome={() => navigate('/')}
+            onGenerateBlueprint={() => void handleGenerateBlueprintClick()}
+          />
 
-	                <div>
-	                  <h1
-	                    className={
-	                      isElectronRuntime
-	                        ? 'font-serif text-3xl font-bold leading-[1.08] tracking-[-0.02em] text-book-text-main'
-	                        : 'font-serif text-[clamp(2.4rem,6vw,4.8rem)] font-bold leading-[0.95] tracking-[-0.04em] text-book-text-main'
-	                    }
-	                  >
-	                    {stageTitle}
-	                  </h1>
-		                  <p
-		                    className={
-		                      isElectronRuntime
-		                        ? 'mt-2 text-sm leading-relaxed text-book-text-sub'
-		                        : 'mt-3 max-w-3xl text-sm leading-relaxed text-book-text-sub sm:text-base'
-		                    }
-		                  >
-		                    {stageDescription}
-		                  </p>
-		                  {isElectronRuntime ? (
-		                    <div className="mt-2 flex flex-wrap items-center gap-2">
-		                      <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-3 py-1.5 text-xs font-semibold text-book-text-main">
-		                        {headerProgressLabel}：{headerProgressValue}
-		                      </div>
-		                      <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-3 py-1.5 text-xs font-semibold text-book-text-main">
-		                        沉淀：{headerCollectedValue}
-		                      </div>
-		                    </div>
-		                  ) : null}
-		                  {!isElectronRuntime ? (
-		                    <div className="mt-4 flex flex-wrap gap-2">
-		                      <span className="story-pill">{conversationStatus}</span>
-		                      <span className="story-pill">对话 {messages.length} 条</span>
-	                      {mode === 'coding' && codingRequiredProgress ? (
-	                        <span className="story-pill">
-	                          必需信息 {codingRequiredProgress.done}/{codingRequiredProgress.total}
-	                        </span>
-	                      ) : null}
-	                      {mode === 'novel' ? (
-	                        <span className="story-pill">{chapterCount ? `篇幅：${chapterCount} 章` : '待确认篇幅'}</span>
-	                      ) : null}
-	                    </div>
-		                  ) : null}
-		                </div>
-		              </div>
-
-		              <div className={isElectronRuntime ? 'flex flex-col gap-2' : 'flex shrink-0 flex-col gap-2 items-start'}>
-		                <BookButton
-		                  variant={showBlueprintBtn ? 'primary' : 'secondary'}
-		                  size="lg"
-		                  onClick={() => void handleGenerateBlueprintClick()}
-		                  disabled={isGeneratingBlueprint || isTyping}
-		                  className={isElectronRuntime ? 'w-full justify-center' : 'self-start'}
-		                >
-		                  <Wand2 size={16} />
-		                  {isGeneratingBlueprint ? '生成中…' : mode === 'coding' ? '生成架构设计' : '生成蓝图'}
-		                </BookButton>
-		                {!isElectronRuntime ? (
-		                  <div className="text-xs leading-relaxed text-book-text-sub">
-		                    {showBlueprintBtn
-		                      ? '信息已足够清晰：生成后会弹出预览与确认。'
-		                      : '信息可能未完整：也可以先试生成草稿，后面再补充并重生。'}
-		                  </div>
-		                ) : null}
-		              </div>
-		            </div>
-		          </section>
-	
-	        <div className={isElectronRuntime ? 'hidden' : 'xl:hidden'}>
-	          <div className="relative overflow-hidden rounded-xl border border-book-border/55 bg-book-bg-paper/95 shadow-surface px-4 py-4">
-	            <div className="relative z-[1]">
-	              <SegmentPager
-                items={[...workspacePaneItems]}
-                value={workspacePane}
-                onChange={(next) => setWorkspacePane(next as 'conversation' | 'guide')}
+          <InspirationChatWorkspace
+            isElectronRuntime={isElectronRuntime}
+            workspacePane={workspacePane}
+            onWorkspacePaneChange={setWorkspacePane}
+            guidePanel={
+              <InspirationChatGuidePanel
+                isElectronRuntime={isElectronRuntime}
+                isTyping={isTyping}
+                mode={mode}
+                showBlueprintBtn={showBlueprintBtn}
+                progressSummaryLines={progressSummaryLines}
+                progressSummaryMaxLines={progressSummaryMaxLines}
+                progressSummaryPlaceholder={progressSummaryPlaceholder}
+                onFocusConversation={() => {
+                  setWorkspacePane('conversation');
+                  window.setTimeout(() => inputRef.current?.focus(), 0);
+                }}
               />
-            </div>
-          </div>
-	        </div>
-	
-	        <section
-	          className={`grid min-h-0 flex-1 gap-4 ${
-	            isElectronRuntime ? 'contents' : 'xl:grid-cols-[320px_minmax(0,1fr)]'
-	          }`}
-	        >
-		          <div
-		            className={
-		                isElectronRuntime
-		                  ? 'col-start-1 row-start-2 min-h-0 h-full flex flex-col'
-		                  : `${workspacePane === 'guide' ? 'min-h-0' : 'hidden'} xl:block`
-		              }
-		          >
-		            <div className={isElectronRuntime ? 'min-h-0 h-full flex flex-col pr-2' : ''}>
-			              <aside className="space-y-4 h-full">
-			                <BookCard
-                      className="p-6 h-full min-h-0 flex flex-col"
-                      variant={isElectronRuntime ? 'default' : 'flat'}
-                    >
-		                  <div className="flex items-center justify-between gap-3">
-		                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-		                      引导区
-		                    </div>
-	                    {!isTyping ? (
-	                      <button
-	                        type="button"
-	                        onClick={() => {
-	                          setWorkspacePane('conversation');
-	                          window.setTimeout(() => inputRef.current?.focus(), 0);
-	                        }}
-	                        className="rounded-full border border-book-border/55 bg-book-bg-paper/78 px-3 py-1.5 text-xs font-semibold text-book-text-main transition-all duration-300 hover:-translate-y-0.5 hover:border-book-primary/35 hover:text-book-primary"
-	                      >
-	                        去回答
-	                      </button>
-	                    ) : null}
-	                  </div>
-
-	                      <div className="mt-4 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-	                        当前进度
-	                      </div>
-	                      <div className="mt-3 flex-1 min-h-0 flex flex-col">
-	                        {progressSummaryLines.length > 0 ? (
-                          isElectronRuntime ? (
-                            <>
-                              <ul className="space-y-2">
-                                {progressSummaryLines.slice(0, progressSummaryMaxLines).map((line, idx) => (
-                                  <li key={`${idx}-${line}`} className="flex gap-2 text-sm text-book-text-main">
-                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-book-primary/70" />
-                                    <span className="flex-1 leading-relaxed line-clamp-2">{line}</span>
-                                  </li>
-                                ))}
-                              </ul>
-	                              <div className="mt-auto pt-4 text-xs leading-relaxed text-book-text-sub">
-	                                {showBlueprintBtn
-	                                  ? (mode === 'coding' ? '信息已足够清晰，可以开始生成架构设计。' : '信息已足够清晰，可以开始生成蓝图。')
-	                                  : '继续在右侧对话区补充信息，这里会自动汇总你已经确认的关键点。'}
-	                              </div>
-	                            </>
-	                          ) : (
-                            <ul className="space-y-2">
-                              {progressSummaryLines.slice(0, progressSummaryMaxLines).map((line, idx) => (
-                                <li
-                                  key={`${idx}-${line}`}
-                                  className="flex gap-3 rounded-xl border border-book-border/45 bg-book-bg-paper/70 px-4 py-3 text-sm text-book-text-main"
-                                >
-                                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-book-primary/70" />
-                                  <span className="flex-1 leading-relaxed">
-                                    {line}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          )
-                        ) : (
-                          <div className="flex-1 rounded-xl border border-dashed border-book-border/50 bg-book-bg-paper/60 px-4 py-4 text-sm leading-relaxed text-book-text-sub flex items-center">
-                            <div className="w-full">
-                              <div className="text-sm text-book-text-main font-semibold">
-                                {isTyping ? 'AI 正在整理当前进度…' : '进度会在每轮对话后自动生成'}
-                              </div>
-                              <div className="mt-2 text-sm leading-relaxed text-book-text-sub">
-                                {isTyping ? '请稍等片刻。' : progressSummaryPlaceholder}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-			                </BookCard>
-			              </aside>
-		            </div>
-		          </div>
-
-          <div
-            className={
-              isElectronRuntime
-                ? 'col-start-2 row-start-1 row-span-2 min-h-0'
-                : `${workspacePane === 'conversation' ? 'min-h-0' : 'hidden'} xl:block`
             }
-          >
-              <div className={`relative overflow-hidden ${isElectronRuntime ? '' : 'min-h-[30rem]'} h-full min-h-0 rounded-2xl border border-book-border/55 bg-book-bg-paper/95 shadow-surface-strong p-4 sm:p-6`}>
-                <div className="relative z-[1] flex h-full min-h-0 flex-col">
-                {isElectronRuntime ? (
-                  <div className="flex items-center justify-between gap-3 border-b border-book-border/40 pb-3">
-                    <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-                      对话区
-                    </div>
-                    <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-3 py-1.5 text-xs font-semibold text-book-text-main">
-                      {isTyping ? '生成中…' : '等待输入'}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-book-border/40 pb-4">
-                    <div>
-                      <h2 className="font-serif text-3xl font-bold text-book-text-main">
-                        {mode === 'novel' ? '把故事说到足够具体' : '把系统边界说到足够清晰'}
-                      </h2>
-                    </div>
-                    <div className="rounded-full border border-book-border/55 bg-book-bg/78 px-4 py-2 text-sm font-semibold text-book-text-main">
-                      {isTyping ? '生成中' : '等待输入'}
-                    </div>
-                  </div>
-                )}
-
-                <div className={`${isElectronRuntime ? 'mt-4' : 'mt-6'} flex-1 min-h-0 overflow-y-auto pr-2 custom-scrollbar ${isElectronRuntime ? '' : 'scroll-smooth'}`}>
-                  {messages.length === 0 ? (
-                    <div className="flex h-full min-h-[20rem] flex-col items-center justify-center rounded-2xl border border-dashed border-book-border/55 bg-book-bg-paper/60 px-6 text-center">
-                      <div className="flex h-20 w-20 items-center justify-center rounded-full border border-book-border/50 bg-book-bg/75 text-book-primary">
-                        <Sparkles size={36} />
-                      </div>
-                      <div className="mt-5 font-serif text-3xl font-bold text-book-text-main">
-                        {mode === 'novel' ? '先把故事火种抛进来' : '先把系统目标抛进来'}
-                      </div>
-                      <p className="mt-3 max-w-xl text-sm leading-relaxed text-book-text-sub">
-                        {mode === 'novel'
-                          ? '说世界观、人物、冲突、情绪或任何零散念头都可以。系统会帮你压出一个可展开的长篇骨架。'
-                          : '说业务目标、用户角色、核心流程或技术约束都可以。系统会帮你收束为可交付的架构起点。'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-5">
-                      {messages.map((msg) => (
-                        <div
-                          key={msg.id}
-                          className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                        >
-                          {msg.role !== 'user' ? (
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-book-border/50 bg-book-bg/78 text-book-primary">
-                              <Bot size={18} />
-                            </div>
-                          ) : null}
-
-                          <div
-                            className={`
-                              max-w-[88%] rounded-xl px-5 py-4 shadow-surface
-                              ${msg.role === 'user'
-                                ? 'bg-book-primary text-white'
-                                : 'border border-book-border/55 bg-book-bg-paper/82 text-book-text-main'}
-                            `}
-                          >
-                            <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-[0.18em] opacity-80">
-                              {msg.role === 'user' ? 'You' : 'AFN'}
-                            </div>
-                            <div className="whitespace-pre-wrap text-[15px] leading-relaxed">
-                              {msg.content}
-                            </div>
-                            {msg.isStreaming ? (
-                              <span className="mt-2 inline-block h-4 w-1.5 rounded-full bg-current align-middle animate-pulse" />
-                            ) : null}
-                          </div>
-
-                          {msg.role === 'user' ? (
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-book-primary/30 bg-book-primary text-white">
-                              <User size={18} />
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-
-                      {!isTyping && options.length > 0 ? (
-                        <div className="flex flex-wrap gap-3 pl-0 sm:pl-16">
-                          {options.map((opt, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() => void sendText(`选择：${String(opt?.label || '')}`)}
-                              className="rounded-full border border-book-primary/28 bg-book-bg-paper/82 px-4 py-2 text-sm font-semibold text-book-primary transition-all duration-300 hover:-translate-y-0.5 hover:bg-book-primary hover:text-white"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                <div className={`${isElectronRuntime ? 'mt-4' : 'mt-6'} border-t border-book-border/40 pt-4`}>
-                  <div
-                    className={`
-                      rounded-xl border border-book-border/55 backdrop-blur-xl p-3 shadow-surface
-                      ${isElectronRuntime ? 'bg-book-bg-paper/92' : 'bg-book-bg-paper/72'}
-                    `}
-                  >
-                    <div className="relative">
-	                      <BookTextarea
-	                        ref={inputRef}
-	                        className={`${isElectronRuntime ? 'min-h-[104px]' : 'min-h-[132px]'} max-h-56 resize-none border-none bg-transparent px-4 pb-4 pr-20 pt-4 shadow-none focus:ring-0`}
-	                        placeholder="输入你的想法... (Shift + Enter 换行)"
-	                        value={inputValue}
-	                        onChange={(e) => setInputValue(e.target.value)}
-	                        onKeyDown={handleKeyDown}
-                        spellCheck={false}
-                        disabled={isTyping}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSend}
-                        disabled={!inputValue.trim() || isTyping}
-                        className={`
-                          absolute bottom-4 right-4 inline-flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300
-                          ${!inputValue.trim() || isTyping
-                            ? 'cursor-not-allowed border border-book-border/50 bg-book-bg text-book-text-muted opacity-60'
-                            : 'border border-book-primary bg-book-primary text-white shadow-surface-strong hover:-translate-y-0.5 hover:bg-book-primary-light'}
-                        `}
-                      >
-                        <Send size={18} className={isTyping ? 'opacity-0' : 'opacity-100'} />
-                        {isTyping ? (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                          </div>
-                        ) : null}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+            conversationPanel={
+              <InspirationChatConversationPanel
+                isElectronRuntime={isElectronRuntime}
+                mode={mode}
+                isTyping={isTyping}
+                messages={messages}
+                options={options}
+                inputValue={inputValue}
+                messagesEndRef={messagesEndRef}
+                inputRef={inputRef}
+                onChangeInputValue={setInputValue}
+                onSend={handleSend}
+                onKeyDown={handleKeyDown}
+                onOptionSelect={(label) => void sendText(`选择：${label}`)}
+              />
+            }
+          />
         </div>
       </AppViewportFrame>
     </AppViewportShell>

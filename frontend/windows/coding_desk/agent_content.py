@@ -337,7 +337,11 @@ class AgentPlanningContent(ThemeAwareFrame):
 
         # 启动SSE连接
         url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"clear_existing": True})
+        self._sse_worker = SSEWorker(
+            url,
+            {"clear_existing": True},
+            session=self.api_client.session,
+        )
         self._connect_sse_signals()
         self._sse_worker.start()
 
@@ -360,7 +364,11 @@ class AgentPlanningContent(ThemeAwareFrame):
         self._append_output("[系统] 从现有目录结构开始优化...\n", "info")
 
         url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"clear_existing": False})
+        self._sse_worker = SSEWorker(
+            url,
+            {"clear_existing": False},
+            session=self.api_client.session,
+        )
         self._connect_sse_signals()
         self._sse_worker.start()
 
@@ -382,7 +390,11 @@ class AgentPlanningContent(ThemeAwareFrame):
         self._append_output("[系统] 正在从上次中断处继续...\n", "info")
 
         url = self.api_client.get_directory_plan_agent_url(self.project_id)
-        self._sse_worker = SSEWorker(url, {"resume": True})
+        self._sse_worker = SSEWorker(
+            url,
+            {"resume": True},
+            session=self.api_client.session,
+        )
         self._connect_sse_signals()
         self._sse_worker.start()
 

@@ -1,92 +1,40 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookCard } from '../ui/BookCard';
-import { BookButton } from '../ui/BookButton';
 import { useToast } from '../feedback/Toast';
 import { confirmDialog } from '../feedback/ConfirmDialog';
 import { useSSE } from '../../hooks/useSSE';
 import { apiClient } from '../../api/client';
-import { Wand2, PauseCircle, PlayCircle, XCircle, ListChecks, CheckCircle2, Copy, Undo2, Eye, Search } from 'lucide-react';
-import { Modal } from '../ui/Modal';
 import {
-  NovelDialogIntro,
-  NovelDialogMetric,
-  NovelDialogMetricGrid,
-  NovelDialogSection,
-  NovelDialogStack,
-  NovelDialogSurface,
-} from './novel/NovelDialogPrimitives';
+  DIMENSIONS,
+  THINKING_LABELS,
+  buildUpdatedContent,
+  getSuggestionKey,
+  parseRangeInput,
+} from './content-optimization/shared';
+import type {
+  AnalysisScope,
+  InlinePreviewState,
+  OptimizationMode,
+  ParagraphPreviewResponse,
+  Suggestion,
+  ThinkingEvent,
+  ThinkingEventType,
+  UndoSnapshot,
+} from './content-optimization/shared';
+import { ContentOptimizationControlsCard } from './content-optimization/ContentOptimizationControlsCard';
+import { ContentOptimizationInlinePreviewCard } from './content-optimization/ContentOptimizationInlinePreviewCard';
+import { ContentOptimizationStatusCard } from './content-optimization/ContentOptimizationStatusCard';
+import { ContentOptimizationSuggestionsPanel } from './content-optimization/ContentOptimizationSuggestionsPanel';
+import { ContentOptimizationThinkingPanel } from './content-optimization/ContentOptimizationThinkingPanel';
+import { OptimizationSuggestionPreviewModal } from './content-optimization/OptimizationSuggestionPreviewModal';
 
-type OptimizationMode = 'auto' | 'review' | 'plan';
-type AnalysisScope = 'full' | 'selected';
+const MAX_UNDO_STACK_SIZE = 30;
+const MAX_THINKING_EVENTS = 400;
 
-type ParagraphPreview = {
-  index: number;
-  preview: string;
-  length: number;
-};
-
-type ParagraphPreviewResponse = {
-  total_paragraphs: number;
-  paragraphs: ParagraphPreview[];
-};
-
-type Suggestion = {
-  paragraph_index: number;
-  original_text: string;
-  suggested_text: string;
-  reason: string;
-  category: string;
-  priority: string;
-};
-
-type UndoSnapshot = {
-  content: string;
-  key: string;
-  label: string;
-};
-
-type ThinkingEventType = 'thinking' | 'action' | 'observation' | 'progress' | 'error';
-
-type ThinkingEvent = {
-  id: string;
-  type: ThinkingEventType;
-  title: string;
-  content: string;
-  ts: number;
-};
-
-type InlineDiffSeg = { type: 'same' | 'remove' | 'add'; text: string };
-
-type InlinePreviewState = {
-  suggestion: Suggestion;
-  key: string;
-  beforeContent: string;
-  afterContent: string;
-  label: string;
-  range: { start: number; end: number } | null;
-};
-
-const DIMENSIONS: Array<{ id: string; label: string }> = [
-  { id: 'coherence', label: '逻辑连贯性' },
-  { id: 'character', label: '角色一致性' },
-  { id: 'foreshadow', label: '伏笔呼应' },
-  { id: 'timeline', label: '时间线一致性' },
-  { id: 'style', label: '风格一致性' },
-  { id: 'scene', label: '场景描写' },
-];
-
-const priorityColor: Record<string, string> = {
-  high: 'text-red-600',
-  medium: 'text-orange-600',
-  low: 'text-book-text-muted',
-};
-
-const THINKING_LABELS: Record<ThinkingEventType, { label: string; cls: string }> = {
-  thinking: { label: 'Thinking', cls: 'text-book-primary' },
-  action: { label: 'Action', cls: 'text-book-accent' },
-  observation: { label: 'Observation', cls: 'text-green-600' },
-  progress: { label: 'Progress', cls: 'text-book-text-muted' },
-  error: { label: 'Error', cls: 'text-red-600' },
+const clampUndoStack = (stack: UndoSnapshot[]): UndoSnapshot[] => {
+  if (stack.length <= MAX_UNDO_STACK_SIZE) {
+    return stack;
+  }
+  return stack.slice(stack.length - MAX_UNDO_STACK_SIZE);
 };
 
 interface ContentOptimizationViewProps {
@@ -131,49 +79,13 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
 
   const [thinkingEvents, setThinkingEvents] = useState<ThinkingEvent[]>([]);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const thinkingScrollRef = useRef<HTMLDivElement | null>(null);
+  const thinkingScrollRef = useRef<HTMLDivElement>(null);
 
   const appliedSet = useMemo(() => new Set(appliedKeys), [appliedKeys]);
 
-  const getSuggestionKey = useCallback((s: Suggestion) => {
-    return `${s.paragraph_index}:${s.category}:${s.priority}:${(s.original_text || '').length}`;
+  const pushUndoSnapshot = useCallback((snapshot: UndoSnapshot) => {
+    setUndoStack((prev) => clampUndoStack([...prev, snapshot]));
   }, []);
-
-  const splitParagraphs = useCallback((text: string) => {
-    const parts: Array<{ start: number; end: number; text: string }> = [];
-    const re = /\n{2,}/g; // 两个及以上换行视为段落分隔（textarea 输入通常为 \n）
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      const end = m.index;
-      parts.push({ start: last, end, text: text.slice(last, end) });
-      last = m.index + m[0].length;
-    }
-    parts.push({ start: last, end: text.length, text: text.slice(last) });
-    return parts;
-  }, []);
-
-  const buildUpdatedContent = useCallback((s: Suggestion, current: string): { content: string; range: { start: number; end: number } } | null => {
-    const target = s.original_text || '';
-    const replacement = s.suggested_text || '';
-    if (!target.trim()) return null;
-
-    const paraIdx = typeof s.paragraph_index === 'number' ? s.paragraph_index : -1;
-    const paras = splitParagraphs(current);
-    const para = paraIdx >= 0 && paraIdx < paras.length ? paras[paraIdx] : null;
-    if (para && para.text.includes(target)) {
-      const localIdx = para.text.indexOf(target);
-      const replacedPara = para.text.slice(0, localIdx) + replacement + para.text.slice(localIdx + target.length);
-      const updated = current.slice(0, para.start) + replacedPara + current.slice(para.end);
-      const start = para.start + localIdx;
-      return { content: updated, range: { start, end: start + replacement.length } };
-    }
-
-    const idx = current.indexOf(target);
-    if (idx < 0) return null;
-    const updated = current.slice(0, idx) + replacement + current.slice(idx + target.length);
-    return { content: updated, range: { start: idx, end: idx + replacement.length } };
-  }, [splitParagraphs]);
 
   const applySuggestion = useCallback((s: Suggestion) => {
     if (!onChangeContent) {
@@ -188,49 +100,13 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
 
     const key = getSuggestionKey(s);
     const snapshot: UndoSnapshot = { content, key, label: `段落 ${s.paragraph_index + 1} · ${s.category}` };
-    setUndoStack((prev) => {
-      const next = [...prev, snapshot];
-      // 控制撤销栈长度，避免长期占用内存
-      if (next.length > 30) next.shift();
-      return next;
-    });
+    pushUndoSnapshot(snapshot);
 
     onChangeContent(result.content);
     if (onSelectRange) onSelectRange(result.range.start, result.range.end);
     setAppliedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
     addToast('已应用该条建议（仅修改本地编辑器内容）', 'success');
-  }, [addToast, buildUpdatedContent, content, getSuggestionKey, onChangeContent, onSelectRange]);
-
-  const buildSimpleInlineDiff = useCallback((original: string, suggested: string): InlineDiffSeg[] => {
-    const a = String(original || '');
-    const b = String(suggested || '');
-    if (!a && !b) return [];
-    if (a === b) return [{ type: 'same', text: a }];
-
-    const maxPrefix = Math.min(a.length, b.length);
-    let prefix = 0;
-    while (prefix < maxPrefix && a[prefix] === b[prefix]) prefix += 1;
-
-    const maxSuffix = maxPrefix - prefix;
-    let suffix = 0;
-    while (
-      suffix < maxSuffix &&
-      a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
-    ) {
-      suffix += 1;
-    }
-
-    const aMid = a.slice(prefix, a.length - suffix);
-    const bMid = b.slice(prefix, b.length - suffix);
-    const segs: InlineDiffSeg[] = [];
-    const head = a.slice(0, prefix);
-    const tail = suffix ? a.slice(a.length - suffix) : '';
-    if (head) segs.push({ type: 'same', text: head });
-    if (aMid) segs.push({ type: 'remove', text: aMid });
-    if (bMid) segs.push({ type: 'add', text: bMid });
-    if (tail) segs.push({ type: 'same', text: tail });
-    return segs;
-  }, []);
+  }, [addToast, content, onChangeContent, onSelectRange, pushUndoSnapshot]);
 
   const startInlinePreview = useCallback((s: Suggestion) => {
     if (!onChangeContent) {
@@ -267,20 +143,16 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
     onChangeContent(result.content);
     if (onSelectRange) onSelectRange(result.range.start, result.range.end);
     addToast(`已在编辑器中预览：${label}（请确认或撤销）`, 'success');
-  }, [addToast, buildUpdatedContent, content, getSuggestionKey, inlinePreview, onChangeContent, onSelectRange]);
+  }, [addToast, content, inlinePreview, onChangeContent, onSelectRange]);
 
   const confirmInlinePreview = useCallback(() => {
     if (!inlinePreview) return;
     const snapshot: UndoSnapshot = { content: inlinePreview.beforeContent, key: inlinePreview.key, label: inlinePreview.label };
-    setUndoStack((prev) => {
-      const next = [...prev, snapshot];
-      if (next.length > 30) next.shift();
-      return next;
-    });
+    pushUndoSnapshot(snapshot);
     setAppliedKeys((prev) => (prev.includes(inlinePreview.key) ? prev : [...prev, inlinePreview.key]));
     setInlinePreview(null);
     addToast(`已确认并应用：${inlinePreview.label}`, 'success');
-  }, [addToast, inlinePreview]);
+  }, [addToast, inlinePreview, pushUndoSnapshot]);
 
   const revertInlinePreview = useCallback(async () => {
     if (!inlinePreview) return;
@@ -358,8 +230,9 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
 
     setThinkingEvents((prev) => {
       const next = [...prev, item];
-      // 上限：避免长时间运行导致内存膨胀
-      if (next.length > 400) next.splice(0, next.length - 400);
+      if (next.length > MAX_THINKING_EVENTS) {
+        next.splice(0, next.length - MAX_THINKING_EVENTS);
+      }
       return next;
     });
   }, []);
@@ -371,42 +244,6 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
     el.scrollTop = el.scrollHeight;
   }, [thinkingExpanded, thinkingEvents.length]);
 
-  const parseRangeInput = useCallback((text: string, maxCount: number): number[] => {
-    const raw = (text || '').trim();
-    if (!raw) return [];
-    const maxIndex = Math.max(0, Math.floor(maxCount));
-
-    const result = new Set<number>();
-    const parts = raw
-      .split(/[,\s]+/g)
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    for (const part of parts) {
-      if (!part) continue;
-      if (part.includes('-')) {
-        const seg = part.split('-').map((s) => s.trim()).filter(Boolean);
-        if (seg.length !== 2) continue;
-        const start = Number(seg[0]);
-        const end = Number(seg[1]);
-        if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-        const a = Math.max(1, Math.floor(Math.min(start, end)));
-        const b = Math.max(1, Math.floor(Math.max(start, end)));
-        for (let i = a; i <= b; i += 1) {
-          const idx = i - 1;
-          if (idx >= 0 && idx < maxIndex) result.add(idx);
-        }
-      } else {
-        const n = Number(part);
-        if (!Number.isFinite(n)) continue;
-        const idx = Math.floor(n) - 1;
-        if (idx >= 0 && idx < maxIndex) result.add(idx);
-      }
-    }
-
-    return Array.from(result).sort((a, b) => a - b);
-  }, []);
-
   const applyRangeSelection = useCallback(() => {
     if (!preview) {
       addToast('请先获取段落预览', 'info');
@@ -417,7 +254,7 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
     if (indices.length === 0 && rangeInput.trim()) {
       addToast('范围解析为空，请输入如：1-5, 9-18, 20', 'info');
     }
-  }, [addToast, parseRangeInput, preview, rangeInput]);
+  }, [addToast, preview, rangeInput]);
 
   const copyThinkingStream = useCallback(async () => {
     if (!thinkingEvents.length) return;
@@ -444,6 +281,16 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
       addToast('复制失败（浏览器权限/非 HTTPS 环境）', 'error');
     }
   }, [addToast, thinkingEvents]);
+
+  const copySuggestionText = useCallback(async (suggestion: Suggestion) => {
+    try {
+      await navigator.clipboard.writeText(suggestion.suggested_text || '');
+      addToast('已复制建议文本', 'success');
+    } catch (e) {
+      console.error(e);
+      addToast('复制失败（可能缺少剪贴板权限）', 'error');
+    }
+  }, [addToast]);
 
   const handleEvent = useCallback((event: string, data: any) => {
     if (event === 'workflow_start') {
@@ -658,562 +505,114 @@ export const ContentOptimizationView: React.FC<ContentOptimizationViewProps> = (
   const previewKey = useMemo(() => {
     if (!previewSuggestion) return '';
     return getSuggestionKey(previewSuggestion);
-  }, [getSuggestionKey, previewSuggestion]);
+  }, [previewSuggestion]);
 
   const previewApplied = useMemo(() => {
     if (!previewKey) return false;
     return appliedSet.has(previewKey);
   }, [appliedSet, previewKey]);
 
+  const canEdit = Boolean(onChangeContent);
+
+  const toggleParagraphSelection = useCallback((index: number) => {
+    setSelectedParagraphs((prev) => {
+      if (prev.includes(index)) {
+        return prev.filter((item) => item !== index);
+      }
+      return [...prev, index].sort((left, right) => left - right);
+    });
+  }, []);
+
+  const previewSuggestionInEditor = useCallback(() => {
+    if (!previewSuggestion) return;
+    startInlinePreview(previewSuggestion);
+    setPreviewSuggestion(null);
+  }, [previewSuggestion, startInlinePreview]);
+
+  const applyPreviewSuggestion = useCallback(() => {
+    if (!previewSuggestion) return;
+    applySuggestion(previewSuggestion);
+    setPreviewSuggestion(null);
+  }, [applySuggestion, previewSuggestion]);
+
   return (
     <div className="space-y-4">
-      <BookCard className="p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="font-bold text-book-text-main flex items-center gap-2">
-            <Wand2 size={16} className="text-book-primary" />
-            正文优化
-          </div>
-          <div className="text-xs text-book-text-muted">
-            状态：{statusText}
-            {typeof currentParagraph === 'number' && typeof totalParagraphs === 'number'
-              ? ` · 段落 ${currentParagraph + 1}/${totalParagraphs}`
-              : null}
-          </div>
-        </div>
-      </BookCard>
+      <ContentOptimizationStatusCard
+        statusText={statusText}
+        currentParagraph={currentParagraph}
+        totalParagraphs={totalParagraphs}
+      />
 
       {inlinePreview ? (
-        <BookCard className="p-4 border border-book-accent/30 bg-book-bg-paper">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-bold text-book-text-main">正在预览：{inlinePreview.label}</div>
-              <div className="mt-1 text-xs text-book-text-muted leading-relaxed">
-                预览会直接修改编辑器内容；请尽快“确认/撤销”。如需手动编辑，建议先确认后再改，避免撤销覆盖。
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {onSelectRange && inlinePreview.range ? (
-                <BookButton
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onSelectRange(inlinePreview.range!.start, inlinePreview.range!.end)}
-                  title="重新定位到修改位置"
-                >
-                  <Search size={14} className="mr-1" />
-                  定位
-                </BookButton>
-              ) : null}
-              <BookButton variant="ghost" size="sm" onClick={revertInlinePreview}>
-                <Undo2 size={14} className="mr-1" />
-                撤销预览
-              </BookButton>
-              <BookButton variant="primary" size="sm" onClick={confirmInlinePreview}>
-                <CheckCircle2 size={14} className="mr-1" />
-                确认应用
-              </BookButton>
-            </div>
-          </div>
-
-          <div className="mt-3 text-xs">
-            <div className="text-[11px] text-book-text-muted mb-1">差异高亮</div>
-            <div className="p-3 rounded-lg border border-book-border/40 bg-book-bg whitespace-pre-wrap font-mono leading-relaxed text-book-text-main">
-              {buildSimpleInlineDiff(inlinePreview.suggestion.original_text, inlinePreview.suggestion.suggested_text).map((seg, idx) => (
-                <span
-                  key={`d-${idx}`}
-                  className={
-                    seg.type === 'remove'
-                      ? 'bg-red-500/10 text-red-700 line-through'
-                      : seg.type === 'add'
-                        ? 'bg-green-500/10 text-green-700'
-                        : ''
-                  }
-                >
-                  {seg.text}
-                </span>
-              ))}
-            </div>
-          </div>
-        </BookCard>
+        <ContentOptimizationInlinePreviewCard
+          inlinePreview={inlinePreview}
+          onSelectRange={onSelectRange}
+          onRevert={revertInlinePreview}
+          onConfirm={confirmInlinePreview}
+        />
       ) : null}
 
-      <BookCard className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <label className="text-xs font-bold text-book-text-sub">
-            模式
-            <select
-              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as OptimizationMode)}
-              disabled={running}
-            >
-              <option value="plan">计划（先分析后选择）</option>
-              <option value="review">审核（逐条暂停确认）</option>
-              <option value="auto">自动（不中断）</option>
-            </select>
-          </label>
+      <ContentOptimizationControlsCard
+        mode={mode}
+        scope={scope}
+        dimensions={dimensions}
+        preview={preview}
+        selectedParagraphs={selectedParagraphs}
+        rangeInput={rangeInput}
+        previewLoading={previewLoading}
+        running={running}
+        paused={paused}
+        sessionId={sessionId}
+        onModeChange={setMode}
+        onScopeChange={setScope}
+        onToggleDimension={toggleDimension}
+        onFetchPreview={fetchPreview}
+        onStartOptimization={startOptimization}
+        onContinueSession={continueSession}
+        onStopStream={stopStream}
+        onCancelSession={cancelSession}
+        onRangeInputChange={setRangeInput}
+        onApplyRangeSelection={applyRangeSelection}
+        onSelectAllPreview={selectAllPreview}
+        onClearPreviewSelection={clearPreviewSelection}
+        onToggleParagraphSelection={toggleParagraphSelection}
+      />
 
-          <label className="text-xs font-bold text-book-text-sub">
-            范围
-            <select
-              className="book-control book-select mt-1 w-full rounded-lg border px-3 py-2 text-sm text-book-text-main"
-              value={scope}
-              onChange={(e) => setScope(e.target.value as AnalysisScope)}
-              disabled={running}
-            >
-              <option value="full">全章</option>
-              <option value="selected">选中段落</option>
-            </select>
-          </label>
-        </div>
+      <ContentOptimizationThinkingPanel
+        thinkingEvents={thinkingEvents}
+        thinkingExpanded={thinkingExpanded}
+        thinkingScrollRef={thinkingScrollRef}
+        running={running}
+        onCopy={copyThinkingStream}
+        onClear={() => setThinkingEvents([])}
+        onToggleExpanded={() => setThinkingExpanded((value) => !value)}
+      />
 
-        <div className="space-y-2">
-          <div className="text-xs font-bold text-book-text-sub flex items-center justify-between gap-2">
-            <span>检查维度</span>
-            <span className="text-[11px] text-book-text-muted">{dimensions.length}/{DIMENSIONS.length}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {DIMENSIONS.map((d) => (
-              <label key={d.id} className="flex items-center gap-2 text-xs text-book-text-main bg-book-bg px-2 py-1 rounded border border-book-border/50">
-                <input
-                  type="checkbox"
-                  checked={dimensions.includes(d.id)}
-                  onChange={() => toggleDimension(d.id)}
-                  disabled={running}
-                  className="book-check h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
-                />
-                {d.label}
-              </label>
-            ))}
-          </div>
-        </div>
+      <ContentOptimizationSuggestionsPanel
+        suggestions={suggestions}
+        appliedSet={appliedSet}
+        inlinePreviewKey={inlinePreview?.key ?? null}
+        lastUndo={lastUndo}
+        undoStackLength={undoStack.length}
+        canEdit={canEdit}
+        onUndoLastApply={undoLastApply}
+        onStartInlinePreview={startInlinePreview}
+        onOpenPreview={setPreviewSuggestion}
+        onApplySuggestion={applySuggestion}
+        onConfirmInlinePreview={confirmInlinePreview}
+        onCopySuggestion={copySuggestionText}
+        onLocateText={onLocateText}
+      />
 
-        <div className="flex items-center gap-2">
-          <BookButton
-            variant="ghost"
-            size="sm"
-            onClick={fetchPreview}
-            disabled={previewLoading || running}
-            title="调用后端段落切分预览（用于选择段落）"
-          >
-            <ListChecks size={14} className={`mr-1 ${previewLoading ? 'animate-spin' : ''}`} />
-            {previewLoading ? '预览中…' : '段落预览'}
-          </BookButton>
-
-          <div className="flex-1" />
-
-          {!running ? (
-            <BookButton variant="primary" size="sm" onClick={startOptimization}>
-              <PlayCircle size={14} className="mr-1" />
-              开始
-            </BookButton>
-          ) : paused ? (
-            <BookButton variant="primary" size="sm" onClick={continueSession} disabled={!sessionId}>
-              <PlayCircle size={14} className="mr-1" />
-              继续
-            </BookButton>
-          ) : (
-            <BookButton variant="secondary" size="sm" onClick={stopStream}>
-              <PauseCircle size={14} className="mr-1" />
-              停止流
-            </BookButton>
-          )}
-
-          <BookButton variant="secondary" size="sm" onClick={cancelSession} disabled={!running && !sessionId}>
-            <XCircle size={14} className="mr-1" />
-            取消
-          </BookButton>
-        </div>
-
-        {scope === 'selected' && preview && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-book-text-muted">
-                已识别 {preview.total_paragraphs} 段，已选择 {selectedParagraphs.length} 段
-              </div>
-              <div className="flex items-center gap-2">
-                <button className="text-xs text-book-primary font-bold hover:underline" onClick={selectAllPreview} type="button">
-                  全选
-                </button>
-                <button className="text-xs text-book-text-muted hover:underline" onClick={clearPreviewSelection} type="button">
-                  清空
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                className="book-control flex-1 rounded-lg border px-3 py-2 text-sm text-book-text-main"
-                placeholder="范围：1-5, 9-18, 20（回车应用）"
-                value={rangeInput}
-                onChange={(e) => setRangeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') applyRangeSelection();
-                }}
-                disabled={running}
-              />
-              <BookButton variant="ghost" size="sm" onClick={applyRangeSelection} disabled={running}>
-                应用
-              </BookButton>
-            </div>
-            <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-              {preview.paragraphs.map((p) => (
-                <label key={p.index} className="flex items-start gap-2 p-2 rounded border border-book-border/40 bg-book-bg">
-                  <input
-                    type="checkbox"
-                    checked={selectedParagraphs.includes(p.index)}
-                    onChange={() => {
-                      setSelectedParagraphs((prev) => {
-                        if (prev.includes(p.index)) return prev.filter((x) => x !== p.index);
-                        return [...prev, p.index].sort((a, b) => a - b);
-                      });
-                    }}
-                    disabled={running}
-                    className="book-check mt-0.5 h-4 w-4 rounded border-book-border/60 bg-book-bg-paper/80"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-[11px] text-book-text-muted">段落 {p.index + 1} · {p.length}</div>
-                    <div className="text-xs text-book-text-main leading-relaxed">{p.preview}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {sessionId && (
-          <div className="text-[11px] text-book-text-muted">
-            session_id：<span className="font-mono">{sessionId}</span>
-          </div>
-        )}
-      </BookCard>
-
-      <BookCard className="p-4">
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <div className="font-bold text-book-text-main flex items-center gap-2">
-            <Search size={16} className="text-book-primary" />
-            思考流
-          </div>
-          <div className="flex items-center gap-2">
-            {thinkingEvents.length > 0 ? (
-              <BookButton variant="ghost" size="sm" onClick={copyThinkingStream} title="复制完整思考流">
-                <Copy size={14} className="mr-1" />
-                复制
-              </BookButton>
-            ) : null}
-            {thinkingEvents.length > 0 ? (
-              <BookButton variant="ghost" size="sm" onClick={() => setThinkingEvents([])} title="清空思考流">
-                <XCircle size={14} className="mr-1" />
-                清空
-              </BookButton>
-            ) : null}
-            <BookButton variant="ghost" size="sm" onClick={() => setThinkingExpanded((v) => !v)}>
-              {thinkingExpanded ? '收起' : '展开'}
-            </BookButton>
-          </div>
-        </div>
-
-        {thinkingEvents.length === 0 ? (
-          <div className="text-xs text-book-text-muted leading-relaxed">
-            {running ? '思考流等待输出…' : '开始优化后，这里会显示 Agent 的 Thinking / Action / Observation 过程。'}
-          </div>
-        ) : thinkingExpanded ? (
-          <div ref={thinkingScrollRef} className="max-h-56 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-            {thinkingEvents.map((e) => {
-              const meta = THINKING_LABELS[e.type] || { label: e.type, cls: 'text-book-text-muted' };
-              return (
-                <div key={e.id} className="p-2 rounded border border-book-border/40 bg-book-bg">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className={`text-[11px] font-bold ${meta.cls}`}>
-                      {meta.label}
-                      {e.title ? <span className="text-book-text-muted font-normal ml-2">{e.title}</span> : null}
-                    </div>
-                    <div className="text-[10px] text-book-text-muted">
-                      {(() => {
-                        try {
-                          return new Date(e.ts).toLocaleTimeString();
-                        } catch {
-                          return '';
-                        }
-                      })()}
-                    </div>
-                  </div>
-                  {e.content ? (
-                    <pre className="mt-1 text-xs text-book-text-main whitespace-pre-wrap font-mono leading-relaxed">
-                      {e.content}
-                    </pre>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-xs text-book-text-muted leading-relaxed">
-            最近：{(() => {
-              const last = thinkingEvents[thinkingEvents.length - 1];
-              const meta = THINKING_LABELS[last.type] || { label: last.type, cls: '' };
-              const title = last.title ? ` · ${last.title}` : '';
-              return `${meta.label}${title}`;
-            })()}
-          </div>
-        )}
-      </BookCard>
-
-      <BookCard className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-bold text-book-text-main">建议列表</div>
-          <div className="flex items-center gap-2">
-            {lastUndo && onChangeContent ? (
-              <BookButton
-                variant="ghost"
-                size="sm"
-                onClick={undoLastApply}
-                title={`撤销上次应用：${lastUndo.label}`}
-              >
-                <Undo2 size={14} className="mr-1" />
-                撤销{undoStack.length > 1 ? `（${undoStack.length}）` : ''}
-              </BookButton>
-            ) : null}
-            <div className="text-xs text-book-text-muted">共 {suggestions.length} 条</div>
-          </div>
-        </div>
-
-        {suggestions.length === 0 ? (
-          <div className="text-xs text-book-text-muted leading-relaxed">
-            {running ? '等待建议输出…' : '开始优化后，这里会显示修改建议。'}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {suggestions.map((s, idx) => {
-              const key = getSuggestionKey(s);
-              const applied = appliedSet.has(key);
-              const previewing = inlinePreview?.key === key;
-              return (
-                <div key={`s-${key}-${idx}`} className="border border-book-border/40 rounded-lg p-3 bg-book-bg">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-bold text-book-text-main">
-                      段落 {s.paragraph_index + 1} · {s.category}
-                      <span className={`ml-2 ${priorityColor[s.priority] || 'text-book-text-muted'}`}>
-                        {s.priority}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <BookButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => startInlinePreview(s)}
-                        disabled={previewing}
-                        title="在编辑器中预览（确认/撤销）"
-                      >
-                        <Eye size={14} className="mr-1" />
-                        {previewing ? '预览中' : '预览'}
-                      </BookButton>
-                      <BookButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setPreviewSuggestion(s)}
-                        title="打开对比预览"
-                      >
-                        <ListChecks size={14} className="mr-1" />
-                        对比
-                      </BookButton>
-                      {onLocateText && (s.original_text || '').trim() ? (
-                        <BookButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onLocateText(s.original_text)}
-                          title="在编辑器中定位原文片段"
-                        >
-                          <Search size={14} className="mr-1" />
-                          定位
-                        </BookButton>
-                      ) : null}
-                      <BookButton
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => (previewing ? confirmInlinePreview() : applySuggestion(s))}
-                        disabled={(!previewing && applied) || !onChangeContent}
-                      >
-                        <CheckCircle2 size={14} className="mr-1" />
-                        {previewing ? '确认' : (applied ? '已应用' : '应用')}
-                      </BookButton>
-                      <BookButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(s.suggested_text || '');
-                            addToast('已复制建议文本', 'success');
-                          } catch (e) {
-                            console.error(e);
-                            addToast('复制失败（可能缺少剪贴板权限）', 'error');
-                          }
-                        }}
-                        title="复制建议文本"
-                      >
-                        <Copy size={14} className="mr-1" />
-                        复制
-                      </BookButton>
-                    </div>
-                  </div>
-
-                  {s.reason ? (
-                    <div className="text-xs text-book-text-muted mt-2 whitespace-pre-wrap leading-relaxed">
-                      理由：{s.reason}
-                    </div>
-                  ) : null}
-
-                  <div className="grid grid-cols-1 gap-2 mt-3">
-                    <div className="text-xs">
-                      <div className="text-[11px] text-book-text-muted mb-1">原文</div>
-                      <div className="p-2 rounded border border-book-border/40 bg-book-bg-paper text-book-text-main whitespace-pre-wrap leading-relaxed">
-                        {s.original_text}
-                      </div>
-                    </div>
-                    <div className="text-xs">
-                      <div className="text-[11px] text-book-text-muted mb-1">建议</div>
-                      <div className="p-2 rounded border border-book-border/40 bg-book-bg-paper text-book-text-main whitespace-pre-wrap leading-relaxed">
-                        {s.suggested_text}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </BookCard>
-
-      <Modal
-        isOpen={Boolean(previewSuggestion)}
+      <OptimizationSuggestionPreviewModal
+        previewSuggestion={previewSuggestion}
+        previewApplied={previewApplied}
+        canEdit={canEdit}
         onClose={() => setPreviewSuggestion(null)}
-        title={previewSuggestion ? `预览建议：段落 ${previewSuggestion.paragraph_index + 1} · ${previewSuggestion.category}` : '预览建议'}
-        maxWidthClassName="max-w-4xl"
-        footer={
-          <div className="flex justify-end gap-2">
-            {previewSuggestion && onLocateText && (previewSuggestion.original_text || '').trim() ? (
-              <BookButton
-                variant="secondary"
-                onClick={() => onLocateText(previewSuggestion.original_text)}
-                title="在编辑器中定位原文片段"
-              >
-                <Search size={14} className="mr-1" />
-                定位原文
-              </BookButton>
-            ) : null}
-            {previewSuggestion && onChangeContent ? (
-              <BookButton
-                variant="secondary"
-                onClick={() => {
-                  if (!previewSuggestion) return;
-                  startInlinePreview(previewSuggestion);
-                  setPreviewSuggestion(null);
-                }}
-                title="在编辑器中预览（确认/撤销）"
-              >
-                <Eye size={14} className="mr-1" />
-                预览到编辑器
-              </BookButton>
-            ) : null}
-            <BookButton variant="ghost" onClick={() => setPreviewSuggestion(null)}>
-              关闭
-            </BookButton>
-            <BookButton
-              variant="primary"
-              onClick={() => {
-                if (!previewSuggestion) return;
-                applySuggestion(previewSuggestion);
-                setPreviewSuggestion(null);
-              }}
-              disabled={!previewSuggestion || !onChangeContent || previewApplied}
-            >
-              {previewApplied ? '已应用' : '应用到编辑器'}
-            </BookButton>
-          </div>
-        }
-      >
-        {previewSuggestion ? (
-          <NovelDialogStack>
-            <NovelDialogIntro
-              eyebrow="Optimization Preview"
-              title={`段落 ${previewSuggestion.paragraph_index + 1} 的建议预览`}
-              description="先看差异高亮，再决定是直接应用，还是先把建议投射到编辑器里做一次临时预览。"
-            >
-              <div className="flex flex-wrap gap-2">
-                <span className="story-pill">{previewSuggestion.category}</span>
-                <span className="story-pill">{previewApplied ? '该建议已应用' : '尚未应用'}</span>
-              </div>
-            </NovelDialogIntro>
-
-            <NovelDialogMetricGrid>
-              <NovelDialogMetric
-                label="原文长度"
-                value={previewSuggestion.original_text.length}
-                note="按字符数统计，用于快速判断本次修改片段规模。"
-              />
-              <NovelDialogMetric
-                label="建议长度"
-                value={previewSuggestion.suggested_text.length}
-                note="如果建议明显更短或更长，建议先预览到编辑器再决定。"
-              />
-            </NovelDialogMetricGrid>
-
-            {previewSuggestion.reason ? (
-              <NovelDialogSurface className="whitespace-pre-wrap text-xs leading-relaxed text-book-text-muted">
-                理由：{previewSuggestion.reason}
-              </NovelDialogSurface>
-            ) : null}
-
-            <NovelDialogSection
-              eyebrow="Diff"
-              title="差异高亮"
-              description="红色表示删除，绿色表示新增，用来快速判断本次建议的改动密度。"
-            >
-              <NovelDialogSurface className="max-h-[30vh] overflow-auto">
-                <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
-                  {buildSimpleInlineDiff(previewSuggestion.original_text, previewSuggestion.suggested_text).map((seg, idx) => (
-                    <span
-                      key={`pd-${idx}`}
-                      className={
-                        seg.type === 'remove'
-                          ? 'bg-red-500/10 text-red-700 line-through'
-                          : seg.type === 'add'
-                            ? 'bg-green-500/10 text-green-700'
-                            : ''
-                      }
-                    >
-                      {seg.text}
-                    </span>
-                  ))}
-                </div>
-              </NovelDialogSurface>
-            </NovelDialogSection>
-
-            <NovelDialogSection
-              eyebrow="Compare"
-              title="原文与建议对照"
-              description="左右对照查看语言密度、信息遗漏和节奏变化。"
-            >
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <NovelDialogSurface>
-                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Original</div>
-                  <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
-                    {previewSuggestion.original_text}
-                  </pre>
-                </NovelDialogSurface>
-                <NovelDialogSurface>
-                  <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">Suggested</div>
-                  <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-book-text-main">
-                    {previewSuggestion.suggested_text}
-                  </pre>
-                </NovelDialogSurface>
-              </div>
-            </NovelDialogSection>
-
-            <NovelDialogSurface className="text-xs leading-relaxed text-book-text-muted">
-              提示：应用后可在面板顶部点击“撤销”恢复到上一次应用前的正文。
-            </NovelDialogSurface>
-          </NovelDialogStack>
-        ) : null}
-      </Modal>
+        onPreviewToEditor={previewSuggestionInEditor}
+        onApplyToEditor={applyPreviewSuggestion}
+        onLocateText={onLocateText}
+      />
     </div>
   );
 };

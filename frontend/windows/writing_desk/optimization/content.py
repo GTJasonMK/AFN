@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from api.client import AFNAPIClient
+from api.manager import APIClientManager
 from components.base import ThemeAwareWidget
 from themes.theme_manager import theme_manager
 from themes import ButtonStyles
@@ -832,10 +832,10 @@ class OptimizationContent(
         }
 
         # 启动SSE Worker
-        client = AFNAPIClient()
+        client = APIClientManager.get_client()
         url = client.get_optimize_chapter_url(self.project_id, self.chapter_number)
 
-        self.sse_worker = SSEWorker(url, payload)
+        self.sse_worker = SSEWorker(url, payload, session=client.session)
         self.sse_worker.event_received.connect(self._on_sse_event)
         self.sse_worker.error.connect(self._on_sse_error)
         self.sse_worker.complete.connect(self._on_sse_complete)

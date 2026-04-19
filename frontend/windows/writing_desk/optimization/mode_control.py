@@ -36,7 +36,7 @@ class ModeControlMixin:
 
     def _resume_backend_analysis(self: "OptimizationContent"):
         """通知后端继续分析，并发送当前编辑器内容"""
-        from api.client import AFNAPIClient
+        from api.manager import APIClientManager
 
         if not self.session_id:
             logger.warning("无法继续分析：session_id 为空")
@@ -53,7 +53,7 @@ class ModeControlMixin:
 
         # 调用后端 continue API，传入当前内容
         try:
-            client = AFNAPIClient()
+            client = APIClientManager.get_client()
             result = client.continue_optimization_session(self.session_id, content=current_content)
             logger.info("继续分析: %s", result)
         except Exception as e:
@@ -73,7 +73,7 @@ class ModeControlMixin:
 
     def _stop_optimization(self: "OptimizationContent"):
         """停止优化"""
-        from api.client import AFNAPIClient
+        from api.manager import APIClientManager
 
         logger.info("停止优化: is_optimizing=%s, session_id=%s, sse_worker=%s",
                     self.is_optimizing, self.session_id, self.sse_worker is not None)
@@ -95,7 +95,7 @@ class ModeControlMixin:
         # 取消后端会话（如果有的话）
         if self.session_id:
             try:
-                client = AFNAPIClient()
+                client = APIClientManager.get_client()
                 result = client.cancel_optimization_session(self.session_id)
                 logger.info("已取消后端会话: %s, 结果: %s", self.session_id, result)
             except Exception as e:

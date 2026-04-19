@@ -1171,8 +1171,7 @@ class ProtagonistProfileDialog(QDialog):
 
     def _display_portrait(self, image_url: str):
         def do_fetch():
-            import requests
-            response = requests.get(image_url, timeout=5)
+            response = self.api_client.session.get(image_url, timeout=5)
             if response.status_code == 200:
                 return response.content
             return None

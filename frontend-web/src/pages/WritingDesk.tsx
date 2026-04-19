@@ -1,7 +1,6 @@
-import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ImportChapterModal } from '../components/business/ImportChapterModal';
-import { WorkspaceTabs, type WorkspaceHandle } from '../components/business/WorkspaceTabs';
+import { type WorkspaceHandle } from '../components/business/WorkspaceTabs';
 import { writerApi, Chapter } from '../api/writer';
 import { novelsApi } from '../api/novels';
 import { useSSE } from '../hooks/useSSE';
@@ -9,46 +8,28 @@ import { useConfirmTextModal } from '../hooks/useConfirmTextModal';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useToast } from '../components/feedback/Toast';
 import { confirmDialog } from '../components/feedback/ConfirmDialog';
-import { BookButton } from '../components/ui/BookButton';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapCache';
 import { downloadBlob } from '../utils/downloadFile';
 import { sanitizeFilenamePart } from '../utils/sanitizeFilename';
 import { clearBlueprintGenerationPending } from '../utils/blueprintPending';
 import { getWritingDraftKey, readWritingDraft, removeWritingDraft, writeWritingDraft } from '../utils/writingDraft';
 import { getNovelCapabilities, getWorkflowStatusLabel, resolveWorkflowStage } from '../utils/projectWorkflow';
-import { PromptPreviewModal } from './writing-desk/PromptPreviewModal';
 import { WritingDeskAssistant } from './writing-desk/WritingDeskAssistant';
+import { WritingDeskBody } from './writing-desk/WritingDeskBody';
+import { WritingDeskEditorWorkspace } from './writing-desk/WritingDeskEditorWorkspace';
 import { WritingDeskHeader } from './writing-desk/WritingDeskHeader';
+import { WritingDeskModals } from './writing-desk/WritingDeskModals';
 import { WritingDeskSidebar } from './writing-desk/WritingDeskSidebar';
-import { WritingNotesModal } from './writing-desk/WritingNotesModal';
+import {
+  DEFAULT_VERSION_CREATED_AT,
+  getWritingDeskBootstrapKey,
+  type WritingDeskBatchModalPreset,
+  type WritingDeskBootstrapSnapshot,
+  type WritingDeskCompactPane,
+  WRITING_DESK_BOOTSTRAP_TTL_MS,
+} from './writing-desk/shared';
 import { useWritingDeskPanels } from './writing-desk/useWritingDeskPanels';
-import { AppViewportFrame, AppViewportShell, SegmentPager } from '../components/layout/AppViewport';
-
-const OutlineEditModalLazy = lazy(() =>
-  import('../components/business/OutlineEditModal').then((m) => ({ default: m.OutlineEditModal }))
-);
-const BatchGenerateModalLazy = lazy(() =>
-  import('../components/business/BatchGenerateModal').then((m) => ({ default: m.BatchGenerateModal }))
-);
-const ProtagonistProfilesModalLazy = lazy(() =>
-  import('../components/business/ProtagonistProfilesModal').then((m) => ({ default: m.ProtagonistProfilesModal }))
-);
-
-const DEFAULT_VERSION_CREATED_AT = '1970-01-01T00:00:00.000Z';
-const WRITING_DESK_BOOTSTRAP_TTL_MS = 4 * 60 * 1000;
-
-type WritingDeskBootstrapSnapshot = {
-  chapters: Chapter[];
-  projectInfo: any;
-  projectStatus?: string;
-  outlineChapterNumbers?: number[];
-  needsPartOutlines?: boolean;
-  partOutlineCount?: number;
-  partOutlineCoverMax?: number | null;
-  selectedChapterNumber: number | null;
-};
-
-const getWritingDeskBootstrapKey = (projectId: string) => `afn:web:writing-desk:${projectId}:bootstrap:v1`;
+import { AppViewportFrame, AppViewportShell } from '../components/layout/AppViewport';
 
 export const WritingDesk: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -127,7 +108,7 @@ export const WritingDesk: React.FC = () => {
   const draftPromptedRef = useRef<Set<string>>(new Set());
   const draftSaveWarnedRef = useRef(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
-  const [compactPane, setCompactPane] = useState<'chapters' | 'editor' | 'assistant'>('editor');
+  const [compactPane, setCompactPane] = useState<WritingDeskCompactPane>('editor');
 
 	      // 可选提示词弹窗（用于“重生成大纲”等可选优化方向输入）
 	      const { open: openOptionalPromptModal, modal: optionalPromptModal } = useConfirmTextModal({
@@ -254,8 +235,8 @@ export const WritingDesk: React.FC = () => {
 	  // Modal States
 	  const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
 	  const [isOutlineModalOpen, setIsOutlineModalOpen] = useState(false);
-	  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-	  const [batchModalPreset, setBatchModalPreset] = useState<{ count: number; startFrom: number | '' }>({
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchModalPreset, setBatchModalPreset] = useState<WritingDeskBatchModalPreset>({
 	    count: 10,
 	    startFrom: '',
 	  });
@@ -683,11 +664,10 @@ export const WritingDesk: React.FC = () => {
 		    return { canGenerate: true, reason: null as string | null };
 		  }, [isGenerating, latestOutlineChapterNumber, needsPartOutlines, partOutlineCount, partOutlineCoverMax, projectStatusRaw]);
 
-		  type BatchModalPreset = { count: number; startFrom: number | '' };
 		  const canGenerateOutlines = outlineGenerationGate.canGenerate;
 		  const outlineDisabledReason = outlineGenerationGate.reason;
 
-		  const openBatchGenerateModal = useCallback((preset: BatchModalPreset) => {
+		  const openBatchGenerateModal = useCallback((preset: WritingDeskBatchModalPreset) => {
 		    if (!id) return;
 		    if (!canGenerateOutlines) {
 		      addToast(outlineDisabledReason || '当前不满足生成章节大纲条件，请先完成上一步。', 'info');
@@ -1113,334 +1093,208 @@ export const WritingDesk: React.FC = () => {
 
   const sidebarVisible = isCompactLayout ? compactPane === 'chapters' : isSidebarOpen;
   const assistantVisible = isCompactLayout ? compactPane === 'assistant' : isAssistantOpen;
-  const compactPaneItems = [
-    {
-      id: 'chapters',
-      label: '章节导航',
-      hint: '锁定章节、创建章节、编辑大纲和批量生成。',
-    },
-    {
-      id: 'editor',
-      label: '编辑区',
-      hint: '正文、版本切换和空态操作都收束在主工作区。',
-    },
-    {
-      id: 'assistant',
-      label: '写作助手',
-      hint: 'RAG 检索和正文优化切到独立切面，不再用抽屉覆盖正文。',
-    },
-  ] as const;
+  const workspaceProps = {
+    content,
+    selectedVersionIndex:
+      isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null),
+    versions: workspaceVersions,
+    isSaving,
+    isGenerating,
+    genProgress,
+    canGenerate: generateGate.canGenerate,
+    generateDisabledReason: generateGate.reason,
+    onChange: setContent,
+    onSave: handleSave,
+    onGenerate: handleGenerate,
+    onStopGenerating: handleStopGenerating,
+    onSelectVersion: handleVersionSelect,
+  } as const;
 
-	  const editorWorkspace = currentChapter ? (
-	    <WorkspaceTabs
-	      ref={editorRef}
-	      projectId={id!}
-	      chapter={currentChapter}
-	      content={content}
-	      selectedVersionIndex={
-	        isDirty ? null : (typeof currentChapter?.selected_version === 'number' ? currentChapter.selected_version : null)
-	      }
-		      versions={workspaceVersions}
-		      isSaving={isSaving}
-		      isGenerating={isGenerating}
-		      genProgress={genProgress}
-		      canGenerate={generateGate.canGenerate}
-		      generateDisabledReason={generateGate.reason}
-		      onChange={setContent}
-		      onSave={handleSave}
-		      onGenerate={handleGenerate}
-		      onStopGenerating={handleStopGenerating}
-		      onSelectVersion={handleVersionSelect}
-	    />
-	  ) : (
-    <div className="flex h-full w-full items-center justify-center p-6 sm:p-8">
-      <div className="w-full max-w-2xl rounded-2xl border border-book-border/55 bg-book-bg-paper/78 p-6 shadow-surface-strong sm:p-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">写作台</div>
-            <h2 className="mt-3 font-serif text-[clamp(1.8rem,3vw,2.6rem)] font-bold leading-[1.02] tracking-[-0.04em] text-book-text-main">
-              {chapters.length > 0 ? '选择一个章节，继续推进故事。' : '先创建第一章，让写作台开始运转。'}
-            </h2>
-            <p className="mt-3 max-w-xl text-sm leading-relaxed text-book-text-sub sm:text-base">
-              {chapters.length > 0
-                ? '在左侧选择章节后，正文/版本/评审都会出现在主工作区。'
-                : '当前项目还没有章节。你可以先新增一章，或批量生成章节大纲后再逐章写作。'}
-            </p>
-          </div>
+  const handleAssistantJumpToChapter = useCallback(async (chapterNo: number) => {
+    const ok = await handleSelectChapter(chapterNo);
+    if (ok && isCompactLayout) {
+      setCompactPane('editor');
+    }
+  }, [handleSelectChapter, isCompactLayout]);
 
-          <div className="shrink-0 rounded-[18px] border border-book-border/55 bg-book-bg/72 px-4 py-3 text-sm text-book-text-sub shadow-surface">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-book-text-muted">
-              提示
-            </div>
-            <div className="mt-2 font-semibold text-book-text-main">
-              {chapters.length > 0 ? `当前共有 ${chapters.length} 章` : '建议从第一章开始'}
-            </div>
-            <div className="mt-1 text-book-text-sub">
-              章节栏/助手都可以在顶部命令栏一键开关。
-            </div>
-          </div>
-        </div>
+  const editorWorkspace = (
+    <WritingDeskEditorWorkspace
+      projectId={id!}
+      currentChapter={currentChapter}
+      chaptersCount={chapters.length}
+      sidebarVisible={sidebarVisible}
+      assistantVisible={assistantVisible}
+      canGenerateOutlines={canGenerateOutlines}
+      outlineDisabledReason={outlineDisabledReason}
+      onToggleSidebar={handleToggleSidebar}
+      onToggleAssistant={handleToggleAssistant}
+      onOpenBatchGenerate={handleOpenBatchGenerate}
+      onCreateChapter={handleCreateChapter}
+      editorRef={editorRef}
+      workspaceProps={workspaceProps}
+    />
+  );
 
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
-          {!sidebarVisible ? (
-            <BookButton variant="ghost" onClick={handleToggleSidebar}>
-              显示章节栏
-            </BookButton>
-          ) : null}
-          {!assistantVisible && chapters.length > 0 ? (
-            <BookButton variant="ghost" onClick={handleToggleAssistant}>
-              打开助手
-            </BookButton>
-          ) : null}
-          <BookButton
-            variant="ghost"
-            onClick={handleOpenBatchGenerate}
-            disabled={!canGenerateOutlines}
-            title={canGenerateOutlines ? '批量生成章节大纲' : (outlineDisabledReason || '当前不满足生成章节大纲条件')}
-          >
-            批量生成大纲
-          </BookButton>
-          <BookButton
-            variant="primary"
-            onClick={handleCreateChapter}
-            disabled={!canGenerateOutlines}
-            title={canGenerateOutlines ? '生成下一章的章节大纲' : (outlineDisabledReason || '当前不满足生成章节大纲条件')}
-          >
-            生成下一章大纲
-          </BookButton>
-        </div>
-      </div>
+  const sidebarPane = isCompactLayout ? (
+    <div className="min-h-0 flex-1">
+      <WritingDeskSidebar
+        projectId={id!}
+        chapters={chapters}
+        draftRevision={draftRevision}
+        currentChapterNumber={currentChapter?.chapter_number}
+        projectInfo={projectInfo}
+        width={sidebarWidth}
+        compact
+        compactMode="pane"
+        canCreateChapter={canGenerateOutlines}
+        createChapterDisabledReason={outlineDisabledReason}
+        canBatchGenerate={canGenerateOutlines}
+        batchGenerateDisabledReason={outlineDisabledReason}
+        onClose={() => setCompactPane('editor')}
+        onResizeMouseDown={startSidebarResizing}
+        onSelectChapter={handleSidebarSelectChapter}
+        onCreateChapter={handleCreateChapter}
+        onEditOutline={handleEditOutline}
+        onRegenerateOutline={handleRegenerateOutline}
+        onResetChapter={handleResetChapter}
+        onDeleteChapter={handleDeleteChapter}
+        onBatchGenerate={handleOpenBatchGenerate}
+        onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
+      />
     </div>
+  ) : (
+    isSidebarOpen ? (
+      <WritingDeskSidebar
+        projectId={id!}
+        chapters={chapters}
+        draftRevision={draftRevision}
+        currentChapterNumber={currentChapter?.chapter_number}
+        projectInfo={projectInfo}
+        width={sidebarWidth}
+        compact={false}
+        canCreateChapter={canGenerateOutlines}
+        createChapterDisabledReason={outlineDisabledReason}
+        canBatchGenerate={canGenerateOutlines}
+        batchGenerateDisabledReason={outlineDisabledReason}
+        onClose={() => setIsSidebarOpen(false)}
+        onResizeMouseDown={startSidebarResizing}
+        onSelectChapter={handleSidebarSelectChapter}
+        onCreateChapter={handleCreateChapter}
+        onEditOutline={handleEditOutline}
+        onRegenerateOutline={handleRegenerateOutline}
+        onResetChapter={handleResetChapter}
+        onDeleteChapter={handleDeleteChapter}
+        onBatchGenerate={handleOpenBatchGenerate}
+        onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
+      />
+    ) : null
+  );
+
+  const assistantPane = isCompactLayout ? (
+    <div className="min-h-0 flex-1">
+      <WritingDeskAssistant
+        projectId={id!}
+        chapterNumber={currentChapter?.chapter_number}
+        content={content}
+        onChangeContent={setContent}
+        onLocateText={locateInEditor}
+        onSelectRange={selectRangeInEditor}
+        onJumpToChapter={handleAssistantJumpToChapter}
+        isOpen
+        width={assistantWidth}
+        compact
+        compactMode="pane"
+        onClose={() => setCompactPane('editor')}
+        mountReady={assistantMountReady}
+        onResizeMouseDown={startAssistantResizing}
+      />
+    </div>
+  ) : (
+    <WritingDeskAssistant
+      projectId={id!}
+      chapterNumber={currentChapter?.chapter_number}
+      content={content}
+      onChangeContent={setContent}
+      onLocateText={locateInEditor}
+      onSelectRange={selectRangeInEditor}
+      onJumpToChapter={handleAssistantJumpToChapter}
+      isOpen={isAssistantOpen}
+      width={assistantWidth}
+      compact={false}
+      onClose={() => setIsAssistantOpen(false)}
+      mountReady={assistantMountReady}
+      onResizeMouseDown={startAssistantResizing}
+    />
   );
 
   if (!id) return null;
 
   return (
     <AppViewportShell>
+      <AppViewportFrame size="wide" className="gap-2 sm:gap-3">
+        <WritingDeskHeader
+          projectTitle={String(projectInfo?.title || '')}
+          currentChapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
+          onBack={() => safeNavigate('/')}
+          isSidebarOpen={sidebarVisible}
+          onToggleSidebar={handleToggleSidebar}
+          onOpenImportChapter={openImportChapterModal}
+          onExportTxt={() => handleExport('txt')}
+          onExportMarkdown={() => handleExport('markdown')}
+          onOpenWritingNotes={openWritingNotesModal}
+          onOpenPromptPreview={openPromptPreviewModal}
+          onOpenProjectDetail={() => safeNavigate(`/novel/${id}`)}
+          isAssistantOpen={assistantVisible}
+          onToggleAssistant={handleToggleAssistant}
+        />
 
-	      <AppViewportFrame size="wide" className="gap-2 sm:gap-3">
-	        <WritingDeskHeader
-	          projectTitle={String(projectInfo?.title || '')}
-	          currentChapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
-	          onBack={() => safeNavigate('/')}
-	          isSidebarOpen={sidebarVisible}
-	          onToggleSidebar={handleToggleSidebar}
-	          onOpenImportChapter={openImportChapterModal}
-	          onExportTxt={() => handleExport('txt')}
-	          onExportMarkdown={() => handleExport('markdown')}
-	          onOpenWritingNotes={openWritingNotesModal}
-	          onOpenPromptPreview={openPromptPreviewModal}
-	          onOpenProjectDetail={() => safeNavigate(`/novel/${id}`)}
-	          isAssistantOpen={assistantVisible}
-	          onToggleAssistant={handleToggleAssistant}
-	        />
-
-        {isCompactLayout ? (
-          <div className="relative overflow-hidden rounded-xl border border-book-border/55 bg-book-bg-paper/95 shadow-surface px-4 py-4">
-            <div className="relative z-[1]">
-              <SegmentPager
-                items={[...compactPaneItems]}
-                value={compactPane}
-                onChange={(next) => setCompactPane(next as 'chapters' | 'editor' | 'assistant')}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="relative overflow-hidden min-h-0 flex-1 rounded-2xl border border-book-border/55 bg-book-bg-paper/95 shadow-surface-strong">
-          <div className="relative z-[1] flex h-full min-h-0">
-            {isCompactLayout ? (
-              <>
-                {compactPane === 'chapters' ? (
-                  <div className="min-h-0 flex-1">
-	                    <WritingDeskSidebar
-	                      projectId={id}
-	                      chapters={chapters}
-	                      draftRevision={draftRevision}
-	                      currentChapterNumber={currentChapter?.chapter_number}
-	                      projectInfo={projectInfo}
-	                      width={sidebarWidth}
-	                      compact
-	                      compactMode="pane"
-	                      canCreateChapter={canGenerateOutlines}
-	                      createChapterDisabledReason={outlineDisabledReason}
-	                      canBatchGenerate={canGenerateOutlines}
-	                      batchGenerateDisabledReason={outlineDisabledReason}
-	                      onClose={() => setCompactPane('editor')}
-	                      onResizeMouseDown={startSidebarResizing}
-	                      onSelectChapter={handleSidebarSelectChapter}
-	                      onCreateChapter={handleCreateChapter}
-	                      onEditOutline={handleEditOutline}
-	                      onRegenerateOutline={handleRegenerateOutline}
-	                      onResetChapter={handleResetChapter}
-	                      onDeleteChapter={handleDeleteChapter}
-	                      onBatchGenerate={handleOpenBatchGenerate}
-	                      onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
-	                    />
-	                  </div>
-	                ) : null}
-
-                {compactPane === 'editor' ? (
-                  <div className="min-w-0 flex-1 bg-book-bg">
-                    {editorWorkspace}
-                  </div>
-                ) : null}
-
-                {compactPane === 'assistant' ? (
-                  <div className="min-h-0 flex-1">
-                    <WritingDeskAssistant
-                      projectId={id}
-                      chapterNumber={currentChapter?.chapter_number}
-                      content={content}
-                      onChangeContent={setContent}
-                      onLocateText={locateInEditor}
-                      onSelectRange={selectRangeInEditor}
-                      onJumpToChapter={async (chapterNo) => {
-                        const ok = await handleSelectChapter(chapterNo);
-                        if (ok) {
-                          setCompactPane('editor');
-                        }
-                      }}
-                      isOpen
-                      width={assistantWidth}
-                      compact
-                      compactMode="pane"
-                      onClose={() => setCompactPane('editor')}
-                      mountReady={assistantMountReady}
-                      onResizeMouseDown={startAssistantResizing}
-                    />
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <>
-                {isSidebarOpen ? (
-	                  <WritingDeskSidebar
-	                    projectId={id}
-	                    chapters={chapters}
-	                    draftRevision={draftRevision}
-	                    currentChapterNumber={currentChapter?.chapter_number}
-	                    projectInfo={projectInfo}
-	                    width={sidebarWidth}
-	                    compact={false}
-	                    canCreateChapter={canGenerateOutlines}
-	                    createChapterDisabledReason={outlineDisabledReason}
-	                    canBatchGenerate={canGenerateOutlines}
-	                    batchGenerateDisabledReason={outlineDisabledReason}
-	                    onClose={() => setIsSidebarOpen(false)}
-	                    onResizeMouseDown={startSidebarResizing}
-	                    onSelectChapter={handleSidebarSelectChapter}
-	                    onCreateChapter={handleCreateChapter}
-	                    onEditOutline={handleEditOutline}
-	                    onRegenerateOutline={handleRegenerateOutline}
-	                    onResetChapter={handleResetChapter}
-	                    onDeleteChapter={handleDeleteChapter}
-	                    onBatchGenerate={handleOpenBatchGenerate}
-	                    onOpenProtagonistProfiles={() => setIsProtagonistModalOpen(true)}
-	                  />
-	                ) : null}
-
-                <div className="min-w-0 flex-1 bg-book-bg">
-                  {editorWorkspace}
-                </div>
-
-                <WritingDeskAssistant
-                  projectId={id}
-                  chapterNumber={currentChapter?.chapter_number}
-                  content={content}
-                  onChangeContent={setContent}
-                  onLocateText={locateInEditor}
-                  onSelectRange={selectRangeInEditor}
-                  onJumpToChapter={async (chapterNo) => {
-                    const ok = await handleSelectChapter(chapterNo);
-                    if (ok && isCompactLayout) {
-                      setCompactPane('editor');
-                    }
-                  }}
-                  isOpen={isAssistantOpen}
-                  width={assistantWidth}
-                  compact={false}
-                  onClose={() => setIsAssistantOpen(false)}
-                  mountReady={assistantMountReady}
-                  onResizeMouseDown={startAssistantResizing}
-                />
-              </>
-            )}
-          </div>
-        </div>
+        <WritingDeskBody
+          isCompactLayout={isCompactLayout}
+          compactPane={compactPane}
+          onCompactPaneChange={setCompactPane}
+          sidebarPane={sidebarPane}
+          editorWorkspace={editorWorkspace}
+          assistantPane={assistantPane}
+        />
       </AppViewportFrame>
 
-      <PromptPreviewModal
+      <WritingDeskModals
         projectId={id}
-        chapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
-        isOpen={isPromptPreviewModalOpen}
-        writingNotes={promptPreviewNotes}
-        onChangeWritingNotes={setPromptPreviewNotes}
-        onClose={() => setIsPromptPreviewModalOpen(false)}
-      />
-
-      {isOutlineModalOpen ? (
-        <Suspense fallback={null}>
-          <OutlineEditModalLazy
-            isOpen={isOutlineModalOpen}
-            onClose={() => setIsOutlineModalOpen(false)}
-            chapter={editingChapter}
-            projectId={id}
-            onSuccess={loadProjectData}
-          />
-        </Suspense>
-      ) : null}
-
-	      {isBatchModalOpen ? (
-	        <Suspense fallback={null}>
-	          <BatchGenerateModalLazy
-	            isOpen={isBatchModalOpen}
-	            onClose={() => setIsBatchModalOpen(false)}
-	            projectId={id}
-	            initialCount={batchModalPreset.count}
-	            initialStartFrom={batchModalPreset.startFrom}
-	            latestOutlineChapterNumber={latestOutlineChapterNumber}
-	            needsPartOutlines={needsPartOutlines}
-	            partOutlineCount={partOutlineCount}
-	            partOutlineMaxCoveredChapter={partOutlineCoverMax}
-	            onSuccess={loadProjectData}
-	          />
-	        </Suspense>
-	      ) : null}
-
-      {isProtagonistModalOpen ? (
-        <Suspense fallback={null}>
-          <ProtagonistProfilesModalLazy
-            isOpen={isProtagonistModalOpen}
-            onClose={() => setIsProtagonistModalOpen(false)}
-            projectId={id}
-            currentChapterNumber={currentChapter?.chapter_number}
-          />
-        </Suspense>
-      ) : null}
-
-      <ImportChapterModal
-        projectId={id}
-        isOpen={isImportChapterModalOpen}
-        onClose={() => setIsImportChapterModalOpen(false)}
-        suggestedChapterNumber={suggestedImportChapterNumber}
-        onImported={async (chapterNo) => {
+        currentChapterNumber={currentChapter?.chapter_number ? Number(currentChapter.chapter_number) : null}
+        isPromptPreviewModalOpen={isPromptPreviewModalOpen}
+        promptPreviewNotes={promptPreviewNotes}
+        onChangePromptPreviewNotes={setPromptPreviewNotes}
+        onClosePromptPreview={() => setIsPromptPreviewModalOpen(false)}
+        isOutlineModalOpen={isOutlineModalOpen}
+        editingChapter={editingChapter}
+        onCloseOutlineModal={() => setIsOutlineModalOpen(false)}
+        onOutlineSuccess={loadProjectData}
+        isBatchModalOpen={isBatchModalOpen}
+        batchModalPreset={batchModalPreset}
+        latestOutlineChapterNumber={latestOutlineChapterNumber}
+        needsPartOutlines={needsPartOutlines}
+        partOutlineCount={partOutlineCount}
+        partOutlineCoverMax={partOutlineCoverMax}
+        onCloseBatchModal={() => setIsBatchModalOpen(false)}
+        onBatchSuccess={loadProjectData}
+        isProtagonistModalOpen={isProtagonistModalOpen}
+        onCloseProtagonistModal={() => setIsProtagonistModalOpen(false)}
+        isImportChapterModalOpen={isImportChapterModalOpen}
+        suggestedImportChapterNumber={suggestedImportChapterNumber}
+        onCloseImportChapterModal={() => setIsImportChapterModalOpen(false)}
+        onImportedChapter={async (chapterNo) => {
           await loadProjectData();
           const ok = await handleSelectChapter(chapterNo);
           if (ok && isCompactLayout) {
             setCompactPane('editor');
           }
         }}
-      />
-
-      {optionalPromptModal}
-
-      <WritingNotesModal
-        isOpen={isWritingNotesModalOpen}
-        draft={writingNotesDraft}
-        onChangeDraft={setWritingNotesDraft}
-        onClose={() => setIsWritingNotesModalOpen(false)}
-        onCommit={(next) => setWritingNotes(next || '')}
+        optionalPromptModal={optionalPromptModal}
+        isWritingNotesModalOpen={isWritingNotesModalOpen}
+        writingNotesDraft={writingNotesDraft}
+        onChangeWritingNotesDraft={setWritingNotesDraft}
+        onCloseWritingNotesModal={() => setIsWritingNotesModalOpen(false)}
+        onCommitWritingNotes={(next) => setWritingNotes(next || '')}
       />
     </AppViewportShell>
   );

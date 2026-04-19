@@ -81,6 +81,49 @@
 - 第五十二轮转到小说详情页、设置页与写作台头部组件，新增清理 5 个实现文件中的零引用导入，说明桌面端较早期 UI 模块中仍有一批单点残留。
 - 第五十三轮继续清理设置页与写作台组件中的单点残留导入，新增清理 5 个实现文件，说明桌面端配置页存在较多“组件演进后未回收的 import 噪音”。
 
+## 大型文件可读性治理进度
+
+- 日期：2026-03-25
+- 目标：继续对前端超大文件做职责拆分，降低单文件复杂度，并顺手清理拆分后暴露出的死代码。
+- 已完成：
+  - `frontend-web/src/pages/CodingDetail.tsx`
+    主文件由 1972 行降到 1272 行，已拆出 overview / architecture / directory / generation / modals / shared 六个子模块；并修复架构页“生成模块”错误依赖全局目标系统状态的问题。
+  - `frontend-web/src/components/business/MangaPromptViewer.tsx`
+    主文件由 1702 行降到 1034 行，已拆出 progress / summary / details / storyboard / shared 五个子模块；并清理主文件中 8 个拆分后失效的无用导入。
+  - `frontend-web/src/pages/WritingDesk.tsx`
+    主文件由 1447 行降到 1301 行，已拆出 body / editor-workspace / modals / shared 四个子模块；页面主文件现在主要保留状态、请求、工作流门禁与章节操作逻辑。
+  - `frontend-web/src/pages/CodingDesk.tsx`
+    主文件由 1402 行降到 822 行，已拆出 header / sidebar / editor-panel / assistant-panel / shared 五个子模块；页面主文件现在主要保留状态、SSE、RAG 与目录规划 Agent 控制逻辑。
+  - `frontend-web/src/components/business/ProtagonistProfilesModal.tsx`
+    主文件由 1394 行降到 679 行，已拆出 sidebar / workspace / shared 三个子模块；主文件现在主要保留数据请求、操作流转与统计状态。
+  - `frontend-web/src/pages/InspirationChat.tsx`
+    主文件由 1369 行降到 795 行，已拆出 hero / guide-panel / conversation-panel / workspace / blueprint-preview-modal / shared 六个子模块；主文件现在主要保留对话流、蓝图生成与 SSE 状态编排逻辑。
+  - `frontend-web/src/components/business/ContentOptimizationView.tsx`
+    主文件由 1219 行降到 618 行，已拆出 status-card / inline-preview-card / controls-card / thinking-panel / suggestions-panel / preview-modal / shared 七个子模块；主文件现在主要保留优化会话状态、SSE 编排与编辑器交互逻辑。
+  - `frontend-web/src/components/business/settings/ThemeTab.tsx`
+    主文件由 1181 行降到 827 行，已拆出 sidebar / detail-panel / editor-modal / shared 四个子模块；主文件现在主要保留主题配置列表状态、接口动作、外观 Footer 注入与编辑流程编排。
+- 验证记录：
+  - `frontend-web/src/pages/CodingDetail.tsx` 相关拆分文件已通过定点 ESLint。
+  - `frontend-web/src/components/business/MangaPromptViewer.tsx` 与 `frontend-web/src/components/business/manga-prompt-viewer/*.tsx` 已通过定点 ESLint。
+  - `frontend-web/src/pages/WritingDesk.tsx` 与 `frontend-web/src/pages/writing-desk/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web/src/pages/CodingDesk.tsx` 与 `frontend-web/src/pages/coding-desk/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web/src/components/business/ProtagonistProfilesModal.tsx` 与 `frontend-web/src/components/business/protagonist-profiles-modal/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web/src/pages/InspirationChat.tsx` 与 `frontend-web/src/pages/inspiration-chat/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web/src/components/business/ContentOptimizationView.tsx` 与 `frontend-web/src/components/business/content-optimization/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web/src/components/business/settings/ThemeTab.tsx` 与 `frontend-web/src/components/business/settings/theme-tab/*.tsx`、`shared.ts` 已通过定点 ESLint。
+  - `frontend-web` 已执行 `npm run build`，本轮拆分后的 `WritingDesk` 相关改动通过 TypeScript 与 Vite 构建验证。
+  - `frontend-web` 已再次执行 `npm run build`，本轮拆分后的 `CodingDesk` 相关改动通过 TypeScript 与 Vite 构建验证。
+  - `frontend-web` 已再次执行 `npm run build`，本轮拆分后的 `ProtagonistProfilesModal` 相关改动通过 TypeScript 与 Vite 构建验证。
+  - `frontend-web` 已再次执行 `npm run build`，本轮拆分后的 `InspirationChat` 与 `ContentOptimizationView` 相关改动通过 TypeScript 与 Vite 构建验证。
+  - `frontend-web` 已再次执行 `npm run build`，本轮拆分后的 `ThemeTab` 相关改动通过 TypeScript 与 Vite 构建验证。
+- 下一批候选（按当前行数排序）：
+  - `frontend-web/src/pages/WritingDesk.tsx` 1301 行（仍偏大，后续可继续把章节操作 / 草稿恢复 / 生成门禁抽到 hook）
+  - `frontend-web/src/pages/CodingDetail.tsx` 1272 行（仍偏大，后续可继续把流程控制或数据适配层抽到 hook / service）
+  - `frontend-web/src/components/business/MangaPromptViewer.tsx` 1034 行
+  - `frontend-web/src/pages/AdminUsers.tsx` 1012 行
+  - `frontend-web/src/pages/CodingDesk.tsx` 822 行（已进入可维护范围，后续可考虑把 Agent SSE 控制再抽成 hook）
+  - `frontend-web/src/pages/InspirationChat.tsx` 795 行（已进入可维护范围，后续可考虑把对话编排抽成 hook）
+
 ## 已处理清单
 
 - `backend/app/api/routers/writer/character_state.py`
